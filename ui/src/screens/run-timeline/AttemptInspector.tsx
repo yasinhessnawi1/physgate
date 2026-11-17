@@ -9,7 +9,7 @@ import { getLines } from "../../api/client";
 import type { RunEvent } from "../../api/events";
 import { type QueueListing, trajectoryPath } from "../../api/queue";
 import type { RunConfig } from "../../api/records";
-import type { GateCheck, Trace } from "../../api/run";
+import type { GateCheck, SessionTrace, StepTiming, Trace } from "../../api/run";
 import { Id } from "../../design/components/data/Id";
 import { Quantity } from "../../design/components/data/Quantity";
 import { SourceChip } from "../../design/components/data/SourceChip";
@@ -24,6 +24,9 @@ import { VerdictBadge } from "../../design/components/verdict/VerdictBadge";
 import { tallyOfChecks } from "../../design/tally";
 import { agentOf } from "../../words/actors";
 import { compactionsText } from "../../words/review";
+import { countOf } from "../../words/count";
+import { clockTime } from "../../words/runs";
+import { durationWords } from "../../words/standing";
 import { ActorTag } from "../common/ActorTag";
 import { Bound, CheckName, checkId, Measured, sentenceOf } from "../common/checks";
 import { allItems } from "../common/queueItems";
@@ -31,6 +34,85 @@ import { useResult } from "../common/useResult";
 import { runSource } from "../common/runs";
 import { gateReading, readingWords } from "./gate";
 import { escalatedItemOf, repairsUsedUp } from "./usedUp";
+
+/** A session in words: whose, for which attempt, numbered when the attempt had more than one. */
+export function sessionLabel(
+  role: string | undefined,
+  attempt: number,
+  index: number,
+  count: number,
+): string {
+  const whose = role === undefined ? "An agent's session" : `The ${role} agent's session`;
+  const which = count > 1 ? ` ${String(index + 1)} of ${String(count)}` : "";
+  return `${whose}${which} for attempt ${String(attempt)}`;
+}
+
+/**
+ * The sessions of an attempt the log started and recorded no end of, in words; ``null`` when
+ * every start has its end. A session's start is the attempt's spawn stage in the log, its end
+ * the session-ended line the trace lists; a session killed, or cut off by a halt, writes no end,
+ * so it would otherwise not be listed at all. Which start lacks its end is not in the record, so
+ * the line gives every start's time and the two counts, and pairs none.
+ */
+export function unendedWords(
+  steps: readonly StepTiming[],
+  sessions: readonly SessionTrace[],
+  subtask: string,
+  attempt: number,
+): string | null {
+  const starts = steps
+    .filter((s) => s.stage === "spawn" && s.subtask === subtask && s.attempt === attempt)
+    .sort((x, y) => x.seq - y.seq);
+  const ends = sessions.filter((s) => s.subtask === subtask && s.attempt === attempt).length;
+  const missing = starts.length - ends;
+  if (missing <= 0) return null;
+  const times = starts.map((s) => clockTime(s.entered)).join(", ");
+  const entered = starts.length === 1 ? "once" : `${String(starts.length)} times`;
+  return (
+    `${countOf(missing, "session")} of attempt ${String(attempt)} recorded no end: the log ` +
+    `enters the spawn stage ${entered} for it (at ${times}) and records ` +
+    `${countOf(ends, "session end")}. A session with no end is still running, or was stopped ` +
+    "before it could record one, as a halted or killed run leaves it."
+  );
+}
+
+/**
+ * One session as a person reads it: whose it was and for which attempt, how it ended and how long
+ * it ran, in words first and as recorded beside them; its id after, to copy.
+ */
+export function SessionWords({
+  session: s,
+  role,
+  index,
+  count,
+}: {
+  readonly session: SessionTrace;
+  readonly role: string | undefined;
+  readonly index: number;
+  readonly count: number;
+}) {
+  return (
+    <span className="pg-list-row-main">
+      <span>
+        {sessionLabel(role, s.attempt ?? 0, index, count)}
+        {s.outcome === "completed" ? " ended" : ` ended as ${s.outcome}`}
+        {s.cause === null ? "" : ` (${s.cause})`}
+        {s.wallClockS !== null && (
+          <>
+            {` after ${durationWords(s.wallClockS)} `}
+            <span className="pg-muted">
+              (<Quantity value={s.wallClockS} unit="s" />)
+            </span>
+          </>
+        )}
+      </span>
+      <span className="pg-session-id">
+        <span className="pg-muted">Session id </span>
+        <Id value={s.sessionId} />
+      </span>
+    </span>
+  );
+}
 
 function Seal({ base, session }: { readonly base: string; readonly session: string }) {
   const read = useResult(
@@ -142,6 +224,10 @@ export function AttemptInspector({
     trace?.ok === true
       ? trace.value.sessions.filter((s) => s.subtask === subtask && s.attempt === attempt)
       : [];
+  const unended =
+    trace?.ok === true
+      ? unendedWords(trace.value.steps, trace.value.sessions, subtask, attempt)
+      : null;
   return (
     <Inspector
       label="Attempt inspector"
@@ -176,31 +262,22 @@ export function AttemptInspector({
             <LoadingState reading="the run's trace" rows={1} />
           ) : !trace.ok ? (
             <ErrorState title="The sessions could not be read" {...trace.refusal} />
-          ) : sessions.length === 0 ? (
+          ) : sessions.length === 0 && unended === null ? (
             <p className="pg-muted">No session of this attempt is recorded.</p>
           ) : (
-            <ul className="pg-list">
-              {sessions.map((s) => (
-                <li key={s.sessionId} className="pg-list-row">
-                  <span className="pg-list-row-main">
-                    <span>
-                      {s.outcome === "completed"
-                        ? "Session ended"
-                        : `Session ended as ${s.outcome}`}
-                      {s.cause === null ? "" : ` (${s.cause})`}
-                      {s.wallClockS !== null && (
-                        <>
-                          {" after "}
-                          <Quantity value={s.wallClockS} unit="s" />
-                        </>
-                      )}
-                    </span>
-                    <Id value={s.sessionId} />
-                  </span>
-                  <Seal base={base} session={s.sessionId} />
-                </li>
-              ))}
-            </ul>
+            <>
+              {sessions.length > 0 && (
+                <ul className="pg-list">
+                  {sessions.map((s, index) => (
+                    <li key={s.sessionId} className="pg-list-row">
+                      <SessionWords session={s} role={role} index={index} count={sessions.length} />
+                      <Seal base={base} session={s.sessionId} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {unended !== null && <p className="pg-session-unended">{unended}</p>}
+            </>
           )}
           <p className="pg-panel-note">
             A <Term term="sealed">sealed</Term> transcript is read whole and matched to its digest.

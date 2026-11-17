@@ -144,3 +144,24 @@ describe("a decision is offered on an open item in every run state", () => {
       expect(renderToStaticMarkup(item(phase))).not.toContain("no decision is offered");
   });
 });
+
+describe("the line under the buttons is true of the run's state", () => {
+  const GOES_ON = "The run goes on with the other subtasks.";
+
+  it("a going run: set aside, and the run goes on with the other subtasks", () => {
+    const html = renderToStaticMarkup(item("going"));
+    expect(html).toContain(`Set aside for a person to decide. ${GOES_ON}`);
+  });
+
+  it.each(NOT_GOING)("a %s run: set aside, never that the run goes on", (phase) => {
+    const html = renderToStaticMarkup(item(phase));
+    expect(html).toContain("Set aside for a person to decide.");
+    expect(html).not.toContain(GOES_ON);
+  });
+
+  it("a run whose status is not read yet: no claim that it goes on", () => {
+    const html = renderToStaticMarkup(item(undefined));
+    expect(html).toContain("Set aside for a person to decide.");
+    expect(html).not.toContain(GOES_ON);
+  });
+});

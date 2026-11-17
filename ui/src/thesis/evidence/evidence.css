@@ -39,7 +39,8 @@
   min-width: 0;
 }
 
-.evidence-kind-tag {
+.evidence-kind-tag,
+.evidence-kind > .pg-btn {
   align-self: flex-start;
 }
 

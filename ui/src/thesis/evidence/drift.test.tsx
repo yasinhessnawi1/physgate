@@ -71,3 +71,29 @@ describe("the comparison's refusal says what is true for these runs", () => {
     expect(text).not.toContain("different commits");
   });
 });
+
+describe("a refusal over the tier version and something else shows both", () => {
+  it("tiers and the starting commit differ: the tier reason and the commit, both in words", () => {
+    const host = shown(["evaluation/tiers.json", "target_head"]);
+    const text = visible(host);
+    const title = host.querySelector("h2")?.textContent ?? "";
+    expect(title).toContain("different versions of the evaluation tasks");
+    expect(title).toContain("did not start from the same place");
+    expect(text).toContain(
+      "Each run records the version of the evaluation tasks it was measured on.",
+    );
+    expect(text).toContain("They started from different commits of the target repository");
+    expect(text).not.toContain("evaluation/tiers.json");
+    expect(host.querySelectorAll("[data-drifted]")).toHaveLength(1);
+  });
+
+  it("tiers and a setting differ: the tier reason and the setting, both in words", () => {
+    const host = shown(["evaluation/tiers.json", "models.decomposition"]);
+    const text = visible(host);
+    const title = host.querySelector("h2")?.textContent ?? "";
+    expect(title).toContain("different versions of the evaluation tasks");
+    expect(title).toContain("were run with different settings");
+    expect(text).toContain("The model that plans the subtasks");
+    expect(text).not.toContain("same place");
+  });
+});

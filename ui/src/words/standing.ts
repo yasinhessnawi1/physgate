@@ -68,9 +68,11 @@ export function phaseOf(status: RunStatus): Phase {
   return "going";
 }
 
-/** The silence, in words: "2 h 18 min". */
+/** A duration in words: "2 h 18 min"; under a minute in seconds ("20 s"), never "0 min". */
 export function durationWords(seconds: number): string {
-  const minutes = Math.max(0, Math.round(seconds / 60));
+  if (seconds < 1) return "under a second";
+  if (Math.round(seconds) < 60) return `${String(Math.round(seconds))} s`;
+  const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${String(minutes)} min`;
   const hours = Math.floor(minutes / 60);
   if (hours < 48) return `${String(hours)} h ${String(minutes % 60)} min`;

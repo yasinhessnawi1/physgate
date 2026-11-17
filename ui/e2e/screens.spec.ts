@@ -176,10 +176,12 @@ for (const theme of THEMES) {
       await expect(refused).toContainText("The subtasks could not be read");
       await expect(refused).toContainText("the task ledger disagrees with the run-event log");
       await expect(refused.getByRole("button", { name: "Read again" })).toBeVisible();
-      // The runs, in one list, those going and those waiting on a person first, then newest
-      // first, each with where it stands.
+      // The runs, in one list, those going, waiting on a person, halted or stopped first, then
+      // newest first, each with where it stands.
       const runs = page.locator('section[aria-label="Runs"]');
-      await expect(runs).toContainText("View: going, then waiting on a person, then newest first");
+      await expect(runs).toContainText(
+        "View: going, then waiting on a person, then halted or stopped, then newest first",
+      );
       await expect(runs.locator(".pg-group-row")).toHaveCount(0);
       expect(await idsLeading(page, ".pg-run-name, .pg-need-why, .pg-trow-what")).toEqual([]);
       // The run still going: its chip says partial, and its figures say so far.
@@ -254,7 +256,9 @@ for (const theme of THEMES) {
     await expect(timeline).toContainText("Attempt 2 rejected on the gate's finding above");
     await expect(timeline).not.toContainText("sent back for repair");
     await expect(timeline).toContainText("Set aside for a person to decide");
-    await expect(timeline).toContainText("The run goes on with the other subtasks.");
+    // The run is not going (its one subtask was set aside and it ended), so the row does not
+    // say it goes on with the other subtasks.
+    await expect(timeline).not.toContainText("The run goes on");
     for (const row of await timeline.locator(".pg-trow").all())
       await expect(row.locator(".pg-actor")).toHaveCount(1);
     expect(await idsLeading(page, ".pg-trow-what, .pg-screen-title")).toEqual([]);

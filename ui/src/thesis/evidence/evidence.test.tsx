@@ -96,6 +96,15 @@ async function mount(search = ""): Promise<HTMLElement> {
   return host;
 }
 
+/** Open every kind's folded settings. */
+function openSettings(host: HTMLElement) {
+  for (const toggle of host.querySelectorAll<HTMLButtonElement>("section[data-kind] button"))
+    if (toggle.textContent.startsWith("Show the settings"))
+      act(() => {
+        toggle.click();
+      });
+}
+
 const text = (el: Element | null | undefined) => (el?.textContent ?? "").replace(/\s+/g, " ");
 
 function sections(host: HTMLElement, selector = "section[data-kind]"): string[] {
@@ -254,8 +263,9 @@ describe("the runs, side by side", () => {
     expect(text(development)).toContain(EVIDENCE_COPY.configHolds);
   });
 
-  it("shows every recorded flag and pin as recorded, a nested one by its dotted path", async () => {
+  it("shows every recorded flag and pin as recorded, a nested one by its dotted path, once opened", async () => {
     const host = await mount();
+    openSettings(host);
     const reportable = section(host, KIND_HEADINGS.reportable);
     const paths = [...(reportable?.querySelectorAll("th .pg-id") ?? [])].map((p) => text(p));
     for (const path of ["gate_mode", "harness.commit", "hooks", "models.roles.control"])
@@ -277,8 +287,8 @@ describe("the runs, side by side", () => {
     const heads = [...host.querySelectorAll("th[data-run]")];
     expect(heads.map((h) => h.getAttribute("data-run"))).toEqual(["0/run-01", "1/run-01"]);
     expect(heads.map((h) => text(h.querySelector(".evidence-run-name")))).toEqual([
-      "run-01",
-      "run-01",
+      "Run r-run-01",
+      "Run r-run-01",
     ]);
     expect(text(heads[0])).toContain("Root 0");
     expect(text(heads[1])).toContain("Root 1");
@@ -550,5 +560,62 @@ describe("held-out strings", () => {
       expect(host.innerHTML).not.toContain(CANARY);
       expect(host.innerHTML).not.toContain(DIGEST);
     }
+  });
+});
+
+describe("the runs read as elsewhere, the settings folded", () => {
+  it("names each run as every screen leads it, by its run id, the folder only as its detail", async () => {
+    const host = await mount();
+    const head = host.querySelector('th[data-run="0/ev-development"]');
+    expect(text(head?.querySelector(".evidence-run-name"))).toBe("Run r-ev-development");
+    expect(head?.querySelector(".evidence-run-name")?.getAttribute("title")).toBe(
+      "folder ev-development",
+    );
+  });
+
+  it("folds the settings: none shown until asked, with how many there are and how many differ", async () => {
+    const host = await mount();
+    const reportable = section(host, KIND_HEADINGS.reportable);
+    expect(reportable?.querySelectorAll("th .pg-id")).toHaveLength(0);
+    const toggle = [...(reportable?.querySelectorAll("button") ?? [])].find((b) =>
+      text(b).startsWith("Show the settings"),
+    );
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(text(toggle)).toMatch(/^Show the settings \(\d+ recorded, \d+ pinned\)$/);
+    act(() => {
+      toggle?.click();
+    });
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(reportable?.querySelectorAll("th .pg-id").length).toBeGreaterThan(0);
+  });
+
+  it("says which settings differ between the runs of a kind, in words, before they are opened", async () => {
+    const host = await mount();
+    const development = section(host, KIND_HEADINGS.development);
+    expect(text(development?.querySelector(".evidence-differ"))).toMatch(
+      /^(No setting differs between these runs\.|\d+ settings? differs? between these runs: .+\.)$/,
+    );
+  });
+
+  it("says nothing of settings differing in a kind with one run", async () => {
+    serve({
+      "/api/evidence/runs": [200, { runs: [readRow("ev-reportable", "reportable", "4")] }],
+    });
+    const host = await mount();
+    const reportable = section(host, KIND_HEADINGS.reportable);
+    expect(reportable).not.toBeNull();
+    expect(reportable?.querySelector(".evidence-differ")).toBeNull();
+    expect(text(host)).not.toContain("No setting differs");
+  });
+
+  it("writes the OS layer as OS, never Os", async () => {
+    const row = readRow("ev-reportable", "reportable", "4");
+    const flags = { ...row.flags, os_layer: { state: "present", claude_version: "2.1.301" } };
+    serve({ "/api/evidence/runs": [200, { runs: [{ ...row, flags }] }] });
+    const host = await mount();
+    openSettings(host);
+    expect(text(host)).toContain("os_layer");
+    expect(text(host)).not.toContain("Os layer");
+    expect(text(host)).toContain("OS layer");
   });
 });

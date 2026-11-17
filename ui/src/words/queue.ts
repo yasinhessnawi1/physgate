@@ -76,6 +76,25 @@ export const SOURCE_WORDS: Readonly<Record<QueueSource, SourceWords>> = {
   },
 };
 
+/**
+ * What an item's finding is the verdict of, by source, said before the finding's own words: a
+ * finding often opens with what the work does well, and its rejection comes later. ``null`` for a
+ * source whose finding is a question, not a verdict.
+ */
+export const FINDING_VERDICT: Readonly<Record<QueueSource, string | null>> = {
+  gate_escalation: "Did not pass: the gate failed the finished design.",
+  repair_budget_exhausted: "Did not pass: this finding rejected the attempt.",
+  review_unavailable: "No verdict: the review neither passed nor rejected the attempt.",
+  review_blocked:
+    "Did not pass: the review was blocked on a safety-critical check, whatever the finding says is met.",
+  arbitration: "Not settled: a domain disputes the value, and the gate did not decide it.",
+  escalation_decision: "Did not pass: this finding rejected the attempt.",
+  contract: "Did not pass: the interface contract does not hold.",
+  plan_review:
+    "Did not pass: the design reviewer did not pass the plan, or reached no verdict on it.",
+  parts: null,
+};
+
 /** Every sentence a screen says about a decision. Nothing else on a screen says it. */
 export const DECISION_COPY = {
   /** The dialog's "Then": the same for approve and reject, for every source. */
@@ -92,9 +111,22 @@ export const DECISION_COPY = {
   reasonRule: "Approving needs no reason; a rejection must say why.",
 } as const;
 
-/** The timeline's row for a subtask set aside, naming the queue item it became. */
-export function setAsideWith(itemId: string): string {
-  return `Set aside for a person to decide (${itemId}). The run goes on with the other subtasks.`;
+/**
+ * The line under a decision's buttons: the item was set aside, and, only on a run going, that the
+ * run goes on with the other subtasks. On any other run, or one whose state is not read, the run
+ * is not said to go on: the line above the buttons says where it stands.
+ */
+export function setAsideLine(going: boolean): string {
+  return going ? DECISION_COPY.setAside : "Set aside for a person to decide.";
+}
+
+/**
+ * The timeline's row for a subtask set aside, naming the queue item it became; that the run goes
+ * on with the other subtasks only on a run going now (not on one stopped, ended or not read).
+ */
+export function setAsideWith(itemId: string, going: boolean): string {
+  const line = `Set aside for a person to decide (${itemId}).`;
+  return going ? `${line} The run goes on with the other subtasks.` : line;
 }
 
 /** The dialog's opening sentence: who records what, about which item. */

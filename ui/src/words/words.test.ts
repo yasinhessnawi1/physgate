@@ -91,7 +91,7 @@ describe("the decision copy says only what the harness does", () => {
   it("holds no banned word in any sentence of the table", () => {
     const all = [
       ...Object.values(DECISION_COPY),
-      setAsideWith("an-item"),
+      setAsideWith("an-item", true),
       decisionSummary("Ada", "approve", "Approve the sizing", ""),
       decisionSummary("Ada", "reject", "Approve the sizing", "too hot"),
       ...SOURCES.map((s) => SOURCE_WORDS[s].why),

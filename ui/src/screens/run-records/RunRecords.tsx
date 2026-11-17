@@ -4,6 +4,7 @@
  * with their seals, the gate's records, and the decision sequence. A record the server refuses
  * is shown as the refusal, with its reason, and nothing of it is shown partial.
  */
+import { countOf } from "../../words/count";
 import { useEffect, useState } from "react";
 
 import { getLines } from "../../api/client";
@@ -150,14 +151,14 @@ function Records({
             <Term term="manifest">Manifest</Term>
           </dt>
           <dd>
-            <Id value={config.manifestId} />
+            <Id value={config.manifestId} short={8} name="manifest id" />
           </dd>
           <dt>Harness commit</dt>
           <dd>
             {config.harnessCommit === null ? (
               <span className="pg-muted">no commit recorded</span>
             ) : (
-              <Id value={config.harnessCommit} />
+              <Id value={config.harnessCommit} short={8} name="harness commit" />
             )}
           </dd>
           <dt>Engine · auth</dt>
@@ -180,7 +181,7 @@ function Records({
             Brief <Term term="digest">digest</Term>
           </dt>
           <dd>
-            <Id value={config.briefSha256} />
+            <Id value={config.briefSha256} short={8} name="brief digest" />
           </dd>
           <dt>
             <Term term="seed">Seed</Term>
@@ -379,7 +380,9 @@ function Records({
               View: counted from {gates.result.value.length} gate records.
             </p>
             <details className="pg-details" open>
-              <summary>{gates.result.value.length} records, as the gate wrote them</summary>
+              <summary>
+                {countOf(gates.result.value.length, "record")}, as the gate wrote them
+              </summary>
               <div
                 className="pg-table-wrap"
                 role="region"
@@ -443,7 +446,9 @@ function Records({
           />
         ) : (
           <details className="pg-details">
-            <summary>{sequence.result.value.length} steps, in the order the run took them</summary>
+            <summary>
+              {countOf(sequence.result.value.length, "step")}, in the order the run took them
+            </summary>
             <ol className="pg-list">
               {sequence.result.value.map((d) => (
                 <li key={d.seq} className="pg-list-row">

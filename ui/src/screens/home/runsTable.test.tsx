@@ -83,7 +83,7 @@ describe("Home's run list reads in one order, newest first, never grouped so dat
     expect(SCREENS_CSS).toMatch(/\.pg-runs-brief\s*\{[^}]*white-space: nowrap/);
   });
 
-  it("names its order: runs going and runs waiting on a person first, then newest first", () => {
+  it("names its order: going, waiting on a person, then halted or stopped, then newest first", () => {
     const run = listing("bench-12", "2026-11-16T19:52:00Z");
     const host = document.createElement("div");
     host.innerHTML = renderToStaticMarkup(
@@ -94,9 +94,11 @@ describe("Home's run list reads in one order, newest first, never grouped so dat
       />,
     );
     const note = host.querySelector(".pg-panel-note")?.textContent ?? "";
-    expect(note).toBe("View: going, then waiting on a person, then newest first");
+    expect(note).toBe(
+      "View: going, then waiting on a person, then halted or stopped, then newest first",
+    );
     expect(host.querySelector("table")?.getAttribute("aria-label")).toBe(
-      "Runs, going and waiting on a person first, then newest first",
+      "Runs, going, waiting on a person, halted or stopped first, then newest first",
     );
   });
 });
