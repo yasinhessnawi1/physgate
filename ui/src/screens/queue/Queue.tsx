@@ -39,7 +39,7 @@ import { SOURCE_WORDS } from "../../words/queue";
 import { allItems } from "../common/queueItems";
 import { subtaskNames } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
-import { inProgress, runSource, useChosenRun } from "../common/runs";
+import { phaseOfResult, runSource, useChosenRun } from "../common/runs";
 import { useResult } from "../common/useResult";
 import { Decide } from "./Decide";
 import { chosenItem } from "./model";
@@ -271,7 +271,8 @@ export default function Queue({ setHeader, query }: ViewProps) {
   }, [focus]);
   const operator = pageOperator();
   const configValue = config?.ok === true ? config.value : undefined;
-  const going = status?.ok === true && inProgress(status.value);
+  const phase = phaseOfResult(status);
+  const going = phase === "going";
   useEffect(() => {
     if (runs?.ok === true && runs.value.length === 0)
       setHeader({ title: "Queue", runState: "none" });
@@ -284,9 +285,11 @@ export default function Queue({ setHeader, query }: ViewProps) {
         gateMode: configValue.gateMode,
         osLayer: configValue.osLayer,
         inProgress: going,
+        phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, label, setHeader, listing]);
+  }, [runs, config, configValue, going, phase, chosen.standing, label, setHeader, listing]);
 
   if (runs === null) return <LoadingState reading="the run list" />;
   if (!runs.ok)
@@ -407,6 +410,7 @@ export default function Queue({ setHeader, query }: ViewProps) {
             source={runSource(config.value)}
             subtaskName={names.get(item.item.subtaskId) ?? "The whole design"}
             supersededBy={supersededBy}
+            phase={phase}
           >
             {item.item.source === "parts" ? (
               <PartsDecide

@@ -43,7 +43,7 @@ import { EngineWords } from "../common/engine";
 import { useJson, useLines } from "../common/read";
 import { subtaskNames } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
-import { inProgress, runKey, runSource, useChosenRun } from "../common/runs";
+import { phaseOfResult, runKey, runSource, useChosenRun } from "../common/runs";
 import { useResult } from "../common/useResult";
 import { TokensCard } from "./Cards";
 import { LedgerTable } from "./Ledger";
@@ -246,6 +246,7 @@ function Records({
                 source={source}
                 size="lg"
                 partial={going || cost.result.value.partial}
+                atLeast={cost.result.value.lowerBound}
               />
               <Figure
                 {...cost.result.value.nok}
@@ -253,6 +254,7 @@ function Records({
                 source={source}
                 size="lg"
                 partial={going || cost.result.value.partial}
+                atLeast={cost.result.value.lowerBound}
               />
             </div>
           </>
@@ -469,7 +471,8 @@ export default function RunRecords({ setHeader, query }: ViewProps) {
   const chosen = useChosenRun(query);
   const { runs, config, status, base, label } = chosen;
   const configValue = config?.ok === true ? config.value : undefined;
-  const going = status?.ok === true && inProgress(status.value);
+  const phase = phaseOfResult(status);
+  const going = phase === "going";
   useEffect(() => {
     if (runs?.ok === true && runs.value.length === 0)
       setHeader({ title: "Run records", runState: "none" });
@@ -482,9 +485,11 @@ export default function RunRecords({ setHeader, query }: ViewProps) {
         gateMode: configValue.gateMode,
         osLayer: configValue.osLayer,
         inProgress: going,
+        phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, label, setHeader]);
+  }, [runs, config, configValue, going, phase, chosen.standing, label, setHeader]);
   if (runs === null) return <LoadingState reading="the run list" />;
   if (!runs.ok)
     return (

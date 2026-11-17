@@ -148,27 +148,63 @@ function SideBySide({ compared }: { readonly compared: Comparison }) {
   );
 }
 
-/** A comparison refused over drifted settings: the sentence and the settings in words, no number. */
-function Drifted({ refusal, drifted }: { refusal: Refusal; drifted: readonly string[] }) {
+/** The record of the tier version each run was measured on, as the server names it. */
+export const TIERS_RECORD = "evaluation/tiers.json";
+
+/** Where each run started: its target repository's commit and its brief. */
+const START_FIELDS: readonly string[] = ["target_head", "brief_sha256"];
+
+/** The title over a refusal: by its reason, and by what differs, never blaming what does not. */
+function driftTitle(drifted: readonly string[]): string {
+  if (drifted.includes(TIERS_RECORD)) return EVIDENCE_COPY.tiersTitle;
+  const start = drifted.some((path) => START_FIELDS.includes(path));
+  const settings = drifted.some((path) => !START_FIELDS.includes(path));
+  if (start && settings) return EVIDENCE_COPY.driftTitle;
+  return start ? EVIDENCE_COPY.driftTitleStart : EVIDENCE_COPY.driftTitleSettings;
+}
+
+/**
+ * A comparison refused, in words, with no number: by its reason. Over drifted settings, each
+ * setting named and what would make a comparison possible; over the tier version the runs were
+ * measured on, that reason alone. The server's own sentence stays one click away.
+ */
+export function Drifted({ refusal, drifted }: { refusal: Refusal; drifted: readonly string[] }) {
+  const title = driftTitle(drifted);
+  const tiers = drifted.includes(TIERS_RECORD);
   return (
-    <section
-      className="pg-state pg-state-error evidence-drifted"
-      role="alert"
-      aria-label={EVIDENCE_COPY.driftTitle}
-    >
+    <section className="pg-state pg-state-error evidence-drifted" role="alert" aria-label={title}>
       <h2 className="pg-state-title">
         <Icon name="ban" />
-        {EVIDENCE_COPY.driftTitle}
+        {title}
       </h2>
-      <p className="pg-state-body">{EVIDENCE_COPY.driftLead}</p>
-      <ul className="evidence-list">
-        {drifted.map((path) => (
-          <li key={path} data-drifted={path}>
-            {driftWords(path)}
-          </li>
-        ))}
-      </ul>
-      <p className="pg-state-body">{refusal.error}</p>
+      {tiers ? (
+        <>
+          <p className="pg-state-body">{EVIDENCE_COPY.tiersLead}</p>
+          <p className="pg-state-body">{EVIDENCE_COPY.tiersPossible}</p>
+        </>
+      ) : (
+        <>
+          <p className="pg-state-body">{EVIDENCE_COPY.driftLead}</p>
+          <ul className="evidence-list">
+            {drifted.map((path) => (
+              <li key={path} data-drifted={path}>
+                {driftWords(path)}
+              </li>
+            ))}
+          </ul>
+          {drifted.includes("target_head") && (
+            <p className="pg-state-body">{EVIDENCE_COPY.driftFromCommits}</p>
+          )}
+          {drifted.includes("brief_sha256") && (
+            <p className="pg-state-body">{EVIDENCE_COPY.driftFromBriefs}</p>
+          )}
+          <p className="pg-state-body">{EVIDENCE_COPY.driftPossible}</p>
+        </>
+      )}
+      <details className="pg-standing-detail">
+        <summary className="pg-hit">{EVIDENCE_COPY.driftServer}</summary>
+        <p className="pg-standing-full">{refusal.error}</p>
+      </details>
     </section>
   );
 }

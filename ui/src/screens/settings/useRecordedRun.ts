@@ -57,7 +57,7 @@ export function useRecordedRun(query: URLSearchParams): RecordedRun {
   const wanted = query.get("run");
   const named = readable.find((run) => runKey(run) === wanted);
   const [all, setAll] = useState(false);
-  const starts = useStarts(listed, all, named);
+  const starts = useStarts(listed);
   const labels = useLabels(listed, starts);
   const candidates = readable.slice(0, FIRST_RUNS);
   const known = candidates.every((run) => starts.has(runKey(run)));

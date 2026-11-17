@@ -1,8 +1,8 @@
 /**
- * A run's human label: "Run 16 Oct, 13:58", from the time its first event (the run_started line)
- * was written, in the viewer's time zone. The UTC time and the run's id stay one hover, one
- * focus or one screen reader away. Two runs that would read the same are told apart by their run
- * id, and by their folder when the ids are the same too.
+ * A run's human label: "Run drive-on · 16 Oct, 13:58", its id and the time its first event (the
+ * run_started line) was written, in the viewer's time zone. The UTC time and the run's folder
+ * stay one hover, one focus or one screen reader away. Two runs that would read the same are told
+ * apart by their folder.
  */
 
 const MONTHS = [
@@ -70,21 +70,39 @@ export interface RunLabel {
  */
 export function runLabels(runs: readonly LabelledRun[]): ReadonlyMap<string, RunLabel> {
   const base = (run: LabelledRun) =>
-    run.started === null ? `Run ${run.name}` : `Run ${dayAndMinute(run.started)}`;
+    run.started === null
+      ? `Run ${run.name}`
+      : `Run ${run.runId ?? run.name} · ${dayAndMinute(run.started)}`;
   const byBase = new Map<string, LabelledRun[]>();
   for (const run of runs) byBase.set(base(run), [...(byBase.get(base(run)) ?? []), run]);
   const found = new Map<string, RunLabel>();
   for (const [shared, group] of byBase) {
     for (const run of group) {
       const id = run.runId ?? run.name;
-      let label = shared;
-      if (group.length > 1 && run.started !== null) {
-        const sameId = group.filter((other) => (other.runId ?? other.name) === id).length > 1;
-        label = `${shared} · ${sameId ? run.name : id}`;
-      }
+      const label = group.length > 1 && run.started !== null ? `${shared} · ${run.name}` : shared;
       const when = run.started === null ? "start not read" : utc(run.started);
       found.set(run.key, { label, detail: `${when} · run ${id} · folder ${run.name}` });
     }
   }
   return found;
+}
+
+/** A run as the list orders it: its folder name and when it started, if that is known. */
+export interface OrderedRun {
+  readonly name: string;
+  readonly started?: string | null;
+}
+
+/**
+ * Runs newest first by when each started, as recorded; a run whose start is not known after every
+ * run whose start is, by folder name with its numbers read as numbers ("run-3" before "run-10").
+ */
+export function orderRuns<T extends OrderedRun>(runs: readonly T[]): readonly T[] {
+  const at = (run: T) => (run.started == null ? Number.NaN : instant(run.started));
+  return [...runs].sort((a, b) => {
+    const [x, y] = [at(a), at(b)];
+    if (!Number.isNaN(x) && !Number.isNaN(y) && x !== y) return y - x;
+    if (Number.isNaN(x) !== Number.isNaN(y)) return Number.isNaN(x) ? 1 : -1;
+    return a.name.localeCompare(b.name, "en", { numeric: true });
+  });
 }

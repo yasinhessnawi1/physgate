@@ -733,6 +733,36 @@ UNIT_SPELLING_SENTENCE = (
     "`V/(rad/s)` is refused, and is written `V*s/rad`."
 )
 
+#: What a plan fixes and what it leaves to the modules, as every decomposition prompt states it.
+#: The decomposition reads nothing but its prompt, so the rule is here or nowhere: a plan that
+#: writes a solution's law into a specification, or its tuned coefficients onto an interface
+#: node, takes from the module that designs the solution the freedom to meet its criteria, and no
+#: session may write an interface node to undo it. What "the brief fixes" means is stated as a
+#: test the planner can apply: a requirement that, in its own words, says the design shall use,
+#: run or contain the method; a program the brief only cites for a number stays a source. An
+#: interface node's contents are described by what both sides must agree on, physical
+#: properties included, not by a closed list a planner could read as excluding a motor
+#: constant. Where one module implements what another designs, whether or not a criterion says
+#: so, the designer comes before the implementer (not before every module), writes its design on
+#: a node both specifications name, and the implementer is held to that node as merged, so what
+#: runs is what was analysed; an implementer that starts before the node is merged reports it
+#: and implements no design of its own.
+SOLUTION_SENTENCE = (
+    "A specification states its module's interfaces and acceptance criteria, never the internal "
+    "law, structure or coefficients of a solution, unless the brief fixes them. The brief fixes "
+    "a method only where one of its requirements, in its own words, says the design shall use, "
+    "run or contain it; a program or document the brief cites as the source of a number, a part "
+    "or a condition is a source of those only. An interface node holds what both sides must "
+    "agree on before either works (the signals that cross, with their units and rates; the "
+    "limits both sides hold to; and the physical properties one side gives the other, such as a "
+    "mass or a motor constant), never a solution's tuned parameters. Where one module implements "
+    "what another designs, such as firmware running the control law that was analysed, the "
+    "designing module comes before the implementing module in the plan and writes its design on "
+    "a node of its own, named in both specifications; the implementing module's acceptance "
+    "criteria compare its implementation with that node as merged, and where the node is not "
+    "merged when it starts, it reports that and implements no design of its own."
+)
+
 
 def _one_module_sentence(role: str) -> str:
     """The one sentence the prompt gains for the role that owns the cross nodes."""
@@ -786,10 +816,11 @@ def parts_sentence(roles: Sequence[str]) -> str:
 def prompt_for(brief: str, roles: Sequence[str], *, parts: bool = False) -> str:
     """The decomposition prompt: a fixed template around the brief.
 
-    Every prompt says how an interface's unit is spelt (:data:`UNIT_SPELLING_SENTENCE`), and
-    where the gate has a bound and what forms each relation, generated from what the gate
-    loads. A cross-cutting role of the run adds its sentences: sizing's,
-    that it has one module at most, and that it keeps a node joined to each interface it
+    Every prompt says how an interface's unit is spelt (:data:`UNIT_SPELLING_SENTENCE`), that
+    a plan fixes interfaces and criteria and never a solution's law or coefficients
+    (:data:`SOLUTION_SENTENCE`), and where the gate has a bound and what forms each relation,
+    generated from what the gate loads. A cross-cutting role of the run adds its sentences:
+    sizing's, that it has one module at most, and that it keeps a node joined to each interface it
     produces, which the interface follows; integration's, which ask for the system
     requirements, by the brief's number where it numbers its criteria, and for module criteria
     numbered as they are read. Integration is
@@ -822,6 +853,7 @@ def prompt_for(brief: str, roles: Sequence[str], *, parts: bool = False) -> str:
         "unit, a source and the role that wrote it. "
         f"{UNIT_SPELLING_SENTENCE} "
         f"{NODE_ID_SENTENCE}\n\n"
+        f"{SOLUTION_SENTENCE}\n\n"
         f"{catalogue_sentence()}\n\n"
         f"{bounds_sentence()}\n\n"
         f"{relations_sentence()}\n\n"
