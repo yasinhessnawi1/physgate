@@ -10,9 +10,9 @@ not. The unmutated tree is run first and last, and both must pass.
 Not mutated: the handler's ``os._exit`` after its own signal (reached only if the signal is not
 delivered); ``_reaped``'s ``ChildProcessError`` branch and ``_running``'s unreadable table
 (reached only when another wait reaped the session between two of its lines, or ``ps`` fails);
-the bounded wait after SIGKILL for each session and its group, whose end no row can see
-before the run process itself has ended; and keeping a session unreaped through the grace, which
-only keeps its pid from being handed to another group before the group's SIGKILL.
+and keeping a session unreaped through the grace, which only keeps its pid from being handed to
+another group before the group's SIGKILL. The wait after SIGKILL for each session and its group
+is mutated against rows whose probe stands in for a process still dying.
 """
 
 from __future__ import annotations
@@ -81,6 +81,34 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         S,
         "            os.killpg(process.pid, signal.SIGKILL)",
         "            pass",
+    ),
+    (
+        "no-reap-wait",
+        "a",
+        S,
+        "        while not _reaped(process.pid) and time.monotonic() < gone:\n            time.sleep(_WAIT_S)\n",
+        "",
+    ),
+    (
+        "no-group-wait",
+        "a",
+        S,
+        "        while _group_left(process.pid) and time.monotonic() < gone:\n            time.sleep(_WAIT_S)\n",
+        "",
+    ),
+    (
+        "reap-unbounded",
+        "a",
+        S,
+        "        while not _reaped(process.pid) and time.monotonic() < gone:",
+        "        while not _reaped(process.pid):",
+    ),
+    (
+        "group-unbounded",
+        "a",
+        S,
+        "        while _group_left(process.pid) and time.monotonic() < gone:",
+        "        while _group_left(process.pid):",
     ),
     (
         "no-first-removal",

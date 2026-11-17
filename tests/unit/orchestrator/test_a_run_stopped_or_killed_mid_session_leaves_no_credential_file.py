@@ -22,6 +22,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from collections.abc import Iterator
@@ -31,7 +32,7 @@ import pytest
 
 from physgate.cli import main
 from physgate.orchestrator import cli as orchestrator_cli
-from physgate.orchestrator import dispatch, processes, stop_signals
+from physgate.orchestrator import credentials, dispatch, processes, stop_signals
 from physgate.orchestrator.cli import Registrations
 from physgate.orchestrator.credentials import (
     KEY_FILE,
@@ -440,3 +441,109 @@ def test_a_left_session_reached_only_through_a_link_leaves_the_others_removed(
     assert cleared == ("b",)
     assert (tmp_path / "elsewhere" / LOGIN_FILE).exists()
     assert not (config_b / LOGIN_FILE).exists()
+
+
+class DyingWriter:
+    """A process still dying after its SIGKILL, as the stop's probe sees it.
+
+    It writes the session's login file again and again until the probe has asked after it
+    ``polls`` times; the next ask finds it gone, and it writes nothing after that. A real one
+    dies within microseconds of its SIGKILL, too soon for a row to land a write in between:
+    the probe stands in for the kernel's answer, so the order the stop keeps is what is tried.
+    """
+
+    def __init__(self, config: Path, polls: int) -> None:
+        self.login = config / LOGIN_FILE
+        self.left = polls
+        self.done = threading.Event()
+        self.thread = threading.Thread(target=self._write, daemon=True)
+        self.thread.start()
+
+    def _write(self) -> None:
+        while not self.done.is_set():
+            with contextlib.suppress(OSError):
+                self.login.write_text("{}")
+            self.done.wait(0.005)
+
+    def still_there(self) -> bool:
+        if self.left > 0:
+            self.left -= 1
+            return True
+        self.stop()
+        return False
+
+    def stop(self) -> None:
+        self.done.set()
+        self.thread.join()
+
+
+@pytest.fixture
+def one_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[subprocess.Popen[bytes], Path]]:
+    """One session this process spawned and tracks, with its login file held; nothing else."""
+    monkeypatch.setattr(stop_signals, "_live", [])
+    monkeypatch.setattr(credentials, "_held", {})
+    _state, config = _session_dirs(tmp_path / "sessions" / str(uuid.uuid4()))
+    session = subprocess.Popen(["sleep", "60"], start_new_session=True)  # noqa: S607 - fixed
+    stop_signals.track(session, config)
+    yield session, config
+    with contextlib.suppress(OSError):
+        os.killpg(session.pid, signal.SIGKILL)
+    with contextlib.suppress(ChildProcessError):
+        os.waitpid(session.pid, 0)
+    session.returncode = -signal.SIGKILL
+
+
+@pytest.mark.parametrize("dying", ["the session", "its group"])
+def test_nothing_removed_after_the_stop_is_written_again_by_a_session_still_dying(
+    one_session: tuple[subprocess.Popen[bytes], Path],
+    monkeypatch: pytest.MonkeyPatch,
+    dying: str,
+) -> None:
+    _session, config = one_session
+    writer = DyingWriter(config, polls=3)
+    try:
+        if dying == "the session":
+            reaped = stop_signals._reaped
+            monkeypatch.setattr(
+                stop_signals, "_reaped", lambda pid: not writer.still_there() and reaped(pid)
+            )
+        else:
+            monkeypatch.setattr(stop_signals, "_group_left", lambda _pgid: writer.still_there())
+        # What a stop signal does: remove, end the sessions, remove again.
+        remove_held_secrets()
+        assert stop_signals.end_live_sessions(grace_s=0) == 1
+        remove_held_secrets()
+        time.sleep(0.2)
+        assert not (config / LOGIN_FILE).exists(), f"{dying}, still dying, wrote it again"
+    finally:
+        writer.stop()
+
+
+@pytest.mark.parametrize("probe", ["_reaped", "_group_left"])
+def test_a_session_that_never_goes_holds_the_stop_no_longer_than_its_bound(
+    one_session: tuple[subprocess.Popen[bytes], Path],
+    monkeypatch: pytest.MonkeyPatch,
+    probe: str,
+) -> None:
+    holding = threading.Event()
+    holding.set()
+    if probe == "_reaped":
+        reaped = stop_signals._reaped
+        monkeypatch.setattr(
+            stop_signals, "_reaped", lambda pid: not holding.is_set() and reaped(pid)
+        )
+    else:
+        monkeypatch.setattr(stop_signals, "_group_left", lambda _pgid: holding.is_set())
+    stop = threading.Thread(
+        target=stop_signals.end_live_sessions, kwargs={"grace_s": 0}, daemon=True
+    )
+    stop.start()
+    try:
+        stop.join(timeout=stop_signals.REAP_S + 20)
+        assert not stop.is_alive(), f"the stop still waits on {probe} past its bound"
+    finally:
+        # Released, and the session reaped by the fixture, a stop that never gave up ends too.
+        holding.clear()
+        stop.join(timeout=stop_signals.REAP_S + 20)
