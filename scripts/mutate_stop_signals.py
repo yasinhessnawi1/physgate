@@ -207,8 +207,8 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "debug-left",
         "b",
         C,
-        "        if LOGIN_FILE in names:\n            with suppress(OSError, InvocationError):\n                remove_debug_logs(directory)",
-        "        pass",
+        "            with suppress(OSError, InvocationError):\n                remove_debug_logs(directory)\n",
+        "",
     ),
     (
         "one-stops-all",
