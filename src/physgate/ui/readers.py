@@ -45,7 +45,6 @@ import errno
 import json
 import re
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -324,12 +323,6 @@ def _completion(state: RunState) -> dict[str, object]:
     return {"owner": integration is not None, "modules": modules}
 
 
-def _age_s(ts: str) -> float:
-    """How long ago, in seconds by this server's clock, a line stamped ``ts`` was written."""
-    written = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
-    return (utc_now() - written).total_seconds()
-
-
 def _silence_bound(last: object, bounds: RunBounds) -> float | None:
     """The longest a living run goes without a line after ``last``, in seconds, or ``None``.
 
@@ -350,9 +343,9 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
 
     Also each subtask that waits for sizing's closing pass, and each contract item a reopen
     superseded with the item whose decision reopened its module, as replay holds them; and when
-    the log last wrote, how long ago that was by this server's clock, and the longest a living
-    run goes without a line after that one (:func:`_silence_bound`). A page tells from the
-    three a run whose process appears gone, and never reads its own clock for it.
+    the log last wrote, this server's clock, and the longest a living run goes without a line
+    after that one (:func:`_silence_bound`). A page tells from the three a run whose process
+    appears gone, and never reads its own clock for it.
     """
     run_dir = run_dir_of(context, params)
     log = read_events(_file(context, run_dir, EVENTS))
@@ -379,7 +372,9 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
             "superseded": dict(state.superseded),
             "last_line_at": None if last is None else last.ts,
-            "silent_s": None if last is None else _age_s(last.ts),
+            # This server's clock, in the log's own fixed-width form: a page measures the silence
+            # against it, never against its own clock, and GET and HEAD answer the same length.
+            "server_now": utc_now().strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
             "silence_bound_s": _silence_bound(last, bounds),
         }
     )

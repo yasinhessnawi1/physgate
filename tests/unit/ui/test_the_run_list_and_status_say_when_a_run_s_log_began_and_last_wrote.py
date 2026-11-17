@@ -3,8 +3,8 @@
 A page names and orders runs by when they started, and tells a run still going from one whose
 process is gone. Both are read from the record, never guessed: the run list carries the time of
 each log's first line (``None`` for a run with no line yet), so a page need not read every log to
-label a run. The status carries the time of the log's last line, how long ago that was by the
-server's own clock (so a browser whose clock differs from the server's judges nothing), and the
+label a run. The status carries the time of the log's last line, the server's own clock (so a
+page measures the silence on it, and a browser whose clock differs judges nothing), and the
 longest a living run goes without a line after that one: after a session's spawn, the run's
 session wall clock (the session is stopped there and its end written); after a retry's schedule,
 the delay it recorded. After any other line the work that follows may be one with no bound of its
@@ -153,14 +153,16 @@ def _statuses(tmp_path: Path) -> tuple[dict[str, dict[str, object]], datetime, d
     return found, asked, answered
 
 
-def test_the_status_names_the_last_line_and_its_age_by_the_server_s_clock(tmp_path: Path) -> None:
+def test_the_status_names_the_last_line_and_the_server_s_clock(tmp_path: Path) -> None:
     found, asked, answered = _statuses(tmp_path)
     status = found["with-lines"]
     assert status.get("last_line_at") == "2026-11-16T19:54:01.000000Z"
-    last = datetime(2026, 11, 16, 19, 54, 1, tzinfo=UTC)
-    silent = status.get("silent_s")
-    assert isinstance(silent, float)
-    assert (asked - last).total_seconds() - 1 <= silent <= (answered - last).total_seconds() + 1
+    now = status.get("server_now")
+    assert isinstance(now, str)
+    told = datetime.strptime(now, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
+    assert asked - timedelta(seconds=1) <= told <= answered + timedelta(seconds=1)
+    # Fixed width, as the log writes a time: a GET and a HEAD a moment apart answer one length.
+    assert len(now) == len("2026-11-16T19:54:01.000000Z")
 
 
 def test_a_session_s_spawn_is_bounded_by_the_session_wall_clock(tmp_path: Path) -> None:

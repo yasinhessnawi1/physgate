@@ -83,7 +83,7 @@ describe("a run whose process is gone is never shown as running", () => {
     );
   });
 
-  it("reads the last line's time, its age by the server's clock and the bound from the route", () => {
+  it("reads the last line's time, the server's clock and the bound from the route; the silence is theirs", () => {
     const raw = {
       next_step: { kind: "attempt", subtask_id: "s1", attempt: 1, point: "resolve" },
       halted: null,
@@ -92,13 +92,14 @@ describe("a run whose process is gone is never shown as running", () => {
       waiting: [],
       superseded: {},
       last_line_at: LAST,
-      silent_s: 8280.5,
+      server_now: "2026-11-16T22:26:35.410143Z",
     };
     const parsed = runStatus({ ...raw, silence_bound_s: 5400 });
     expect(parsed.lastLineAt).toBe(LAST);
     expect(parsed.silentS).toBe(8280.5);
     expect(parsed.silenceBoundS).toBe(5400);
     expect(runStatus({ ...raw, silence_bound_s: null }).silenceBoundS).toBeNull();
+    expect(runStatus({ ...raw, server_now: null }).silentS).toBeNull();
   });
 });
 

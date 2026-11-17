@@ -245,8 +245,8 @@ for (const theme of THEMES) {
     for (const row of await timeline.locator(".pg-trow").all())
       await expect(row.locator(".pg-actor")).toHaveCount(1);
     expect(await idsLeading(page, ".pg-trow-what, .pg-screen-title")).toEqual([]);
-    // The run reads by when it started, in the screen's heading and in the top bar.
-    const started = /^Run \d{1,2} [A-Z][a-z]{2}, \d{2}:\d{2}/;
+    // The run reads by its id and when it started, in the screen's heading and in the top bar.
+    const started = /^Run drive-on · \d{1,2} [A-Z][a-z]{2}, \d{2}:\d{2}/;
     await expect(page.locator(".pg-screen-title")).toHaveText(started);
     await expect(page.locator(".pg-run-chip .pg-run-label")).toHaveText(started);
     // The tally reads unchecked after the separator, and the cost is a list-price estimate.

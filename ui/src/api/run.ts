@@ -19,6 +19,7 @@ import {
   seconds,
   text,
 } from "./check";
+import { instant } from "../words/runs";
 import { ShapeError } from "./client";
 
 export interface Usage {
@@ -182,7 +183,10 @@ export interface RunStatus {
   readonly superseded: Readonly<Record<string, string>>;
   /** When the log's last line was written, or ``null`` when it holds none. */
   readonly lastLineAt?: string | null;
-  /** How long ago the last line was written, in seconds by the server's clock; ``null`` if none. */
+  /**
+   * How long ago the last line was written, in seconds: the server's clock (``server_now``) less
+   * the line's time, so the browser's clock is never read. ``null`` where either is not sent.
+   */
   readonly silentS?: number | null;
   /**
    * The longest a living run goes without a line after its last one, in seconds: the session wall
@@ -212,6 +216,13 @@ function moduleCompletion(value: unknown): ModuleCompletion {
 /** A count of seconds the server sent, or ``null`` where it sent none. */
 function secondsSent(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** The seconds between the log's last line and the server's clock, both as the server sent them. */
+function silenceOf(lastLineAt: unknown, serverNow: unknown): number | null {
+  if (typeof lastLineAt !== "string" || typeof serverNow !== "string") return null;
+  const silence = (instant(serverNow) - instant(lastLineAt)) / 1000;
+  return Number.isFinite(silence) ? silence : null;
 }
 
 export function runStatus(value: unknown): RunStatus {
@@ -249,7 +260,7 @@ export function runStatus(value: unknown): RunStatus {
       s.last_line_at === undefined || s.last_line_at === null
         ? null
         : text(s.last_line_at, "a time"),
-    silentS: secondsSent(s.silent_s),
+    silentS: silenceOf(s.last_line_at, s.server_now),
     silenceBoundS: secondsSent(s.silence_bound_s),
   };
 }

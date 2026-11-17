@@ -162,12 +162,13 @@ for (const query of ["", "?run=0/set-absent-none"]) {
       expect(chosen?.name).toBe("set-absent-none");
       expect(readable.slice(0, FIRST_RUNS)).not.toContain(chosen);
     }
-    const labelled = [...readable.slice(0, FIRST_RUNS), ...(chosen === undefined ? [] : [chosen])];
+    // Every run is labelled from the run list: no other run's log is read for its label.
     const expected = new Set([
       "/api/runs",
       "/api/engines",
-      ...labelled.map((run) => `${base(run)}/events`),
-      ...(chosen === undefined ? [] : [`${base(chosen)}/config`, `${base(chosen)}/status`]),
+      ...(chosen === undefined
+        ? []
+        : [`${base(chosen)}/config`, `${base(chosen)}/status`, `${base(chosen)}/events`]),
     ]);
     expect(new Set(seen.api)).toEqual(expected);
     expect(asked.length).toBeGreaterThan(0);
