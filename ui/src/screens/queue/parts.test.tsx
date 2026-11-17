@@ -486,6 +486,38 @@ describe("the three decisions, made from the page", () => {
   });
 });
 
+/** Open the confirmation without confirming it; its text, or ``null`` if none opened. */
+function confirmationText(host: HTMLElement): string | null {
+  const button = recordButton(host);
+  expect(button, "no Record this choice button").toBeDefined();
+  act(() => {
+    button?.click();
+  });
+  return document.querySelector("dialog[open]")?.textContent ?? null;
+}
+
+describe("the confirmation names where the run stands", () => {
+  const RESUMED = "The decision is recorded now and taken up when the run is resumed.";
+
+  it("on a run that has ended, says the decision is recorded now and taken up when the run is resumed", async () => {
+    served[`${BASE}/status`] = { ...status, next_step: { kind: "done" } };
+    const host = await mounted();
+    const text = confirmationText(host);
+    expect(text).toContain(`This run has ended. ${RESUMED}`);
+    expect(document.querySelector("dialog[open] .pg-dialog-run-state")?.textContent).toBe(
+      `This run has ended. ${RESUMED}`,
+    );
+  });
+
+  it("on a going run, says nothing of a resume", async () => {
+    const host = await mounted();
+    const text = confirmationText(host);
+    expect(text).toContain("One line appended to queue_decisions.jsonl");
+    expect(text).not.toContain(RESUMED);
+    expect(document.querySelector("dialog[open] .pg-dialog-run-state")).toBeNull();
+  });
+});
+
 describe("what the page refuses before sending, and what the server refuses", () => {
   it("a value without its unit is refused, and nothing is sent", async () => {
     const host = await mounted();
