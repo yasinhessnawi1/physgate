@@ -1,10 +1,20 @@
 /** A timeline row drawn: its time, its actor, its sentence (with any value it names) and its end. */
+import { createContext } from "react";
+
 import { Quantity } from "../../design/components/data/Quantity";
 import { TimelineRow } from "../../design/components/timeline/TimelineRow";
 import { GateModeBadge, GateOutcome } from "../../design/components/verdict/GateMode";
 import { VerdictBadge } from "../../design/components/verdict/VerdictBadge";
 import { clockTime, utc } from "../../words/runs";
 import type { Row, RowEnd } from "./rows";
+
+/** Whether rows show their internal ids: off unless a screen's toggle turns it on. */
+export const IdsShownContext = createContext(false);
+
+/** A row's meta line, its internal ids dropped unless ``ids``. */
+export function metaShown(row: Row, ids: boolean): string {
+  return ids ? row.meta : row.meta;
+}
 
 function End({ end }: { readonly end: RowEnd | null }) {
   if (end === null) return null;
