@@ -10,6 +10,7 @@ import { runEvent } from "../../api/events";
 import { queueListing } from "../../api/queue";
 import { costRecord, priceDates } from "../../api/records";
 import { gateCheck, trace as runTrace } from "../../api/run";
+import { Button } from "../../design/components/actions/Button";
 import { Segmented } from "../../design/components/actions/Segmented";
 import { Figure } from "../../design/components/data/Figure";
 import { Id } from "../../design/components/data/Id";
@@ -26,7 +27,7 @@ import { InspectorPortal } from "../../shell/inspector";
 import { hrefFor } from "../../shell/route";
 import { CostCaveat } from "../common/cost";
 import { useJson, useLines } from "../common/read";
-import { RowView } from "../common/RowView";
+import { IdsShownContext, RowView } from "../common/RowView";
 import { type Row, rowsOf, subtaskNames, subtaskRoles } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
 import { phaseOfResult, runSource, useChosenRun } from "../common/runs";
@@ -69,6 +70,8 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
     costRecord,
   );
   const [who, setWho] = useState<Who>("all");
+  // Internal ids (a subtask's, a session's, the run's) are hidden on the rows until asked for.
+  const [ids, setIds] = useState(false);
   const phase = phaseOfResult(status);
   const going = phase === "going";
   const configValue = config?.ok === true ? config.value : undefined;
@@ -242,6 +245,15 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
             { value: "agents", label: "Agents" },
           ]}
         />
+        <Button
+          size="sm"
+          pressed={ids}
+          onClick={() => {
+            setIds((was) => !was);
+          }}
+        >
+          Show ids
+        </Button>
         <span className="pg-panel-note pg-toolbar-end">
           Select an attempt's row to inspect the <Term term="attempt">attempt</Term>
         </span>
@@ -251,22 +263,24 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
           The run's rows appear here as its log records them.
         </EmptyState>
       ) : (
-        <section className="pg-card pg-rows-card" aria-label="Timeline">
-          {shown.map((row) => {
-            const open = select(row);
-            const on =
-              selected !== null &&
-              row.subtask === selected.subtask &&
-              row.attempt === selected.attempt;
-            return (
-              <RowView
-                key={row.key}
-                row={row}
-                {...(open === undefined ? {} : { onSelect: open, selected: on })}
-              />
-            );
-          })}
-        </section>
+        <IdsShownContext.Provider value={ids}>
+          <section className="pg-card pg-rows-card" aria-label="Timeline">
+            {shown.map((row) => {
+              const open = select(row);
+              const on =
+                selected !== null &&
+                row.subtask === selected.subtask &&
+                row.attempt === selected.attempt;
+              return (
+                <RowView
+                  key={row.key}
+                  row={row}
+                  {...(open === undefined ? {} : { onSelect: open, selected: on })}
+                />
+              );
+            })}
+          </section>
+        </IdsShownContext.Provider>
       )}
       <SourceChip {...source} />
       {selected !== null && (
