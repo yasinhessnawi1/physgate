@@ -5,6 +5,7 @@
  * it, its gate checks, its edges both ways and its history. Where the screen is lives in the
  * address (run, revision, node, domain, view, diff), so a link keeps it.
  */
+import { countOf } from "../../words/count";
 import { type SyntheticEvent, useEffect, useMemo, useState } from "react";
 
 import { type GraphAt, graphAt, graphDiff, nodeHistory, type NodeRecord } from "../../api/graph";
@@ -305,7 +306,7 @@ function Explorer({
           data-source={sourceAttribute(source)}
         >
           <p className="pg-panel-note">
-            View: {shown.length} nodes and {drawn.length} edges at revision r{graph.revision}.
+            {graphViewWords(shown.length, drawn.length, graph.revision)}
             Arrows point from the node that constrains to the one it constrains; an edge between two
             domains is dashed.
           </p>
@@ -358,15 +359,8 @@ function Explorer({
 }
 
 /** The graph's view line: how many nodes and edges are shown, at which revision. */
-export function graphViewWords(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  nodes: number,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  edges: number,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  revision: number,
-): string {
-  return "";
+export function graphViewWords(nodes: number, edges: number, revision: number): string {
+  return `View: ${countOf(nodes, "node")} and ${countOf(edges, "edge")} at revision r${String(revision)}.`;
 }
 
 export default function DesignGraph({ setHeader, query }: ViewProps) {

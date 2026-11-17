@@ -13,6 +13,7 @@ import { type Actor, eventActor, type Models } from "../../words/actors";
 import { checkWords } from "../../words/checks";
 import { nodeLabel, quantityLabel } from "../../words/humanise";
 import { causeWords, compactionWords, triesWords } from "../../words/review";
+import { countOf } from "../../words/count";
 import { setAsideWith } from "../../words/queue";
 
 export type RowEnd =
@@ -362,7 +363,7 @@ export function rowOf(
         ...base,
         depth: 2,
         sentence: `Issued the design's state to attempt ${String(event.attempt)}`,
-        meta: `${subtaskName(event.subtask)} · ${String(event.length)} bytes`,
+        meta: `${subtaskName(event.subtask)} · ${countOf(event.length, "byte")}`,
         subtask: event.subtask,
         attempt: event.attempt,
       };

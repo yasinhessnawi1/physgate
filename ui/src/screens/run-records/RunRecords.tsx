@@ -4,6 +4,7 @@
  * with their seals, the gate's records, and the decision sequence. A record the server refuses
  * is shown as the refusal, with its reason, and nothing of it is shown partial.
  */
+import { countOf } from "../../words/count";
 import { useEffect, useState } from "react";
 
 import { getLines } from "../../api/client";
@@ -379,7 +380,9 @@ function Records({
               View: counted from {gates.result.value.length} gate records.
             </p>
             <details className="pg-details" open>
-              <summary>{gates.result.value.length} records, as the gate wrote them</summary>
+              <summary>
+                {countOf(gates.result.value.length, "record")}, as the gate wrote them
+              </summary>
               <div
                 className="pg-table-wrap"
                 role="region"
@@ -443,7 +446,9 @@ function Records({
           />
         ) : (
           <details className="pg-details">
-            <summary>{sequence.result.value.length} steps, in the order the run took them</summary>
+            <summary>
+              {countOf(sequence.result.value.length, "step")}, in the order the run took them
+            </summary>
             <ol className="pg-list">
               {sequence.result.value.map((d) => (
                 <li key={d.seq} className="pg-list-row">
