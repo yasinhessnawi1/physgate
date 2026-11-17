@@ -21,9 +21,10 @@ describe("a confirmation's line on the run's state comes from one call", () => {
   it.each(["done", "halted", "stopped", "waiting-person", "waiting-limit", "halt-owed"] as const)(
     "a %s run: the line, in the confirmation's note style",
     (phase) => {
-      const html = inRun(phase);
-      expect(html).toContain('class="pg-dialog-note pg-dialog-run-state"');
-      expect(html).toContain(String(decisionPendingWords(phase)));
+      const host = document.createElement("div");
+      host.innerHTML = inRun(phase);
+      const line = host.querySelector("p.pg-dialog-note.pg-dialog-run-state");
+      expect(line?.textContent).toBe(decisionPendingWords(phase));
     },
   );
 

@@ -32,9 +32,8 @@ import {
   supersededOutcome,
   UNSEALED_WORDS,
 } from "../../words/queue";
-import { decisionPendingWords } from "../../words/standing";
 import { lineToWrite, whyNot } from "./model";
-import { useRunPhase } from "./runPhase";
+import { RunStateNote } from "./RunStateNote";
 
 export function Decide({
   view,
@@ -59,9 +58,6 @@ export function Decide({
   // The buttons and the command palette open the same confirmation, under the same rules.
   const [opened, setOpened] = useState<Verb | Position | null>(null);
   const why = whyNot(operator, holdsToken);
-  // On a run that is not going, the confirmation names its state: the decision waits for a resume.
-  const phase = useRunPhase();
-  const pending = phase === undefined ? null : decisionPendingWords(phase);
   // The server refuses approve and the domain's value on a transcript that does not hold its seal.
   const unsealed =
     view.trajectories.length === 0 || view.trajectories.some((t) => t.status !== "holds");
@@ -154,7 +150,8 @@ export function Decide({
       ...(verb === "reject" ? { needsReason: true } : { takesNote: true }),
       children: (
         <>
-          {pending !== null && <p className="pg-dialog-note pg-dialog-run-state">{pending}</p>}
+          {/* On a run that is not going, its state: the decision waits for a resume. */}
+          <RunStateNote />
           <p className="pg-dialog-note">
             One line appended to queue_decisions.jsonl in run {runId}. This cannot be edited or
             undone; the item closes. The time is stamped when it is written, beside the time this
