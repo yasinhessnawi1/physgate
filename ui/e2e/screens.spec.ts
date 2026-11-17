@@ -256,7 +256,9 @@ for (const theme of THEMES) {
     await expect(timeline).toContainText("Attempt 2 rejected on the gate's finding above");
     await expect(timeline).not.toContainText("sent back for repair");
     await expect(timeline).toContainText("Set aside for a person to decide");
-    await expect(timeline).toContainText("The run goes on with the other subtasks.");
+    // The run is not going (its one subtask was set aside and it ended), so the row does not
+    // say it goes on with the other subtasks.
+    await expect(timeline).not.toContainText("The run goes on");
     for (const row of await timeline.locator(".pg-trow").all())
       await expect(row.locator(".pg-actor")).toHaveCount(1);
     expect(await idsLeading(page, ".pg-trow-what, .pg-screen-title")).toEqual([]);

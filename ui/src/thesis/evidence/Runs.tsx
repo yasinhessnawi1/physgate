@@ -104,7 +104,8 @@ const pinsOf = (run: ReadRun) => run.pins;
 
 function KindSection({ kind, runs }: { readonly kind: Kind; readonly runs: readonly ReadRun[] }) {
   const heading = KIND_HEADINGS[kind];
-  // The settings are folded until asked for: what differs between the runs is said above them.
+  // The settings are folded until asked for: what differs between the runs is said above them,
+  // where there are two runs or more to differ.
   const [open, setOpen] = useState(false);
   const differ = [...differing(runs, flagsOf), ...differing(runs, pinsOf)].map(settingLabel);
   return (
@@ -115,9 +116,11 @@ function KindSection({ kind, runs }: { readonly kind: Kind; readonly runs: reado
         <p className="evidence-note">{EVIDENCE_COPY.noneOfKind}</p>
       ) : (
         <>
-          <p className="evidence-note evidence-differ">
-            {differ.length === 0 ? EVIDENCE_COPY.differNone : EVIDENCE_COPY.differSome(differ)}
-          </p>
+          {runs.length > 1 && (
+            <p className="evidence-note evidence-differ">
+              {differ.length === 0 ? EVIDENCE_COPY.differNone : EVIDENCE_COPY.differSome(differ)}
+            </p>
+          )}
           <Button
             variant="ghost"
             size="sm"

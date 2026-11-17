@@ -27,7 +27,7 @@ import { tallyOfChecks } from "../../design/tally";
 import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
 import { SOURCE_WORDS } from "../../words/queue";
-import type { RunLabel } from "../../words/runs";
+import { clockTime, type RunLabel, utc } from "../../words/runs";
 import { CostCaveat } from "../common/cost";
 import { EngineWords } from "../common/engine";
 import { useJson, useLines } from "../common/read";
@@ -46,6 +46,7 @@ import {
   type Stale,
   startOfRead,
   useRunReads,
+  useOrderPhases,
   useSettled,
   useStatuses,
 } from "./data";
@@ -127,16 +128,33 @@ function RunName({
   );
 }
 
-export function statusWords(
-  read: RunRead | undefined,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  stale?: Stale,
-) {
+/** A status kept from an earlier read: since when it is not refreshed, and why. */
+function StaleWords({ stale }: { readonly stale: Stale | undefined }) {
+  if (stale === undefined) return null;
+  return (
+    <span className="pg-run-stale pg-muted">
+      Not refreshed since <time title={utc(stale.since)}>{clockTime(stale.since)}</time>:{" "}
+      {stale.error}
+    </span>
+  );
+}
+
+export function statusWords(read: RunRead | undefined, stale?: Stale) {
   if (read === undefined) return <span className="pg-muted">Reading…</span>;
-  if (!read.status.ok) return <span className="pg-muted">Where it stands was not read</span>;
+  if (!read.status.ok)
+    return (
+      <span className="pg-muted">Where it stands was not read: {read.status.refusal.error}</span>
+    );
   const status = read.status.value;
   const phase = phaseOf(status);
-  if (phase === "going") return <InProgressBadge />;
+  if (phase === "going")
+    return stale === undefined ? (
+      <InProgressBadge />
+    ) : (
+      <div className="pg-run-standing">
+        <InProgressBadge /> <StaleWords stale={stale} />
+      </div>
+    );
   let end: RunEnd | null = null;
   if (phase === "done") {
     // A log that could not be read cannot show a run complete: it is not claimed.
@@ -153,6 +171,7 @@ export function statusWords(
       />{" "}
       <span className="pg-standing-sentence">{standing.sentence}</span>
       <Detail text={standing.detail} />
+      <StaleWords stale={stale} />
     </div>
   );
 }
@@ -169,6 +188,7 @@ export function Runs({
   runs,
   reads,
   labels,
+  stale,
 }: {
   readonly runs: readonly RunListing[];
   readonly reads: ReadonlyMap<string, RunRead>;
@@ -213,7 +233,7 @@ export function Runs({
                     <RunName label={labels.get(runKey(run))} fallback={`Run ${run.name}`} />
                   </a>
                 </td>
-                <td>{statusWords(read)}</td>
+                <td>{statusWords(read, stale?.get(runKey(run)))}</td>
                 <td>{run.gateMode !== null && <GateModeBadge mode={run.gateMode} />}</td>
                 <td>
                   <OsLayerBadge layer={run.osLayer} />
@@ -449,7 +469,12 @@ function RecentActivity({ reads }: { readonly reads: readonly RunRead[] }) {
   const rows: { read: RunRead; row: Row }[] = reads
     .flatMap((read) =>
       read.events.ok && read.config.ok
-        ? rowsOf(read.events.value, read.config.value).map((row) => ({ read, row }))
+        ? rowsOf(
+            read.events.value,
+            read.config.value,
+            undefined,
+            read.status.ok && phaseOf(read.status.value) === "going",
+          ).map((row) => ({ read, row }))
         : [],
     )
     .sort((a, b) => b.row.ts.localeCompare(a.row.ts) || b.row.seq - a.row.seq)
@@ -571,12 +596,15 @@ export default function Home({ setHeader }: ViewProps) {
   const listed = useMemo(() => (runs?.ok === true ? runs.value : []), [runs]);
   const readable = useMemo(() => listed.filter((r) => r.error === null), [listed]);
   // Where every readable run stands, first: Home's order needs it, and it is small.
-  const { found: statuses } = useStatuses(readable);
-  const phases = useMemo(() => phasesOf(readable, statuses), [readable, statuses]);
-  const targets = readTargets(listed, all, phases);
+  const { found: statuses, stale, minutes } = useStatuses(readable);
   // The runs are listed at once; their records are read once the statuses have answered, or
   // after a short wait, so a run going is among those read and no slow status holds Home up.
   const settled = useSettled(readable, statuses);
+  const answered = useMemo(() => phasesOf(readable, statuses), [readable, statuses]);
+  // The order is settled once and moved only when a minute's re-read ends, so a row does not
+  // move under a person's pointer as the statuses answer.
+  const phases = useOrderPhases(answered, settled, minutes);
+  const targets = readTargets(listed, all, phases);
   const reads = useRunReads(settled ? targets : NO_TARGETS, statuses);
   const starts = useMemo(
     () => new Map([...reads].map(([k, read]) => [k, startOfRead(read)] as const)),
@@ -642,6 +670,7 @@ export default function Home({ setHeader }: ViewProps) {
         runs={all ? ordered : ordered.filter((r) => r.error !== null || targets.includes(r))}
         reads={reads}
         labels={labels}
+        stale={stale}
       />
       {readable.length > targets.length && (
         <Button

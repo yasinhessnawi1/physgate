@@ -161,6 +161,7 @@ export function rowOf(
   roles: Readonly<Record<string, string>>,
   models: Models,
   checks?: readonly GateCheck[],
+  going = false,
 ): Row | null {
   const actor = eventActor(event, roles, models);
   const base = {
@@ -288,7 +289,7 @@ export function rowOf(
       return {
         ...base,
         depth: 1,
-        sentence: setAsideWith(event.itemId),
+        sentence: setAsideWith(event.itemId, going),
         meta: `${subtaskName(event.subtask)} · ${event.subtask}`,
         subtask: event.subtask,
       };
@@ -528,13 +529,14 @@ export function rowsOf(
   events: readonly RunEvent[],
   models: Models,
   checks?: readonly GateCheck[],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  going?: boolean,
+  /** Whether the run is going now: only then does a set-aside row say the run goes on. */
+  going = false,
 ): readonly Row[] {
   const names = subtaskNames(events);
   const roles = subtaskRoles(events);
   return events.flatMap((event) => {
-    const row = rowOf(event, names, roles, models, checks) ?? unfinishedGate(event, events, names);
+    const row =
+      rowOf(event, names, roles, models, checks, going) ?? unfinishedGate(event, events, names);
     if (row === null) return [];
     if (event.kind !== "attempt_rejected") return [row];
     // A rejection that repeats the finding an earlier row of the same attempt already shows says

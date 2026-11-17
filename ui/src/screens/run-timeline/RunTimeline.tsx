@@ -117,9 +117,10 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
             events.result.value,
             configValue,
             checks.result?.ok === true ? checks.result.value : [],
+            going,
           )
         : [],
-    [events.result, configValue, checks.result],
+    [events.result, configValue, checks.result, going],
   );
 
   if (runs === null) return <LoadingState reading="the run list" />;

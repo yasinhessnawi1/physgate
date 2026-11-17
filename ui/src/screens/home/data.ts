@@ -6,7 +6,9 @@
  *
  * Home's order puts a run going first, then a run waiting on a person's decision, then one halted
  * or stopped, so none falls off Home's first screen because twelve runs started after it
- * (``homeOrder``). Home lists the runs at once and re-orders them as their statuses answer.
+ * (``homeOrder``). Home lists the runs at once in the run list's order, settles its order once,
+ * when the first round of statuses has answered or after a short wait, and moves a row after that
+ * only when a minute's re-read ends (``useOrderPhases``).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -74,28 +76,6 @@ export function useSettled(
 }
 
 /**
- * Run ``tasks`` at most ``limit`` at a time, each as the one before it ends; resolves when every
- * task has ended. A task that fails does not stop the others.
- */
-export async function pooled(
-  tasks: readonly (() => Promise<void>)[],
-  limit: number,
-): Promise<void> {
-  let next = 0;
-  const lane = async (): Promise<void> => {
-    while (next < tasks.length) {
-      const task = tasks[next++];
-      try {
-        await task?.();
-      } catch {
-        // A task reports its own failure; the lane goes on with the next.
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, lane));
-}
-
-/**
  * The groups Home lists first, in this order: a run going; one waiting on a person's decision;
  * one halted, owing a halt, or that appears to have stopped, which a person should look at.
  */
@@ -127,7 +107,8 @@ export function homeOrder<T extends RunListing>(
 /**
  * The runs Home reads in full, in Home's order as far as the statuses read so far tell it: every
  * readable run when the person asked for all or there are no more than ``FIRST_RUNS``; else the
- * first ``FIRST_RUNS``. A run whose status answers later moves up when it needs attention.
+ * first ``FIRST_RUNS``. A run whose status answers later moves up, when it needs attention, as the
+ * order is taken again.
  */
 export function readTargets(
   runs: readonly RunListing[],
@@ -157,7 +138,10 @@ export function phasesOf(
  * while Home is shown, so a run that starts going, ends or stops is seen without a reload. At
  * most ``STATUS_POOL`` are asked at once, each given up after ``STATUS_TIMEOUT_MS``.
  */
-/** A status kept from an earlier read because the read after it failed: when it was read, and why the later read failed. */
+/**
+ * A status kept from an earlier read because the read after it failed: when the kept answer was
+ * read (the browser's clock, as an ISO time), and why the later read failed.
+ */
 export interface Stale {
   readonly since: string;
   readonly error: string;
@@ -165,7 +149,10 @@ export interface Stale {
 
 /** What Home knows of where its runs stand. */
 export interface Statuses {
-  /** Each run's latest good answer, or its refusal while none has been good, by run key. */
+  /**
+   * Each run's latest good answer, by run key; its refusal only while no answer has been good,
+   * so one failed re-read never turns a run going into one not read.
+   */
   readonly found: ReadonlyMap<string, Result<RunStatus>>;
   /** The runs whose answer is kept from an earlier read because a later one failed. */
   readonly stale: ReadonlyMap<string, Stale>;
@@ -173,47 +160,127 @@ export interface Statuses {
   readonly minutes: number;
 }
 
-/** Home's order's phases: held once settled, and taken again only when a minute's re-read ends. */
+/** No phase yet: the run list's own order. */
+const NO_PHASES: ReadonlyMap<string, Phase> = new Map();
+
+/**
+ * The phases Home orders its rows by: none (the run list's order) until ``settled``; then the
+ * phases as they stand at that moment, held; then taken again each time a minute's re-read ends
+ * (``minutes`` changes), and at no other time. So a row a person aims at does not move under the
+ * pointer as statuses answer in the first seconds, or as a re-read on showing the page answers.
+ */
 export function useOrderPhases(
   phases: ReadonlyMap<string, Phase>,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   settled: boolean,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   minutes: number,
 ): ReadonlyMap<string, Phase> {
-  return phases;
+  const [held, setHeld] = useState<{
+    readonly phases: ReadonlyMap<string, Phase>;
+    readonly minutes: number;
+  } | null>(null);
+  // Taken while rendering, so the first settled render is already in the settled order.
+  if (settled && (held === null || held.minutes !== minutes)) {
+    const next = { phases, minutes };
+    setHeld(next);
+    return phases;
+  }
+  return held?.phases ?? NO_PHASES;
 }
 
+interface Known {
+  readonly found: ReadonlyMap<string, Result<RunStatus>>;
+  /** When each run's kept good answer was read. */
+  readonly at: ReadonlyMap<string, string>;
+  readonly stale: ReadonlyMap<string, Stale>;
+  readonly minutes: number;
+}
+
+const NOTHING_KNOWN: Known = { found: new Map(), at: new Map(), stale: new Map(), minutes: 0 };
+
+/** ``known`` with ``status`` the answer for ``k``: a failure keeps an earlier good answer. */
+function withAnswer(known: Known, k: string, status: Result<RunStatus>, now: string): Known {
+  const before = known.found.get(k);
+  const since = known.at.get(k);
+  if (!status.ok && before?.ok === true && since !== undefined)
+    return {
+      ...known,
+      stale: new Map(known.stale).set(k, { since, error: status.refusal.error }),
+    };
+  const stale = new Map(known.stale);
+  stale.delete(k);
+  const at = new Map(known.at);
+  if (status.ok) at.set(k, now);
+  else at.delete(k);
+  return { ...known, found: new Map(known.found).set(k, status), at, stale };
+}
+
+/**
+ * Where each of ``runs`` stands, by run key, as each answers: only its status route, read again
+ * while Home is shown, so a run that starts going, ends or stops is seen without a reload. Every
+ * round (the first, the minute's, one on showing the page again) feeds one queue: at most
+ * ``STATUS_POOL`` are asked at once however the rounds overlap, a run asked or waiting its turn is
+ * never asked twice, and each is given up after ``STATUS_TIMEOUT_MS``. A read that fails keeps
+ * the run's last good answer, marked as stale since it was read.
+ */
 export function useStatuses(runs: readonly RunListing[]): Statuses {
-  const [found, setFound] = useState<ReadonlyMap<string, Result<RunStatus>>>(new Map());
+  const [known, setKnown] = useState<Known>(NOTHING_KNOWN);
   const key = runs.map(runKey).join(",");
   useEffect(() => {
     let live = true;
     // The runs whose status is asked or waiting its turn: a re-read never asks one twice.
     const busy = new Set<string>();
-    const read = () => {
-      const due = runs.filter((run) => !busy.has(runKey(run)));
-      for (const run of due) busy.add(runKey(run));
-      void pooled(
-        due.map((run) => async () => {
-          let status: Result<RunStatus>;
-          try {
-            status = await getJson(`${runBase(run)}/status`, runStatus, {
-              timeoutMs: STATUS_TIMEOUT_MS,
-            });
-          } catch (error) {
-            const why = error instanceof Error ? error.message : String(error);
-            status = { ok: false, refusal: { status: 0, error: why, context: {} } };
-          } finally {
-            busy.delete(runKey(run));
-          }
-          if (live) setFound((now) => new Map(now).set(runKey(run), status));
-        }),
-        STATUS_POOL,
-      );
+    const queue: { readonly run: RunListing; readonly round: { left: number } }[] = [];
+    let asking = 0;
+    const ask = async (run: RunListing): Promise<Result<RunStatus>> => {
+      try {
+        return await getJson(`${runBase(run)}/status`, runStatus, {
+          timeoutMs: STATUS_TIMEOUT_MS,
+        });
+      } catch (error) {
+        const why = error instanceof Error ? error.message : String(error);
+        return { ok: false, refusal: { status: 0, error: why, context: {} } };
+      }
     };
-    read();
-    const stop = whileShown(read, STATUS_EVERY_MS);
+    // The rounds begun by the minute's interval: when one ends, Home may move its rows.
+    const minuteRounds = new WeakSet<{ left: number }>();
+    const pump = () => {
+      while (asking < STATUS_POOL) {
+        const next = queue.shift();
+        if (next === undefined) return;
+        asking += 1;
+        const k = runKey(next.run);
+        void ask(next.run).then((status) => {
+          asking -= 1;
+          busy.delete(k);
+          next.round.left -= 1;
+          const ended = next.round.left === 0 && minuteRounds.has(next.round);
+          if (live)
+            setKnown((now) => {
+              const answered = withAnswer(now, k, status, new Date().toISOString());
+              return ended ? { ...answered, minutes: answered.minutes + 1 } : answered;
+            });
+          pump();
+        });
+      }
+    };
+    const read = (round: { left: number }) => {
+      const due = runs.filter((run) => !busy.has(runKey(run)));
+      round.left = due.length;
+      for (const run of due) {
+        busy.add(runKey(run));
+        queue.push({ run, round });
+      }
+      pump();
+    };
+    read({ left: 0 });
+    const stop = whileShown((why) => {
+      const round = { left: 0 };
+      if (why === "interval") minuteRounds.add(round);
+      read(round);
+      // A minute's round with nothing left to ask (every run still asked) ends at once.
+      if (round.left === 0 && why === "interval" && live)
+        setKnown((now) => ({ ...now, minutes: now.minutes + 1 }));
+    }, STATUS_EVERY_MS);
     return () => {
       live = false;
       stop();
@@ -221,10 +288,11 @@ export function useStatuses(runs: readonly RunListing[]): Statuses {
     // The key names the runs; the list is rebuilt every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  return { found, stale: NO_STALE, minutes: 0 };
+  return useMemo(
+    () => ({ found: known.found, stale: known.stale, minutes: known.minutes }),
+    [known],
+  );
 }
-
-const NO_STALE: ReadonlyMap<string, Stale> = new Map();
 
 /**
  * Each target run's records with where it stands, by run key, as they arrive. A target's

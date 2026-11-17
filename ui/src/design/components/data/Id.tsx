@@ -10,6 +10,7 @@ export function Id({
   value,
   copy = true,
   short,
+  name,
 }: {
   readonly value: string;
   readonly copy?: boolean;
@@ -31,6 +32,9 @@ export function Id({
       type="button"
       className="pg-id-whole pg-hit"
       aria-expanded={whole}
+      {...(name === undefined
+        ? {}
+        : { "aria-label": whole ? `Show less of the ${name}` : `Show whole ${name}` })}
       onClick={() => {
         setWhole((was) => !was);
       }}

@@ -156,8 +156,10 @@ describe("a status re-read that fails keeps the last good answer", () => {
     expect(host.textContent).toBe(
       "attempt | not refreshed since 2026-11-17T10:00:00.000Z: the server did not answer within 15 s",
     );
-    // The next good answer is the answer again, with no mark.
-    await settle(STATUS_EVERY_MS);
+    // The next good answer is the answer again, with no mark: the next minute's re-read is
+    // asked a minute after the last, before its own wait is over.
+    await settle(STATUS_EVERY_MS - STATUS_TIMEOUT_MS);
+    expect(waiting).toHaveLength(1);
     await answerAll(() => DONE);
     expect(host.textContent).toBe("done");
   });

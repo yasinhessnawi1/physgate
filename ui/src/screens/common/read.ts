@@ -50,17 +50,20 @@ export function useLines<T>(path: string | null, guard: (value: unknown) => T): 
 /** How often a page re-reads where its run stands while it is shown, in milliseconds. */
 export const STATUS_EVERY_MS = 60_000;
 
+/** Why a page reads again: its interval came round, or it was shown again. */
+export type Again = "interval" | "shown";
+
 /**
  * Call ``read`` every ``everyMs`` while the page is shown, and at once when it is shown again
- * (its tab brought back, its window focused). Returns what stops it.
+ * (its tab brought back, its window focused), telling it which. Returns what stops it.
  */
-export function whileShown(read: () => void, everyMs: number): () => void {
+export function whileShown(read: (why: Again) => void, everyMs: number): () => void {
   const shown = () => document.visibilityState !== "hidden";
   const timer = setInterval(() => {
-    if (shown()) read();
+    if (shown()) read("interval");
   }, everyMs);
   const again = () => {
-    if (shown()) read();
+    if (shown()) read("shown");
   };
   document.addEventListener("visibilitychange", again);
   window.addEventListener("focus", again);
