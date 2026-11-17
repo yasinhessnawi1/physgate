@@ -156,46 +156,56 @@ const START_FIELDS: readonly string[] = ["target_head", "brief_sha256"];
 
 /** The title over a refusal: by its reason, and by what differs, never blaming what does not. */
 function driftTitle(drifted: readonly string[]): string {
-  if (drifted.includes(TIERS_RECORD)) return EVIDENCE_COPY.tiersTitle;
-  const start = drifted.some((path) => START_FIELDS.includes(path));
-  const settings = drifted.some((path) => !START_FIELDS.includes(path));
+  const others = drifted.filter((path) => path !== TIERS_RECORD);
+  const start = others.some((path) => START_FIELDS.includes(path));
+  const settings = others.some((path) => !START_FIELDS.includes(path));
+  if (drifted.includes(TIERS_RECORD)) {
+    if (start && settings) return EVIDENCE_COPY.tiersTitleStartSettings;
+    if (start) return EVIDENCE_COPY.tiersTitleStart;
+    return settings ? EVIDENCE_COPY.tiersTitleSettings : EVIDENCE_COPY.tiersTitle;
+  }
   if (start && settings) return EVIDENCE_COPY.driftTitle;
   return start ? EVIDENCE_COPY.driftTitleStart : EVIDENCE_COPY.driftTitleSettings;
 }
 
 /**
- * A comparison refused, in words, with no number: by its reason. Over drifted settings, each
- * setting named and what would make a comparison possible; over the tier version the runs were
- * measured on, that reason alone. The server's own sentence stays one click away.
+ * A comparison refused, in words, with no number: by its reason. Over the tier version the runs
+ * were measured on, that reason; over drifted settings or starting points, each named and what
+ * would make a comparison possible. Where both differ, both are said. The server's own sentence
+ * stays one click away.
  */
 export function Drifted({ refusal, drifted }: { refusal: Refusal; drifted: readonly string[] }) {
   const title = driftTitle(drifted);
   const tiers = drifted.includes(TIERS_RECORD);
+  const others = drifted.filter((path) => path !== TIERS_RECORD);
   return (
     <section className="pg-state pg-state-error evidence-drifted" role="alert" aria-label={title}>
       <h2 className="pg-state-title">
         <Icon name="ban" />
         {title}
       </h2>
-      {tiers ? (
+      {tiers && (
         <>
           <p className="pg-state-body">{EVIDENCE_COPY.tiersLead}</p>
           <p className="pg-state-body">{EVIDENCE_COPY.tiersPossible}</p>
         </>
-      ) : (
+      )}
+      {others.length > 0 && (
         <>
-          <p className="pg-state-body">{EVIDENCE_COPY.driftLead}</p>
+          <p className="pg-state-body">
+            {tiers ? EVIDENCE_COPY.driftLeadBeside : EVIDENCE_COPY.driftLead}
+          </p>
           <ul className="evidence-list">
-            {drifted.map((path) => (
+            {others.map((path) => (
               <li key={path} data-drifted={path}>
                 {driftWords(path)}
               </li>
             ))}
           </ul>
-          {drifted.includes("target_head") && (
+          {others.includes("target_head") && (
             <p className="pg-state-body">{EVIDENCE_COPY.driftFromCommits}</p>
           )}
-          {drifted.includes("brief_sha256") && (
+          {others.includes("brief_sha256") && (
             <p className="pg-state-body">{EVIDENCE_COPY.driftFromBriefs}</p>
           )}
           <p className="pg-state-body">{EVIDENCE_COPY.driftPossible}</p>
