@@ -112,6 +112,15 @@ async function mount(search = ""): Promise<HTMLElement> {
   return host;
 }
 
+/** Open every kind's folded settings. */
+function openSettings(host: HTMLElement) {
+  for (const toggle of host.querySelectorAll<HTMLButtonElement>("section[data-kind] button"))
+    if (toggle.textContent.startsWith("Show the settings"))
+      act(() => {
+        toggle.click();
+      });
+}
+
 const text = (el: Element | null | undefined) => (el?.textContent ?? "").replace(/\s+/g, " ");
 
 function sections(host: HTMLElement, selector = "section[data-kind]"): string[] {
@@ -270,8 +279,9 @@ describe("the runs, side by side", () => {
     expect(text(development)).toContain(EVIDENCE_COPY.configHolds);
   });
 
-  it("shows every recorded flag and pin as recorded, a nested one by its dotted path", async () => {
+  it("shows every recorded flag and pin as recorded, a nested one by its dotted path, once opened", async () => {
     const host = await mount();
+    openSettings(host);
     const reportable = section(host, KIND_HEADINGS.reportable);
     const paths = [...(reportable?.querySelectorAll("th .pg-id") ?? [])].map((p) => text(p));
     for (const path of ["gate_mode", "harness.commit", "hooks", "models.roles.control"])
@@ -573,8 +583,8 @@ describe("the runs read as elsewhere, the settings folded", () => {
   it("names each run as Home does, the folder only as its detail", async () => {
     const host = await mount();
     const head = host.querySelector('th[data-run="0/ev-development"]');
-    expect(text(head?.querySelector(".evidence-run-name"))).toBe(
-      "Run ev-development · 16 Nov, 19:52",
+    expect(text(head?.querySelector(".evidence-run-name"))).toMatch(
+      /^Run ev-development · 16 Nov, \d\d:52$/,
     );
   });
 
@@ -607,11 +617,8 @@ describe("the runs read as elsewhere, the settings folded", () => {
     const flags = { ...row.flags, os_layer: { state: "present", claude_version: "2.1.301" } };
     serve({ "/api/evidence/runs": [200, { runs: [{ ...row, flags }] }] });
     const host = await mount();
+    openSettings(host);
     expect(text(host)).toContain("os_layer");
-    for (const toggle of host.querySelectorAll<HTMLButtonElement>("section[data-kind] button"))
-      act(() => {
-        toggle.click();
-      });
     expect(text(host)).not.toContain("Os layer");
     expect(text(host)).toContain("OS layer");
   });

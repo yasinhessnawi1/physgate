@@ -1,6 +1,7 @@
-import { useId } from "react";
+import { useContext, useId } from "react";
 
 import { placeKey, type ReadRun } from "./api";
+import { RunNamesContext } from "./names";
 import { EVIDENCE_COPY, KIND_CHOICES } from "./words";
 
 /**
@@ -20,6 +21,7 @@ export function RunChooser({
   readonly onChoose: (key: string) => void;
 }) {
   const id = useId();
+  const names = useContext(RunNamesContext);
   return (
     <span className="evidence-field">
       <label htmlFor={id}>{label}</label>
@@ -33,7 +35,7 @@ export function RunChooser({
         {value === null && <option value="">{EVIDENCE_COPY.chooseRun}</option>}
         {runs.map((run) => (
           <option key={placeKey(run)} value={placeKey(run)}>
-            {`${run.name}, ${KIND_CHOICES[run.kind]}`}
+            {`${names.get(placeKey(run)) ?? run.name}, ${KIND_CHOICES[run.kind]}`}
           </option>
         ))}
       </select>

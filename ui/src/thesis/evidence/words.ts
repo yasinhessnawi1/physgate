@@ -28,6 +28,12 @@ export const EVIDENCE_COPY = {
   manifestId: "Manifest id",
   configCheck: "Configuration check",
   configHolds: "Matches its first log line",
+  showSettings: (recorded: number, pinned: number) =>
+    `Show the settings (${String(recorded)} recorded, ${String(pinned)} pinned)`,
+  hideSettings: "Hide the settings",
+  differNone: "No setting differs between these runs.",
+  differSome: (labels: readonly string[]) =>
+    `${String(labels.length)} setting${labels.length === 1 ? " differs" : "s differ"} between these runs: ${labels.join(", ")}.`,
   recorded: "Recorded settings",
   pinned: "Pinned settings",
   notRecorded: "not recorded",
@@ -234,7 +240,10 @@ export function settingLabel(path: string): string {
   const words = path
     .split(/[._]/)
     .filter((part) => part !== "")
-    .join(" ");
+    .join(" ")
+    // An abbreviation keeps its capitals: "OS layer", never "Os layer".
+    .replace(/\bos\b/g, "OS")
+    .replace(/\bsha256\b/g, "SHA-256");
   return words === "" ? path : `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
 }
 

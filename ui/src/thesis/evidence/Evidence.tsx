@@ -19,6 +19,7 @@ import { CATCHES_ROUTE, evidenceCatches, evidenceRuns, type RunRow, RUNS_ROUTE }
 import { evidenceAddress, go } from "./address";
 import { CatchesTab } from "./Catches";
 import { CompareTab } from "./Compare";
+import { RunNamesContext, useRunNamesRead } from "./names";
 import { RunsTab } from "./Runs";
 import { SpendTab } from "./Spend";
 import { EVIDENCE_COPY } from "./words";
@@ -76,31 +77,34 @@ export default function Evidence({ setHeader, query }: ViewProps) {
   }, [setHeader]);
   const tab = tabOf(query);
   const runs = useJson(RUNS_ROUTE, evidenceRuns);
+  const names = useRunNamesRead();
   return (
-    <div className="pg-screen pg-evidence">
-      <p className="pg-screen-lead">{EVIDENCE_COPY.lead}</p>
-      <Segmented
-        label={EVIDENCE_COPY.tabs}
-        value={tab}
-        onChange={(next) => {
-          go(evidenceAddress(query, { tab: next }));
-        }}
-        options={TABS.map((value) => ({ value, label: TAB_WORDS[value] }))}
-      />
-      <section className="evidence-panel" aria-label={TAB_WORDS[tab]} data-tab={tab}>
-        {runs.result === null ? (
-          <LoadingState reading={EVIDENCE_COPY.readingRuns} />
-        ) : runs.result.ok ? (
-          <Body tab={tab} rows={runs.result.value} query={query} />
-        ) : (
-          <ErrorState
-            title={EVIDENCE_COPY.runsRefused}
-            {...runs.result.refusal}
-            route={runs.route}
-            onRetry={runs.again}
-          />
-        )}
-      </section>
-    </div>
+    <RunNamesContext.Provider value={names}>
+      <div className="pg-screen pg-evidence">
+        <p className="pg-screen-lead">{EVIDENCE_COPY.lead}</p>
+        <Segmented
+          label={EVIDENCE_COPY.tabs}
+          value={tab}
+          onChange={(next) => {
+            go(evidenceAddress(query, { tab: next }));
+          }}
+          options={TABS.map((value) => ({ value, label: TAB_WORDS[value] }))}
+        />
+        <section className="evidence-panel" aria-label={TAB_WORDS[tab]} data-tab={tab}>
+          {runs.result === null ? (
+            <LoadingState reading={EVIDENCE_COPY.readingRuns} />
+          ) : runs.result.ok ? (
+            <Body tab={tab} rows={runs.result.value} query={query} />
+          ) : (
+            <ErrorState
+              title={EVIDENCE_COPY.runsRefused}
+              {...runs.result.refusal}
+              route={runs.route}
+              onRetry={runs.again}
+            />
+          )}
+        </section>
+      </div>
+    </RunNamesContext.Provider>
   );
 }
