@@ -125,8 +125,8 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "survivor-claims-removed",
         "d",
         S,
-        "MAY_BE_WRITTEN_AGAIN if alive else REMOVED",
-        "REMOVED",
+        "MAY_BE_WRITTEN_AGAIN if alive else NOT_ALL_REMOVED",
+        "REMOVED if alive else NOT_ALL_REMOVED",
     ),
     (
         "survivors-unnamed",
@@ -153,8 +153,8 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "no-second-removal",
         "a",
         S,
-        "    ended = end_live_sessions()\n    remove_held_secrets()",
-        "    ended = end_live_sessions()",
+        "    ended = end_live_sessions()\n    failed = remove_held_secrets()",
+        "    ended = end_live_sessions()\n    failed = 0",
     ),
     ("handler-not-reset", "a", S, "    signal.signal(signum, signal.SIG_DFL)\n", ""),
     ("not-ended-by-signal", "a", S, "    os.kill(os.getpid(), signum)\n", ""),
@@ -207,15 +207,15 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "debug-left",
         "b",
         C,
-        "            with suppress(OSError, InvocationError):\n                remove_debug_logs(directory)\n",
+        "        try:\n            remove_debug_logs(directory)\n        except (OSError, InvocationError):\n            failed += 1\n",
         "",
     ),
     (
         "one-stops-all",
         "b",
         C,
-        "        with suppress(OSError, InvocationError):\n            _unlink_in(directory, tuple(sorted(names)))",
-        "        _unlink_in(directory, tuple(sorted(names)))",
+        "        try:\n            _unlink_in(directory, tuple(sorted(names)))\n        except (OSError, InvocationError):\n            failed += 1\n",
+        "        _unlink_in(directory, tuple(sorted(names)))\n",
     ),
     (
         "ended-still-held",
@@ -295,7 +295,7 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "h",
         S,
         "        except OSError:\n            return ()\n        return _sweep",
-        "        except ZeroDivisionError:\n            return ()\n        return _sweep",
+        "        except OSError:\n            pass\n        return _sweep",
     ),
     (
         "key-pattern-unicode-digits",
@@ -322,8 +322,8 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "failures-not-counted",
         "j",
         C,
-        "            failed += 1\n        try:\n            remove_messaging_keys",
-        "            pass\n        try:\n            remove_messaging_keys",
+        "            failed += 1\n    return failed",
+        "            pass\n    return failed",
     ),
     ("stop-line-no-count", "j", S, '        said["removal_failures"] = failed', "        pass"),
     ("stop-line-says-removed", "j", S, "NOT_ALL_REMOVED if failed else REMOVED", "REMOVED"),
@@ -450,7 +450,10 @@ def main() -> int:
     if first != "pass":
         return 1
     results: list[tuple[str, str, str]] = []
+    only = set(sys.argv[1:])
     for name, rule, file, old, new in MUTANTS:
+        if only and name not in only:
+            continue
         path = root / file
         original = path.read_text()
         if original.count(old) != 1:
