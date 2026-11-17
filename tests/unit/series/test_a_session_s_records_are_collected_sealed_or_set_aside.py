@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 from writer_rig import run, worktree, write_script
 
 from physgate.orchestrator.trajectory import Seal
@@ -25,7 +26,7 @@ from physgate.series import collect as collect_module
 from physgate.series.collect import DISCARDED_DIR, REFUSED_DIR, collect, empty_outbox
 from physgate.series.exceptions import RecordTamperedError
 from physgate.series.reader import read_record, record_path
-from physgate.series.seal import SessionSeries
+from physgate.series.seal import SessionSeries, SetAside
 
 MODULE = "modules/control"
 
@@ -178,15 +179,208 @@ def test_a_record_whose_code_loaded_from_outside_the_module_is_refused(
     assert "outside the module ran: modules/power/elsewhere.py" in reason
 
 
-def test_a_record_whose_script_changed_after_it_was_written_is_refused(
+def _set_aside(base: Path, series: SessionSeries) -> list[tuple[str, str]]:
+    assert list(_outbox(base).iterdir()) == []
+    return [(e.name, e.reason) for e in series.discarded if not e.name.startswith(CACHE)]
+
+
+def test_a_record_whose_script_changed_after_it_was_written_is_discarded_not_sealed(
     tmp_path: Path, run_dir: Path
 ) -> None:
     base = worktree(tmp_path)
     _written(base)
     with (base / MODULE / "sim.py").open("a") as script:
         script.write("# edited after the run\n")
+    series = _collect(base, run_dir)
+    assert series.records == ()
+    assert series.refused == ()
+    found = _set_aside(base, series)
+    assert [name for name, _ in found] == ["step_nominal.json"]
+    reason = found[0][1]
+    assert "modules/control/sim.py changed after the record was written" in reason
+    assert (run_dir / "series" / DISCARDED_DIR / "session-1" / "step_nominal.json").is_file()
+    assert not record_path(run_dir, "control-1", 1, "session-1", "step_nominal").exists()
+
+
+def test_a_record_superseded_by_a_later_run_of_changed_code_is_discarded_and_the_later_sealed(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _written(base, name="draft.py", record_id="step_draft")
+    (base / MODULE / "helper.py").write_text("GAIN = 3.0\n")
+    _written(base, record_id="step_nominal")
+    series = _collect(base, run_dir)
+    assert [r.record_id for r in series.records] == ["step_nominal"]
+    assert series.refused == ()
+    found = _set_aside(base, series)
+    assert [name for name, _ in found] == ["step_draft.json"]
+    reason = found[0][1]
+    assert "modules/control/helper.py changed after the record was written" in reason
+    assert (run_dir / "series" / DISCARDED_DIR / "session-1" / "step_draft.json").is_file()
+    assert not record_path(run_dir, "control-1", 1, "session-1", "step_draft").exists()
+
+
+def test_a_discarded_record_is_listed_with_the_seal_of_the_bytes_collected(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _written(base, name="draft.py", record_id="step_draft")
+    (base / MODULE / "helper.py").write_text("GAIN = 3.0\n")
+    _written(base, record_id="step_nominal")
+    series = _collect(base, run_dir)
+    kept = run_dir / "series" / DISCARDED_DIR / "session-1" / "step_draft.json"
+    data = kept.read_bytes()
+    (entry,) = [e for e in series.discarded if e.name == "step_draft.json"]
+    shown = entry.model_dump()
+    assert (shown.get("sha256"), shown.get("length")) == (
+        hashlib.sha256(data).hexdigest(),
+        len(data),
+    )
+    # Nothing else the collector discards carries a seal: it never read it as a record.
+    for other in series.discarded:
+        if other.name != "step_draft.json":
+            assert sorted(other.model_dump(mode="json")) == ["name", "reason"]
+
+
+def test_an_entry_set_aside_without_a_seal_is_recorded_exactly_as_before(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _outbox(base).mkdir(parents=True)
+    (_outbox(base) / ".step_nominal.json.1.tmp").write_bytes(b"{")
+    series = _collect(base, run_dir)
+    dumped = series.model_dump(mode="json")["discarded"]
+    assert [e["name"] for e in dumped] == [".step_nominal.json.1.tmp"]
+    assert all(sorted(e) == ["name", "reason"] for e in dumped)
+
+
+def _refusal(given: dict[str, object]) -> str:
+    try:
+        SetAside.model_validate({"name": "x.json", "reason": "two words", **given})
+    except ValidationError as exc:
+        return str(exc)
+    return "admitted"
+
+
+def test_a_seal_is_a_digest_and_a_length_together() -> None:
+    assert "a seal is a digest and a length together" in _refusal({"sha256": "c" * 64})
+    assert "a seal is a digest and a length together" in _refusal({"length": 3})
+    assert _refusal({"sha256": "c" * 64, "length": 3}) == "admitted"
+
+
+@pytest.mark.parametrize("how", ["deleted", "renamed"])
+def test_a_record_whose_loaded_module_file_is_gone_is_discarded_not_refused(
+    tmp_path: Path, run_dir: Path, how: str
+) -> None:
+    base = worktree(tmp_path)
+    _written(base, name="draft.py", record_id="step_draft")
+    helper = base / MODULE / "helper.py"
+    if how == "deleted":
+        helper.unlink()
+    else:
+        helper.rename(base / MODULE / "helper_old.py")
+    series = _collect(base, run_dir)
+    assert series.refused == ()
+    assert series.records == ()
+    found = _set_aside(base, series)
+    assert [name for name, _ in found] == ["step_draft.json"]
+    assert (
+        "modules/control/helper.py was deleted or renamed after the record was written"
+        in (found[0][1])
+    )
+    assert (run_dir / "series" / DISCARDED_DIR / "session-1" / "step_draft.json").is_file()
+
+
+def test_a_record_whose_script_is_gone_is_discarded_not_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _written(base, name="draft.py", record_id="step_draft")
+    (base / MODULE / "draft.py").unlink()
+    series = _collect(base, run_dir)
+    assert series.refused == ()
+    found = _set_aside(base, series)
+    assert [name for name, _ in found] == ["step_draft.json"]
+    assert "modules/control/draft.py was deleted or renamed" in found[0][1]
+
+
+def test_a_loaded_file_swapped_for_a_link_is_refused_not_discarded(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _written(base)
+    helper = base / MODULE / "helper.py"
+    elsewhere = Path(os.path.realpath(tmp_path)) / "helper_elsewhere.py"
+    helper.rename(elsewhere)
+    helper.symlink_to(elsewhere)
     reason = _refused_reason(base, run_dir, "step_nominal.json")
-    assert "changed after the record was written" in reason
+    assert "the code file modules/control/helper.py cannot be read" in reason
+
+
+def test_a_record_whose_loaded_file_s_directory_was_renamed_is_discarded_not_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    parts = base / MODULE / "parts"
+    parts.mkdir()
+    (parts / "parts_helper.py").write_text("SCALE = 1.0\n")
+    extra = (
+        "sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parts'))\n"
+        "import parts_helper"
+    )
+    _written(base, name="draft.py", record_id="step_draft", extra=extra)
+    parts.rename(base / MODULE / "parts_old")
+    series = _collect(base, run_dir)
+    assert series.refused == ()
+    found = _set_aside(base, series)
+    assert [name for name, _ in found] == ["step_draft.json"]
+    assert "modules/control/parts/parts_helper.py was deleted or renamed" in found[0][1]
+
+
+def test_a_record_whose_writer_is_gone_is_refused(tmp_path: Path, run_dir: Path) -> None:
+    base = worktree(tmp_path)
+    _written(base)
+    (base / ".physgate" / "lib" / "series_writer.py").unlink()
+    reason = _refused_reason(base, run_dir, "step_nominal.json")
+    assert ".physgate/lib/series_writer.py" in reason
+
+
+def test_a_record_with_a_gone_file_that_also_ran_code_from_outside_the_module_is_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    outside = base / "modules" / "power"
+    outside.mkdir(parents=True)
+    (outside / "elsewhere.py").write_text("VALUE = 1\n")
+    _written(base, extra=f"sys.path.insert(0, {str(outside)!r})\nimport elsewhere")
+    (base / MODULE / "helper.py").unlink()
+    reason = _refused_reason(base, run_dir, "step_nominal.json")
+    assert "outside the module ran: modules/power/elsewhere.py" in reason
+
+
+def test_a_changed_record_that_also_ran_code_from_outside_the_module_is_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    outside = base / "modules" / "power"
+    outside.mkdir(parents=True)
+    (outside / "elsewhere.py").write_text("VALUE = 1\n")
+    _written(base, extra=f"sys.path.insert(0, {str(outside)!r})\nimport elsewhere")
+    with (base / MODULE / "sim.py").open("a") as script:
+        script.write("# edited after the run\n")
+    reason = _refused_reason(base, run_dir, "step_nominal.json")
+    assert "outside the module ran: modules/power/elsewhere.py" in reason
+
+
+def test_a_record_whose_writer_changed_after_it_was_written_is_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _written(base)
+    with (base / ".physgate" / "lib" / "series_writer.py").open("a") as writer:
+        writer.write("# edited after the run\n")
+    reason = _refused_reason(base, run_dir, "step_nominal.json")
+    assert ".physgate/lib/series_writer.py changed after the record was written" in reason
 
 
 def test_a_record_with_a_second_name_is_refused(tmp_path: Path, run_dir: Path) -> None:
