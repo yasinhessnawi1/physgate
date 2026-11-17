@@ -176,9 +176,10 @@ for (const theme of THEMES) {
       await expect(refused).toContainText("The subtasks could not be read");
       await expect(refused).toContainText("the task ledger disagrees with the run-event log");
       await expect(refused.getByRole("button", { name: "Read again" })).toBeVisible();
-      // The runs, in one list, newest first, each with where it stands.
+      // The runs, in one list, those going and those waiting on a person first, then newest
+      // first, each with where it stands.
       const runs = page.locator('section[aria-label="Runs"]');
-      await expect(runs).toContainText("View: newest first");
+      await expect(runs).toContainText("View: going, then waiting on a person, then newest first");
       await expect(runs.locator(".pg-group-row")).toHaveCount(0);
       expect(await idsLeading(page, ".pg-run-name, .pg-need-why, .pg-trow-what")).toEqual([]);
       // The run still going: its chip says partial, and its figures say so far.
@@ -217,12 +218,24 @@ for (const theme of THEMES) {
   }
 }
 
-test("Home reads at most twelve runs in full, and reads the rest when asked", async ({ page }) => {
+test("Home reads at most twelve runs in full, and reads the rest when asked", async ({
+  page,
+  request,
+}) => {
   const seen = await watch(page);
   await open(page, "light", "/home", 1440, 1);
   const first = runsRead(seen, "events");
   expect(first.size).toBe(12);
-  for (const route of ["config", "status", "queue"]) expect(runsRead(seen, route).size).toBe(12);
+  for (const route of ["config", "queue"]) expect(runsRead(seen, route).size).toBe(12);
+  // Where each run stands is read for every readable run, and only that, so a run going or
+  // waiting on a person is among the twelve however old it is.
+  const listed = (await (await request.get("/api/runs")).json()) as {
+    runs: { name: string; error?: string }[];
+  };
+  const readable = listed.runs.filter((r) => r.error === undefined).map((r) => r.name);
+  expect(readable.length).toBeGreaterThan(12);
+  expect([...runsRead(seen, "status")].sort()).toEqual([...readable].sort());
+  expect(first.has("drive-cut")).toBe(true);
   await page.getByRole("button", { name: "Show all runs" }).click();
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
   await expect.poll(() => runsRead(seen, "events").size).toBeGreaterThan(12);

@@ -82,4 +82,21 @@ describe("Home's run list reads in one order, newest first, never grouped so dat
     expect(cell?.textContent ?? "").toContain("cccccccc");
     expect(SCREENS_CSS).toMatch(/\.pg-runs-brief\s*\{[^}]*white-space: nowrap/);
   });
+
+  it("names its order: runs going and runs waiting on a person first, then newest first", () => {
+    const run = listing("bench-12", "2026-11-16T19:52:00Z");
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(
+      <Runs
+        runs={[run]}
+        reads={new Map([["0/bench-12", read(run, "c".repeat(64))]])}
+        labels={new Map()}
+      />,
+    );
+    const note = host.querySelector(".pg-panel-note")?.textContent ?? "";
+    expect(note).toBe("View: going, then waiting on a person, then newest first");
+    expect(host.querySelector("table")?.getAttribute("aria-label")).toBe(
+      "Runs, going and waiting on a person first, then newest first",
+    );
+  });
 });

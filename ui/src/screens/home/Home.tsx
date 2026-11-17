@@ -524,7 +524,7 @@ export default function Home({ setHeader }: ViewProps) {
   const runs = useRunList();
   const [all, setAll] = useState(false);
   const listed = useMemo(() => (runs?.ok === true ? runs.value : []), [runs]);
-  const targets = readTargets(listed, all);
+  const targets = readTargets(listed, all, null) ?? [];
   const reads = useRunReads(targets);
   const starts = useMemo(
     () => new Map([...reads].map(([k, read]) => [k, startOfRead(read)] as const)),

@@ -13,6 +13,7 @@ import { type RunConfig, runConfig, type RunListing } from "../../api/records";
 import { type RunStatus, runStatus } from "../../api/run";
 import { STATUS_EVERY_MS, whileShown } from "../common/read";
 import { FIRST_RUNS, inProgress, runBase, runKey } from "../common/runs";
+import type { Phase } from "../../words/standing";
 
 export interface RunRead {
   readonly run: RunListing;
@@ -33,8 +34,23 @@ async function readRun(run: RunListing): Promise<RunRead> {
   return { run, config, status, events, queue };
 }
 
+/** Home's order of the runs. */
+export function homeOrder<T extends RunListing>(
+  runs: readonly T[],
+  phases: ReadonlyMap<string, Phase>,
+): readonly T[] {
+  // Red-row stub: the list order, unchanged.
+  return phases.size < 0 ? [] : runs;
+}
+
 /** The runs Home reads in full: the first ``FIRST_RUNS`` readable ones, or all of them. */
-export function readTargets(runs: readonly RunListing[], all: boolean): readonly RunListing[] {
+export function readTargets(
+  runs: readonly RunListing[],
+  all: boolean,
+  phases: ReadonlyMap<string, Phase> | null,
+): readonly RunListing[] | null {
+  // Red-row stub: the first twelve as listed, whatever the phases.
+  if (phases !== null && phases.size < 0) return null;
   const readable = runs.filter((r) => r.error === null);
   return all ? readable : readable.slice(0, FIRST_RUNS);
 }
