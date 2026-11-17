@@ -24,6 +24,7 @@ import { VerdictBadge } from "../../design/components/verdict/VerdictBadge";
 import { tallyOfChecks } from "../../design/tally";
 import { agentOf } from "../../words/actors";
 import { compactionsText } from "../../words/review";
+import { durationWords } from "../../words/standing";
 import { ActorTag } from "../common/ActorTag";
 import { Bound, CheckName, checkId, Measured, sentenceOf } from "../common/checks";
 import { allItems } from "../common/queueItems";
@@ -34,28 +35,52 @@ import { escalatedItemOf, repairsUsedUp } from "./usedUp";
 
 /** A session in words: whose, for which attempt, numbered when the attempt had more than one. */
 export function sessionLabel(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   role: string | undefined,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   attempt: number,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   index: number,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   count: number,
 ): string {
-  return "";
+  const whose = role === undefined ? "An agent's session" : `The ${role} agent's session`;
+  const which = count > 1 ? ` ${String(index + 1)} of ${String(count)}` : "";
+  return `${whose}${which} for attempt ${String(attempt)}`;
 }
 
-export function SessionWords(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  props: {
-    readonly session: SessionTrace;
-    readonly role: string | undefined;
-    readonly index: number;
-    readonly count: number;
-  },
-) {
-  return null;
+/**
+ * One session as a person reads it: whose it was and for which attempt, how it ended and how long
+ * it ran, in words first and as recorded beside them; its id after, to copy.
+ */
+export function SessionWords({
+  session: s,
+  role,
+  index,
+  count,
+}: {
+  readonly session: SessionTrace;
+  readonly role: string | undefined;
+  readonly index: number;
+  readonly count: number;
+}) {
+  return (
+    <span className="pg-list-row-main">
+      <span>
+        {sessionLabel(role, s.attempt ?? 0, index, count)}
+        {s.outcome === "completed" ? " ended" : ` ended as ${s.outcome}`}
+        {s.cause === null ? "" : ` (${s.cause})`}
+        {s.wallClockS !== null && (
+          <>
+            {` after ${durationWords(s.wallClockS)} `}
+            <span className="pg-muted">
+              (<Quantity value={s.wallClockS} unit="s" />)
+            </span>
+          </>
+        )}
+      </span>
+      <span className="pg-session-id">
+        <span className="pg-muted">Session id </span>
+        <Id value={s.sessionId} />
+      </span>
+    </span>
+  );
 }
 
 function Seal({ base, session }: { readonly base: string; readonly session: string }) {
@@ -206,23 +231,9 @@ export function AttemptInspector({
             <p className="pg-muted">No session of this attempt is recorded.</p>
           ) : (
             <ul className="pg-list">
-              {sessions.map((s) => (
+              {sessions.map((s, index) => (
                 <li key={s.sessionId} className="pg-list-row">
-                  <span className="pg-list-row-main">
-                    <span>
-                      {s.outcome === "completed"
-                        ? "Session ended"
-                        : `Session ended as ${s.outcome}`}
-                      {s.cause === null ? "" : ` (${s.cause})`}
-                      {s.wallClockS !== null && (
-                        <>
-                          {" after "}
-                          <Quantity value={s.wallClockS} unit="s" />
-                        </>
-                      )}
-                    </span>
-                    <Id value={s.sessionId} />
-                  </span>
+                  <SessionWords session={s} role={role} index={index} count={sessions.length} />
                   <Seal base={base} session={s.sessionId} />
                 </li>
               ))}
