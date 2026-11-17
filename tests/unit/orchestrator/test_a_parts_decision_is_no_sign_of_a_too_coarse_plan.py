@@ -51,20 +51,23 @@ STATED = {
 }
 
 
-def _late(run_dir: Path, decided: str, the_person: Any, by: str = "operator") -> QueueResolution:  # noqa: ANN401
-    """Decide ``decided`` five minutes after the server showed its view."""
+def _late(run_dir: Path, decided: str, the_person: Any, by: str = "operator") -> Any:  # noqa: ANN401
+    """Decide ``decided`` five minutes after its view was shown: the line, or the refusal."""
     view = read_queue(run_dir)
-    return record_decision(
-        run_dir,
-        decided,
-        person=the_person,
-        resolved_by=by,
-        clock=lambda: NOW,
-        shown=ShownItem(
-            item_sha256=view.digests[decided], trajectories=statuses_now(run_dir, decided)
-        ),
-        shown_at=NOW - LATE,
-    )
+    try:
+        return record_decision(
+            run_dir,
+            decided,
+            person=the_person,
+            resolved_by=by,
+            clock=lambda: NOW,
+            shown=ShownItem(
+                item_sha256=view.digests[decided], trajectories=statuses_now(run_dir, decided)
+            ),
+            shown_at=NOW - LATE,
+        )
+    except Exception as exc:  # noqa: BLE001 - a refusal is what a row asserts against
+        return exc
 
 
 @pytest.mark.parametrize("position", ["have", "make", "find"])
@@ -73,6 +76,7 @@ def test_a_parts_choice_over_a_minute_after_its_view_is_not_marked(
 ) -> None:
     run_dir = listed(tmp_path / "run")
     line = _late(run_dir, ITEM_IDS[0], person(position, STATED[position]))
+    assert isinstance(line, QueueResolution), line
     assert line.shown_at == "2026-11-17T09:05:00.250000Z"
     assert line.decomposition_defect is None
     written = json.loads((run_dir / DECISIONS_NAME).read_bytes())
@@ -99,6 +103,7 @@ def test_any_other_decision_over_a_minute_is_marked_as_before(tmp_path: Path) ->
     other = _other_item(run_dir)
     rejected = PersonDecision(verb="reject", note="not as the plan asked")
     line = _late(run_dir, other, rejected, by="yasin")
+    assert isinstance(line, QueueResolution), line
     assert line.decomposition_defect is True
     assert json.loads((run_dir / DECISIONS_NAME).read_bytes())["decomposition_defect"] is True
 
@@ -207,11 +212,15 @@ def test_a_run_whose_parts_lines_are_marked_is_taken_and_follows_in_the_replay(
         )
         decided = datetime.strptime(line.ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
         earlier = (decided - LATE).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-        lines.append(
-            QueueResolution.model_validate(
-                {**line.model_dump(), "shown_at": earlier, "decomposition_defect": True}
-            )
+        old = _read(
+            {
+                **json.loads(line.model_dump_json()),
+                "shown_at": earlier,
+                "decomposition_defect": True,
+            }
         )
+        assert isinstance(old, QueueResolution), old
+        lines.append(old)
     (run_dir / DECISIONS_NAME).write_bytes(
         b"".join(one.model_dump_json().encode() + b"\n" for one in lines)
     )
