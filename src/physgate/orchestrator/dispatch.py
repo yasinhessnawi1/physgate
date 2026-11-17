@@ -142,6 +142,7 @@ from physgate.orchestrator.session_files import (
     read_beneath,
     read_bounded,
 )
+from physgate.orchestrator.stop_signals import track
 from physgate.orchestrator.trajectory import (
     Seal,
     forged_tail,
@@ -194,6 +195,7 @@ def spawn_held(
     session_id: str,
     on_spawn: SpawnHook | None,
     while_held: Callable[[int, str], None],
+    login_dir: Path | None = None,
 ) -> tuple[subprocess.Popen[bytes], str]:
     """Spawn a session held (:data:`HELD`), record it, and only then let it run.
 
@@ -202,6 +204,10 @@ def spawn_held(
     record to), and ``while_held`` runs (the process record, and any record that must
     precede the session). Any failure there stops the held process, which has run nothing,
     and raises. Returns the process and its start time.
+
+    From its spawn the process, and the login file in ``login_dir`` (the session's configuration
+    directory), are held for a stop signal of the run's (``stop_signals``): one that lands while
+    the session lives ends it and removes its credential files.
 
     Nothing is spawned with an environment through which a shell startup file could reach a
     shell the binary starts outside the sandbox (``shell_startup.held_or_refused``): held here,
@@ -231,6 +237,7 @@ def spawn_held(
         raise
     finally:
         os.close(hold)
+    track(process, login_dir)
     try:
         started = started_at(process.pid)
         if started is None:
@@ -2061,6 +2068,7 @@ class ClaudeDispatcher:
                 session_id=session_id,
                 on_spawn=on_spawn,
                 while_held=while_held,
+                login_dir=sdir / "config",
             )
             (roots,) = held
             # However the session ends, nothing it started is left running before any git

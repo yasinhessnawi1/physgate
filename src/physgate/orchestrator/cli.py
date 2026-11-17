@@ -127,6 +127,11 @@ from physgate.orchestrator.run_config import (
     require_reportable,
     require_same_account,
 )
+from physgate.orchestrator.stop_signals import (
+    driving,
+    on_stop_signals,
+    remove_left_credentials,
+)
 from physgate.orchestrator.waiting import (
     EXIT_WAITING_FOR_LIMIT,
     WAITING_FOR_LIMIT,
@@ -765,6 +770,12 @@ def _plan_reviewer(
 
 
 def _decompose(args: argparse.Namespace, *, registrations: Registrations | None = None) -> int:
+    # Its call and its plan's review put a credential on disk too: a stop signal removes it.
+    with on_stop_signals():
+        return _decompose_run(args, registrations=registrations)
+
+
+def _decompose_run(args: argparse.Namespace, *, registrations: Registrations | None) -> int:
     try:
         # The credential first, from the mode the parameters name: a run whose mode
         # has no secret in the environment is refused before anything else happens.
@@ -935,6 +946,23 @@ def _waiting(said: dict[str, str]) -> int:
 
 
 def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registrations | None) -> int:
+    """``run`` and ``resume``, under the stop-signal guard (``stop_signals``).
+
+    A run killed mid-session left its sessions' credential files: those of the sessions no
+    longer running, its reviewers' included, are removed first, before anything else, a refusal
+    included, unless another command drives the run.
+    """
+    run_dir = args.run_dir.resolve()
+    review_root = getattr(args, "review_root", None)
+    remove_left_credentials(run_dir, None if review_root is None else review_root_path(review_root))
+    # Held for as long as this command drives the run: no other command's sweep removes a file.
+    with driving(run_dir), on_stop_signals():
+        return _drive_run(args, resume=resume, registrations=registrations)
+
+
+def _drive_run(
+    args: argparse.Namespace, *, resume: bool, registrations: Registrations | None
+) -> int:
     limit_reset = bool(getattr(args, "limit_reset", False))
     if resume:
         # A run waiting for the account's usage limit, resumed before it may go on: refused before
