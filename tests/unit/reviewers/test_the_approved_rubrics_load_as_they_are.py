@@ -55,6 +55,8 @@ APPROVED = {
             # numbers is noted, not charged, and an input the parts sheet does not give never
             # blocks; every byte outside Sections 2 and 3 is the seventh version's.
             ("final_v8", "ae1fac81c028e403e0089d5c9184be6030b56597e41cb87ad60e03e568c12751", 56),
+            # Margins with the loop's delays, across every estimate's range; least added structure.
+            ("final_v9", "c87380ab9f3fb812d850abc1f54e7909253d14354400be4ff4f39eb11714f560", 59),
         ),
         ("A", "D", "S", "R"),
     ),
@@ -114,7 +116,11 @@ APPROVED = {
         ("IA", "IS", "IP", "IH"),
     ),
     "design": (
-        (("final", "04aa9d73f433efcf10376b5be74e74a2397ef66d653441a61e52819996931c67", 65),),
+        (
+            ("final", "04aa9d73f433efcf10376b5be74e74a2397ef66d653441a61e52819996931c67", 65),
+            # No method the brief does not require is fixed; a design built elsewhere is compared.
+            ("final_v2", "3112f529a7210d7e9aa33d3129816bf7a61904404deb79d15da29ea4b4786d46", 66),
+        ),
         ("PA", "PS", "PP", "PH"),
     ),
     "sizing": (
@@ -123,6 +129,8 @@ APPROVED = {
             # SS-24 names the two fraction kinds the checks hold to 0 to 1; drafted
             # 03.11.2026 and staged for the owner's review, pinned as the version staged.
             ("final_v2", "305ec12d9f5e3acad8374be41c7ecf5c27a3fa81bbeed072bb36ea03664b1385", 65),
+            # Rotor inertia sourced with a range; a recovery needs a computed bound, not headroom.
+            ("final_v3", "9faafc4abb8dd009041bc9431bb96639dd7e937080620f324695e8dd215aad77", 68),
         ),
         ("SA", "SS", "SP", "SH"),
     ),
