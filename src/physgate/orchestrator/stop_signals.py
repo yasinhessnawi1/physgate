@@ -61,6 +61,10 @@ EXIT_SESSIONS_ALIVE = 76
 #: What a stop line says of the credential files when every session is gone.
 REMOVED = "removed"
 #: What it says when a session still lives, which may write its login file again.
+#: What it says when a file could not be removed, with its count in ``removal_failures``.
+NOT_ALL_REMOVED = (
+    "some credential files could not be removed; the next command on this run tries again"
+)
 MAY_BE_WRITTEN_AGAIN = (
     "a session still alive may write its login file again; the next command on this run "
     "removes the files of every session no process runs as"
@@ -186,14 +190,16 @@ def _on_stop(signum: int, _frame: FrameType | None) -> None:
     # Nothing here returns to the run. A second signal runs this again, inside, to the same end.
     remove_held_secrets()
     ended = end_live_sessions()
-    remove_held_secrets()
+    failed = remove_held_secrets()
     alive = len(ended.survivors)
     said: dict[str, object] = {
         "stopped_by": signal.Signals(signum).name,
         "sessions_gone": ended.tried - alive,
         "sessions_alive": alive,
-        "credentials": MAY_BE_WRITTEN_AGAIN if alive else REMOVED,
+        "credentials": MAY_BE_WRITTEN_AGAIN if alive else NOT_ALL_REMOVED if failed else REMOVED,
     }
+    if failed:
+        said["removal_failures"] = failed
     if alive:
         said["survivors"] = list(ended.survivors)
     # Unbuffered: the signal may have landed inside a write of the run's own to stderr.
@@ -230,6 +236,23 @@ def on_stop_signals() -> Iterator[None]:
             signal.signal(each, before)
 
 
+_said_unlocked = False
+
+
+def _say_unlocked() -> None:
+    """Say once, on stderr, that this run goes on without the run directory's lock."""
+    global _said_unlocked
+    if _said_unlocked:
+        return
+    _said_unlocked = True
+    with contextlib.suppress(OSError):
+        os.write(
+            2,
+            b"physgate: this filesystem refuses file locks, so the run goes on without one; "
+            b"another command on this run may then remove a login file it has just written\n",
+        )
+
+
 @contextmanager
 def driving(run_dir: Path) -> Iterator[None]:
     """Inside, this process holds the run directory's lock, shared, as every driving command does.
@@ -237,7 +260,9 @@ def driving(run_dir: Path) -> Iterator[None]:
     No other command's sweep (:func:`remove_left_credentials`) removes a file while it is held,
     so a session's login file written before its spawn, which no process names yet, is never
     taken for a gone session's. The descriptor is this process's own: a session it spawns does
-    not inherit it. A run directory that cannot be opened is not locked; the command refuses it.
+    not inherit it. A run directory that cannot be opened, or a filesystem that refuses the
+    lock, leaves the run unlocked (the refusal said once on stderr); a sweep that cannot take
+    its exclusive lock removes nothing.
     """
     try:
         fd = os.open(run_dir, os.O_RDONLY | os.O_DIRECTORY)
@@ -245,7 +270,10 @@ def driving(run_dir: Path) -> Iterator[None]:
         yield
         return
     try:
-        fcntl.flock(fd, fcntl.LOCK_SH)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH)
+        except OSError:
+            _say_unlocked()
         yield
     finally:
         os.close(fd)

@@ -31,7 +31,7 @@ import os
 import re
 import stat
 from collections.abc import Iterator, Mapping
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -110,21 +110,31 @@ def hold_login(config_dir: Path) -> None:
     _hold(config_dir, (LOGIN_FILE,))
 
 
-def remove_held_secrets() -> None:
+def remove_held_secrets() -> int:
     """Remove every file :data:`_held` names, by name, as :func:`remove_secrets` does.
 
     For a process about to end on a stop signal: nothing is raised, and one directory that
     cannot be reached leaves every other one's files removed. A configuration directory's debug
-    logs and the binary's messaging keys go with its login file.
+    logs and the binary's messaging keys go with its login file. Returns how many removals
+    failed (a count, so a stop can say so without naming or printing a file).
     """
+    failed = 0
     for directory, names in list(_held.items()):
-        with suppress(OSError, InvocationError):
+        try:
             _unlink_in(directory, tuple(sorted(names)))
-        if LOGIN_FILE in names:
-            with suppress(OSError, InvocationError):
-                remove_debug_logs(directory)
-            with suppress(OSError, InvocationError):
-                remove_messaging_keys(directory)
+        except (OSError, InvocationError):
+            failed += 1
+        if LOGIN_FILE not in names:
+            continue
+        try:
+            remove_debug_logs(directory)
+        except (OSError, InvocationError):
+            failed += 1
+        try:
+            remove_messaging_keys(directory)
+        except (OSError, InvocationError):
+            failed += 1
+    return failed
 
 
 def _write_private(path: Path, data: str, mode: int) -> None:
@@ -230,7 +240,7 @@ MESSAGING_DIR = "sessions"
 #: A messaging key, as the binary names it: ``<pid>.<sha256 of its socket's path>.key``, which
 #: holds the token a peer process must show it, and the temporary file it is written through,
 #: ``<that name>.tmp.<hex>``. Matched by the name alone, in that one directory.
-MESSAGING_KEY = re.compile(r"^\d+\.[0-9a-f]{64}\.key(?:\.tmp\.[0-9a-f]+)?$")
+MESSAGING_KEY = re.compile(r"^[0-9]+\.[0-9a-f]{64}\.key(?:\.tmp\.[0-9a-f]+)?$")
 
 
 def remove_messaging_keys(config_dir: Path) -> None:
@@ -241,8 +251,11 @@ def remove_messaging_keys(config_dir: Path) -> None:
     down and never recursively, and a link at such a name is itself removed. A directory under
     such a name is left: no key is written where a directory stands.
 
+    A name that will not go (any error but "not found") does not stop the others: the rest are
+    removed first, and then the failure is raised, by count and never by name or content.
+
     Raises:
-        InvocationError: the keys' directory is a link, or not a directory.
+        InvocationError: the keys' directory is a link, or not a directory; or a key was left.
     """
     fd = open_in_session(config_dir)
     if fd is None:
@@ -257,6 +270,7 @@ def remove_messaging_keys(config_dir: Path) -> None:
             raise InvocationError(
                 msg, path=str(config_dir / MESSAGING_DIR), error=repr(exc)
             ) from exc
+        left = 0
         try:
             for name in os.listdir(keys):
                 if MESSAGING_KEY.fullmatch(name) is None:
@@ -267,8 +281,13 @@ def remove_messaging_keys(config_dir: Path) -> None:
                     os.unlink(name, dir_fd=keys)
                 except FileNotFoundError:
                     continue
+                except OSError:
+                    left += 1
         finally:
             os.close(keys)
+        if left:
+            msg = "a session's messaging keys could not all be removed"
+            raise InvocationError(msg, path=str(config_dir / MESSAGING_DIR), left=left)
     finally:
         os.close(fd)
 

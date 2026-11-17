@@ -28,8 +28,8 @@ import threading
 import time
 import uuid
 from collections.abc import Iterator
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import pytest
 
