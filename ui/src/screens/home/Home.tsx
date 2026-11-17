@@ -551,8 +551,8 @@ export function HomeIntro() {
         reviewer reads the work, and anything the run cannot settle comes to a person.
       </p>
       <p>
-        Home lists the runs, what waits for your decision, and the latest activity. Open a run for
-        its timeline, its design and its gate checks.
+        Home lists the runs, the questions a run has left for a person to decide, and the latest
+        activity. Open a run for its timeline, its design and its gate checks.
       </p>
     </div>
   );
