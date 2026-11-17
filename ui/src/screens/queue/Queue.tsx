@@ -100,6 +100,14 @@ function ItemList({
   );
   const waiting = views.filter((v) => v.open);
   const done = views.filter((v) => !v.open);
+  // The list shows the tab that holds the item on screen whenever that item or its state changes,
+  // as when it is decided; a person's own choice of tab stands until then.
+  const onScreen = chosen === undefined ? "" : `${chosen.item.itemId}:${String(chosen.open)}`;
+  const [followed, setFollowed] = useState(onScreen);
+  if (onScreen !== followed) {
+    setFollowed(onScreen);
+    if (chosen !== undefined) setShow(chosen.open ? "waiting" : "resolved");
+  }
   // An item that starts waiting while the page is open (a part the gate raised again) is shown.
   const ids = waiting.map((v) => v.item.itemId).join(",");
   const [seen, setSeen] = useState(ids);
