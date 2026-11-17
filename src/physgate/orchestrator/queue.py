@@ -471,6 +471,16 @@ def parts_problem(
 REVIEW_LIMIT = timedelta(minutes=1)
 
 
+def counts_review_time(position: Position | None) -> bool:
+    """Whether a decision counts under ARCH-130's review-time rule.
+
+    A part's choice (have, make, find; ARCH-122) does not: typing a part's values is data
+    entry, not a judgement of the plan, so it is never marked a decomposition defect and
+    belongs in no review-time median. Every other decision counts.
+    """
+    return position not in POSITIONS["parts"]
+
+
 def review_time(resolution: QueueResolution) -> timedelta | None:
     """How long the person took: from the server's showing of the view to the decision's line.
 
@@ -493,8 +503,9 @@ class QueueResolution(_Record):
     view of the item (ARCH-133); a free-text decision, and every line written before they
     existed, carries none of them and binds to nothing. ``shown_at`` is when the operator UI's
     server showed the person that view, from its own register, and a decision written over a
-    minute after it is marked ``decomposition_defect`` (ARCH-130); a decision with no view on
-    record (the command line's) carries neither, and has no review time.
+    minute after it is marked ``decomposition_defect`` (ARCH-130), except a part's choice, which
+    is not counted (a line marked before that exemption still reads back); a decision with no
+    view on record (the command line's) carries neither, and has no review time.
     """
 
     kind: Literal["resolution"] = "resolution"
@@ -522,7 +533,11 @@ class QueueResolution(_Record):
         if took is not None and took < timedelta(0):
             msg = "a view is shown before the decision taken on it"
             raise ValueError(msg)
-        if (took is not None and took > REVIEW_LIMIT) != (self.decomposition_defect is not None):
+        over = took is not None and took > REVIEW_LIMIT
+        marked = self.decomposition_defect is not None
+        # A part's choice is never marked now; one an earlier writer marked over a minute still
+        # stands, so a run recorded before the exemption reads back as it was written.
+        if (over != marked) if counts_review_time(self.position) else (marked and not over):
             msg = (
                 "a decision is marked a decomposition defect exactly when it was written over one "
                 "minute after its view was shown"
@@ -2164,8 +2179,9 @@ def record_decision(
 
     ``shown_at`` is when the operator UI's server showed the view ``shown`` names, from its own
     register; it is written into the same line, marked a decomposition defect when the decision
-    comes over a minute after it (ARCH-130). Only a bound decision carries one, and none that the
-    clock would put after the decision: the review time is then null, never negative.
+    comes over a minute after it (ARCH-130), unless it is a part's choice, which is not counted.
+    Only a bound decision carries one, and none that the clock would put after the decision: the
+    review time is then null, never negative.
 
     A refusal writes nothing. ``run_dir`` also names the files in a refusal.
 
@@ -2187,6 +2203,7 @@ def record_decision(
         shown_at = None
     late = (
         shown_at is not None
+        and counts_review_time(person.position if person is not None else None)
         and _moment(utc_stamp(now)) - _moment(utc_stamp(shown_at)) > REVIEW_LIMIT
     )
     try:
