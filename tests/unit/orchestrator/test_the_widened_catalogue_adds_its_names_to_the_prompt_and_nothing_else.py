@@ -195,11 +195,15 @@ def test_every_other_byte_of_the_prompt_is_as_it_was(
     run_roles: tuple[str, ...], sizing_registered: None
 ) -> None:
     # Guard: with the catalogue sentence put back as it was, and without the sentence on how a
-    # unit is spelt (added 12.11.2026), the prompt is a64e805f's.
+    # unit is spelt (added 12.11.2026) and the paragraph on what a plan fixes (added 16.11.2026),
+    # the prompt is a64e805f's.
     prompt = prompt_for(BRIEF, run_roles)
     assert prompt.count(catalogue_sentence()) == 1
     assert prompt.count(f"{UNIT_SPELLING_SENTENCE} ") == 1
     prompt = prompt.replace(f"{UNIT_SPELLING_SENTENCE} ", "")
+    fixes = [p for p in prompt.split("\n\n") if "internal law, structure or coefficients" in p]
+    assert len(fixes) == 1, fixes
+    prompt = prompt.replace(f"{fixes[0]}\n\n", "")
     assert (
         _sha(prompt.replace(catalogue_sentence(), _base_sentence()))
         == (BASE_PROMPT_SHA256[run_roles])
