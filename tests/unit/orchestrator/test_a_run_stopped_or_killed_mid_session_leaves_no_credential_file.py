@@ -16,6 +16,7 @@ stopped. Every credential is a dummy, and no file's content is read: only its na
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import inspect
 import json
 import os
@@ -43,6 +44,7 @@ from physgate.orchestrator.credentials import (
     write_key_helper,
     write_login,
 )
+from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.processes import ProcessTableError, started_at
 from physgate.reviewers import claude as reviewers
 
@@ -547,3 +549,198 @@ def test_a_session_that_never_goes_holds_the_stop_no_longer_than_its_bound(
         # Released, and the session reaped by the fixture, a stop that never gave up ends too.
         holding.clear()
         stop.join(timeout=stop_signals.REAP_S + 20)
+
+
+#: The exit status of a stop that left a session alive after its bound: not the signal's own.
+SESSIONS_ALIVE_EXIT = 76
+
+
+def stop_line(run: Started) -> dict[str, object]:
+    """The stand-in's one line saying how its stop went, or nothing if it wrote none."""
+    for line in run.said().splitlines():
+        if line.startswith("{") and '"stopped_by"' in line:
+            found: dict[str, object] = json.loads(line)
+            return found
+    return {}
+
+
+def test_a_clean_stop_says_every_session_is_gone_and_its_files_removed(
+    tmp_path: Path, started: list[Started]
+) -> None:
+    run = Started(tmp_path)
+    started.append(run)
+    run.process.send_signal(signal.SIGTERM)
+    assert ended(run.process) == -signal.SIGTERM, run.said()
+    said = stop_line(run)
+    assert said.get("stopped_by") == "SIGTERM", run.said()
+    assert (said.get("sessions_gone"), said.get("sessions_alive")) == (1, 0), said
+    assert said.get("credentials") == "removed", said
+
+
+def test_a_session_alive_after_the_bound_is_named_and_the_stop_ends_otherwise(
+    tmp_path: Path, started: list[Started]
+) -> None:
+    run = Started(tmp_path, on_term="survivor")
+    started.append(run)
+    run.process.send_signal(signal.SIGTERM)
+    code = ended(run.process)
+    assert code == SESSIONS_ALIVE_EXIT, (code, run.said())
+    said = stop_line(run)
+    assert (said.get("sessions_gone"), said.get("sessions_alive")) == (0, 1), said
+    assert said.get("survivors") == [run.pid], said
+    # Nothing says the files are gone while a session that may write them again lives.
+    assert said.get("credentials") != "removed", said
+    assert "next command on this run" in str(said.get("credentials")), said
+
+
+class LockHolder:
+    """Another process driving the run: it holds the run directory's lock, shared, as a run does."""
+
+    def __init__(self, run_dir: Path) -> None:
+        code = (
+            "import fcntl, os, sys, time\n"
+            "fd = os.open(sys.argv[1], os.O_RDONLY)\n"
+            "fcntl.flock(fd, fcntl.LOCK_SH)\n"
+            "print('held', flush=True)\n"
+            "time.sleep(600)\n"
+        )
+        self.process = subprocess.Popen(
+            [sys.executable, "-c", code, str(run_dir)], stdout=subprocess.PIPE, text=True
+        )
+        assert self.process.stdout is not None
+        assert self.process.stdout.readline().strip() == "held"
+
+    def close(self) -> None:
+        self.process.kill()
+        self.process.wait()
+        if self.process.stdout is not None:
+            self.process.stdout.close()
+
+
+def test_a_second_command_on_a_driven_run_leaves_a_login_written_before_its_spawn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(credentials, "_held", {})
+    run_dir = tmp_path / "run"
+    session_id = str(uuid.uuid4())
+    _state, config = _session_dirs(run_dir / "sessions" / session_id)
+    # The window: the driving run has written the session's login file, and no process names
+    # the session's id yet, since it is not spawned.
+    write_login(config, DUMMY)
+    holder = LockHolder(run_dir)
+    try:
+        assert _command(tmp_path, run_dir) != 0
+        assert stop_signals.remove_left_credentials(run_dir) == ()
+        assert credential_files(run_dir) == [str(config / LOGIN_FILE)]
+    finally:
+        holder.close()
+    # Nothing drives the run now: the next command removes it.
+    assert _command(tmp_path, run_dir) != 0
+    assert credential_files(run_dir) == []
+
+
+def test_a_run_holds_its_run_directory_s_lock_while_it_drives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    blocked: list[bool] = []
+
+    def drive(*_args: object, **_kwargs: object) -> int:
+        fd = os.open(run_dir, os.O_RDONLY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            blocked.append(True)
+        else:
+            blocked.append(False)
+        finally:
+            os.close(fd)
+        return 0
+
+    monkeypatch.setattr(orchestrator_cli, "_drive_run", drive)
+    assert _command(tmp_path, run_dir) == 0
+    assert blocked == [True], "nothing told a second command this run is driven"
+
+
+#: A sha256 in hex, as the binary names a messaging key by its socket's path.
+DIGEST = "ab" * 32
+
+
+@pytest.mark.parametrize("route", ["the session's end", "a stop signal", "the next command"])
+def test_the_binary_s_messaging_keys_go_with_the_login_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, route: str
+) -> None:
+    monkeypatch.setattr(credentials, "_held", {})
+    run_dir = tmp_path / "run"
+    session_id = str(uuid.uuid4())
+    state, config = _session_dirs(run_dir / "sessions" / session_id)
+    write_login(config, DUMMY)
+    keys = config / "sessions"
+    keys.mkdir()
+    for name in (f"4242.{DIGEST}.key", f"4242.{DIGEST}.key.tmp.9f3c", f"77.{DIGEST}.key"):
+        (keys / name).write_text("{}")
+    # Kept: the binary's session record holds no secret, and nothing else is the binary's key.
+    (keys / "4242.json").write_text("{}")
+    (keys / "notes.key").write_text("")
+    (keys / f"5.{DIGEST}.key.d").mkdir()
+    (keys / f"9.{DIGEST}.key").mkdir()
+    outside = tmp_path / "outside.key"
+    outside.write_text("{}")
+    (keys / f"8.{DIGEST}.key").symlink_to(outside)
+    if route == "the session's end":
+        remove_secrets(state, config)
+    elif route == "a stop signal":
+        remove_held_secrets()
+    else:
+        assert stop_signals.remove_left_credentials(run_dir) == (session_id,)
+    assert sorted(p.name for p in keys.iterdir()) == sorted(
+        ["4242.json", "notes.key", f"5.{DIGEST}.key.d", f"9.{DIGEST}.key"]
+    ), route
+    assert outside.exists(), "a link at a key's name was followed"
+    assert not (config / LOGIN_FILE).exists()
+
+
+def test_a_link_at_the_keys_directory_is_not_followed(tmp_path: Path) -> None:
+    state, config = _session_dirs(tmp_path / "sessions" / "a")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / f"1.{DIGEST}.key").write_text("{}")
+    (config / "sessions").symlink_to(elsewhere)
+    with contextlib.suppress(InvocationError):
+        remove_secrets(state, config)
+    assert (elsewhere / f"1.{DIGEST}.key").exists()
+
+
+def test_a_resume_removes_this_run_s_reviewer_credentials_and_no_other_s(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(credentials, "_held", {})
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "run.json").write_text(json.dumps({"run_id": "run-a"}))
+    reviews = tmp_path / "rs"
+
+    def review(run_id: str) -> tuple[str, Path]:
+        review_id = str(uuid.uuid4())
+        sdir = reviews / review_id / "session"
+        _session_dirs(sdir)
+        (sdir / dispatch.OWNER_NAME).write_text(json.dumps({"run_id": run_id}))
+        write_login(sdir / "config", DUMMY)
+        return review_id, sdir / "config" / LOGIN_FILE
+
+    _gone, gone_login = review("run-a")
+    _other, other_login = review("run-b")
+    living, living_login = review("run-a")
+    # A reviewer in its repair resume names its id after --resume.
+    alive = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(600)", "--resume", living]
+    )
+    try:
+        assert _command(tmp_path, run_dir) != 0
+        assert not gone_login.exists(), "this run's reviewer's login was left"
+        assert other_login.exists(), "another run's reviewer's login was removed"
+        assert living_login.exists(), "a reviewer still running lost its login"
+    finally:
+        alive.kill()
+        alive.wait()

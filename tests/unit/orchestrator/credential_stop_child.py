@@ -5,7 +5,9 @@
 binary then starts a tool in a process group of its own (as the Bash tool runs a command),
 writes its own login file in its configuration directory, says it is ready and runs until it is
 stopped. ``on term`` is what the fake does on SIGTERM: ``default`` (it ends), ``ignore``, or
-``rewrite`` (it writes its login file again, then ends). The process waits on the session under
+``rewrite`` (it writes its login file again, then ends); with ``survivor`` the fake ends as by
+default, but the stop's probe is told the session's group never empties, as for a process no
+signal reaches, and the stop's bound is half a second. The process waits on the session under
 the run's stop-signal guard, as a run does, until a signal ends it. Every credential here is a
 dummy: no real one is ever loaded.
 """
@@ -17,6 +19,7 @@ import signal
 import sys
 from pathlib import Path
 
+from physgate.orchestrator import stop_signals
 from physgate.orchestrator.credentials import write_key_helper, write_login
 from physgate.orchestrator.dispatch import spawn_held
 from physgate.orchestrator.stop_signals import on_stop_signals
@@ -51,6 +54,9 @@ def main(sdir: Path, fake: Path, *, seeded: bool, on_term: str) -> int:
     state.mkdir(parents=True, exist_ok=True)
     config.mkdir(parents=True, exist_ok=True)
     session_id = sdir.name
+    if on_term == "survivor":
+        # The probe stands in for the kernel's answer: a session no SIGKILL ends.
+        vars(stop_signals).update(_group_left=lambda _pgid: True, REAP_S=0.5)
     with on_stop_signals():
         if seeded:
             write_login(config, DUMMY)
