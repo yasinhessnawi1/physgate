@@ -737,18 +737,30 @@ UNIT_SPELLING_SENTENCE = (
 #: The decomposition reads nothing but its prompt, so the rule is here or nowhere: a plan that
 #: writes a solution's law into a specification, or its tuned coefficients onto an interface
 #: node, takes from the module that designs the solution the freedom to meet its criteria, and no
-#: session may write an interface node to undo it. Where one module implements what another
-#: designs, the implementer is held to the designer's merged node, so what runs is what was
-#: analysed.
+#: session may write an interface node to undo it. What "the brief fixes" means is stated as a
+#: test the planner can apply: a requirement that, in its own words, says the design shall use,
+#: run or contain the method; a program the brief only cites for a number stays a source. An
+#: interface node's contents are described by what both sides must agree on, physical
+#: properties included, not by a closed list a planner could read as excluding a motor
+#: constant. Where one module implements what another designs, whether or not a criterion says
+#: so, the designer comes before the implementer (not before every module), writes its design on
+#: a node both specifications name, and the implementer is held to that node as merged, so what
+#: runs is what was analysed; an implementer that starts before the node is merged reports it
+#: and implements no design of its own.
 SOLUTION_SENTENCE = (
     "A specification states its module's interfaces and acceptance criteria, never the internal "
-    "law, structure or coefficients of a solution the brief does not itself fix; a reference "
-    "implementation the brief cites is a source of numbers only, and an interface node holds "
-    "signals, units, rates and limits, never a solution's tuned parameters. Where the brief "
-    "requires one module to implement what another designs, such as firmware running the "
-    "control law that was analysed, the designing module comes first in the plan and writes its "
-    "design on a node of its own, and the implementing module's acceptance criteria compare its "
-    "implementation with that node as merged."
+    "law, structure or coefficients of a solution, unless the brief fixes them. The brief fixes "
+    "a method only where one of its requirements, in its own words, says the design shall use, "
+    "run or contain it; a program or document the brief cites as the source of a number, a part "
+    "or a condition is a source of those only. An interface node holds what both sides must "
+    "agree on before either works (the signals that cross, with their units and rates; the "
+    "limits both sides hold to; and the physical properties one side gives the other, such as a "
+    "mass or a motor constant), never a solution's tuned parameters. Where one module implements "
+    "what another designs, such as firmware running the control law that was analysed, the "
+    "designing module comes before the implementing module in the plan and writes its design on "
+    "a node of its own, named in both specifications; the implementing module's acceptance "
+    "criteria compare its implementation with that node as merged, and where the node is not "
+    "merged when it starts, it reports that and implements no design of its own."
 )
 
 
