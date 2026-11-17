@@ -26,8 +26,9 @@ the allowlist, then handed to the package's own reader for that format:
 - the graph at a revision, one node's history and the change list between two revisions:
   ``graph_at``, ``node_history`` and ``journal_diff``, read from the journal without opening a
   store, the change list through the store's own selection;
-- the approval queue: ``queue_listing``, exactly what ``physgate queue list`` prints, read
-  without writing; and one item as a person is shown it, ``item_view``, with its line's digest
+- the approval queue: ``queue_listing``, what ``physgate queue list`` prints less the plain-words
+  ``what_each_decision_does`` the command adds to each open item, read without writing;
+  and one item as a person is shown it, ``item_view``, with its line's digest
   and every trajectory held to its seal, which is what a decision on it sends back.
 
 A trajectory's path is never taken from the record. The record is written on the machine
@@ -513,7 +514,10 @@ def _streams(context: Context, run_dir: Path) -> Callable[[str], bytes | None]:
 
 
 def queue(context: Context, params: Mapping[str, str]) -> Response:
-    """The open items and every decision with its mark, byte for byte ``physgate queue list``.
+    """The open items and every decision with its mark, as ``physgate queue list`` prints them.
+
+    The command adds ``what_each_decision_does`` to each open item that states a consequence; the
+    page says the same sentences from the item's own record, so the route sends none.
 
     Each open item's trajectory statuses are read through the allowlist, as the item view's are.
     """
