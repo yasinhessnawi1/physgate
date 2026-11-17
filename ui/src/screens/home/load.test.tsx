@@ -63,16 +63,15 @@ describe("Home lists the runs at once, before every status has answered", () => 
 
   it("with no status answered yet, chooses the newest twelve to read, in the run list's order", () => {
     const targets = readTargets(many, false, phasesOf(many, new Map()));
-    expect(targets).not.toBeNull();
-    expect((targets ?? []).map((r) => r.name)).toEqual(
+    expect(targets.map((r) => r.name)).toEqual(
       Array.from({ length: FIRST_RUNS }, (_, i) => `bench-${String(FIRST_RUNS + 3 - i)}`),
     );
   });
 
   it("a status that answers re-orders the list: an old run going moves to the top", () => {
     const phases = phasesOf(many, new Map([["0/bench-1", GOING]]));
-    expect(phases?.get("0/bench-1")).toBe("going");
-    const targets = readTargets(many, false, phases) ?? [];
+    expect(phases.get("0/bench-1")).toBe("going");
+    const targets = readTargets(many, false, phases);
     expect(targets[0]?.name).toBe("bench-1");
     expect(targets).toHaveLength(FIRST_RUNS);
   });

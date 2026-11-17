@@ -34,7 +34,7 @@ import { useJson, useLines } from "../common/read";
 import { RowView } from "../common/RowView";
 import { type Row, rowsOf } from "../common/rows";
 import { runBase, runKey, runSource, useLabels, useRunList } from "../common/runs";
-import { type Phase, phaseOf, standingOf } from "../../words/standing";
+import { phaseOf, standingOf } from "../../words/standing";
 import { NoRunsYet } from "./NoRunsYet";
 import { type RunEnd, runEnd, waitingFor } from "./runEnd";
 import {
@@ -45,6 +45,7 @@ import {
   type RunRead,
   startOfRead,
   useRunReads,
+  useSettled,
   useStatuses,
 } from "./data";
 import {
@@ -155,8 +156,8 @@ export function statusWords(read: RunRead | undefined) {
 const ORDER_NOTE = "View: going, then waiting on a person, then newest first";
 const ORDER_LABEL = "Runs, going and waiting on a person first, then newest first";
 
-/** No run's phase known yet: Home's order is then the run list's, newest first. */
-const NO_PHASES: ReadonlyMap<string, Phase> = new Map();
+/** No run read in full yet. */
+const NO_TARGETS: readonly RunListing[] = [];
 
 export function Runs({
   runs,
@@ -169,11 +170,12 @@ export function Runs({
 }) {
   // One list in Home's order (``homeOrder``): runs going, then runs waiting on a person, then the
   // rest, newest start first within each. Grouped by brief, dates would jump.
-  const listed: { run: RunListing; read: RunRead }[] = [];
+  // A run whose records are still read is listed at once, its standing "Reading…".
+  const listed: { run: RunListing; read: RunRead | undefined }[] = [];
   const unread: RunListing[] = [];
   for (const run of runs) {
     const read = reads.get(runKey(run));
-    if (run.error !== null || read === undefined || !read.config.ok) unread.push(run);
+    if (run.error !== null || (read !== undefined && !read.config.ok)) unread.push(run);
     else listed.push({ run, read });
   }
   return (
@@ -209,7 +211,7 @@ export function Runs({
                   <OsLayerBadge layer={run.osLayer} />
                 </td>
                 <td className="pg-runs-brief">
-                  {read.config.ok && (
+                  {read?.config.ok === true && (
                     <span title="The digest of the brief the run read: runs of one brief share it">
                       <Id value={read.config.value.briefSha256.slice(0, 8)} copy={false} />
                     </span>
@@ -230,11 +232,8 @@ export function Runs({
                   <span className="pg-run-unread">
                     Run {run.name} could not be read: {run.error}
                   </span>
-                ) : read === undefined ? (
-                  <span className="pg-muted">
-                    Run {run.name}: not read yet. Its records are read when all runs are shown.
-                  </span>
                 ) : (
+                  read !== undefined &&
                   !read.config.ok && (
                     <span className="pg-run-unread">
                       Run {run.name}: its configuration could not be read:{" "}
@@ -545,9 +544,11 @@ export default function Home({ setHeader }: ViewProps) {
   // Where every readable run stands, first: Home's order needs it, and it is small.
   const statuses = useStatuses(readable);
   const phases = useMemo(() => phasesOf(readable, statuses), [readable, statuses]);
-  const chosen = readTargets(listed, all, phases);
-  const targets = chosen ?? [];
-  const reads = useRunReads(targets, statuses);
+  const targets = readTargets(listed, all, phases);
+  // The runs are listed at once; their records are read once the statuses have answered, or
+  // after a short wait, so a run going is among those read and no slow status holds Home up.
+  const settled = useSettled(readable, statuses);
+  const reads = useRunReads(settled ? targets : NO_TARGETS, statuses);
   const starts = useMemo(
     () => new Map([...reads].map(([k, read]) => [k, startOfRead(read)] as const)),
     [reads],
@@ -581,9 +582,8 @@ export default function Home({ setHeader }: ViewProps) {
       <ErrorState title="The run list could not be read" {...runs.refusal} route="/api/runs" />
     );
   if (runs.value.length === 0) return <NoRunsYet />;
-  // Until every status answers, Home does not know which runs to read in full.
-  const pending = chosen === null ? readable.length : targets.length - read.length;
-  const ordered = homeOrder(listed, phases ?? NO_PHASES);
+  const pending = targets.length - read.length;
+  const ordered = homeOrder(listed, phases);
   return (
     <div className="pg-screen pg-home">
       <header className="pg-screen-head">
@@ -613,7 +613,7 @@ export default function Home({ setHeader }: ViewProps) {
         reads={reads}
         labels={labels}
       />
-      {chosen !== null && readable.length > targets.length && (
+      {readable.length > targets.length && (
         <Button
           onClick={() => {
             setAll(true);

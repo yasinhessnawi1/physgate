@@ -26,10 +26,32 @@ function refusalOf(status: number, body: unknown): Refusal {
   return { status, error, context };
 }
 
-async function request(path: string): Promise<Result<string>> {
+async function request(path: string, timeoutMs?: number): Promise<Result<string>> {
+  if (timeoutMs === undefined) return answered(path, undefined);
+  // The whole read, the answer's body included, is given up once the time has passed.
+  const stop = new AbortController();
+  const timer = setTimeout(() => {
+    stop.abort();
+  }, timeoutMs);
+  try {
+    return await answered(path, stop.signal);
+  } catch (error) {
+    if (!stop.signal.aborted) throw error;
+    const seconds = String(Math.round(timeoutMs / 1000));
+    return {
+      ok: false,
+      refusal: { status: 0, error: `the server did not answer within ${seconds} s`, context: {} },
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function answered(path: string, signal: AbortSignal | undefined): Promise<Result<string>> {
   const response = await fetch(path, {
     headers: { Accept: "application/json" },
     credentials: "omit",
+    ...(signal === undefined ? {} : { signal }),
   });
   const text = await response.text();
   if (response.ok) return { ok: true, value: text };
@@ -61,10 +83,9 @@ export interface ReadOptions {
 export async function getJson<T>(
   path: string,
   guard: (value: unknown) => T,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   options: ReadOptions = {},
 ): Promise<Result<T>> {
-  const answer = await request(path);
+  const answer = await request(path, options.timeoutMs);
   return answer.ok ? guarded(answer.value, guard) : answer;
 }
 

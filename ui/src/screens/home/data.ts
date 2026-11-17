@@ -4,8 +4,9 @@
  * queue. Each is the record or its refusal. Home computes nothing from them but counts it labels
  * as a view. Where each run stands is read again while Home is shown.
  *
- * Home's order puts a run going first, then a run waiting on a person's decision, so neither
- * falls off Home's first screen because twelve runs started after it (``homeOrder``).
+ * Home's order puts a run going first, then a run waiting on a person's decision, then one halted
+ * or stopped, so none falls off Home's first screen because twelve runs started after it
+ * (``homeOrder``). Home lists the runs at once and re-orders them as their statuses answer.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -49,14 +50,49 @@ export const STATUS_TIMEOUT_MS = 15_000;
 /** How long Home waits for the statuses before it chooses which runs to read in full, in ms. */
 export const STATUS_GRACE_MS = 3_000;
 
-/** Whether Home may choose which runs to read in full. */
+/**
+ * Whether Home may choose which runs to read in full: once every one of ``runs`` has answered
+ * where it stands (or been given up), or ``STATUS_GRACE_MS`` after Home began to read them,
+ * whichever is first. One slow status never keeps Home from reading the others.
+ */
 export function useSettled(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   runs: readonly RunListing[],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   statuses: ReadonlyMap<string, Result<RunStatus>>,
 ): boolean {
-  return false;
+  // The runs whose wait has passed, named by their key: a new set of runs waits again.
+  const [lateFor, setLateFor] = useState<string | null>(null);
+  const key = runs.map(runKey).join(",");
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLateFor(key);
+    }, STATUS_GRACE_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [key]);
+  return lateFor === key || runs.every((run) => statuses.has(runKey(run)));
+}
+
+/**
+ * Run ``tasks`` at most ``limit`` at a time, each as the one before it ends; resolves when every
+ * task has ended. A task that fails does not stop the others.
+ */
+export async function pooled(
+  tasks: readonly (() => Promise<void>)[],
+  limit: number,
+): Promise<void> {
+  let next = 0;
+  const lane = async (): Promise<void> => {
+    while (next < tasks.length) {
+      const task = tasks[next++];
+      try {
+        await task?.();
+      } catch {
+        // A task reports its own failure; the lane goes on with the next.
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, lane));
 }
 
 /** The phases Home lists first, in this order: a run going, then one waiting on a person. */
@@ -81,50 +117,65 @@ export function homeOrder<T extends RunListing>(
 }
 
 /**
- * The runs Home reads in full, in Home's order: every readable run when the person asked for all
- * or there are no more than ``FIRST_RUNS``; else the first ``FIRST_RUNS`` once every readable
- * run's phase is known, and ``null`` until then, so a run going is never left out for want of
- * its status.
+ * The runs Home reads in full, in Home's order as far as the statuses read so far tell it: every
+ * readable run when the person asked for all or there are no more than ``FIRST_RUNS``; else the
+ * first ``FIRST_RUNS``. A run whose status answers later moves up when it needs attention.
  */
 export function readTargets(
   runs: readonly RunListing[],
   all: boolean,
-  phases: ReadonlyMap<string, Phase> | null,
-): readonly RunListing[] | null {
+  phases: ReadonlyMap<string, Phase>,
+): readonly RunListing[] {
   const readable = runs.filter((r) => r.error === null);
-  if (all || readable.length <= FIRST_RUNS) return homeOrder(readable, phases ?? new Map());
-  return phases === null ? null : homeOrder(readable, phases).slice(0, FIRST_RUNS);
+  const ordered = homeOrder(readable, phases);
+  return all || readable.length <= FIRST_RUNS ? ordered : ordered.slice(0, FIRST_RUNS);
 }
 
-/** Every run's phase by run key once each of ``runs`` has answered, else ``null``. */
+/** The phase of each of ``runs`` whose status has answered, by run key. */
 export function phasesOf(
   runs: readonly RunListing[],
   statuses: ReadonlyMap<string, Result<RunStatus>>,
-): ReadonlyMap<string, Phase> | null {
+): ReadonlyMap<string, Phase> {
   const phases = new Map<string, Phase>();
   for (const run of runs) {
     const status = statuses.get(runKey(run));
-    if (status === undefined) return null;
-    if (status.ok) phases.set(runKey(run), phaseOf(status.value));
+    if (status?.ok === true) phases.set(runKey(run), phaseOf(status.value));
   }
   return phases;
 }
 
 /**
  * Where each of ``runs`` stands, by run key, as each answers: only its status route, read again
- * while Home is shown, so a run that starts going, ends or stops is seen without a reload.
+ * while Home is shown, so a run that starts going, ends or stops is seen without a reload. At
+ * most ``STATUS_POOL`` are asked at once, each given up after ``STATUS_TIMEOUT_MS``.
  */
 export function useStatuses(runs: readonly RunListing[]): ReadonlyMap<string, Result<RunStatus>> {
   const [found, setFound] = useState<ReadonlyMap<string, Result<RunStatus>>>(new Map());
   const key = runs.map(runKey).join(",");
   useEffect(() => {
     let live = true;
+    // The runs whose status is asked or waiting its turn: a re-read never asks one twice.
+    const busy = new Set<string>();
     const read = () => {
-      for (const run of runs) {
-        void getJson(`${runBase(run)}/status`, runStatus).then((status) => {
+      const due = runs.filter((run) => !busy.has(runKey(run)));
+      for (const run of due) busy.add(runKey(run));
+      void pooled(
+        due.map((run) => async () => {
+          let status: Result<RunStatus>;
+          try {
+            status = await getJson(`${runBase(run)}/status`, runStatus, {
+              timeoutMs: STATUS_TIMEOUT_MS,
+            });
+          } catch (error) {
+            const why = error instanceof Error ? error.message : String(error);
+            status = { ok: false, refusal: { status: 0, error: why, context: {} } };
+          } finally {
+            busy.delete(runKey(run));
+          }
           if (live) setFound((now) => new Map(now).set(runKey(run), status));
-        });
-      }
+        }),
+        STATUS_POOL,
+      );
     };
     read();
     const stop = whileShown(read, STATUS_EVERY_MS);

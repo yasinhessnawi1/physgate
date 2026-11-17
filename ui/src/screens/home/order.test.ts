@@ -94,8 +94,7 @@ describe("Home's first screen holds every run going or waiting on a person, howe
       false,
       phases({ [oldest]: "going", [second]: "waiting-person" }),
     );
-    expect(targets).not.toBeNull();
-    const names = (targets ?? []).map((r) => r.name);
+    const names = targets.map((r) => r.name);
     expect(names).toHaveLength(FIRST_RUNS);
     expect(names.slice(0, 2)).toEqual([oldest, second]);
     expect(names.slice(2)).toEqual(
@@ -105,12 +104,12 @@ describe("Home's first screen holds every run going or waiting on a person, howe
 
   it("with twelve runs or fewer, reads them all at once, without waiting for any status", () => {
     const few = days(FIRST_RUNS);
-    expect((readTargets(few, false, null) ?? []).map((r) => r.name)).toHaveLength(FIRST_RUNS);
+    expect(readTargets(few, false, new Map()).map((r) => r.name)).toHaveLength(FIRST_RUNS);
   });
 
   it("asked for all, reads every readable run, attention first", () => {
     const withBroken = [...many, run("bench-broken", null, "refused")];
-    const targets = readTargets(withBroken, true, phases({ "bench-3": "going" })) ?? [];
+    const targets = readTargets(withBroken, true, phases({ "bench-3": "going" }));
     expect(targets).toHaveLength(many.length);
     expect(targets.slice(0, 2).map((r) => r.name)).toEqual([
       "bench-3",
