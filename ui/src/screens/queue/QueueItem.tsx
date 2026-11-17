@@ -28,6 +28,7 @@ import {
   supersededWords,
   takenWords,
 } from "../../words/queue";
+import { statedWords } from "../../words/parts";
 import { clockTime, utc } from "../../words/runs";
 import { decisionPendingWords, type Phase } from "../../words/standing";
 import { ActorTag } from "../common/ActorTag";
@@ -58,7 +59,8 @@ export function QueueItem({
   readonly children?: ReactNode;
 }) {
   const { item } = view;
-  const { consequence } = item;
+  // A part's item says what each choice does beside its choices; approve and reject decide no part.
+  const consequence = item.source === "parts" ? null : item.consequence;
   const words = SOURCE_WORDS[item.source];
   const pending = phase === undefined ? null : decisionPendingWords(phase);
   return (
@@ -109,6 +111,12 @@ export function QueueItem({
                 <dd className="pg-queue-taken">{takenWords(decided.taken)}</dd>
               </>
             )}
+            {decided.parts !== undefined && decided.parts !== null && (
+              <>
+                <dt>What was stated</dt>
+                <dd className="pg-queue-stated">{statedWords(decided.parts)}</dd>
+              </>
+            )}
             <dt>Time to decide</dt>
             <dd className="pg-queue-review-time">{reviewTimeWords(decided)}</dd>
           </dl>
@@ -149,7 +157,7 @@ export function QueueItem({
           </dd>
           <dt>What triggered it</dt>
           <dd className="pg-queue-finding">
-            <Finding text={item.triggeringFinding} source={item.source} />
+            <Finding text={item.triggeringFinding} source={item.source} itemId={item.itemId} />
           </dd>
           {consequence !== null && supersededBy === undefined && (
             <>

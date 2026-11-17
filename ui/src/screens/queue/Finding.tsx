@@ -6,8 +6,9 @@
  * own first sentence, the items its own ids, met or not.
  */
 import type { QueueSource } from "../../api/queue";
-import { FINDING_VERDICT } from "../../words/queue";
+import { FINDING_VERDICT, RAISED_PART_VERDICT } from "../../words/queue";
 import { firstLine } from "../common/rows";
+import { partRound } from "./parts";
 
 /** A finding longer than this many characters is shown short first. */
 export const LONG_FINDING = 320;
@@ -45,16 +46,26 @@ function citeWords(cited: readonly string[]): string {
   return `It names ${items} of the reviewer's rubric, met or not: ${cited.join(", ")}.`;
 }
 
+/** The verdict an item's finding is, by its source, and for a part by its round. */
+export function findingVerdict(source: QueueSource, itemId?: string): string | null {
+  if (source === "parts" && itemId !== undefined && (partRound(itemId)?.round ?? 1) > 1)
+    return RAISED_PART_VERDICT;
+  return FINDING_VERDICT[source];
+}
+
 export function Finding({
   text,
   source,
+  itemId,
 }: {
   readonly text: string;
   /** The item's source, which says what its finding is the verdict of. */
   readonly source: QueueSource;
+  /** The item's id: a part raised again is a verdict, where its first round is a question. */
+  readonly itemId?: string;
 }) {
   const whole = text.trim();
-  const verdict = FINDING_VERDICT[source];
+  const verdict = findingVerdict(source, itemId);
   const lead = verdict !== null && (
     <>
       <strong className="pg-queue-finding-verdict">{verdict}</strong>{" "}

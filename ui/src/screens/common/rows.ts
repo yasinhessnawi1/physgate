@@ -12,6 +12,7 @@ import type { Quantity } from "../../design/quantity";
 import { type Actor, eventActor, type Models } from "../../words/actors";
 import { checkWords } from "../../words/checks";
 import { nodeLabel, quantityLabel } from "../../words/humanise";
+import { releasedWords as partsReleasedWords } from "../../words/parts";
 import { causeWords, compactionWords, triesWords } from "../../words/review";
 import { countOf } from "../../words/count";
 import { setAsideWith } from "../../words/queue";
@@ -193,6 +194,13 @@ export function rowOf(
           event.interfaceNodes.length === 0
             ? "no interface nodes"
             : `interface ${event.interfaceNodes.join(", ")}`,
+      };
+    case "parts_released":
+      return {
+        ...base,
+        depth: 0,
+        sentence: partsReleasedWords(event.choices),
+        meta: `${String(event.choices.length)} ${event.choices.length === 1 ? "part" : "parts"}`,
       };
     case "subtask_planned":
       return {

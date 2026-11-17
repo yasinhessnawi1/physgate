@@ -1,0 +1,40 @@
+{
+  "item": {
+    "artefact_diff": "The plan of digest 6e03c01c0a440d5c211cca12f1028677a6da594b38e4f9e93437f897d37f6326, as the run recorded it: see decomposition/stdout.jsonl and the specifications commit 5c4d55d8c26b1cfd48bcb13cf6f62a61016b1f06.",
+    "consequence": {
+      "attempt": null,
+      "attempt_commit": null,
+      "confirmed_indicators": [],
+      "on_approve": "record_only",
+      "on_choose": {
+        "find": "find",
+        "have": "declare",
+        "make": "declare"
+      },
+      "on_reject": "record_only",
+      "scan_hits": [],
+      "why_record_only": "source"
+    },
+    "decision_required": "Part 2 of 6 in the plan: \"Bumper cage\" (node mechanical.bumper_cage), which the plan lists mass as the quantities a part on hand states. Nothing has been dispatched. It is raised again at the release: the gate blocked its declared values: efficiency of mechanical.bumper_cage is 1.5 1, outside 0 to 1 1, the envelope for the size of any efficiency of a any passive transmission or converter at steady state: a gear stage, a driver, a regulator (By definition an efficiency is the power a stage delivers over the power it takes in. At steady state the first law gives input power = output power + heat dissipated, with the heat never negative, which is the catalogue's own energy_balance relation and its source (\"the first law of thermodynamics for a component at steady state\"); so a passive stage's efficiency lies from 0 to 1. A quantity of dimension one, written as a number or a fraction (the SI Brochure, 9th edition, 2019, NIST SP 330-2019, the catalogue's citation for every kind: section 2.3.4 and the notes to Table 4, read via search, not in full, 26.09.2026); read 2026-11-03). Note on the span: A definition, not a product class: no passive stage delivers more than it takes in, so a value above 1 is a mistake in the arithmetic or the unit (a percentage written as a bare number), never a better part. It bounds the size of a value; the sign is the unit check's. Named limit: a ratio written under an efficiency name that is not output over input (a heat pump's coefficient of performance, an active stage's gain) is refused above 1; such a ratio has its own name. Drafted by the builder for the owner's review (03.11.2026).. Choose have or make again, stating every name you stated before, each with the value and unit it now has; find is refused, since the values are already on the part's nodes. Approve and reject decide no part.",
+    "item_id": "run-raised-parts-2-r2",
+    "kind": "item",
+    "quantities": [],
+    "run_id": "run-raised",
+    "source": "parts",
+    "subtask_id": "parts",
+    "trajectories": ["decomposition/stdout.jsonl"],
+    "triggering_finding": "At the release, component mechanical.bumper_cage: the gate blocked its declared values: efficiency of mechanical.bumper_cage is 1.5 1, outside 0 to 1 1, the envelope for the size of any efficiency of a any passive transmission or converter at steady state: a gear stage, a driver, a regulator (By definition an efficiency is the power a stage delivers over the power it takes in. At steady state the first law gives input power = output power + heat dissipated, with the heat never negative, which is the catalogue's own energy_balance relation and its source (\"the first law of thermodynamics for a component at steady state\"); so a passive stage's efficiency lies from 0 to 1. A quantity of dimension one, written as a number or a fraction (the SI Brochure, 9th edition, 2019, NIST SP 330-2019, the catalogue's citation for every kind: section 2.3.4 and the notes to Table 4, read via search, not in full, 26.09.2026); read 2026-11-03). Note on the span: A definition, not a product class: no passive stage delivers more than it takes in, so a value above 1 is a mistake in the arithmetic or the unit (a percentage written as a bare number), never a better part. It bounds the size of a value; the sign is the unit check's. Named limit: a ratio written under an efficiency name that is not output over input (a heat pump's coefficient of performance, an active stage's gain) is refused above 1; such a ratio has its own name. Drafted by the builder for the owner's review (03.11.2026).",
+    "ts": "2026-11-16T21:52:45.919052Z"
+  },
+  "item_sha256": "c7242121588d2c492d23948d8565a282fa472caa1e96f5987493b522d0271d50",
+  "open": true,
+  "position": 6,
+  "trajectories": [
+    {
+      "link": "decomposition/stdout.jsonl",
+      "session_id": "decomposition/stdout.jsonl",
+      "status": "no_seal"
+    }
+  ],
+  "view_id": "FPej-UV-Eafdx6r7ZKIJFA"
+}

@@ -76,6 +76,11 @@ export const SOURCE_WORDS: Readonly<Record<QueueSource, SourceWords>> = {
   },
 };
 
+/** Said while a page keeps what it read last because its latest read again failed. */
+export const REFRESH_FAILED =
+  "The latest refresh of this page failed; it tries again in a few seconds. What is shown is " +
+  "from the last refresh that worked.";
+
 /**
  * What an item's finding is the verdict of, by source, said before the finding's own words: a
  * finding often opens with what the work does well, and its rejection comes later. ``null`` for a
@@ -94,6 +99,14 @@ export const FINDING_VERDICT: Readonly<Record<QueueSource, string | null>> = {
     "Did not pass: the design reviewer did not pass the plan, or reached no verdict on it.",
   parts: null,
 };
+
+/**
+ * The verdict a part's item carries once it is raised again at the release: the gate blocked the
+ * values stated for it, or an interface contradicts them. A part asked for the first time is a
+ * question and claims none.
+ */
+export const RAISED_PART_VERDICT =
+  "Did not pass: the release could not take the values stated for this part.";
 
 /** Every sentence a screen says about a decision. Nothing else on a screen says it. */
 export const DECISION_COPY = {
@@ -220,6 +233,9 @@ export const POSITION_WORDS: Readonly<Record<Position, string>> = {
   domain: "The domain's value",
   producer: "The producer's work",
   consumer: "The consumer's work",
+  have: "Have it",
+  make: "Make it",
+  find: "Find it",
 };
 
 /** What choosing a position does, from what the item says it does. */
@@ -241,6 +257,10 @@ export const CHOOSE_WORDS: Readonly<Record<OnChoose, string>> = {
     "interface's values it does not hold. Its earlier merge stays on the record, and the contract " +
     "is tested again once it is merged.",
   record_only: "Choose: the decision is recorded, and nothing in the run acts on it.",
+  declare:
+    "Choose: once every part is decided, what you stated of the part is written onto its node as " +
+    "fixed values, and the physics gate checks each value's unit and range before any agent starts.",
+  find: "Choose: the part is sourced and sized as before, and you state nothing of it.",
 };
 
 /**
@@ -410,7 +430,12 @@ export function effectWords(c: Consequence): readonly Effect[] {
         (c.whyRecordOnly === null ? "." : `, because ${reasonWords(c)}.`)
       : REJECT_BESIDE[c.onReject];
   const chosen = Object.entries(c.onChoose ?? {}).map(([position, effect]) => {
-    const label = (POSITION_WORDS as Readonly<Record<string, string | undefined>>)[position];
+    // A part's choice is named by its position, as the command line names it; its radio button
+    // says it in full beside the sentence.
+    const label =
+      PART_CHOICE[position] === undefined
+        ? (POSITION_WORDS as Readonly<Record<string, string | undefined>>)[position]
+        : position;
     const what =
       PART_CHOICE[position] ??
       chooseWords(c, effect).replace(/^Choose: /, "") +
@@ -499,11 +524,27 @@ export function reviewTimeWords(d: Decided): string {
       ? `${String(whole)} s`
       : `${String(Math.floor(whole / 60))} min ${String(whole % 60)} s`;
   const said = `${took}, from when this server showed the item to when the decision was written.`;
+  // A part's choice is left out of the one-minute rule (ARCH-130, ARCH-122): the server marks
+  // none, and a line a run wrote before that still carries its mark, which no longer means it.
+  if (d.position === "have" || d.position === "make" || d.position === "find") {
+    if (d.decompositionDefect)
+      return (
+        `${said} The record marks it over one minute, as runs did before a part's choice was ` +
+        `left out of the one-minute rule; ${PART_NOT_COUNTED}.`
+      );
+    return whole > 60
+      ? `${said} A part's choice is not held to the one-minute rule: ${PART_NOT_COUNTED}.`
+      : said;
+  }
   return d.decompositionDefect
     ? `${said} Over one minute: the record marks the item a decomposition defect, a sign the ` +
         "design was split too coarsely to decide in a minute."
     : said;
 }
+
+/** Why a part's choice is not counted under the one-minute rule. */
+const PART_NOT_COUNTED =
+  "stating a part's values is data entry, not a sign that the design was split too coarsely";
 
 /** What the run did with a decision, from its own record of taking it. */
 export function takenWords(t: Taken): string {
@@ -524,6 +565,10 @@ export function takenWords(t: Taken): string {
       "interface's values.",
     release: "The run took it: the hold was released, and the plan runs as it stands.",
     end_run: "The run took it: the run ended with no module dispatched.",
+    declare:
+      "The run took it: what was stated of the part is written onto its node as fixed values " +
+      "once every part is decided.",
+    find: "The run took it: the part is sourced and sized as before.",
     none: "The run took it; it changed nothing.",
   };
   const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;
