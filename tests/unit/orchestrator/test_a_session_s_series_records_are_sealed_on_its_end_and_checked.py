@@ -145,6 +145,70 @@ def test_the_attempt_the_gate_and_the_reviewer_receive_carries_its_records_and_c
     assert series.checks == (check,)
 
 
+def _left(discarded: list[dict[str, object]]) -> SessionSeries:
+    """A session's series that discarded ``discarded``, each as its end line lists it."""
+    assert "sha256" in SetAside.model_fields, "a discarded record carries no seal"
+    return SessionSeries.model_validate_json(json.dumps({"discarded": discarded}))
+
+
+#: A record discarded as superseded, with the seal of its bytes; and what else is discarded.
+SUPERSEDED = {
+    "name": "draft.json",
+    "reason": "modules/control/helper.py changed after the record was written",
+    "sha256": "4" * 64,
+    "length": 99,
+}
+TEMPORARY = {"name": ".step.json.1.tmp", "reason": "a writer's temporary file"}
+CUT = {"name": "(more)", "reason": "3 more entries, set aside like the ones above"}
+
+
+def test_the_reviewer_is_handed_the_records_the_attempt_s_sessions_discarded(
+    tmp_path: Path,
+) -> None:
+    first = _left([TEMPORARY, SUPERSEDED])
+    second = _left([CUT]).model_copy(update={"records": (_sealed("step"),)})
+    rig = Rig(
+        tmp_path,
+        dispatcher=FakeDispatcher(infra={1: "api_error"}, series={1: first, 2: second}),
+        delays=(0.0,),
+    )
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    (reviewed,) = rig.reviewer.seen
+    assert reviewed.series is not None
+    shown = reviewed.series.model_dump(mode="json")
+    assert shown.get("discarded") == [
+        {"session_id": "sess-1", "entry": SUPERSEDED},
+        {"session_id": "sess-2", "entry": CUT},
+    ]
+
+
+def test_an_attempt_whose_only_record_was_discarded_carries_a_series(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, dispatcher=FakeDispatcher(series={1: _left([SUPERSEDED])}))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    (reviewed,) = rig.reviewer.seen
+    assert reviewed.series is not None
+    assert reviewed.series.records == () and reviewed.series.checks == ()
+    assert [d["entry"]["name"] for d in reviewed.series.model_dump()["discarded"]] == ["draft.json"]
+
+
+def test_an_attempt_that_discarded_only_files_that_are_no_record_carries_no_series(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(tmp_path, dispatcher=FakeDispatcher(series={1: _left([TEMPORARY])}))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    (reviewed,) = rig.reviewer.seen
+    assert reviewed.series is None
+
+
 def test_an_attempt_with_no_records_and_no_checks_carries_no_series(tmp_path: Path) -> None:
     rig = Rig(tmp_path)
     loop = rig.open()

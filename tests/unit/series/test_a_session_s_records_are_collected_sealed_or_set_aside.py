@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 from writer_rig import run, worktree, write_script
 
 from physgate.orchestrator.trajectory import Seal
@@ -25,7 +26,7 @@ from physgate.series import collect as collect_module
 from physgate.series.collect import DISCARDED_DIR, REFUSED_DIR, collect, empty_outbox
 from physgate.series.exceptions import RecordTamperedError
 from physgate.series.reader import read_record, record_path
-from physgate.series.seal import SessionSeries
+from physgate.series.seal import SessionSeries, SetAside
 
 MODULE = "modules/control"
 
@@ -251,6 +252,13 @@ def test_an_entry_set_aside_without_a_seal_is_recorded_exactly_as_before(
     dumped = series.model_dump(mode="json")["discarded"]
     assert [e["name"] for e in dumped] == [".step_nominal.json.1.tmp"]
     assert all(sorted(e) == ["name", "reason"] for e in dumped)
+
+
+def test_a_seal_is_a_digest_and_a_length_together() -> None:
+    with pytest.raises(ValidationError, match="a seal is a digest and a length together"):
+        SetAside.model_validate({"name": "x.json", "reason": "two words", "sha256": "c" * 64})
+    with pytest.raises(ValidationError, match="a seal is a digest and a length together"):
+        SetAside.model_validate({"name": "x.json", "reason": "two words", "length": 3})
 
 
 @pytest.mark.parametrize("how", ["deleted", "renamed"])
