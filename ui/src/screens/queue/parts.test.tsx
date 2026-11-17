@@ -18,13 +18,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { forgetToken, OPERATOR_META, takeTokenFromAddress } from "../../api/client";
 import { runEvent } from "../../api/events";
-import { itemView, queueListing } from "../../api/queue";
+import { type Decided, itemView, queueListing } from "../../api/queue";
 import decomposed from "../../api/served/event-decomposed-parts.json";
 import partsItem from "../../api/served/item-parts.json";
 import raisedItem from "../../api/served/item-parts-raised.json";
 import partsOpen from "../../api/served/queue-parts-open.json";
 import partsRaised from "../../api/served/queue-parts-raised.json";
 import status from "../../api/served/status.json";
+import { reviewTimeWords } from "../../words/queue";
 import Queue from "./Queue";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -184,6 +185,9 @@ afterEach(() => {
   reads = [];
   afterPost = null;
   failing = new Set();
+  hanging = new Set();
+  waiting = 0;
+  mostWaiting = 0;
   vi.useRealTimers();
   document.body.innerHTML = "";
   document.head.innerHTML = "";
@@ -208,6 +212,11 @@ let reads: string[] = [];
 let afterPost: (() => void) | null = null;
 /** Routes the server stand-in answers with a failure, as a restarting server would. */
 let failing = new Set<string>();
+/** Routes the server stand-in never answers, as a server stuck on a read would. */
+let hanging = new Set<string>();
+/** How many reads of a hanging route are still waiting, and the most that ever waited at once. */
+let waiting = 0;
+let mostWaiting = 0;
 
 /** The scripted run's listing once its first ``k`` parts are decided, and each part's view. */
 function decidedUpTo(k: number): void {
@@ -264,6 +273,15 @@ async function mounted(raised = false, item?: string): Promise<HTMLElement> {
       return Promise.resolve(said);
     }
     reads.push(url);
+    if (hanging.has(url))
+      return new Promise<Response>((_, reject) => {
+        waiting += 1;
+        mostWaiting = Math.max(mostWaiting, waiting);
+        init?.signal?.addEventListener("abort", () => {
+          waiting -= 1;
+          reject(new DOMException("The read was given up.", "AbortError"));
+        });
+      });
     if (failing.has(url))
       return Promise.resolve(
         new Response(JSON.stringify({ error: "the server is starting" }), { status: 503 }),
@@ -914,5 +932,74 @@ describe("the list beside a decided item", () => {
     const on = host.querySelector(".pg-queue-entry-on");
     expect(on?.textContent).toContain("run-parts-parts-6");
     expect(on?.querySelector('[data-status-kind="resolved"]')?.textContent).toBe("Resolved");
+  });
+});
+
+describe("where the parts panel meets the queue item as it is now shown", () => {
+  it("a part raised again shows its finding with the verdict first", async () => {
+    const host = await mounted(true);
+    const finding = host.querySelector(".pg-queue-finding");
+    expect(finding?.querySelector(".pg-queue-finding-verdict")?.textContent).toBe(
+      "Did not pass: the release could not take the values stated for this part.",
+    );
+    expect(finding?.textContent).toContain(
+      "At the release, component mechanical.bumper_cage: the gate blocked its declared values",
+    );
+  });
+
+  it("a part asked for the first time claims no verdict", async () => {
+    const host = await mounted();
+    expect(host.querySelector(".pg-queue-finding")?.textContent).toContain(
+      "The run asks which parts a person has",
+    );
+    expect(host.querySelector(".pg-queue-finding-verdict")).toBeNull();
+  });
+
+  it("a part's choice over a minute is not said to be a sign of a coarse plan", () => {
+    const decided = queueListing(partsRaised).decided[0] as Decided;
+    const late = { ...decided, reviewTime: { value: "75", unit: "s" } };
+    expect(reviewTimeWords({ ...late, decompositionDefect: false })).toBe(
+      "1 min 15 s, from when this server showed the item to when the decision was written. A " +
+        "part's choice is not held to the one-minute rule: stating a part's values is data entry, " +
+        "not a sign that the design was split too coarsely.",
+    );
+    // A line a run wrote before parts were left out of the rule still carries the mark.
+    expect(reviewTimeWords({ ...late, decompositionDefect: true })).toBe(
+      "1 min 15 s, from when this server showed the item to when the decision was written. The " +
+        "record marks it over one minute, as runs did before a part's choice was left out of the " +
+        "one-minute rule; stating a part's values is data entry, not a sign that the design was " +
+        "split too coarsely.",
+    );
+    // Any other decision keeps the rule's words.
+    const other = { ...late, position: null, decompositionDefect: true };
+    expect(reviewTimeWords(other)).toContain("a sign the design was split too coarsely");
+  });
+
+  it("a refresh of the queue the server does not answer is given up, said, and never piles up", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    const host = await mounted();
+    choose(host, "I have it");
+    type(host, "Mass: value", "0.0095");
+    const panel = host.querySelector(".pg-parts-decide");
+    hanging.add(`${BASE}/queue`);
+    for (let s = 0; s < 30; s += 1) await wait(1_000);
+    expect(mostWaiting).toBeLessThanOrEqual(2);
+    expect(host.querySelector(".pg-queue-refresh-failed")).not.toBeNull();
+    expect(host.querySelector(".pg-parts-decide")).toBe(panel);
+    expect((field(host, "Mass: value") as HTMLInputElement | null)?.value).toBe("0.0095");
+    hanging.clear();
+    for (let s = 0; s < 10; s += 1) await wait(1_000);
+    expect(host.querySelector(".pg-queue-refresh-failed")).toBeNull();
+  });
+
+  it("a refresh of the run's log the server does not answer is given up, said, and never piles up", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    const host = await mounted();
+    const panel = host.querySelector(".pg-parts-decide");
+    hanging.add(`${BASE}/events`);
+    for (let s = 0; s < 30; s += 1) await wait(1_000);
+    expect(mostWaiting).toBeLessThanOrEqual(2);
+    expect(host.querySelector(".pg-queue-refresh-failed")).not.toBeNull();
+    expect(host.querySelector(".pg-parts-decide")).toBe(panel);
   });
 });
