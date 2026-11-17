@@ -9,7 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RunListing } from "../../api/records";
-import { useRunReads } from "../home/data";
+import { useRunReads, useStatuses } from "../home/data";
 import { STATUS_EVERY_MS, useLiveJson } from "./read";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -109,7 +109,7 @@ describe("a run's status is read again while its page is open", () => {
   it("Home reads each run's status again on the interval, not its whole record", async () => {
     const run = { root: 0, name: "r", runId: "r", error: null } as unknown as RunListing;
     function Home() {
-      useRunReads([run]);
+      useRunReads([run], useStatuses([run]));
       return null;
     }
     await mount(<Home />);

@@ -34,10 +34,19 @@ import { useJson, useLines } from "../common/read";
 import { RowView } from "../common/RowView";
 import { type Row, rowsOf } from "../common/rows";
 import { runBase, runKey, runSource, useLabels, useRunList } from "../common/runs";
-import { phaseOf, standingOf } from "../../words/standing";
+import { type Phase, phaseOf, standingOf } from "../../words/standing";
 import { NoRunsYet } from "./NoRunsYet";
 import { type RunEnd, runEnd, waitingFor } from "./runEnd";
-import { activeRun, readTargets, type RunRead, startOfRead, useRunReads } from "./data";
+import {
+  activeRun,
+  homeOrder,
+  phasesOf,
+  readTargets,
+  type RunRead,
+  startOfRead,
+  useRunReads,
+  useStatuses,
+} from "./data";
 import {
   STRIP_STATES,
   STRIP_WORDS,
@@ -142,6 +151,13 @@ export function statusWords(read: RunRead | undefined) {
   );
 }
 
+/** Home's order of the runs, in the panel's words and as its table is named. */
+const ORDER_NOTE = "View: going, then waiting on a person, then newest first";
+const ORDER_LABEL = "Runs, going and waiting on a person first, then newest first";
+
+/** No run's phase known yet: Home's order is then the run list's, newest first. */
+const NO_PHASES: ReadonlyMap<string, Phase> = new Map();
+
 export function Runs({
   runs,
   reads,
@@ -151,7 +167,8 @@ export function Runs({
   readonly reads: ReadonlyMap<string, RunRead>;
   readonly labels: ReadonlyMap<string, RunLabel>;
 }) {
-  // One list in the run list's order, newest start first: grouped, dates would jump.
+  // One list in Home's order (``homeOrder``): runs going, then runs waiting on a person, then the
+  // rest, newest start first within each. Grouped by brief, dates would jump.
   const listed: { run: RunListing; read: RunRead }[] = [];
   const unread: RunListing[] = [];
   for (const run of runs) {
@@ -163,10 +180,10 @@ export function Runs({
     <section className="pg-card pg-panel" aria-label="Runs">
       <header className="pg-panel-head">
         <h2 className="pg-panel-title">Runs</h2>
-        <span className="pg-panel-note">View: newest first</span>
+        <span className="pg-panel-note">{ORDER_NOTE}</span>
       </header>
-      <div className="pg-table-wrap" role="region" aria-label="Runs, newest first" tabIndex={0}>
-        <table className="pg-table pg-runs-table" aria-label="Runs, newest first">
+      <div className="pg-table-wrap" role="region" aria-label={ORDER_LABEL} tabIndex={0}>
+        <table className="pg-table pg-runs-table" aria-label={ORDER_LABEL}>
           <thead>
             <tr>
               <th scope="col">Run</th>
@@ -524,8 +541,13 @@ export default function Home({ setHeader }: ViewProps) {
   const runs = useRunList();
   const [all, setAll] = useState(false);
   const listed = useMemo(() => (runs?.ok === true ? runs.value : []), [runs]);
-  const targets = readTargets(listed, all, null) ?? [];
-  const reads = useRunReads(targets);
+  const readable = useMemo(() => listed.filter((r) => r.error === null), [listed]);
+  // Where every readable run stands, first: Home's order needs it, and it is small.
+  const statuses = useStatuses(readable);
+  const phases = useMemo(() => phasesOf(readable, statuses), [readable, statuses]);
+  const chosen = readTargets(listed, all, phases);
+  const targets = chosen ?? [];
+  const reads = useRunReads(targets, statuses);
   const starts = useMemo(
     () => new Map([...reads].map(([k, read]) => [k, startOfRead(read)] as const)),
     [reads],
@@ -559,8 +581,9 @@ export default function Home({ setHeader }: ViewProps) {
       <ErrorState title="The run list could not be read" {...runs.refusal} route="/api/runs" />
     );
   if (runs.value.length === 0) return <NoRunsYet />;
-  const readable = listed.filter((r) => r.error === null);
-  const pending = targets.length - read.length;
+  // Until every status answers, Home does not know which runs to read in full.
+  const pending = chosen === null ? readable.length : targets.length - read.length;
+  const ordered = homeOrder(listed, phases ?? NO_PHASES);
   return (
     <div className="pg-screen pg-home">
       <header className="pg-screen-head">
@@ -586,11 +609,11 @@ export default function Home({ setHeader }: ViewProps) {
         </div>
       )}
       <Runs
-        runs={all ? listed : listed.filter((r) => r.error !== null || targets.includes(r))}
+        runs={all ? ordered : ordered.filter((r) => r.error !== null || targets.includes(r))}
         reads={reads}
         labels={labels}
       />
-      {readable.length > targets.length && (
+      {chosen !== null && readable.length > targets.length && (
         <Button
           onClick={() => {
             setAll(true);
