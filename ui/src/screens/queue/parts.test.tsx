@@ -744,3 +744,18 @@ describe("a quantity the physics gate's catalogue does not name", () => {
     expect(host.querySelectorAll(".pg-parts-unchecked")).toHaveLength(0);
   });
 });
+
+describe("the list beside a decided item", () => {
+  it("shows the item just decided among the resolved, marked as the one on screen", async () => {
+    decidedUpTo(5);
+    afterPost = () => {
+      decidedUpTo(6);
+    };
+    const host = await mounted(false, "run-parts-parts-6");
+    expect(host.querySelector(".pg-queue-entry-on")?.textContent).toContain("run-parts-parts-6");
+    await record(host);
+    const on = host.querySelector(".pg-queue-entry-on");
+    expect(on?.textContent).toContain("run-parts-parts-6");
+    expect(on?.querySelector('[data-status-kind="resolved"]')?.textContent).toBe("Resolved");
+  });
+});
