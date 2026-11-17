@@ -22,6 +22,7 @@ import {
 } from "../../api/queue";
 import { Button, type Confirmation } from "../../design/components/actions/Button";
 import { Id } from "../../design/components/data/Id";
+import type { Refusal } from "../../design/components/status/States";
 import { quantityLabel, word } from "../../words/humanise";
 import { beforeWords, CHOICE_WORDS, CONFIRM_TITLE, PARTS_COPY } from "../../words/parts";
 import { DECISION_COPY, effectWords } from "../../words/queue";
@@ -72,8 +73,11 @@ export function PartsDecide({
   readonly send: (position: PartsPosition, stated: StatedPart | null) => Promise<Result<Resolved>>;
   /** The queue wrote the decision: the screen reads the queue again and moves to the next part. */
   readonly onDecided: (resolved: Resolved) => void;
-  /** The server refused it: the screen reads the queue again, and this panel keeps what it holds. */
-  readonly onRefused: () => void;
+  /**
+   * The server refused it: the screen reads the queue again, and this panel keeps what it holds;
+   * the screen keeps the refusal too, for a part that turns out to be decided meanwhile.
+   */
+  readonly onRefused: (refusal: Refusal) => void;
   /** Whether the keyboard's focus starts on this part's choice, as after the part before it. */
   readonly focusOnStart?: boolean;
 }) {
@@ -158,7 +162,7 @@ export function PartsDecide({
           return;
         }
         setRefusal(result);
-        onRefused();
+        onRefused(result.refusal);
       });
     },
   };
@@ -379,19 +383,23 @@ export function PartsDecide({
         />
       </div>
       <p className="pg-panel-note pg-parts-find-all">{PARTS_COPY.findAll}</p>
-      {refusal !== null && !refusal.ok && (
-        // Said whole, never folded: the server's words are what the person corrects by.
-        <div className="pg-parts-refused" role="alert">
-          <p className="pg-parts-refused-title">{PARTS_COPY.refused}</p>
-          <p>{refusal.refusal.error}</p>
-          {Object.entries(refusal.refusal.context).map(([key, said]) => (
-            <p key={key} className="pg-parts-refused-reason">
-              {said}
-            </p>
-          ))}
-          <p className="pg-panel-note">{PARTS_COPY.refusedReread}</p>
-        </div>
-      )}
+      {refusal !== null && !refusal.ok && <PartsRefusal refusal={refusal.refusal} />}
     </section>
+  );
+}
+
+/** The server's refusal of a part's choice, said whole, never folded: the person corrects by it. */
+export function PartsRefusal({ refusal }: { readonly refusal: Refusal }) {
+  return (
+    <div className="pg-parts-refused" role="alert">
+      <p className="pg-parts-refused-title">{PARTS_COPY.refused}</p>
+      <p>{refusal.error}</p>
+      {Object.entries(refusal.context).map(([key, said]) => (
+        <p key={key} className="pg-parts-refused-reason">
+          {said}
+        </p>
+      ))}
+      <p className="pg-panel-note">{PARTS_COPY.refusedReread}</p>
+    </div>
   );
 }

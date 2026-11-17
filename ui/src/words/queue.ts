@@ -76,6 +76,11 @@ export const SOURCE_WORDS: Readonly<Record<QueueSource, SourceWords>> = {
   },
 };
 
+/** Said while a page keeps what it read last because its latest read again failed. */
+export const REFRESH_FAILED =
+  "The latest refresh of this page failed; it tries again in a few seconds. What is shown is " +
+  "from the last refresh that worked.";
+
 /** Every sentence a screen says about a decision. Nothing else on a screen says it. */
 export const DECISION_COPY = {
   /** The dialog's "Then": the same for approve and reject, for every source. */

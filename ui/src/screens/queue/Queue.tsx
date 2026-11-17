@@ -30,12 +30,17 @@ import {
 } from "../../api/queue";
 import { Segmented } from "../../design/components/actions/Segmented";
 import { Id } from "../../design/components/data/Id";
-import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  type Refusal,
+} from "../../design/components/status/States";
 import { StatusTag } from "../../design/components/status/StatusTag";
 import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
 import { PARTS_COPY, releasedWords } from "../../words/parts";
-import { SOURCE_WORDS } from "../../words/queue";
+import { REFRESH_FAILED, SOURCE_WORDS } from "../../words/queue";
 import { allItems } from "../common/queueItems";
 import { subtaskNames } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
@@ -51,7 +56,7 @@ import {
   planComponents,
   releasedChoices,
 } from "./parts";
-import { PartsDecide } from "./PartsDecide";
+import { PartsDecide, PartsRefusal } from "./PartsDecide";
 import { QueueItem } from "./QueueItem";
 import { useHeldResult } from "./useHeld";
 
@@ -89,11 +94,14 @@ function ItemList({
   chosen,
   query,
   names,
+  onPick,
 }: {
   readonly views: readonly ItemView[];
   readonly chosen: ItemView | undefined;
   readonly query: URLSearchParams;
   readonly names: ReadonlyMap<string, string>;
+  /** A person chose an item in the list: it is shown, whatever the page moved to by itself. */
+  readonly onPick: () => void;
 }) {
   const [show, setShow] = useState<"waiting" | "resolved">(
     chosen !== undefined && !chosen.open ? "resolved" : "waiting",
@@ -151,6 +159,7 @@ function ItemList({
                     }
                     aria-current={on ? "true" : undefined}
                     href={hrefFor(AREA, SLUG, next)}
+                    onClick={onPick}
                   >
                     <span className="pg-queue-entry-head">
                       <span className="pg-panel-over">{SOURCE_WORDS[view.item.source].kind}</span>
@@ -179,14 +188,17 @@ export default function Queue({ setHeader, query }: ViewProps) {
   const [version, setVersion] = useState(0);
   const tick = useEvery(READ_AGAIN_MS);
   const scope = String(base);
-  const listing = useHeldResult(
+  const listingRead = useHeldResult(
     base === null ? null : () => getJson(`${base}/queue`, queueListing),
     scope,
     `${String(version)}#${String(tick)}`,
   );
+  const listing = listingRead.result;
   const total =
     listing?.ok === true ? listing.value.open.length + listing.value.decided.length : null;
-  // The items are read again only when the listing's items change, never on every tick.
+  // The items are read again only when the listing's items change, never on every tick; after
+  // a read of them that failed, on every tick until one works.
+  const [viewsFailed, setViewsFailed] = useState(false);
   const signature =
     listing?.ok === true
       ? [
@@ -195,11 +207,14 @@ export default function Queue({ setHeader, query }: ViewProps) {
           ...listing.value.decided.map((d) => d.itemId),
         ].join(",")
       : null;
-  const views = useHeldResult(
+  const viewsRead = useHeldResult(
     base === null || total === null ? null : () => allItems(base, total),
     scope,
-    `${String(signature)}#${String(version)}`,
+    `${String(signature)}#${String(version)}${viewsFailed ? `#${String(tick)}` : ""}`,
   );
+  const views = viewsRead.result;
+  // Adjusted while rendering, as React asks of state that follows what was read.
+  if (viewsRead.failedAgain !== viewsFailed) setViewsFailed(viewsRead.failedAgain);
   // A list click or a new address names the item; after a decision the page moves on by itself.
   const asked = query.get("item");
   const [moved, setMoved] = useState<{ readonly asked: string | null; readonly to: string } | null>(
@@ -209,6 +224,12 @@ export default function Queue({ setHeader, query }: ViewProps) {
   const [advanceFrom, setAdvanceFrom] = useState<string | null>(null);
   const [focus, setFocus] = useState<"part" | "next" | null>(null);
   const [just, setJust] = useState<JustRecorded | null>(null);
+  // The server's last refusal of a part's choice, kept for when the part turns out to be
+  // decided meanwhile and its panel gives way to the decided view.
+  const [refusedOn, setRefusedOn] = useState<{
+    readonly itemId: string;
+    readonly refusal: Refusal;
+  } | null>(null);
   // The chosen item's view is read again when it is chosen: the server stamps when it showed it,
   // and a decision's review time runs from that stamp, not from when the list was read. It is
   // never read again on a tick, so the stamp stands while the person decides.
@@ -220,20 +241,25 @@ export default function Queue({ setHeader, query }: ViewProps) {
     `${String(base)}/items/${String(picked?.position)}/shown#${String(version)}`,
   );
   // The run's log, read again on a tick only while a run that asked about its parts waits for
-  // its release, so the release appears; otherwise when a decision is written or refused.
+  // its release, so the release appears, or after a read of it failed; otherwise when a decision
+  // is written or refused.
   const [awaitingRelease, setAwaitingRelease] = useState(false);
-  const eventsRead = useHeldResult(
+  const [eventsFailed, setEventsFailed] = useState(false);
+  const eventsHeld = useHeldResult(
     base === null ? null : () => getLines(`${base}/events`, runEvent),
     scope,
-    awaitingRelease ? `${String(version)}#${String(tick)}` : String(version),
+    awaitingRelease || eventsFailed ? `${String(version)}#${String(tick)}` : String(version),
   );
+  const eventsRead = eventsHeld.result;
   const events = { result: eventsRead };
   const awaiting =
     eventsRead?.ok === true &&
     planComponents(eventsRead.value) !== null &&
     releasedChoices(eventsRead.value) === null;
-  // Adjusted while rendering, as React asks of state that follows what was read.
   if (awaiting !== awaitingRelease) setAwaitingRelease(awaiting);
+  if (eventsHeld.failedAgain !== eventsFailed) setEventsFailed(eventsHeld.failedAgain);
+  // One failed read keeps what the page holds; the page says so until a read works again.
+  const refreshFailed = listingRead.failedAgain || viewsRead.failedAgain || eventsHeld.failedAgain;
   // Once the decided part reads as decided, show the next open part, or stay and say what the
   // run does next.
   if (advanceFrom !== null && views?.ok === true) {
@@ -392,13 +418,32 @@ export default function Queue({ setHeader, query }: ViewProps) {
           <span className="mono">{just.resolved.ts}</span>
         </p>
       )}
+      {item !== undefined && !item.open && refusedOn?.itemId === item.item.itemId && (
+        // The part's panel gave way to the decided view: its refusal stays on screen.
+        <PartsRefusal refusal={refusedOn.refusal} />
+      )}
+      {refreshFailed && (
+        <p className="pg-panel-note pg-queue-refresh-failed" role="status">
+          {REFRESH_FAILED}
+        </p>
+      )}
       {released === null && components !== null && everyPartDecided(views.value) && (
         <p className="pg-parts-next" role="status" tabIndex={-1} ref={nextLine}>
           {PARTS_COPY.next}
         </p>
       )}
       <div className="pg-queue-layout">
-        <ItemList views={views.value} chosen={item} query={query} names={names} />
+        <ItemList
+          views={views.value}
+          chosen={item}
+          query={query}
+          names={names}
+          onPick={() => {
+            setMoved(null);
+            setAdvanceFrom(null);
+            setFocus(null);
+          }}
+        />
         {item === undefined ? (
           <EmptyState title="Nothing to decide">
             This run's queue is empty: no subtask was set aside for a person.
@@ -433,10 +478,12 @@ export default function Queue({ setHeader, query }: ViewProps) {
                     components,
                   );
                   setJust({ label: component?.label ?? item.item.itemId, resolved: written });
+                  setRefusedOn(null);
                   setAdvanceFrom(item.item.itemId);
                   setVersion((v) => v + 1);
                 }}
-                onRefused={() => {
+                onRefused={(refusal) => {
+                  setRefusedOn({ itemId: item.item.itemId, refusal });
                   setVersion((v) => v + 1);
                 }}
               />
