@@ -45,7 +45,7 @@ internals to be met has its boundary in the wrong place.
 with one name, and overlapping module directories. Whether a boundary hides the right decisions is
 judgement.
 
-## 3. Every quantity that crosses a module boundary is on an interface node its producer owns
+## 3. Every quantity that crosses a module boundary is on an interface node its producer owns; a design another module implements is read from its designer's own node
 
 Interface management means to "define interfaces" and "identify the characteristics of the
 interfaces" [NASA SE Handbook, §6.3, p. 156], including their "origin, destination, stimuli, and
@@ -58,10 +58,28 @@ defined? ... Are all interfaces necessary, sufficient, and consistent with each 
 Appendix C.4, pp. 238–239). An interface node is fixed once the plan is accepted, so its values are
 the plan's commitment.
 
+So an interface node holds what both sides must agree on before either works: the signals that
+cross, each with its unit and rate, the limits both sides hold to (a command range, a sample
+period, a supply), and the physical properties one side gives the other (a mass, a motor
+constant). It never holds a solution's tuned parameters. A value one module chooses while
+doing its own work, such as a controller's coefficients, is that module's hidden decision (§2: the
+interface reveals "as little as possible about its inner workings", Parnas 1972, p. 1056); fixed on
+an interface node at plan time, it is taken from the module that owns it, and no session can change
+it afterwards (interface nodes are written by the harness alone [architecture specification,
+ARCH-011]). Where another module must implement that design (firmware running the control law that
+control analysed), the plan does three things. The designing module writes its design (the law's
+form and every coefficient, each a value with its unit) on a node of its own, which both
+specifications name. The designing module comes before the implementing one in the plan, so its
+merged node can be there when the implementer starts; where it is not, the implementer reports that
+and implements no design of its own. And the implementing module's acceptance criteria compare the
+implementation with that node as merged, each coefficient equal within §5's tolerance.
+The interface node between them still carries the signals and limits.
+
 **Enforced:** the schema refuses a quantity without a value, unit, source and writer; the plan
 checks refuse a node that is not of kind interface, two interface nodes with one id, a node owned
 by a role no module has, and a quantity name that shadows one a relation reads. Whether every
-crossing quantity has a node is judgement.
+crossing quantity has a node, and whether a quantity on an interface node is a tuned parameter, is
+judgement: by name and unit a coefficient and a limit look alike.
 
 ## 4. A quantity that constrains more than one domain is given to sizing, not fixed twice
 
@@ -114,9 +132,24 @@ is verifiable is judgement.
 Appendix C.1, p. 236]. One thought per statement, one subject and one predicate; "free from
 indefinite pronouns (this, these) and ambiguous terms (e.g., 'as appropriate,' 'etc.,' 'and/or,'
 'but not limited to')" (ibid., Appendix C.4, p. 237). Requirements "state WHAT is needed, NOT HOW to
-provide it" (ibid., Appendix C.2, p. 236); where a specification does fix a method (a part the brief
-names, a controller structure), "the rationale should state why the decision was made to limit the
-solution to this one method" (ibid., §4.2.1.2.3, box "Rationale", p. 70).
+provide it" (ibid., Appendix C.2, p. 236). A specification fixes a method (a structure, a law, an
+algorithm, a set of coefficients) only where the brief itself requires that method, and then cites
+the brief's requirement as its rationale: "the rationale should state why the decision was made to
+limit the solution to this one method" (ibid., §4.2.1.2.3, box "Rationale", p. 70). A part the brief
+names is such a requirement.
+
+**Requires or cites.** The brief *requires* a method when one of its own requirements, read in its
+own words, is met only if the method is used: it says the design shall use, run or contain it ("the
+firmware shall run the maker's balancing program unchanged"). The brief *cites* a method when it
+names a reference as the source of a number, a part or a condition ("the 10 ms update period of the
+maker's example program"), or as background. A citation makes the numbers the brief's; the method
+stays free. The test: strike the method from the specification and ask whether the plan, as
+written, still carries every requirement of the brief. If it does, the brief cites the method and
+does not require it. A requirement
+that one module's implementation match what another module analysed (the firmware runs the
+controller whose margins were shown) asks for consistency, not for a method: §3's route meets it,
+whatever the method. Where the reading is in doubt, the plan leaves the method free and records the
+doubt, with both readings, in the specification it concerns (§8), for the person who owns the brief.
 
 **Judgement-only** — no check reads a requirement's wording.
 
