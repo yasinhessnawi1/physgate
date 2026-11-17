@@ -133,9 +133,18 @@ def _line(position: str, ts: str, **more: Any) -> dict[str, Any]:  # noqa: ANN40
     }
 
 
+def _read(fields: dict[str, Any]) -> QueueResolution | str:
+    """The line as a reader of the file reads it, or why it is refused."""
+    try:
+        return QueueResolution.model_validate_json(json.dumps(fields))
+    except ValueError as exc:
+        return str(exc)
+
+
 @pytest.mark.parametrize("position", ["have", "make", "find"])
 def test_a_parts_line_over_a_minute_unmarked_is_admitted(position: str) -> None:
-    line = QueueResolution.model_validate(_line(position, OVER))
+    line = _read(_line(position, OVER))
+    assert isinstance(line, QueueResolution), line
     assert line.decomposition_defect is None
     assert "decomposition_defect" not in line.model_dump_json()
 
@@ -143,7 +152,8 @@ def test_a_parts_line_over_a_minute_unmarked_is_admitted(position: str) -> None:
 @pytest.mark.parametrize("position", ["have", "make", "find"])
 def test_a_parts_line_written_before_the_exemption_still_validates(position: str) -> None:
     # The writer marked a part's choice over a minute until the exemption: those lines stand.
-    line = QueueResolution.model_validate(_line(position, OVER, decomposition_defect=True))
+    line = _read(_line(position, OVER, decomposition_defect=True))
+    assert isinstance(line, QueueResolution), line
     assert line.decomposition_defect is True
     assert json.loads(line.model_dump_json())["decomposition_defect"] is True
 
@@ -157,8 +167,8 @@ def test_a_parts_line_marked_within_a_minute_or_with_no_view_is_refused(position
             "decomposition_defect": True,
         },
     ):
-        with pytest.raises(ValueError, match="exactly when"):
-            QueueResolution.model_validate(fields)
+        said = _read(fields)
+        assert isinstance(said, str) and "exactly when" in said, said
 
 
 def test_another_line_over_a_minute_unmarked_is_still_refused() -> None:
@@ -170,9 +180,9 @@ def test_another_line_over_a_minute_unmarked_is_still_refused() -> None:
         "note": "not as the plan asked",
         "ts": OVER,
     }
-    with pytest.raises(ValueError, match="exactly when"):
-        QueueResolution.model_validate(fields)
-    assert QueueResolution.model_validate({**fields, "decomposition_defect": True})
+    said = _read(fields)
+    assert isinstance(said, str) and "exactly when" in said, said
+    assert isinstance(_read({**fields, "decomposition_defect": True}), QueueResolution)
 
 
 # --- a run whose parts lines were written before the exemption ---------------------------------
