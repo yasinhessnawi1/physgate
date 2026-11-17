@@ -104,3 +104,12 @@ export function ChecksTable({
     </div>
   );
 }
+
+/** The counts a person cannot read alone, in a sentence each. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function CountsExplained(props: {
+  readonly unchecked: number;
+  readonly overNothing: number;
+}) {
+  return null;
+}
