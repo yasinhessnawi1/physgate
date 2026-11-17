@@ -32,6 +32,7 @@ from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import Installed
 from physgate.orchestrator.protocols import IssuedSpec, IssuedState, PersonOrder
 from physgate.orchestrator.run_config import RunBounds
+from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.rubric import Rubric, parse_rubric
 
@@ -55,6 +56,10 @@ def shown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, form: str) -> dict[st
     monkeypatch.setattr(secrets, "token_hex", lambda size: next(draws))
     monkeypatch.setattr(uuid, "uuid4", lambda: SESSION)
     monkeypatch.setattr(claude, "binary_version", lambda binary: "2.1.301")
+    # The drawn name is fixed, so the session's own temporary directory goes under this test's
+    # directory: two workers never make the same one beneath the shared parent.
+    temps = tmp_path / "session-temps"
+    monkeypatch.setattr(claude, "make_session_temp", lambda: make_session_temp(str(temps)))
     attempt = make_attempt(tmp_path, stream())
     library = tmp_path / "harness"
     write_fixture(library, ("cross", "control"))
