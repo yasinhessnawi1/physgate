@@ -31,6 +31,7 @@ import {
 import { clockTime, utc } from "../../words/runs";
 import { decisionPendingWords, type Phase } from "../../words/standing";
 import { ActorTag } from "../common/ActorTag";
+import { Finding } from "./Finding";
 import { SEAL_TAG, sealLine } from "./model";
 import { RunPhaseContext } from "./runPhase";
 
@@ -147,7 +148,9 @@ export function QueueItem({
             {subtaskName} <Id value={item.subtaskId} copy={false} />
           </dd>
           <dt>What triggered it</dt>
-          <dd className="pg-queue-finding">{item.triggeringFinding}</dd>
+          <dd className="pg-queue-finding">
+            <Finding text={item.triggeringFinding} />
+          </dd>
           {consequence !== null && supersededBy === undefined && (
             <>
               <dt>If you approve</dt>
