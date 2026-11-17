@@ -31,7 +31,8 @@ const S1 = "s1-af41ca";
 const ROUTES: readonly RegExp[] = [
   /^\/api\/runs$/,
   /^\/api\/runs\/0\/[^/]+\/events$/,
-  /^\/api\/runs\/0\/[^/]+\/(config|status)$/,
+  // The queue is read for an ended run, to say how it ended at the top of the screen.
+  /^\/api\/runs\/0\/[^/]+\/(config|status|queue)$/,
   /^\/api\/runs\/0\/[^/]+\/series$/,
   /^\/api\/runs\/0\/[^/]+\/series\/[A-Za-z0-9][A-Za-z0-9_-]*\/[1-9]$/,
   /^\/api\/runs\/0\/[^/]+\/series\/[A-Za-z0-9][A-Za-z0-9_-]*\/[1-9]\/[a-z][a-z0-9_]*$/,

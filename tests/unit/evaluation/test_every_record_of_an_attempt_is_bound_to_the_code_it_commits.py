@@ -8,6 +8,10 @@ infrastructure included, and for loaded code as for the script: code the attempt
 commit (ignored, or never added) cannot stand behind a curve. A loaded file changed after the
 record was written refuses the record when it is collected.
 
+A record whose module code changed, or was deleted or renamed, after it was written is
+discarded instead: never sealed, so a quantity naming it still refuses the attempt, but the
+record alone does not. The reviewer is shown it, by name, reason and seal, as no evidence.
+
 Through the real loop, change check, git and collection, with stand-in sessions and stand-in
 recording scripts (no physics; numbers made up and labelled so).
 """
@@ -15,14 +19,23 @@ recording scripts (no physics; numbers made up and labelled so).
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
-from observe_rig import RECORDING_SCRIPT, fake_run, target_repo
+from knowledge_fixture import write_fixture
+from observe_rig import RECORDING_SCRIPT, Reviewer, fake_run, target_repo
+
+# The reviewers' own placeholder rubric, from their test helpers.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "reviewers"))
+from rubric_fixture import PLACEHOLDER  # noqa: E402
 
 from physgate.orchestrator.events import Merged, ProposalsChecked, SessionEnded, read_events
+from physgate.orchestrator.protocols import Artefact
 from physgate.orchestrator.run_config import RunBounds
+from physgate.reviewers.packet import build_packet, check_parts, joined_parts
+from physgate.reviewers.rubric import Rubric
 
 BRIEF = "Build two modules.\n"
 LINK = {
@@ -67,6 +80,57 @@ CHANGED_HELPER = (
 )
 #: A committed helper, loaded and unchanged: the control case.
 COMMITTED_HELPER = PRELUDE + WRITE_HELPER + RECORD
+#: Records a draft, changes the helper the draft loaded, and records again under a new id:
+#: the draft's code is no longer the module's, the later record's is.
+RERUN_AFTER_EDIT = (
+    PRELUDE
+    + """sys.dont_write_bytecode = True
+with open(os.path.join(module, "helper.py"), "w") as f:
+    f.write("PEAK = 0.0500\\n")
+sys.path.insert(0, module)
+import importlib
+import helper
+series_writer.record("draft", title="Stand-in draft, not a simulation", axis="time",
+    x=("time", "s", [0.0, 0.01, 0.02]), traces=[("position", "m", [0.0, helper.PEAK, 0.05])],
+    inputs={"seed": (7, "dimensionless")})
+"""
+    + WRITE_HELPER
+    + "importlib.reload(helper)\n"
+    + RECORD
+)
+#: As above, and the outbox also holds a file that is no record at all.
+RERUN_AND_A_STRAY_FILE = (
+    RERUN_AFTER_EDIT
+    + """with open(os.path.join(here, ".physgate", "series", "notes.txt"), "w") as f:
+    f.write("not a record\\n")
+"""
+)
+#: A draft run of its own that loads a helper of its own and records under another id.
+DRAFT = (
+    PRELUDE
+    + """sys.path.insert(0, module)
+import draft_helper
+series_writer.record("draft", title="Stand-in draft, not a simulation", axis="time",
+    x=("time", "s", [0.0, 0.01, 0.02]),
+    traces=[("position", "m", [0.0, draft_helper.PEAK, 0.05])],
+    inputs={"seed": (7, "dimensionless")})
+"""
+)
+#: Runs the draft, deletes the helper it loaded, and records again under a new id with the
+#: module's helper: the draft's code is gone from the module.
+RERUN_AFTER_A_DELETE = (
+    PRELUDE
+    + f"""import subprocess
+with open(os.path.join(module, "draft_helper.py"), "w") as f:
+    f.write("PEAK = 0.0500\\n")
+with open(os.path.join(module, "draft.py"), "w") as f:
+    f.write({DRAFT!r})
+subprocess.run([sys.executable, "-B", os.path.join(module, "draft.py")], check=True)
+os.remove(os.path.join(module, "draft_helper.py"))
+"""
+    + WRITE_HELPER
+    + RECORD
+)
 
 
 @pytest.fixture(autouse=True)
@@ -124,16 +188,54 @@ def test_loaded_code_the_attempt_does_not_commit_refuses_the_record(tmp_path: Pa
     assert "helper.py" in checked.reason and "did not commit" in checked.reason
 
 
-def test_a_loaded_file_changed_after_the_record_was_written_refuses_the_record(
+def _set_aside(ended: SessionEnded) -> list[tuple[str, str]]:
+    return [(e.name, e.reason) for e in ended.series.discarded if e.name.endswith(".json")]
+
+
+def test_a_quantity_naming_a_record_whose_loaded_file_changed_refuses_the_attempt(
     tmp_path: Path,
 ) -> None:
     events = _run(tmp_path, script=CHANGED_HELPER)
     ended = next(e for e in events if isinstance(e, SessionEnded))
     assert ended.series.records == ()
-    (refused,) = ended.series.refused
-    assert refused.name == "step.json"
-    assert "helper.py changed after the record was written" in refused.reason
-    assert _first_check(events).refused_by == "series"
+    assert ended.series.refused == ()
+    found = _set_aside(ended)
+    assert [name for name, _ in found] == ["step.json"]
+    reason = found[0][1]
+    assert "helper.py changed after the record was written" in reason
+    checked = _first_check(events)
+    assert checked.refused_by == "series", checked
+    assert checked.reason is not None
+    assert "names the record step, which this attempt did not seal" in checked.reason
+    assert not [e for e in events if isinstance(e, Merged)]
+
+
+def test_a_record_superseded_by_a_later_run_of_changed_code_does_not_refuse_the_attempt(
+    tmp_path: Path,
+) -> None:
+    events = _run(tmp_path, script=RERUN_AFTER_EDIT)
+    ended = [e for e in events if isinstance(e, SessionEnded)]
+    for session in ended:
+        assert [r.record_id for r in session.series.records] == ["step"]
+        assert session.series.refused == ()
+        found = _set_aside(session)
+        assert [name for name, _ in found] == ["draft.json"]
+        reason = found[0][1]
+        assert "helper.py changed after the record was written" in reason
+    assert [c.refused_by for c in events if isinstance(c, ProposalsChecked)] == [None, None]
+    assert len([e for e in events if isinstance(e, Merged)]) == 2
+
+
+def test_a_record_refused_for_another_reason_still_refuses_the_attempt(tmp_path: Path) -> None:
+    events = _run(tmp_path, script=RERUN_AND_A_STRAY_FILE)
+    ended = next(e for e in events if isinstance(e, SessionEnded))
+    assert [r.record_id for r in ended.series.records] == ["step"]
+    assert [e.name for e in ended.series.refused] == ["notes.txt"]
+    checked = _first_check(events)
+    assert checked.refused_by == "series", checked
+    assert checked.reason is not None
+    assert "notes.txt: not a record's name" in checked.reason
+    assert "draft" not in checked.reason
 
 
 def test_committed_loaded_code_unchanged_is_admitted(tmp_path: Path) -> None:
@@ -143,3 +245,85 @@ def test_committed_loaded_code_unchanged_is_admitted(tmp_path: Path) -> None:
     assert any(c.path.endswith("/helper.py") for c in record.loaded)
     assert [c.refused_by for c in events if isinstance(c, ProposalsChecked)] == [None, None]
     assert len([e for e in events if isinstance(e, Merged)]) == 2
+
+
+def test_a_record_whose_loaded_file_was_deleted_before_a_rerun_does_not_refuse_the_attempt(
+    tmp_path: Path,
+) -> None:
+    events = _run(tmp_path, script=RERUN_AFTER_A_DELETE)
+    ended = [e for e in events if isinstance(e, SessionEnded)]
+    for session in ended:
+        assert [r.record_id for r in session.series.records] == ["step"]
+        assert session.series.refused == ()
+        found = _set_aside(session)
+        assert [name for name, _ in found] == ["draft.json"]
+        assert (
+            "draft_helper.py was deleted or renamed after the record was written" in (found[0][1])
+        )
+    assert [c.refused_by for c in events if isinstance(c, ProposalsChecked)] == [None, None]
+    assert len([e for e in events if isinstance(e, Merged)]) == 2
+
+
+def _reviewed(tmp_path: Path, script: str) -> tuple[Path, Artefact]:
+    reviewer = Reviewer()
+    repo = target_repo(tmp_path)
+    digest = hashlib.sha256(BRIEF.encode()).hexdigest()
+    run = fake_run(
+        tmp_path,
+        "run-a",
+        repo,
+        overrides={"brief_sha256": digest},
+        records=7,
+        linked=LINK,
+        script=script,
+        reviewers={"electrical": reviewer},
+    )
+    return run, reviewer.seen[0]
+
+
+def test_the_reviewer_is_shown_the_record_a_later_run_superseded(tmp_path: Path) -> None:
+    run, artefact = _reviewed(tmp_path, RERUN_AFTER_EDIT)
+    assert artefact.series is not None
+    shown = artefact.series.model_dump(mode="json")
+    listed = [d["entry"] for d in shown.get("discarded", [])]
+    assert [e["name"] for e in listed] == ["draft.json"]
+    events = read_events(run / "events.jsonl")
+    session = next(
+        e
+        for e in events
+        if isinstance(e, SessionEnded)
+        and (e.subtask_id, e.attempt) == (artefact.subtask_id, artefact.attempt)
+    )
+    kept = run / "series" / "_discarded" / session.session_id / "draft.json"
+    data = kept.read_bytes()
+    assert (listed[0]["sha256"], listed[0]["length"]) == (
+        hashlib.sha256(data).hexdigest(),
+        len(data),
+    )
+    library = tmp_path / "harness"
+    write_fixture(library, ("cross", "electrical"))
+    rubric = Rubric(
+        role="electrical",
+        text=PLACEHOLDER,
+        sha256=hashlib.sha256(PLACEHOLDER.encode()).hexdigest(),
+    )
+    repo = Path(artefact.repository) if artefact.repository else tmp_path / "target"
+    assert artefact.base_commit is not None
+    packet = build_packet(
+        tmp_path / "reviews" / "r0",
+        artefact,
+        repo=repo,
+        base_commit=artefact.base_commit,
+        rubric=rubric,
+        library=library,
+        spec=None,
+    )
+    text = joined_parts(Path(packet.read_root), packet.series_parts).decode()
+    assert "Records sealed: 1." in text and "## step\n" in text
+    assert "Records discarded: 1." in text
+    assert (
+        '- "draft.json": discarded: the module\'s code changed after this record was written; '
+        "not evidence\n"
+    ) in text
+    assert f"seal: sha256 {hashlib.sha256(data).hexdigest()}, {len(data)} bytes" in text
+    check_parts(packet, repo=repo, base_commit=artefact.base_commit)

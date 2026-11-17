@@ -1199,6 +1199,7 @@ class ClaudeReviewer:
                 session_id=session_id,
                 on_spawn=self._on_spawn,
                 while_held=while_held,
+                login_dir=config,
             )
             # However the session ends, nothing it started is left running: a process it
             # left could still read, or write, under the review root once it is gone.

@@ -37,9 +37,10 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
 The export and the diff leave out the attempt's disputes (``orchestrator.dispute``): a
 dispute is a role's position for a person to arbitrate, recorded on the run's log, and the
 reviewer judges the work without another session's free text in it.
-- ``series-NN-of-MM.md``: for an attempt that sealed simulation records or named one
-  from a graph quantity, the harness's listing of them (``series.summary``): each
-  record summarised from its own samples, read back held to its seal, and each
+- ``series-NN-of-MM.md``: for an attempt that sealed or discarded simulation records
+  or named one from a graph quantity, the harness's listing of them
+  (``series.summary``): each record summarised from its own samples, read back held to
+  its seal; each discarded record by its name, reason and seal, as no evidence; and each
   quantity's check against the record it names. Absent for an attempt with none.
 - ``spec_as_issued.md``: the module specification exactly as the decomposition
   issued it, read from the commit that issued it. The attempt can edit its own
@@ -1438,11 +1439,14 @@ def build_packet(
 def _series_listing(artefact: Artefact) -> bytes | None:
     """The attempt's series listing, or ``None`` for an attempt with no records and no checks.
 
+    A record a session discarded counts: an attempt whose only record was discarded is given
+    the listing, so its reviewer is shown that record as no evidence.
+
     Raises:
         PacketError: a record is gone or is not what was sealed when its session ended.
     """
     series = artefact.series
-    if series is None or not (series.records or series.checks):
+    if series is None or not (series.records or series.checks or series.discarded):
         return None
     try:
         return listing(series)

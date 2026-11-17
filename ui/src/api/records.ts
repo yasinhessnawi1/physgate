@@ -66,6 +66,8 @@ export interface RunListing {
   /** ``null`` for a run recorded before the OS layer was measured, or an unreadable one. */
   readonly osLayer: OsLayer | null;
   readonly error: string | null;
+  /** When the run's log began, as recorded; ``null`` when it has none or it was not read. */
+  readonly started?: string | null;
 }
 
 export function runListing(value: unknown): readonly RunListing[] {
@@ -82,6 +84,10 @@ export function runListing(value: unknown): readonly RunListing[] {
       gateMode: failed ? null : gateMode(run.gate_mode),
       osLayer: failed ? null : osLayer(run.os_layer),
       error: failed ? text(run.error, "a refusal") : null,
+      started:
+        failed || run.started === undefined || run.started === null
+          ? null
+          : text(run.started, "a start time"),
     };
   });
 }

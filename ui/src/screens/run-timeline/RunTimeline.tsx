@@ -29,7 +29,7 @@ import { useJson, useLines } from "../common/read";
 import { RowView } from "../common/RowView";
 import { type Row, rowsOf, subtaskNames, subtaskRoles } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
-import { inProgress, runSource, useChosenRun } from "../common/runs";
+import { phaseOfResult, runSource, useChosenRun } from "../common/runs";
 import { AttemptInspector } from "./AttemptInspector";
 
 const AREA = "orchestration";
@@ -69,7 +69,8 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
     costRecord,
   );
   const [who, setWho] = useState<Who>("all");
-  const going = status?.ok === true && inProgress(status.value);
+  const phase = phaseOfResult(status);
+  const going = phase === "going";
   const configValue = config?.ok === true ? config.value : undefined;
 
   useEffect(() => {
@@ -89,9 +90,22 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
         gateMode: configValue.gateMode,
         osLayer: configValue.osLayer,
         inProgress: going,
+        phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, label, setHeader, events.result, checks.result]);
+  }, [
+    runs,
+    config,
+    configValue,
+    going,
+    phase,
+    chosen.standing,
+    label,
+    setHeader,
+    events.result,
+    checks.result,
+  ]);
 
   const rows = useMemo(
     () =>
@@ -187,7 +201,13 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
               <span className="pg-muted">Reading…</span>
             ) : cost.result.ok ? (
               <>
-                <Figure {...cost.result.value.usd} decimals={2} source={source} partial={going} />
+                <Figure
+                  {...cost.result.value.usd}
+                  decimals={2}
+                  source={source}
+                  partial={going}
+                  atLeast={cost.result.value.lowerBound}
+                />
                 <span className="pg-panel-note">
                   price sheet of {cost.result.value.pricesDate}
                   <CostCaveat cost={cost.result.value} />

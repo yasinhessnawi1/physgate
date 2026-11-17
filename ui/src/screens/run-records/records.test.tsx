@@ -68,9 +68,9 @@ describe("a cost that is a lower bound says so beside its figure", () => {
   it("marks the card, and names the reviews the server cannot price at their rate", () => {
     const cost: CostRecord = costRecord(LINE);
     const html = renderToStaticMarkup(<TokensCard tokens={TOKENS} cost={cost} source={SOURCE} />);
-    expect(html).toContain("Lower bound");
-    expect(html).toContain("2 calls not priced at the rate they paid");
-    expect(html).toContain("reviews unpriced at their rate");
+    expect(html).toContain("Lower bound: the cost may be higher.");
+    expect(html).toContain("2 calls counted at the lowest rate");
+    expect(html).toContain("the records of the reviews are kept where this app does not read");
   });
 
   it("says nothing of a bound when every call was read", () => {
