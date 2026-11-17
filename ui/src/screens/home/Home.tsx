@@ -27,14 +27,14 @@ import { tallyOfChecks } from "../../design/tally";
 import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
 import { SOURCE_WORDS } from "../../words/queue";
-import type { RunLabel } from "../../words/runs";
+import { clockTime, type RunLabel, utc } from "../../words/runs";
 import { CostCaveat } from "../common/cost";
 import { EngineWords } from "../common/engine";
 import { useJson, useLines } from "../common/read";
 import { RowView } from "../common/RowView";
 import { type Row, rowsOf } from "../common/rows";
 import { runBase, runKey, runSource, useLabels, useRunList } from "../common/runs";
-import { type Phase, phaseOf, standingOf } from "../../words/standing";
+import { phaseOf, standingOf } from "../../words/standing";
 import { NoRunsYet } from "./NoRunsYet";
 import { type RunEnd, runEnd, waitingFor } from "./runEnd";
 import {
@@ -43,8 +43,11 @@ import {
   phasesOf,
   readTargets,
   type RunRead,
+  type Stale,
   startOfRead,
   useRunReads,
+  useOrderPhases,
+  useSettled,
   useStatuses,
 } from "./data";
 import {
@@ -125,12 +128,33 @@ function RunName({
   );
 }
 
-export function statusWords(read: RunRead | undefined) {
+/** A status kept from an earlier read: since when it is not refreshed, and why. */
+function StaleWords({ stale }: { readonly stale: Stale | undefined }) {
+  if (stale === undefined) return null;
+  return (
+    <span className="pg-run-stale pg-muted">
+      Not refreshed since <time title={utc(stale.since)}>{clockTime(stale.since)}</time>:{" "}
+      {stale.error}
+    </span>
+  );
+}
+
+export function statusWords(read: RunRead | undefined, stale?: Stale) {
   if (read === undefined) return <span className="pg-muted">Reading…</span>;
-  if (!read.status.ok) return <span className="pg-muted">Where it stands was not read</span>;
+  if (!read.status.ok)
+    return (
+      <span className="pg-muted">Where it stands was not read: {read.status.refusal.error}</span>
+    );
   const status = read.status.value;
   const phase = phaseOf(status);
-  if (phase === "going") return <InProgressBadge />;
+  if (phase === "going")
+    return stale === undefined ? (
+      <InProgressBadge />
+    ) : (
+      <div className="pg-run-standing">
+        <InProgressBadge /> <StaleWords stale={stale} />
+      </div>
+    );
   let end: RunEnd | null = null;
   if (phase === "done") {
     // A log that could not be read cannot show a run complete: it is not claimed.
@@ -147,33 +171,39 @@ export function statusWords(read: RunRead | undefined) {
       />{" "}
       <span className="pg-standing-sentence">{standing.sentence}</span>
       <Detail text={standing.detail} />
+      <StaleWords stale={stale} />
     </div>
   );
 }
 
 /** Home's order of the runs, in the panel's words and as its table is named. */
-const ORDER_NOTE = "View: going, then waiting on a person, then newest first";
-const ORDER_LABEL = "Runs, going and waiting on a person first, then newest first";
+const ORDER_NOTE =
+  "View: going, then waiting on a person, then halted or stopped, then newest first";
+const ORDER_LABEL = "Runs, going, waiting on a person, halted or stopped first, then newest first";
 
-/** No run's phase known yet: Home's order is then the run list's, newest first. */
-const NO_PHASES: ReadonlyMap<string, Phase> = new Map();
+/** No run read in full yet. */
+const NO_TARGETS: readonly RunListing[] = [];
 
 export function Runs({
   runs,
   reads,
   labels,
+  stale,
 }: {
   readonly runs: readonly RunListing[];
   readonly reads: ReadonlyMap<string, RunRead>;
   readonly labels: ReadonlyMap<string, RunLabel>;
+  /** The runs whose status is kept from an earlier read, by run key. */
+  readonly stale?: ReadonlyMap<string, Stale>;
 }) {
-  // One list in Home's order (``homeOrder``): runs going, then runs waiting on a person, then the
-  // rest, newest start first within each. Grouped by brief, dates would jump.
-  const listed: { run: RunListing; read: RunRead }[] = [];
+  // One list in Home's order (``homeOrder``): runs going, then runs waiting on a person, then runs
+  // halted or stopped, then the rest, newest start first within each. Grouped by brief, dates would jump.
+  // A run whose records are still read is listed at once, its standing "Reading…".
+  const listed: { run: RunListing; read: RunRead | undefined }[] = [];
   const unread: RunListing[] = [];
   for (const run of runs) {
     const read = reads.get(runKey(run));
-    if (run.error !== null || read === undefined || !read.config.ok) unread.push(run);
+    if (run.error !== null || (read !== undefined && !read.config.ok)) unread.push(run);
     else listed.push({ run, read });
   }
   return (
@@ -203,13 +233,13 @@ export function Runs({
                     <RunName label={labels.get(runKey(run))} fallback={`Run ${run.name}`} />
                   </a>
                 </td>
-                <td>{statusWords(read)}</td>
+                <td>{statusWords(read, stale?.get(runKey(run)))}</td>
                 <td>{run.gateMode !== null && <GateModeBadge mode={run.gateMode} />}</td>
                 <td>
                   <OsLayerBadge layer={run.osLayer} />
                 </td>
                 <td className="pg-runs-brief">
-                  {read.config.ok && (
+                  {read?.config.ok === true && (
                     <span title="The digest of the brief the run read: runs of one brief share it">
                       <Id value={read.config.value.briefSha256.slice(0, 8)} copy={false} />
                     </span>
@@ -230,11 +260,8 @@ export function Runs({
                   <span className="pg-run-unread">
                     Run {run.name} could not be read: {run.error}
                   </span>
-                ) : read === undefined ? (
-                  <span className="pg-muted">
-                    Run {run.name}: not read yet. Its records are read when all runs are shown.
-                  </span>
                 ) : (
+                  read !== undefined &&
                   !read.config.ok && (
                     <span className="pg-run-unread">
                       Run {run.name}: its configuration could not be read:{" "}
@@ -442,7 +469,12 @@ function RecentActivity({ reads }: { readonly reads: readonly RunRead[] }) {
   const rows: { read: RunRead; row: Row }[] = reads
     .flatMap((read) =>
       read.events.ok && read.config.ok
-        ? rowsOf(read.events.value, read.config.value).map((row) => ({ read, row }))
+        ? rowsOf(
+            read.events.value,
+            read.config.value,
+            undefined,
+            read.status.ok && phaseOf(read.status.value) === "going",
+          ).map((row) => ({ read, row }))
         : [],
     )
     .sort((a, b) => b.row.ts.localeCompare(a.row.ts) || b.row.seq - a.row.seq)
@@ -537,17 +569,43 @@ function SystemPanel({
   );
 }
 
+/**
+ * What this page is, said first, for a person who has not seen it before: what a run is, what
+ * stands between an agent's work and the design, and what Home lists.
+ */
+export function HomeIntro() {
+  return (
+    <div className="pg-home-intro">
+      <p>
+        This is the operator's view of the design runs on this machine. In a run, AI agents design a
+        mechatronic system from a brief: the work is split into subtasks, an agent does each, a
+        physics gate checks the design's numbers (their units, ranges and balances) before a
+        reviewer reads the work, and anything the run cannot settle comes to a person.
+      </p>
+      <p>
+        Home lists the runs, the questions a run has left for a person to decide, and the latest
+        activity. Open a run for its timeline, its design and its gate checks.
+      </p>
+    </div>
+  );
+}
+
 export default function Home({ setHeader }: ViewProps) {
   const runs = useRunList();
   const [all, setAll] = useState(false);
   const listed = useMemo(() => (runs?.ok === true ? runs.value : []), [runs]);
   const readable = useMemo(() => listed.filter((r) => r.error === null), [listed]);
   // Where every readable run stands, first: Home's order needs it, and it is small.
-  const statuses = useStatuses(readable);
-  const phases = useMemo(() => phasesOf(readable, statuses), [readable, statuses]);
-  const chosen = readTargets(listed, all, phases);
-  const targets = chosen ?? [];
-  const reads = useRunReads(targets, statuses);
+  const { found: statuses, stale, minutes } = useStatuses(readable);
+  // The runs are listed at once; their records are read once the statuses have answered, or
+  // after a short wait, so a run going is among those read and no slow status holds Home up.
+  const settled = useSettled(readable, statuses);
+  const answered = useMemo(() => phasesOf(readable, statuses), [readable, statuses]);
+  // The order is settled once and moved only when a minute's re-read ends, so a row does not
+  // move under a person's pointer as the statuses answer.
+  const phases = useOrderPhases(answered, settled, minutes, readable.map(runKey).join(","));
+  const targets = readTargets(listed, all, phases);
+  const reads = useRunReads(settled ? targets : NO_TARGETS, statuses);
   const starts = useMemo(
     () => new Map([...reads].map(([k, read]) => [k, startOfRead(read)] as const)),
     [reads],
@@ -581,11 +639,11 @@ export default function Home({ setHeader }: ViewProps) {
       <ErrorState title="The run list could not be read" {...runs.refusal} route="/api/runs" />
     );
   if (runs.value.length === 0) return <NoRunsYet />;
-  // Until every status answers, Home does not know which runs to read in full.
-  const pending = chosen === null ? readable.length : targets.length - read.length;
-  const ordered = homeOrder(listed, phases ?? NO_PHASES);
+  const pending = targets.length - read.length;
+  const ordered = homeOrder(listed, phases);
   return (
     <div className="pg-screen pg-home">
+      <HomeIntro />
       <header className="pg-screen-head">
         <p className="pg-screen-lead">
           {readable.length === 0
@@ -612,8 +670,9 @@ export default function Home({ setHeader }: ViewProps) {
         runs={all ? ordered : ordered.filter((r) => r.error !== null || targets.includes(r))}
         reads={reads}
         labels={labels}
+        stale={stale}
       />
-      {chosen !== null && readable.length > targets.length && (
+      {readable.length > targets.length && (
         <Button
           onClick={() => {
             setAll(true);

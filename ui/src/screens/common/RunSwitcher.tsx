@@ -37,8 +37,12 @@ export function RunSwitcher({
     <nav className="pg-runs" aria-label="Runs">
       <details className="pg-runs-menu">
         <summary className="pg-runs-summary pg-hit">
-          Showing {chosenLabel?.label ?? (chosen === undefined ? "no run" : `Run ${chosen.name}`)}
-          <span className="pg-panel-note"> · choose another run</span>
+          {/* The header names the run shown; this line offers another, and names it to a reader. */}
+          <span className="pg-visually-hidden">
+            Showing {chosenLabel?.label ?? (chosen === undefined ? "no run" : `Run ${chosen.name}`)}
+            .{" "}
+          </span>
+          Choose another run
         </summary>
         <ul className="pg-runs-list">
           {shown.map((run) => {

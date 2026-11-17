@@ -109,7 +109,7 @@ describe("a run's status is read again while its page is open", () => {
   it("Home reads each run's status again on the interval, not its whole record", async () => {
     const run = { root: 0, name: "r", runId: "r", error: null } as unknown as RunListing;
     function Home() {
-      useRunReads([run], useStatuses([run]));
+      useRunReads([run], useStatuses([run]).found);
       return null;
     }
     await mount(<Home />);

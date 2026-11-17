@@ -1,4 +1,5 @@
 import dagre, { type EdgeLabel, type GraphLabel, type NodeLabel } from "@dagrejs/dagre";
+import { countOf } from "../../../words/count";
 import { type KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../actions/Button";
@@ -318,7 +319,7 @@ export function GraphCanvas({
           <div
             className="pg-graph-layer"
             role="group"
-            aria-label={`Design graph: ${String(layout.nodes.length)} nodes, ${String(layout.edges.length)} constrains edges`}
+            aria-label={`Design graph: ${countOf(layout.nodes.length, "node")}, ${countOf(layout.edges.length, "constrains edge")}`}
             style={{ width, height, transform: `scale(${String(zoom)})` }}
           >
             <svg

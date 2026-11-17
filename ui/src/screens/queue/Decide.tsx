@@ -29,10 +29,13 @@ import {
   DECISION_COPY,
   decisionSummary,
   POSITION_WORDS,
+  setAsideLine,
   supersededOutcome,
   UNSEALED_WORDS,
 } from "../../words/queue";
+import { countOf } from "../../words/count";
 import { lineToWrite, whyNot } from "./model";
+import { useRunPhase } from "./runPhase";
 import { RunStateNote } from "./RunStateNote";
 
 export function Decide({
@@ -55,6 +58,7 @@ export function Decide({
   readonly supersededBy?: string | undefined;
 }) {
   const [answer, setAnswer] = useState<Result<Resolved> | null>(null);
+  const phase = useRunPhase();
   // The buttons and the command palette open the same confirmation, under the same rules.
   const [opened, setOpened] = useState<Verb | Position | null>(null);
   const why = whyNot(operator, holdsToken);
@@ -129,7 +133,7 @@ export function Decide({
         lineToWrite(view, verb, note, who, position) ?? "nothing until the reason is written",
       check:
         `that the item is still the one shown (its digest ${view.itemSha256}) and that each of ` +
-        `its ${String(view.trajectories.length)} transcripts ` +
+        `its ${countOf(view.trajectories.length, "transcript")} ` +
         (binds ? "still holds its seal" : "reads as it did when shown"),
       // What follows: the item's own consequence where the run acts on decisions, else nothing;
       // on an item a reopen superseded, a decision is recorded only, whatever it says.
@@ -221,7 +225,7 @@ export function Decide({
         </ul>
       )}
       <p className="pg-panel-note">
-        {DECISION_COPY.reasonRule} {DECISION_COPY.setAside}
+        {DECISION_COPY.reasonRule} {setAsideLine(phase === "going")}
       </p>
       {answer !== null &&
         (answer.ok ? (

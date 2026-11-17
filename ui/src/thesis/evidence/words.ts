@@ -28,6 +28,12 @@ export const EVIDENCE_COPY = {
   manifestId: "Manifest id",
   configCheck: "Configuration check",
   configHolds: "Matches its first log line",
+  showSettings: (recorded: number, pinned: number) =>
+    `Show the settings (${String(recorded)} recorded, ${String(pinned)} pinned)`,
+  hideSettings: "Hide the settings",
+  differNone: "No setting differs between these runs.",
+  differSome: (labels: readonly string[]) =>
+    `${String(labels.length)} setting${labels.length === 1 ? " differs" : "s differ"} between these runs: ${labels.join(", ")}.`,
   recorded: "Recorded settings",
   pinned: "Pinned settings",
   notRecorded: "not recorded",
@@ -86,6 +92,13 @@ export const EVIDENCE_COPY = {
     "A comparison is possible between two runs of the same brief that start from the same commit, with every setting the same but the one being measured (for example the gate on in one and off in the other).",
   tiersTitle:
     "These two runs cannot be compared: they were measured on different versions of the evaluation tasks",
+  tiersTitleStart:
+    "These two runs cannot be compared: they were measured on different versions of the evaluation tasks, and did not start from the same place",
+  tiersTitleSettings:
+    "These two runs cannot be compared: they were measured on different versions of the evaluation tasks, and were run with different settings",
+  tiersTitleStartSettings:
+    "These two runs cannot be compared: they were measured on different versions of the evaluation tasks, did not start from the same place, and were run with different settings",
+  driftLeadBeside: "Besides that, what differs between them:",
   tiersLead:
     "Each run records the version of the evaluation tasks it was measured on. These two record different versions, or one records none, or a record of one cannot be read, so no number of either run is shown.",
   tiersPossible:
@@ -227,7 +240,10 @@ export function settingLabel(path: string): string {
   const words = path
     .split(/[._]/)
     .filter((part) => part !== "")
-    .join(" ");
+    .join(" ")
+    // An abbreviation keeps its capitals: "OS layer", never "Os layer".
+    .replace(/\bos\b/g, "OS")
+    .replace(/\bsha256\b/g, "SHA-256");
   return words === "" ? path : `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
 }
 
@@ -236,4 +252,12 @@ export function valueWords(value: unknown): string {
   if (value === null || value === undefined) return EVIDENCE_COPY.notRecorded;
   if (typeof value === "string") return value;
   return JSON.stringify(value);
+}
+
+/**
+ * A run's name as every screen leads it: "Run" and the run's id. The Evidence screen reads only its
+ * own routes, which carry no start time, so the day and time other screens add are not shown here.
+ */
+export function runName(run: { readonly runId: string }): string {
+  return `Run ${run.runId}`;
 }

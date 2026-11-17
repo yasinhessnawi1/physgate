@@ -210,7 +210,8 @@ kbd,
   overflow-wrap: anywhere;
 }
 
-.pg-id-copy {
+.pg-id-copy,
+.pg-id-whole {
   flex: none;
   white-space: nowrap;
   padding: 0 var(--space-1);

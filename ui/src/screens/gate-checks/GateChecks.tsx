@@ -25,7 +25,7 @@ import { useLines } from "../common/read";
 import { subtaskNames } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
 import { phaseOfResult, runKey, runSource, useChosenRun } from "../common/runs";
-import { ChecksTable, type Filter, kept } from "./ChecksTable";
+import { ChecksTable, CountsExplained, type Filter, kept } from "./ChecksTable";
 import { PairedRun } from "./PairedRun";
 import { pairable } from "./pairing";
 
@@ -178,7 +178,12 @@ export default function GateChecks({ setHeader, query }: ViewProps) {
               <p className="pg-panel-note">
                 View: counted from {all.length} gate records, one per check and scope that passed
                 and one per failing, warning or <Term term="unchecked">unchecked</Term> instance.
+                Records alike in one gate call share a row, with their count.
               </p>
+              <CountsExplained
+                unchecked={tallyOfChecks(all).unchecked}
+                overNothing={tallyOfChecks(all).overNothing ?? 0}
+              />
               {shown.length === 0 ? (
                 <p className="pg-panel-empty">No check matches this filter.</p>
               ) : (

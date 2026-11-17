@@ -1,6 +1,7 @@
 import { useId } from "react";
 
 import { placeKey, type ReadRun } from "./api";
+import { runName } from "./words";
 import { EVIDENCE_COPY, KIND_CHOICES } from "./words";
 
 /**
@@ -33,7 +34,7 @@ export function RunChooser({
         {value === null && <option value="">{EVIDENCE_COPY.chooseRun}</option>}
         {runs.map((run) => (
           <option key={placeKey(run)} value={placeKey(run)}>
-            {`${run.name}, ${KIND_CHOICES[run.kind]}`}
+            {`${runName(run)}, ${KIND_CHOICES[run.kind]}`}
           </option>
         ))}
       </select>
