@@ -537,6 +537,27 @@ function SystemPanel({
   );
 }
 
+/**
+ * What this page is, said first, for a person who has not seen it before: what a run is, what
+ * stands between an agent's work and the design, and what Home lists.
+ */
+export function HomeIntro() {
+  return (
+    <div className="pg-home-intro">
+      <p>
+        This is the operator's view of the design runs on this machine. In a run, AI agents design a
+        mechatronic system from a brief: the work is split into subtasks, an agent does each, a
+        physics gate checks the design's numbers (their units, ranges and balances) before a
+        reviewer reads the work, and anything the run cannot settle comes to a person.
+      </p>
+      <p>
+        Home lists the runs, what waits for your decision, and the latest activity. Open a run for
+        its timeline, its design and its gate checks.
+      </p>
+    </div>
+  );
+}
+
 export default function Home({ setHeader }: ViewProps) {
   const runs = useRunList();
   const [all, setAll] = useState(false);
@@ -588,6 +609,7 @@ export default function Home({ setHeader }: ViewProps) {
   return (
     <div className="pg-screen pg-home">
       <header className="pg-screen-head">
+        <HomeIntro />
         <p className="pg-screen-lead">
           {readable.length === 0
             ? "No run here can be read; each says why below."
