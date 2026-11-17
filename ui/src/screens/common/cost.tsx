@@ -1,8 +1,10 @@
 import type { CostRecord } from "../../api/records";
 
 /**
- * Whether a cost is a lower bound, said beside it: how many calls it is short by, and, when
- * reviews are among them, that the server cannot price them at their rate. Nothing otherwise.
+ * Whether a cost is a lower bound, said beside it in plain words: the cost may be higher, how
+ * many calls are counted at the lowest rate because what they paid could not be read, and, when
+ * reviews are among them, that their records are kept where this app does not read. Each call's
+ * tokens are counted; only the rate some of them paid is unknown. Nothing otherwise.
  */
 export function CostCaveat({ cost }: { cost: CostRecord }) {
   if (!cost.lowerBound) return null;
@@ -11,9 +13,9 @@ export function CostCaveat({ cost }: { cost: CostRecord }) {
   return (
     <strong className="cost-caveat">
       {" "}
-      Lower bound: {n}{" "}
-      {n === 1 ? "call not priced at the rate it paid" : "calls not priced at the rate they paid"}
-      {reviews ? "; reviews unpriced at their rate, since the server reads no review root" : ""}.
+      Lower bound: the cost may be higher. {n} {n === 1 ? "call" : "calls"} counted at the lowest
+      rate, since what {n === 1 ? "it" : "they"} paid could not be read
+      {reviews ? ": the records of the reviews are kept where this app does not read" : ""}.
     </strong>
   );
 }

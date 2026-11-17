@@ -33,6 +33,7 @@ import {
   UNSEALED_WORDS,
 } from "../../words/queue";
 import { lineToWrite, whyNot } from "./model";
+import { RunStateNote } from "./RunStateNote";
 
 export function Decide({
   view,
@@ -148,12 +149,16 @@ export function Decide({
       confirmLabel: verb === "approve" ? "Approve" : verb === "reject" ? "Reject" : "Choose",
       ...(verb === "reject" ? { needsReason: true } : { takesNote: true }),
       children: (
-        <p className="pg-dialog-note">
-          One line appended to queue_decisions.jsonl in run {runId}. This cannot be edited or
-          undone; the item closes. The time is stamped when it is written, beside the time this
-          server showed you the item if it still holds it, so the record says how long the decision
-          took.
-        </p>
+        <>
+          {/* On a run that is not going, its state: the decision waits for a resume. */}
+          <RunStateNote />
+          <p className="pg-dialog-note">
+            One line appended to queue_decisions.jsonl in run {runId}. This cannot be edited or
+            undone; the item closes. The time is stamped when it is written, beside the time this
+            server showed you the item if it still holds it, so the record says how long the
+            decision took.
+          </p>
+        </>
       ),
       onConfirm: (note) => {
         setAnswer(null);

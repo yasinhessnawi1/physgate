@@ -427,7 +427,7 @@ describe("two runs compared", () => {
   it("shows a refusal over drifted settings in words, each setting named, and no number", async () => {
     const host = await mount("tab=compare&a=0/ev-development&b=0/ev-drifted");
     const alert = host.querySelector('[role="alert"]');
-    expect(text(alert?.querySelector("h2"))).toBe(EVIDENCE_COPY.driftTitle);
+    expect(text(alert?.querySelector("h2"))).toBe(EVIDENCE_COPY.driftTitleSettings);
     expect([...(alert?.querySelectorAll("li") ?? [])].map((li) => text(li))).toEqual([
       "The model that plans the subtasks",
       "The output token limit",

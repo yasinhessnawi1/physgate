@@ -59,9 +59,14 @@ from physgate.gate.graph import GraphView
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.change_sets import change_history
-from physgate.orchestrator.common import render_jsonl
+from physgate.orchestrator.common import render_jsonl, utc_now
 from physgate.orchestrator.completion import open_preconditions
-from physgate.orchestrator.events import SessionEnded, read_events
+from physgate.orchestrator.events import (
+    InfraRetryScheduled,
+    SessionEnded,
+    SessionSpawned,
+    read_events,
+)
 from physgate.orchestrator.gate_events import recorded_gate_checks, recorded_gate_events
 from physgate.orchestrator.queue import (
     DECOMPOSITION_STREAM,
@@ -74,7 +79,7 @@ from physgate.orchestrator.queue import (
     stream_parts,
 )
 from physgate.orchestrator.replay import RunState, recorded_ledger, replay
-from physgate.orchestrator.run_config import load_run_config
+from physgate.orchestrator.run_config import RunBounds, load_run_config
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.state.schema import validate_node
 from physgate.state.store import (
@@ -319,14 +324,35 @@ def _completion(state: RunState) -> dict[str, object]:
     return {"owner": integration is not None, "modules": modules}
 
 
+def _silence_bound(last: object, bounds: RunBounds) -> float | None:
+    """The longest a living run goes without a line after ``last``, in seconds, or ``None``.
+
+    After a session's spawn, the run's session wall clock: the session is stopped there, and its
+    end written. After a retry's schedule, the delay it recorded: the run then spawns again. After
+    any other line, ``None``: the work that follows may be a stage with no bound of its own (the
+    physics gate, the OS layer's start, a contract test), so nothing is claimed of its silence.
+    """
+    if isinstance(last, SessionSpawned):
+        return bounds.session_wall_clock_s
+    if isinstance(last, InfraRetryScheduled):
+        return last.delay_s
+    return None
+
+
 def status(context: Context, params: Mapping[str, str]) -> Response:
     """Where the run stands: the loop's next step, a halt owed or taken, and each completion.
 
     Also each subtask that waits for sizing's closing pass, and each contract item a reopen
-    superseded with the item whose decision reopened its module, as replay holds them.
+    superseded with the item whose decision reopened its module, as replay holds them; and when
+    the log last wrote, this server's clock, and the longest a living run goes without a line
+    after that one (:func:`_silence_bound`). A page tells from the three a run whose process
+    appears gone, and never reads its own clock for it.
     """
     run_dir = run_dir_of(context, params)
-    state = replay(read_events(_file(context, run_dir, EVENTS)))
+    log = read_events(_file(context, run_dir, EVENTS))
+    state = replay(log)
+    bounds = load_run_config(_file(context, run_dir, RUN_CONFIG)).bounds
+    last = log[-1] if log else None
     step = state.next_step()
     halted, owed = state.halted, state.owed_halt()
     return json_response(
@@ -346,6 +372,11 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             "completion": _completion(state),
             "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
             "superseded": dict(state.superseded),
+            "last_line_at": None if last is None else last.ts,
+            # This server's clock, in the log's own fixed-width form: a page measures the silence
+            # against it, never against its own clock, and GET and HEAD answer the same length.
+            "server_now": utc_now().strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            "silence_bound_s": _silence_bound(last, bounds),
         }
     )
 

@@ -1,3 +1,4 @@
+import { followNarrow, navStartsCollapsed, windowIsNarrow } from "./prefs";
 import {
   type ComponentType,
   type CSSProperties,
@@ -17,6 +18,8 @@ import { Avatar } from "../design/components/actor/Avatar";
 import { SourceChip } from "../design/components/data/SourceChip";
 import { Icon } from "../design/components/icons/Icon";
 import { InProgressBadge } from "../design/components/status/InProgressBadge";
+import { RunPhaseBadge } from "../design/components/status/RunPhaseBadge";
+import { RunStanding } from "../design/components/status/RunStanding";
 import { EmptyState, LoadingState } from "../design/components/status/States";
 import { OsLayerBadge } from "../design/components/system/OsLayerBadge";
 import { GateModeBadge } from "../design/components/verdict/GateMode";
@@ -106,7 +109,9 @@ export function Shell({
   /** The content region, which the skip link focuses. */
   const contentRef = useRef<HTMLElement>(null);
   const registry = usePaletteRegistry();
-  const [navCollapsed, setNavCollapsed] = useState(false);
+  const [navCollapsed, setNavCollapsed] = useState(() => navStartsCollapsed(windowIsNarrow()));
+  // A window resized across the narrow width after the page opened: the menu follows it.
+  useEffect(() => followNarrow(setNavCollapsed), []);
   const [dockOpen, setDockOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [noticesOpen, setNoticesOpen] = useState(false);
@@ -330,6 +335,7 @@ export function Shell({
                   header.gateMode !== undefined ||
                   header.osLayer !== undefined ||
                   header.inProgress === true ||
+                  header.phase !== undefined ||
                   header.run !== undefined ||
                   header.runState !== undefined) && (
                   <div className="pg-run-chip" role="group" aria-label="The run shown">
@@ -352,7 +358,14 @@ export function Shell({
                       <SourceChip id={header.source.id} commit={header.source.commit} compact />
                     )}
                     {header.gateMode !== undefined && <GateModeBadge mode={header.gateMode} />}
-                    {header.inProgress === true && <InProgressBadge />}
+                    {header.phase !== undefined && header.phase !== "going" ? (
+                      <RunPhaseBadge
+                        phase={header.phase}
+                        {...(header.standing?.word == null ? {} : { word: header.standing.word })}
+                      />
+                    ) : (
+                      header.inProgress === true && <InProgressBadge />
+                    )}
                     {header.osLayer !== undefined && <OsLayerBadge layer={header.osLayer} />}
                   </div>
                 )}
@@ -422,6 +435,7 @@ export function Shell({
                 aria-labelledby="pg-page-title"
                 ref={contentRef}
               >
+                {header?.standing !== undefined && <RunStanding standing={header.standing} />}
                 {content}
               </main>
               {hasInspector && (

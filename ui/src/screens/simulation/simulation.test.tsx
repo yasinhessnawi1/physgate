@@ -571,6 +571,8 @@ describe("reading the run's records", () => {
       `${BASE}/config`,
       `${BASE}/status`,
       `${BASE}/events`,
+      // An ended run's queue: the run's own standing names the decisions still waiting.
+      `${BASE}/queue`,
       `${BASE}/series`,
       `${BASE}/series/${S1}/3`,
       `${BASE}/series/${S1}/3/loop_nominal`,
