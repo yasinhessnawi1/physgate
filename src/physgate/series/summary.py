@@ -4,8 +4,12 @@ The harness writes it, never the role. Every record the attempt sealed is read b
 its seal, and summarised from its own samples: its id, title, group and axis, the session
 that sealed it, the script that produced it with that script's digest, the inputs it took,
 and for the x axis and each trace the unit, the number of samples, and the first, last,
-smallest and largest value. After the records comes the result of holding each graph
-quantity that names a record to it, against the frozen tolerance.
+smallest and largest value. Then every record a session discarded, because the module code
+it names changed or was deleted or renamed after it was written: never sealed, and no
+evidence, it is listed by its name, its session, the collector's reason and the seal of the
+bytes collected, so a run a later edit superseded is still in front of the reviewer; a
+session whose list was cut at its bound is said to be cut. After them comes the result of
+holding each graph quantity that names a record to it, against the frozen tolerance.
 
 A reviewer can therefore check a claim such as "every edge run settles" against numbers the
 harness computed from what ran, without paging through the samples. Free text the role's
@@ -13,9 +17,11 @@ scripts wrote (a title, a script's path) is quoted as a JSON string on a line of
 it reads as data and cannot open a heading or a list of its own. Names and units are held
 by the record format to spellings that cannot.
 
-The listing is a pure function of the sealed records and the recorded checks, so the same
-attempt gives the same bytes: the packet checks its parts against it again before a review,
-and the paired and the generalist review are given the same file.
+The listing is a pure function of the sealed records, the discarded ones and the recorded
+checks, so the same attempt gives the same bytes; an attempt that discarded none is given
+exactly the listing it was given before discarded records were listed. The packet checks its
+parts against it again before a review, and the paired and the generalist review are given the
+same file.
 """
 
 from __future__ import annotations
@@ -27,7 +33,13 @@ from pathlib import Path
 
 from physgate.series.reader import SealedEntry, read_record
 from physgate.series.record import Column, Record
-from physgate.series.seal import AttemptSeries, SeriesCheck
+from physgate.series.seal import (
+    MAX_ENTRIES,
+    OVERFLOW_NAME,
+    AttemptDiscard,
+    AttemptSeries,
+    SeriesCheck,
+)
 from physgate.series.tolerance import RELATIVE_TOLERANCE
 
 #: The names of the parts the listing is issued in.
@@ -127,6 +139,36 @@ def _record(session_id: str, record: Record) -> str:
     return "".join(lines)
 
 
+#: How every discarded record is marked, in words a reviewer cannot take for evidence.
+DISCARDED = "discarded: the module's code changed after this record was written; not evidence"
+
+
+def _discarded(discarded: tuple[AttemptDiscard, ...]) -> str:
+    records = [d for d in discarded if d.entry.sha256 is not None]
+    lines = [
+        "# Records discarded\n\n",
+        "A record is discarded when the module code it names changed, or was deleted or "
+        "renamed, after it was written. It was never sealed and is not evidence: a quantity "
+        f"that names it refuses the attempt. Records discarded: {len(records)}.\n\n",
+    ]
+    for held in discarded:
+        entry = held.entry
+        if entry.sha256 is not None:
+            lines += [
+                f"- {_quoted(entry.name)}: {DISCARDED}\n",
+                f"  - session: {held.session_id}; seal: sha256 {entry.sha256}, "
+                f"{entry.length} bytes\n",
+                f"  - why: {_quoted(entry.reason)}\n",
+            ]
+        elif entry.name == OVERFLOW_NAME:
+            lines.append(
+                f"- cut: session {held.session_id}'s end line lists at most {MAX_ENTRIES} "
+                f"entries, and it held more: {_quoted(entry.reason)}\n"
+            )
+    lines.append("\n")
+    return "".join(lines)
+
+
 def _check(check: SeriesCheck) -> str:
     read = (
         f"{_number(check.read_value)} {check.read_unit}"
@@ -143,7 +185,7 @@ def _check(check: SeriesCheck) -> str:
 
 
 def listing(series: AttemptSeries) -> bytes:
-    """The listing of ``series``: every record summarised from its samples, then every check.
+    """The listing of ``series``: every record from its samples, every discarded one, every check.
 
     Raises:
         SeriesError: a record is gone or is not what was sealed when its session ended.
@@ -153,6 +195,8 @@ def listing(series: AttemptSeries) -> bytes:
         entry = SealedEntry(series.subtask_id, series.attempt, held.session_id, held.record)
         record = read_record(entry.path(Path(series.run_dir)), entry.seal())
         pieces.append(_record(held.session_id, record))
+    if series.discarded:
+        pieces.append(_discarded(series.discarded))
     tolerance = f"{float(RELATIVE_TOLERANCE):g}"
     pieces.append(
         "# Quantities read off a record\n\n"

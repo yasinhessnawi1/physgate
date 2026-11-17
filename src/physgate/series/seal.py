@@ -11,14 +11,16 @@ check can confirm that the script the record names is the one the attempt commit
 
 What the collector did not seal is listed too, never dropped in silence: a file refused
 (not a record, or a record whose provenance does not hold) with its reason, and a file
-discarded (a writer's temporary file, or what an earlier session left in the outbox).
+discarded (a writer's temporary file, what an earlier session left in the outbox, or a record
+whose module code changed or went after it was written). A discarded record carries the seal
+of the bytes collected, so its review can name exactly the record set aside.
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 #: The marker every record carries. A later shape is a new marker and a new model.
 FORMAT = "series.v1"
@@ -30,6 +32,8 @@ NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
 MAX_ENTRIES = 512
 #: The most files of code one record may name as loaded: the record format's own bound.
 MAX_LOADED_FILES = 256
+#: The name of the entry that closes a list cut at :data:`MAX_ENTRIES`, saying how many more.
+OVERFLOW_NAME = "(more)"
 
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 BlobId = Annotated[str, StringConstraints(pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")]
@@ -78,6 +82,18 @@ class SetAside(_Frozen):
 
     name: Annotated[str, StringConstraints(min_length=1, max_length=200)]
     reason: Annotated[str, StringConstraints(min_length=1, max_length=500)]
+    #: For a record discarded because its module code changed or went after it was written:
+    #: the digest and length of the bytes collected. Not written for any other entry, so every
+    #: other entry is recorded exactly as before.
+    sha256: Sha256 | None = Field(default=None, exclude_if=lambda v: v is None)
+    length: Annotated[int, Field(ge=0)] | None = Field(default=None, exclude_if=lambda v: v is None)
+
+    @model_validator(mode="after")
+    def _a_seal_is_whole(self) -> Self:
+        if (self.sha256 is None) != (self.length is None):
+            msg = "a seal is a digest and a length together"
+            raise ValueError(msg)
+        return self
 
 
 class SessionSeries(_Frozen):
@@ -120,13 +136,25 @@ class AttemptRecord(_Frozen):
     record: SealedRecord
 
 
+class AttemptDiscard(_Frozen):
+    """A record one of the attempt's sessions discarded, or the notice that its list was cut.
+
+    ``entry`` is as the session's end line lists it: a record with its seal, or the entry
+    named :data:`OVERFLOW_NAME` that says how many more its list could not hold.
+    """
+
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    entry: SetAside
+
+
 class AttemptSeries(_Frozen):
     """What a review is told about an attempt's simulation records.
 
     The records the attempt's sessions sealed (a later session's superseding an earlier one's
-    of the same id), the run directory they lie under, and the result of holding each graph
-    quantity that names one to it. It travels on the attempt as the gate and the reviewer
-    receive it, and so reaches the review packet of both review arms by one route.
+    of the same id), the run directory they lie under, the result of holding each graph
+    quantity that names one to it, and the records its sessions discarded, which are no
+    evidence. It travels on the attempt as the gate and the reviewer receive it, and so
+    reaches the review packet of both review arms by one route.
     """
 
     run_dir: Annotated[str, StringConstraints(min_length=1)]
@@ -134,3 +162,6 @@ class AttemptSeries(_Frozen):
     attempt: Annotated[int, Field(ge=1)]
     records: tuple[AttemptRecord, ...] = ()
     checks: tuple[SeriesCheck, ...] = ()
+    #: Left out of a dump when empty, so an attempt that discarded no record is recorded
+    #: exactly as before.
+    discarded: tuple[AttemptDiscard, ...] = Field(default=(), exclude_if=lambda v: not v)
