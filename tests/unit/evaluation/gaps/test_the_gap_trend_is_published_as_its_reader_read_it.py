@@ -258,27 +258,28 @@ def _place(tmp_path: Path, places: SimpleNamespace, where: str) -> Path:
     return out
 
 
-@pytest.mark.parametrize(
-    "where",
-    [
-        "in-a-run-directory",
-        "a-run-directory-itself",
-        "in-an-instrument-run",
-        "beside-runs",
-        "in-a-target-checkout",
-        "in-a-worktree",
-        "in-the-harness-checkout",
-        "holding-the-harness-checkout",
-        "in-an-installation",
-        "beside-an-installation",
-        "in-the-review-root",
-        "holding-the-review-root",
-        "in-a-review",
-        "beside-reviews",
-        "in-the-shared-temp",
-        "in-a-corpus",
-    ],
-)
+#: What each refusal says the place is: the place's own words, not another check's.
+PLACE_WORDS = {
+    "in-a-run-directory": "lies in a run's directory",
+    "a-run-directory-itself": "lies in a run's directory",
+    "in-an-instrument-run": "lies in a run's directory",
+    "beside-runs": "holds a run's directory",
+    "in-a-target-checkout": "git checkout or worktree",
+    "in-a-worktree": "git checkout or worktree",
+    "in-the-harness-checkout": "harness's own checkout",
+    "holding-the-harness-checkout": "harness's own checkout",
+    "in-an-installation": "lies in an installation",
+    "beside-an-installation": "holds an installation",
+    "in-the-review-root": "review root",
+    "holding-the-review-root": "review root",
+    "in-a-review": "lies in a review's directory",
+    "beside-reviews": "holds a review's directory",
+    "in-the-shared-temp": "shared temporary directory",
+    "in-a-corpus": "operator UI would refuse",
+}
+
+
+@pytest.mark.parametrize("where", list(PLACE_WORDS))
 def test_the_publication_is_refused_in_any_place_a_run_a_reviewer_or_a_commit_reaches(
     tmp_path: Path, made: StandInStore, places: SimpleNamespace, where: str
 ) -> None:
@@ -297,6 +298,7 @@ def test_the_publication_is_refused_in_any_place_a_run_a_reviewer_or_a_commit_re
     said = str(caught)
     assert str(tmp_path) not in said, f"the refusal echoes a path: {said}"
     assert "given no run" in said, f"the refusal does not say what the command cannot know: {said}"
+    assert PLACE_WORDS[where] in said, f"the refusal does not say what the place is: {said}"
 
 
 def test_a_folder_of_its_own_beside_those_places_is_published_into(
