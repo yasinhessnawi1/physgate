@@ -8,7 +8,8 @@ is based on, which holds nothing of the switch, and are kept beside this test. (
 at df68ef09, an earlier base: the base has since gained a sentence on how a unit is spelt in
 every prompt, which changed the three prompt digests and no other; and on 16.11.2026 a paragraph
 in every prompt saying a plan states interfaces and criteria, never a solution's law or
-coefficients, which changed the same three and no other, as did its rewording on 17.11.2026.)
+coefficients, which changed the same three and no other, as did its rewording on 17.11.2026,
+and on 18.11.2026 a paragraph saying how one acceptance criterion is written.)
 Recorded runs, and the experiments that pin the decomposition's prompt and schema, stay
 comparable with every run made with the switch off.
 

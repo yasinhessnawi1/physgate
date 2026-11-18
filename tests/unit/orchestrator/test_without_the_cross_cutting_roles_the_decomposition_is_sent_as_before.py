@@ -13,8 +13,9 @@ prompt; and in the prompt, the gate's quantity names, generated from its catalog
 writes interface nodes; and since 03.11.2026, where the gate has a bound and what forms each of its
 relations, generated from the tables and the catalogue it loads; and since the catalogue widening
 of 04.11.2026, its new names and kinds; and since 16.11.2026, the paragraph saying a plan states
-interfaces and criteria, never a solution's law or coefficients. A change to either for such a run
-is a change to what every ordinary run sends, and turns this red.
+interfaces and criteria, never a solution's law or coefficients; and since 18.11.2026, the
+paragraph saying how one acceptance criterion is written. A change to either for such a run is a
+change to what every ordinary run sends, and turns this red.
 """
 
 from __future__ import annotations
@@ -56,7 +57,11 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: (test_the_plan_states_interfaces_and_criteria_never_a_solution_s_law), reworded on
 #: 17.11.2026 (a test for what the brief fixes, physical properties on an interface, the
 #: designer's node wherever one module implements another's design, named in both
-#: specifications). Before the rewording: 7394c68115d3..., 044c69c7b621... and 0e879c749f64....
+#: specifications); and, since 18.11.2026, the paragraph after it saying each acceptance
+#: criterion is one statement of one thing with its verification method named
+#: (test_every_acceptance_criterion_is_one_statement_with_its_verification_method). Before the
+#: criterion paragraph: 38485dfa3eae..., c6bbc8f4ddd1... and 06b330e281cc....
+#: Before the rewording: 7394c68115d3..., 044c69c7b621... and 0e879c749f64....
 #: Before that paragraph: cd9d3713e8dd..., 66e80cd16451... and 6fd51bcf6f3a.... Before the unit
 #: sentence:
 #: c14dba963d6c..., ad94ba0d6bbe... and d713661a9904.... At 470b3f34,
@@ -64,14 +69,14 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: widening, since 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
 #: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
 PROMPT_SHA256 = {
-    ("control", "firmware"): "38485dfa3eaedd6dbb36a087d301118b449efe5e8bae49f576a3cd9af8faacb5",
-    ("electrical",): "c6bbc8f4ddd18e0c8b269df067a67a736edd2f18384f01e1cc69671d496b486b",
+    ("control", "firmware"): "6672229b67f470bee502b1d6112ec45b8d7d9c69f757f981b01ffb43a498e1f5",
+    ("electrical",): "6219833c887473ef711c6bd2a76ba3de4b5b0500561fede1e2f48ef514d4bc3d",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "06b330e281cc930a0cf6936d863a9d97bc3b8f5e0ce74536b298f6254968075a",
+    ): "b85194b2c03a28804155747c42966a751c4180d3b973bc0270193861e4db7398",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -102,6 +107,15 @@ PROMPT = (
     "a node of its own, named in both specifications; the implementing module's acceptance "
     "criteria compare its implementation with that node as merged, and where the node is not "
     "merged when it starts, it reports that and implements no design of its own.\n\n"
+    'Write each acceptance criterion as one statement of one thing, in the form "The <module> '
+    'shall <verb> <what>, <threshold with its unit and tolerance>, verified by <method>.", '
+    "where the method is one of analysis, demonstration, inspection or test, named by that word "
+    "in the criterion; a criterion that sets no figure has no threshold, and each criterion "
+    "names the brief requirement it traces to or says it is derived and why. A requirement that "
+    "holds several figures or conditions (a value and its agreement with another quantity, a "
+    "value and a rule for the rest of the module, two margins, a figure and a setting) becomes "
+    "one criterion for each, so that each is met or unmet on its own. A goal is written with "
+    '"should", outside the acceptance criteria.\n\n'
     # The catalogue's names, from the catalogue: a copy here would hold the test to a list the
     # catalogue no longer keeps. The digests above hold the bytes.
     f"{catalogue_sentence()}\n\n"
