@@ -10,7 +10,6 @@ import { Figure } from "../../design/components/data/Figure";
 import { Quantity } from "../../design/components/data/Quantity";
 import { sourceAttribute } from "../../design/components/data/source";
 import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
-import { CUT_OFF } from "../../screens/common/cost";
 import { useJson } from "../../screens/common/read";
 import {
   APART,
@@ -249,7 +248,7 @@ function SpendBody({ spend }: { readonly spend: Spend }) {
         {line.lowerBound && (line.unpriced.length > 0 || line.cutShort.length === 0) && (
           <p className="evidence-note">{EVIDENCE_COPY.lowerBoundLine}</p>
         )}
-        {line.cutShort.length > 0 && <p className="evidence-note">{CUT_OFF}</p>}
+        {line.cutShort.length > 0 && <p className="evidence-note">{EVIDENCE_COPY.cutOff}</p>}
         <div className="pg-figure-line">
           <span>
             <AtLeast shown={line.lowerBound} />
