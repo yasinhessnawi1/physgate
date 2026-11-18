@@ -14,7 +14,6 @@ export const EVIDENCE_COPY = {
   spendTab: "Spend",
   compareTab: "Compare",
   catchesTab: "Catches",
-  gaps: "The two gaps are not on this page yet: no measurement of them exists.",
   noRun: "This server reads no run.",
   noReadable: "None of the runs could be read.",
   readingRuns: "the runs",
@@ -160,8 +159,15 @@ export const EVIDENCE_COPY = {
   noMeasurement: "No measurement this week.",
   notMeasured: "Not measured: the validation tasks were not part of this measurement.",
   numbersWithheld: "Its numbers are not shown:",
-  noGap: "no gap",
-  points: "percentage points",
+  pointsUnit: "points",
+  interval: (low: string, high: string) => `95 % interval ${low} to ${high}`,
+  notMeasuredTier: "Not part of this measurement.",
+  failsCounted: (unscored: number, flaky: number) =>
+    `Of these, ${String(unscored)} unscored and ${String(flaky)} flaky, each counted as a fail.`,
+  tableLabel: (role: string) => `The ${role} role's gap trend, week by week`,
+  noNumbers: "None of the measurements' numbers can be shown: the table says why for each.",
+  noNumberOfIt: "No number of it is shown.",
+  readAtAsSent: (readAt: string) => `Read from the trend at ${readAt}.`,
 } as const;
 
 /** Each kind's section heading, in the order the screen shows them. */

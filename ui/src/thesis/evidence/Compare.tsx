@@ -103,8 +103,9 @@ export function SideBySide({ compared }: { readonly compared: Comparison }) {
           ? EVIDENCE_COPY.differsNone
           : `${EVIDENCE_COPY.differsIn} ${compared.differsIn.map(settingLabel).join(", ")}.`}
       </p>
-      {compared.notes.map((note) => (
-        <p key={note} className="evidence-note" data-note="said">
+      {compared.notes.map((note, i) => (
+        // By place as well as words: two equal notes are two notes.
+        <p key={`${String(i)}:${note}`} className="evidence-note" data-note="said">
           {note}
         </p>
       ))}
