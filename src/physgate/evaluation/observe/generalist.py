@@ -253,6 +253,7 @@ def review_retried_once(
                         message_id=message.message_id,
                         usage=message.usage,
                         compaction=message.compaction,
+                        abandoned=message.abandoned,
                     )
                 )
             retry = exc.cause == "infrastructure" and not retried
@@ -379,6 +380,7 @@ def run_generalist(
                     message_id=message.message_id,
                     usage=message.usage,
                     compaction=message.compaction,
+                    abandoned=message.abandoned,
                 )
             )
         ran = log.append(

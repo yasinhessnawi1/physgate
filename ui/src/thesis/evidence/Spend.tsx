@@ -245,7 +245,10 @@ function SpendBody({ spend }: { readonly spend: Spend }) {
         <h2 className="pg-panel-title">{EVIDENCE_COPY.cost}</h2>
         <p className="evidence-note">{basisWords(line.basis, line.pricesDate)}</p>
         {line.partial && <p className="evidence-note">{EVIDENCE_COPY.partial}</p>}
-        {line.lowerBound && <p className="evidence-note">{EVIDENCE_COPY.lowerBoundLine}</p>}
+        {line.lowerBound && (line.unpriced.length > 0 || line.cutShort.length === 0) && (
+          <p className="evidence-note">{EVIDENCE_COPY.lowerBoundLine}</p>
+        )}
+        {line.cutShort.length > 0 && <p className="evidence-note">{EVIDENCE_COPY.cutOff}</p>}
         <div className="pg-figure-line">
           <span>
             <AtLeast shown={line.lowerBound} />

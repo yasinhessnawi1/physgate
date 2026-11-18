@@ -1079,6 +1079,14 @@ def read_stream(
     ``message_start`` in the same thread. A message with no ``message_delta``
     (a session killed mid-message) keeps the usage it started with.
 
+    A message the binary cut short and closed itself is marked ``abandoned``: one whose
+    ``message_start`` was seen, with no ``message_delta`` and no assistant event, closed by a
+    ``message_stop`` whose stream event's ``abandoned_blocks`` names it by its
+    ``api_message_id`` (the pinned binary's own mark, written when the API's stream failed,
+    stalled or ended early, or the turn was interrupted). Any one of these missing, and the
+    message is read as any other. What a marked message means for the account is the
+    accounting's to say (:func:`~physgate.orchestrator.accounting.require_matching_totals`).
+
     The answering model is each assistant message's own
     ``model``, not the result's ``modelUsage``: measured on 2.1.272 with the
     endpoint answering as another model, ``modelUsage`` still named the model
@@ -1091,6 +1099,10 @@ def read_stream(
     raw_usage: dict[str, dict[str, Any]] = {}
     current: dict[str | None, str] = {}  # the open message per thread
     models: set[str] = set()
+    started_ids: set[str] = set()  # a message_start was seen
+    finished: set[str] = set()  # a message_delta gave the final usage
+    asserted: set[str] = set()  # an assistant event carried the message
+    closed_cut: set[str] = set()  # a message_stop the binary marked as cutting it short
     for line in split_lines(stdout):
         try:
             event = json.loads(line)
@@ -1106,14 +1118,23 @@ def read_stream(
             started = inner.get("message") if inner.get("type") == "message_start" else None
             if isinstance(started, dict) and isinstance(started.get("id"), str):
                 current[thread] = started["id"]
+                started_ids.add(started["id"])
                 raw_usage.setdefault(started["id"], dict(started.get("usage") or {}))
             elif inner.get("type") == "message_delta" and thread in current:
                 raw_usage[current[thread]].update(inner.get("usage") or {})
+                finished.add(current[thread])
+            elif inner.get("type") == "message_stop":
+                marked = event.get("abandoned_blocks")
+                named = marked.get("api_message_id") if isinstance(marked, dict) else None
+                if isinstance(named, str) and named:
+                    closed_cut.add(named)
         message = event.get("message") if kind == "assistant" else None
         if isinstance(message, dict) and isinstance(message.get("id"), str):
+            asserted.add(message["id"])
             raw_usage.setdefault(message["id"], dict(message.get("usage") or {}))
             if isinstance(message.get("model"), str):
                 models.add(message["model"])
+    cut = (closed_cut & started_ids) - finished - asserted
     usages = tuple(
         MessageUsage(
             message_id=message_id,
@@ -1123,6 +1144,7 @@ def read_stream(
                 cache_read_input_tokens=int(raw.get("cache_read_input_tokens") or 0),
                 cache_creation_input_tokens=int(raw.get("cache_creation_input_tokens") or 0),
             ),
+            abandoned=message_id in cut,
         )
         for message_id, raw in raw_usage.items()
     )

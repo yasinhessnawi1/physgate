@@ -918,6 +918,7 @@ class Loop:
                         message_id=message.message_id,
                         usage=message.usage,
                         partial=not left.complete,
+                        abandoned=message.abandoned,
                     )
                 )
         for cause, detail in found if len(found) > 1 else ():
@@ -1919,6 +1920,7 @@ class Loop:
                     attribution=f"session:{report.session_id}",
                     message_id=message.message_id,
                     usage=message.usage,
+                    abandoned=message.abandoned,
                 )
             )
         env = self._env()
@@ -2846,6 +2848,7 @@ class Loop:
                     message_id=message.message_id,
                     usage=message.usage,
                     compaction=message.compaction,
+                    abandoned=message.abandoned,
                 )
             )
         # An earlier attempt is judged only where the verdict confirmed or dismissed every one of
@@ -3083,6 +3086,7 @@ class Loop:
                             message_id=message.message_id,
                             usage=message.usage,
                             compaction=message.compaction,
+                            abandoned=message.abandoned,
                         )
                     )
                 self._halt_for(subtask_id, "held_out_read")
@@ -3096,6 +3100,7 @@ class Loop:
                             message_id=message.message_id,
                             usage=message.usage,
                             compaction=message.compaction,
+                            abandoned=message.abandoned,
                         )
                     )
                 if self._review_held(subtask_id, exc.session_id, exc.managed):
@@ -3155,6 +3160,7 @@ class Loop:
                         message_id=message.message_id,
                         usage=message.usage,
                         compaction=message.compaction,
+                        abandoned=message.abandoned,
                     )
                 )
         detail = f"review session {session_id or 'none'} {changed}"

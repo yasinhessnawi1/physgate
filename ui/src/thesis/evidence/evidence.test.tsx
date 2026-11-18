@@ -366,6 +366,32 @@ describe("the spend", () => {
     expect(text(cost)).toContain(EVIDENCE_COPY.lowerBoundLine);
   });
 
+  it("says a response was cut off, and not that calls went unpriced, when that alone bounds it", async () => {
+    const cut = {
+      ...SPEND,
+      line: {
+        ...SPEND.line,
+        reconciliation: { ...SPEND.line.reconciliation, unread: [], seal_broken: [] },
+        not_in_binary_totals_billing_unknown: {
+          "session:s-1": {
+            input_tokens: 2,
+            output_tokens: 1,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 55515,
+          },
+        },
+      },
+    };
+    serve({ [SPEND_ROUTE]: [200, cut] });
+    const host = await mount("tab=spend&run=0/ev-development");
+    const cost = section(host, EVIDENCE_COPY.cost);
+    expect(text(cost)).toContain("at least");
+    expect(text(cost)).toContain(
+      "A response was cut off by a connection error; its tokens are listed separately and the cost shown is a lower bound.",
+    );
+    expect(text(cost)).not.toContain(EVIDENCE_COPY.lowerBoundLine);
+  });
+
   it("shows a cost to the cent with the exact figure one hover away, and every figure sourced", async () => {
     const host = await mount("tab=spend&run=0/ev-development");
     const cost = section(host, EVIDENCE_COPY.cost);

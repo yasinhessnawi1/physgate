@@ -94,6 +94,19 @@ class MessageUsage(_Frozen):
     #: of its stream, so it is read as the difference between the two (``accounting``). Left out
     #: of every other line, so each keeps its bytes.
     compaction: bool = Field(default=False, exclude_if=lambda v: not v)
+    #: A response the binary cut short and closed itself (its stream failed, stalled or ended
+    #: early), with no final usage and no assistant message: the usage it started with, which
+    #: is not in the binary's per-model totals where the session then ended in an API error.
+    #: Recorded so it is seen, kept out of the sums held to those totals, its billing unknown
+    #: (``accounting``). Left out of every other line.
+    abandoned: bool = Field(default=False, exclude_if=lambda v: not v)
+
+    @model_validator(mode="after")
+    def _one_kind_of_line(self) -> MessageUsage:
+        if self.compaction and self.abandoned:
+            msg = "a compaction's call is no response of the stream, so none is cut short"
+            raise ValueError(msg)
+        return self
 
 
 #: A session's captured stream of events, or a written account of a revision.

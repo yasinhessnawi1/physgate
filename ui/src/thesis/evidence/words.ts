@@ -47,6 +47,8 @@ export const EVIDENCE_COPY = {
   atLeast: "at least",
   lowerBound: "Lower bound",
   lowerBoundLine: "A lower bound: some calls were not priced at the rate they paid.",
+  cutOff:
+    "A response was cut off by a connection error; its tokens are listed separately and the cost shown is a lower bound.",
   reconciliation: "Against what the sessions reported",
   noReconciliation: "No session reported a figure to set the priced calls against.",
   reportedUsd: "Reported by the sessions",

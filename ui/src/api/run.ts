@@ -269,6 +269,11 @@ export interface Tokens {
   readonly byAttribution: Readonly<Record<string, Usage>>;
   readonly byKind: Readonly<Record<string, Usage>>;
   readonly total: Usage;
+  /**
+   * Per attribution, the tokens of responses cut off by a connection error: in none of the figures
+   * above and none of the binary's totals, and whether they were billed is unknown.
+   */
+  readonly cutShort: Readonly<Record<string, Usage>>;
 }
 
 export function tokens(value: unknown): Tokens {
@@ -279,6 +284,7 @@ export function tokens(value: unknown): Tokens {
     byAttribution: each(t.by_attribution, "tokens by attribution"),
     byKind: each(t.by_kind, "tokens by kind"),
     total: usage(t.total),
+    cutShort: each(t.not_in_binary_totals_billing_unknown, "the cut-off responses' tokens"),
   };
 }
 

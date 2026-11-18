@@ -120,6 +120,27 @@ describe("the active run's cost so far", () => {
     expect(html).toMatch(/class="pg-at-least">at least<\/span>.*0\.25/s);
   });
 
+  it("says a response was cut off, and counts no call unpriced, when that alone bounds it", () => {
+    const cut = costRecord({
+      ...LINE,
+      reconciliation: { unread: [], ttl_unread: [] },
+      not_in_binary_totals_billing_unknown: {
+        "reviewer:b": {
+          input_tokens: 2,
+          output_tokens: 1,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 55515,
+        },
+      },
+    });
+    const html = renderToStaticMarkup(<CostSoFar cost={cut} source={SOURCE} />);
+    expect(html).toContain(
+      "A response was cut off by a connection error; its tokens are listed separately and the cost shown is a lower bound.",
+    );
+    expect(html).not.toContain("0 calls");
+    expect(html).toMatch(/class="pg-at-least">at least<\/span>.*0\.25/s);
+  });
+
   it("says nothing of a bound when every call was priced", () => {
     const whole = costRecord({ ...LINE, lower_bound: false, reconciliation: null });
     expect(renderToStaticMarkup(<CostSoFar cost={whole} source={SOURCE} />)).not.toContain(

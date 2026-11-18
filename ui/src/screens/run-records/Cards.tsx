@@ -9,7 +9,7 @@ import { Quantity } from "../../design/components/data/Quantity";
 import { SourceChip } from "../../design/components/data/SourceChip";
 import { type Source, sourceAttribute } from "../../design/components/data/source";
 import { Term } from "../../design/components/help/Term";
-import { CostCaveat } from "../common/cost";
+import { CostCaveat, CUT_OFF } from "../common/cost";
 
 function tok(value: number) {
   return <Quantity value={value} unit="tok" />;
@@ -146,6 +146,33 @@ export function TokensCard({
           </tbody>
         </table>
       </div>
+      {Object.keys(tokens.cutShort).length > 0 && (
+        <>
+          <p className="pg-panel-note">
+            {cost === null && `${CUT_OFF} `}
+            Cut off: these tokens are in no total above, nor in the totals the session reported;
+            whether they were billed is not known.
+          </p>
+          <div className="pg-table-wrap" role="region" aria-label="Tokens cut off" tabIndex={0}>
+            <table className="pg-table" aria-label="Cut off">
+              <thead>
+                <tr>
+                  <th scope="col">Cut off in</th>
+                  {USAGE_HEAD}
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(tokens.cutShort).map(([attribution, usage]) => (
+                  <tr key={attribution}>
+                    <td>{attributionWords(attribution)}</td>
+                    <UsageCells usage={usage} />
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
       <SourceChip {...{ ...source, id: `${source.id} · token account` }} />
     </section>
   );

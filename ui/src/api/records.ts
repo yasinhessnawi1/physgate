@@ -287,6 +287,11 @@ export interface CostRecord {
   readonly lowerBound: boolean;
   /** The calls the figure is short by, by attribution: unread, or their writes' cache unread. */
   readonly unpriced: readonly string[];
+  /**
+   * The calls that hold a response cut off by a connection error, by attribution: its tokens are
+   * in none of the binary's totals and in no figure here, and whether it was billed is unknown.
+   */
+  readonly cutShort: readonly string[];
 }
 
 function names(value: unknown, what: string): readonly string[] {
@@ -301,6 +306,12 @@ function unpriced(value: unknown): readonly string[] {
   const unread = names(held.unread, "the calls with no result read");
   const ttl = names(held.ttl_unread, "the calls with no cache lifetime read");
   return [...unread, ...ttl.filter((call) => !unread.includes(call))];
+}
+
+/** The calls a line names with a cut-off response; a line with none leaves the key out. */
+function cutShort(value: unknown): readonly string[] {
+  if (value === undefined) return [];
+  return Object.keys(object(value, "the cut-off responses' tokens"));
 }
 
 function costRows(value: unknown): readonly unknown[] {
@@ -334,6 +345,7 @@ export function costRecord(value: unknown): CostRecord {
     }),
     lowerBound,
     unpriced: unpriced(line.reconciliation),
+    cutShort: cutShort(line.not_in_binary_totals_billing_unknown),
   };
 }
 
