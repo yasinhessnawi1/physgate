@@ -417,6 +417,22 @@ def test_a_line_cannot_be_both_a_compaction_s_call_and_a_cut_response() -> None:
         MessageUsage(message_id="m", usage=_usage(CUT_START), compaction=True, abandoned=True)
 
 
+def test_a_token_line_cannot_be_both_a_compaction_s_call_and_a_cut_response(tmp_path: Path) -> None:
+    _require_the_mark()
+    log = EventLog(tmp_path / "events.jsonl", run_id="run-1", gate_mode="on")
+    log.emit(RunStarted, config_sha256="c" * 64)
+    with pytest.raises(ValueError, match="compaction"):
+        log.emit(
+            TokensUsed,
+            attribution="reviewer:rev-1",
+            message_id="compaction-1",
+            usage=_usage(CUT_START),
+            compaction=True,
+            abandoned=True,
+        )
+    log.close()
+
+
 # --- every caller: the plan call, a role session, a leftover, a review -----------------------
 
 
@@ -692,3 +708,59 @@ def test_the_plan_review_s_cut_line_is_recorded_marked_beside_its_infrastructure
     assert marked == [("reviewer:rev-plan", "msg_02")]
     (ran,) = [e for e in lines if isinstance(e, DesignReviewRan)]
     assert ran.unavailable is not None and ran.unavailable.cause == "infrastructure"
+
+
+def test_a_leftover_s_cut_line_is_recorded_marked_when_the_loop_reads_it(
+    tmp_path: Path, cut_lines: tuple[MessageUsage, ...]
+) -> None:
+    _require_the_mark()
+    from physgate.orchestrator.ports import Leftover
+
+    class _Left(FakeDispatcher):
+        def stop_leftovers(self) -> list[Leftover]:
+            return [
+                Leftover(
+                    session_id="sess-old",
+                    pid=4242,
+                    killed=0,
+                    stopped=False,
+                    usage=cut_lines,
+                    complete=True,
+                )
+            ]
+
+    rig = Rig(tmp_path, dispatcher=_Left())
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    events = read_events(tmp_path / "events.jsonl")
+    marked = [
+        (e.attribution, e.message_id) for e in events if isinstance(e, TokensUsed) and e.abandoned
+    ]
+    assert marked == [("session:sess-old", "msg_02")]
+    assert TokenAccount.from_events(events).abandoned() == {"session:sess-old": _usage(CUT_START)}
+
+
+def test_a_role_review_that_showed_held_out_material_records_its_cut_line_marked(
+    tmp_path: Path, cut_lines: tuple[MessageUsage, ...]
+) -> None:
+    _require_the_mark()
+    from physgate.orchestrator.exceptions import HeldOutExposedError
+
+    exposed = HeldOutExposedError(
+        "held-out material in the stream of review session rev-seen",
+        session_id="rev-seen",
+        reviewer_model="claude-opus-5-5",
+        usage=cut_lines,
+    )
+    rig = Rig(tmp_path, reviewer=FakeReviewer(unavailable={1: exposed}))  # type: ignore[dict-item]
+    loop = rig.open()
+    loop.start(plan("s1"))
+    assert loop.run().kind == "halted"
+    loop.close()
+    events = read_events(tmp_path / "events.jsonl")
+    marked = [
+        (e.attribution, e.message_id) for e in events if isinstance(e, TokensUsed) and e.abandoned
+    ]
+    assert marked == [("reviewer:rev-seen", "msg_02")]

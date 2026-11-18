@@ -11,12 +11,13 @@ cut response's writes as the charged writes' split.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 from observe_rig import fake_run, target_repo
 
 from physgate.evaluation.observe.calls import CacheWrites, RecordedCall
-from physgate.evaluation.observe.cost import load_price_sheet, price_events
+from physgate.evaluation.observe.cost import CostLine, load_price_sheet, price_events
 from physgate.evaluation.observe.generalist import review_retried_once
 from physgate.evaluation.observe.manifest import read_manifest, read_run_events
 from physgate.orchestrator.accounting import TokenAccount
@@ -36,6 +37,14 @@ COMPLETE = Usage(
 CUT = Usage(
     input_tokens=2, output_tokens=1, cache_read_input_tokens=0, cache_creation_input_tokens=55515
 )
+
+
+def _outcome(how: Callable[[], object]) -> object:
+    """What ``how`` returned, or the exception it raised: the row asserts on either."""
+    try:
+        return how()
+    except Exception as exc:  # noqa: BLE001 - the escape is what the row asserts on
+        return exc
 
 
 def _lines() -> tuple[MessageUsage, ...]:
@@ -121,9 +130,16 @@ def test_the_cost_line_prices_the_charged_tokens_and_names_the_cut_response_apar
     session = who.split(":", 1)[1]
     calls = {who: RecordedCall(session_id=session, cache_writes=writes, binary_usd=None)}
     manifest = read_manifest(run)
-    line = price_events(
-        manifest.config, manifest.manifest_id, resumed, load_price_sheet("2026-10-16"), calls=calls
+    line = _outcome(
+        lambda: price_events(
+            manifest.config,
+            manifest.manifest_id,
+            resumed,
+            load_price_sheet("2026-10-16"),
+            calls=calls,
+        )
     )
+    assert isinstance(line, CostLine), f"the run was not priced: {line!r}"
     (call,) = [c for c in line.calls if c.attribution == who]
     assert call.tokens == charged
     # Its writes were not read as a split of the charged ones: a lower bound, named.

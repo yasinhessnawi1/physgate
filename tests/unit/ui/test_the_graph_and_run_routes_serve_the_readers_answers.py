@@ -133,7 +133,7 @@ def test_the_tokens_are_the_account_s(world: dict[str, Path], live: Live, run: s
     }
     assert served["by_kind"] == {k: u.model_dump(mode="json") for k, u in account.by_kind().items()}
     assert served["total"] == account.total().model_dump(mode="json")
-    assert served["abandoned_not_charged"] == {
+    assert served.get("abandoned_not_charged") == {
         a: u.model_dump(mode="json") for a, u in account.abandoned().items()
     }
     assert (
