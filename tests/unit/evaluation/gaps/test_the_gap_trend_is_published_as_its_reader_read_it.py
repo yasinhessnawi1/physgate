@@ -48,32 +48,31 @@ def _reason(exc: BaseException) -> str:
     return str(getattr(exc, "context", {}).get("refused_because", type(exc).__name__))
 
 
-def _found(tmp_path: Path, made: StandInStore) -> Any:  # noqa: ANN401
-    """What ``physgate gaps`` measured on a run set, before anything is appended."""
-    visible = measured(made, "visible", tmp_path / "v")
+def _vector(tmp_path: Path, made: StandInStore, name: str) -> Path:
+    """A held-out vector written from a fresh run set: one more look, under a key of its own."""
     withheld = withheld_root(made.store, "control")
-    runs = measured(made, "held_out", tmp_path / "h")
+    runs = measured(made, "held_out", tmp_path / name)
     key = api(WRITE)(
         withheld, version=made.version, tier="held_out", runs=runs.runs, trials=runs.trials
     )
-    body = design(made, visible, validation_tasks=None)
-    return api(MEASURE)(
-        api(DESIGN).model_validate_json(json.dumps(body)),
-        runs=visible.runs,
-        trials=visible.trials,
-        held_out=withheld / "gaps" / f"{key}.json",
-        validation=None,
-    )
+    return withheld / "gaps" / f"{key}.json"
 
 
 def _trend(tmp_path: Path, made: StandInStore) -> Path:
-    """A trend of two lines, in the ISO weeks 2026-W45 and 2026-W46."""
+    """A trend of two lines with their numbers, in the ISO weeks 2026-W45 and 2026-W46."""
     trend = tmp_path / "gaps.jsonl"
-    found = _found(tmp_path, made)
-    for n, day in ((1, date(2026, 11, 2)), (2, date(2026, 11, 9))):
-        line = found.model_copy(
-            update={"manifest_ids": (f"{n:064x}",), "keys": {"held_out": f"{n + 7:064x}"}}
-        )
+    visible = measured(made, "visible", tmp_path / "v")
+    held = _vector(tmp_path, made, "h1")
+    found = api(MEASURE)(
+        api(DESIGN).model_validate_json(json.dumps(design(made, visible, validation_tasks=None))),
+        runs=visible.runs,
+        trials=visible.trials,
+        held_out=held,
+        validation=None,
+    )
+    second = _vector(tmp_path, made, "h2")
+    for n, day, key in ((1, date(2026, 11, 2), held.stem), (2, date(2026, 11, 9), second.stem)):
+        line = found.model_copy(update={"manifest_ids": (f"{n:064x}",), "keys": {"held_out": key}})
         api(APPEND)(trend, line, today=day)
     return trend
 
@@ -103,6 +102,7 @@ def test_the_publication_is_the_reader_s_weeks_through_the_day_it_was_read(
     assert [w["week"] for w in published["weeks"]] == ["2026-W45", "2026-W46", "2026-W47"]
     assert [w["missing"] for w in published["weeks"]] == [False, False, True]
     assert published["refused"] is None
+    assert all(line["numbers"] for w in published["weeks"] for line in w["lines"]), "no numbers"
     assert published["role"] == "control"
     assert datetime.fromisoformat(published["read_at"]) == NOW
 
@@ -263,3 +263,21 @@ def test_the_command_says_a_refusal_and_exits_one(
     printed = json.loads(capsys.readouterr().out)
     assert printed["refused"]["refused_because"] == "trend_unreadable", printed
     assert json.loads((out / api(NAME)("control")).read_text())["refused"] == printed["refused"]
+
+
+def test_a_refusal_whose_sentence_names_a_place_on_disk_is_published_without_it(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    trend = _trend(tmp_path, made)
+    withheld = withheld_root(made.store, "control")
+    moved = withheld.with_name("withheld-moved")
+    withheld.rename(moved)
+    withheld.symlink_to(moved, target_is_directory=True)
+    with pytest.raises(Exception) as caught:
+        api(READ)(trend, store=made.store, role="control")
+    assert str(made.store) in str(caught.value), "the row needs a sentence that names a place"
+    published = json.loads(_publish(trend, made, _out(tmp_path)).read_text())
+    refused = published["refused"]
+    assert refused["refused_because"] == _reason(caught.value)
+    assert str(made.store) not in refused["error"] and str(tmp_path) not in refused["error"]
+    assert refused["error"], refused

@@ -43,25 +43,29 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     """A store with a two-line control trend, the fixture build, and the trend's bytes."""
     base = tmp_path_factory.mktemp("gaps-route")
     made = stand_in_store(base / "st")
-    visible = measured(made, "visible", base / "v")
     withheld = withheld_root(made.store, "control")
-    held = measured(made, "held_out", base / "h")
-    key = api("physgate.evaluation.tiers.measure.write_vector")(
-        withheld, version=made.version, tier="held_out", runs=held.runs, trials=held.trials
-    )
+    keys = []
+    for name in ("h1", "h2"):
+        held = measured(made, "held_out", base / name)
+        keys.append(
+            api("physgate.evaluation.tiers.measure.write_vector")(
+                withheld, version=made.version, tier="held_out", runs=held.runs, trials=held.trials
+            )
+        )
+    visible = measured(made, "visible", base / "v")
     found = api("physgate.evaluation.gaps.measure.measure")(
         api("physgate.evaluation.gaps.measure.GapsDesign").model_validate_json(
             json.dumps(design(made, visible, validation_tasks=None))
         ),
         runs=visible.runs,
         trials=visible.trials,
-        held_out=withheld / "gaps" / f"{key}.json",
+        held_out=withheld / "gaps" / f"{keys[0]}.json",
         validation=None,
     )
     trend = base / "gaps.jsonl"
     for n, day in ((1, date(2026, 11, 2)), (2, date(2026, 11, 9))):
         line = found.model_copy(
-            update={"manifest_ids": (f"{n:064x}",), "keys": {"held_out": f"{n + 7:064x}"}}
+            update={"manifest_ids": (f"{n:064x}",), "keys": {"held_out": keys[n - 1]}}
         )
         api(APPEND)(trend, line, today=day)
     return {"made": made, "trend": trend, "ui": fake_ui(base / "checkout")}

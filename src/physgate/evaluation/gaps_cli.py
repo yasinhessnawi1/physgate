@@ -9,6 +9,11 @@ in it: this module reaches the machinery only when a command runs.
   each tier's count, both gaps with their intervals, notes in words, the harness commits and
   the accounts. ``--append`` adds the line to the gap trend at ``TREND``; it writes nothing to
   the register.
+- ``physgate gaps trend --store S --role R --trend T [--publish DIR]`` reads the role's trend
+  with its one reader and prints it as the Evidence page shows it: every week through today, or
+  the reader's refusal (exit 1). ``--publish`` also writes that, whole, into the folder ``DIR``,
+  which the UI's server is then given as a root: the server cannot run the reader, whose head and
+  register lie beneath the role's withheld root.
 - ``physgate gaps vector --withheld W --version V --tier T --runs R --trials T`` is the harness
   side's step for a protected tier: it counts one measurement of ``V`` in the register and writes
   the tier's anonymous vector beneath ``W``, the role's withheld root, and prints its key. Its
@@ -27,7 +32,7 @@ from typing import Any
 
 
 def add_parser(subparsers: Any) -> None:
-    """Register ``physgate gaps`` and ``physgate gaps vector``."""
+    """Register ``physgate gaps``, ``physgate gaps vector`` and ``physgate gaps trend``."""
     parser = subparsers.add_parser("gaps", help="the two gaps, their counts and their trend")
     parser.add_argument("--design", type=Path)
     parser.add_argument("--runs", type=Path)
@@ -47,7 +52,7 @@ def add_parser(subparsers: Any) -> None:
     vector.set_defaults(func=_vector)
     trend = commands.add_parser("trend", help="read the gap trend, and publish it for the page")
     trend.add_argument("--store", type=Path, required=True)
-    trend.add_argument("--role", required=True)
+    trend.add_argument("--role", required=True, choices=("control", "firmware"))
     trend.add_argument("--trend", dest="trend_path", type=Path, required=True)
     trend.add_argument("--publish", type=Path)
     trend.set_defaults(func=_trend)
@@ -135,5 +140,19 @@ def _vector(args: argparse.Namespace) -> int:
 
 
 def _trend(args: argparse.Namespace) -> int:
-    """A stub."""
-    return 2
+    from physgate.evaluation.gaps.published import publish_trend, read_for_publication
+    from physgate.evaluation.per_role.exceptions import PerRoleError
+
+    try:
+        if args.publish is not None:
+            path = publish_trend(
+                args.trend_path, store=args.store, role=args.role, out=args.publish
+            )
+            record = path.read_bytes().decode().strip()
+        else:
+            found = read_for_publication(args.trend_path, store=args.store, role=args.role)
+            record = found.model_dump_json()
+    except PerRoleError as exc:
+        return _refused(exc)
+    print(record)
+    return 0 if json.loads(record)["refused"] is None else 1

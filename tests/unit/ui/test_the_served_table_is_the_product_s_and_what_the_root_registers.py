@@ -50,6 +50,7 @@ EVIDENCE_ROUTES = evidence.routes(
         trend=evidence.TrendCensus(
             roles=published.ROLES,
             name=published.published_name,
+            most=published.MOST_PUBLISHED_BYTES,
             parse=published.read_published,
             refused=published.GapsError,
         ),
@@ -172,6 +173,7 @@ def test_the_routes_class_runs_by_the_comparison_s_own_lists_and_function() -> N
         # The published gap trend's own name and parser, handed in the same way.
         assert census.trend.parse is published.read_published
         assert census.trend.name is published.published_name
+        assert census.trend.most == published.MOST_PUBLISHED_BYTES
         assert census.trend.roles is published.ROLES
         assert census.trend.refused is published.GapsError
 

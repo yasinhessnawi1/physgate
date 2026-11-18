@@ -20,8 +20,8 @@ from physgate.orchestrator import cli as orchestrator_cli
 from physgate.ui import cli as ui_cli
 from physgate.ui import table
 
-#: What the comparison classes and how it compares, and the gate's catch count, handed to the
-#: Evidence screen's routes.
+#: What the comparison classes and how it compares, the gate's catch count, and the published
+#: gap trend's names and parser, handed to the Evidence screen's routes.
 CENSUS = evidence.Census(
     drift=compare.DRIFT,
     reported=compare.REPORTED,
@@ -30,6 +30,7 @@ CENSUS = evidence.Census(
     trend=evidence.TrendCensus(
         roles=published.ROLES,
         name=published.published_name,
+        most=published.MOST_PUBLISHED_BYTES,
         parse=published.read_published,
         refused=published.GapsError,
     ),
