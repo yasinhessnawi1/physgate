@@ -763,6 +763,27 @@ SOLUTION_SENTENCE = (
     "merged when it starts, it reports that and implements no design of its own."
 )
 
+#: The form of one acceptance criterion, as every decomposition prompt states it. The plan
+#: review reads each criterion for how it is verified, named as one of the four methods of
+#: verification (analysis, demonstration, inspection, test), and for one requirement in "shall"
+#: form; a plan that leaves the method unsaid, or packs a value and a second check into one
+#: numbered line, fails the review on its form, whatever its design. The decomposition reads
+#: nothing but its prompt, so the form is given here in the words the review holds it to, with
+#: the kinds of bundle plans have written as one criterion named in general terms. Splitting a
+#: bundle leaves each part to be traced on its own, so the sentence asks for each criterion's
+#: trace as well; a goal, which is not a requirement, is kept out of the criteria.
+CRITERION_FORM_SENTENCE = (
+    'Write each acceptance criterion as one statement of one thing, in the form "The <module> '
+    'shall <verb> <what>, <threshold with its unit and tolerance>, verified by <method>.", '
+    "where the method is one of analysis, demonstration, inspection or test, named by that word "
+    "in the criterion; a criterion that sets no figure has no threshold, and each criterion "
+    "names the brief requirement it traces to or says it is derived and why. A requirement that "
+    "holds several figures or conditions (a value and its agreement with another quantity, a "
+    "value and a rule for the rest of the module, two margins, a figure and a setting) becomes "
+    "one criterion for each, so that each is met or unmet on its own. A goal is written with "
+    '"should", outside the acceptance criteria.'
+)
+
 
 def _one_module_sentence(role: str) -> str:
     """The one sentence the prompt gains for the role that owns the cross nodes."""
@@ -818,13 +839,14 @@ def prompt_for(brief: str, roles: Sequence[str], *, parts: bool = False) -> str:
 
     Every prompt says how an interface's unit is spelt (:data:`UNIT_SPELLING_SENTENCE`), that
     a plan fixes interfaces and criteria and never a solution's law or coefficients
-    (:data:`SOLUTION_SENTENCE`), and where the gate has a bound and what forms each relation,
-    generated from what the gate loads. A cross-cutting role of the run adds its sentences:
-    sizing's, that it has one module at most, and that it keeps a node joined to each interface it
-    produces, which the interface follows; integration's, which ask for the system
-    requirements, by the brief's number where it numbers its criteria, and for module criteria
-    numbered as they are read. Integration is
-    not offered as a module's role, since the harness writes its specification. A run with
+    (:data:`SOLUTION_SENTENCE`), that each acceptance criterion is one statement with its
+    verification method named (:data:`CRITERION_FORM_SENTENCE`), and where the gate has a bound
+    and what forms each relation, generated from what the gate loads. A cross-cutting role of
+    the run adds its sentences: sizing's, that it has one module at most, and that it keeps a
+    node joined to each interface it produces, which the interface follows; integration's,
+    which ask for the system requirements, by the brief's number where it numbers its criteria,
+    and for module criteria numbered as they are read. Integration is not offered as a
+    module's role, since the harness writes its specification. A run with
     neither is sent the template as it was before either was planned for. With ``parts`` the
     run asks which parts a person has or can make, and the prompt gains the one sentence that
     asks for the components (:func:`parts_sentence`); without, it gains nothing.
@@ -854,6 +876,7 @@ def prompt_for(brief: str, roles: Sequence[str], *, parts: bool = False) -> str:
         f"{UNIT_SPELLING_SENTENCE} "
         f"{NODE_ID_SENTENCE}\n\n"
         f"{SOLUTION_SENTENCE}\n\n"
+        f"{CRITERION_FORM_SENTENCE}\n\n"
         f"{catalogue_sentence()}\n\n"
         f"{bounds_sentence()}\n\n"
         f"{relations_sentence()}\n\n"
