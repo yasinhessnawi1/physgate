@@ -334,3 +334,60 @@ def test_the_per_task_fields_are_the_census_of_drift() -> None:
     held = api("physgate.evaluation.tiers.measure.HELD_EQUAL")
     assert set(per_task) == {"brief_sha256", "target_head"} and set(per_task) <= set(DRIFT)
     assert tuple(held) == tuple(f for f in DRIFT if f not in per_task)
+
+
+def _stale_head_once(
+    monkeypatch: pytest.MonkeyPatch, trend: Path, made: StandInStore, *, writer_starts: bool
+) -> None:
+    """The reader's first look at the head finds the one before the last line's.
+
+    As if a first writer had appended its line and not yet moved the head. ``writer_starts``:
+    that writer made the trend's lock as it began, so it is there when the reader looks again.
+    """
+    import hashlib
+
+    from physgate.evaluation.gaps import measure
+
+    real = measure._head_of
+    lock = withheld_root(made.store, "control") / "trend.lock"
+    first = trend.read_bytes().splitlines(keepends=True)[0]
+    looks: list[int] = []
+
+    def head_of(fd: int | None) -> tuple[int, str] | None:
+        looks.append(1)
+        if len(looks) == 1:
+            if writer_starts:
+                lock.touch()
+            return 1, hashlib.sha256(first).hexdigest()
+        return real(fd)
+
+    monkeypatch.setattr(measure, "_head_of", head_of)
+
+
+def test_a_reader_that_found_no_lock_reads_again_under_the_lock_a_first_writer_made(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    trend = tmp_path / "gaps.jsonl"
+    assert _append(tmp_path, made, trend, "a")[0] == 0
+    assert _append(tmp_path, made, trend, "b")[0] == 0
+    # As before the trend's first writer made its lock: a reader then reads unlocked.
+    (withheld_root(made.store, "control") / "trend.lock").unlink()
+    _stale_head_once(monkeypatch, trend, made, writer_starts=True)
+    try:
+        got = _read(trend, made)
+    except Exception as exc:  # noqa: BLE001 - the refusal is the failure this row names
+        pytest.fail(f"the reader refused what it read before the first writer ended: {exc}")
+    assert len(got) == 2
+
+
+def test_a_reader_with_no_lock_still_refuses_a_line_past_the_head_when_no_writer_began(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    trend = tmp_path / "gaps.jsonl"
+    assert _append(tmp_path, made, trend, "a")[0] == 0
+    assert _append(tmp_path, made, trend, "b")[0] == 0
+    (withheld_root(made.store, "control") / "trend.lock").unlink()
+    _stale_head_once(monkeypatch, trend, made, writer_starts=False)
+    with pytest.raises(Exception) as caught:
+        _read(trend, made)
+    assert "past" in str(caught.value), caught.value

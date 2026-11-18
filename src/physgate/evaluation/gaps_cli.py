@@ -45,6 +45,12 @@ def add_parser(subparsers: Any) -> None:
     vector.add_argument("--runs", dest="vector_runs", type=Path, required=True)
     vector.add_argument("--trials", dest="vector_trials", type=Path, required=True)
     vector.set_defaults(func=_vector)
+    trend = commands.add_parser("trend", help="read the gap trend, and publish it for the page")
+    trend.add_argument("--store", type=Path, required=True)
+    trend.add_argument("--role", required=True)
+    trend.add_argument("--trend", dest="trend_path", type=Path, required=True)
+    trend.add_argument("--publish", type=Path)
+    trend.set_defaults(func=_trend)
 
 
 def _refused(exc: Exception) -> int:
@@ -126,3 +132,8 @@ def _vector(args: argparse.Namespace) -> int:
         return _refused(exc)
     print(json.dumps({"key": key}, sort_keys=True))
     return 0
+
+
+def _trend(args: argparse.Namespace) -> int:
+    """A stub."""
+    return 2

@@ -86,6 +86,16 @@ KINDS: tuple[Kind, ...] = ("reportable", "development", "ablation")
 
 
 @dataclass(frozen=True)
+class TrendCensus:
+    """A stub."""
+
+    roles: tuple[str, ...]
+    name: Callable[[str], str]
+    parse: Callable[[bytes, str], BaseModel]
+    refused: type[Exception]
+
+
+@dataclass(frozen=True)
 class Census:
     """What the comparison classes and how it compares, and the catch count, handed in.
 
@@ -99,6 +109,7 @@ class Census:
     reported: tuple[str, ...]
     compare: Callable[[Path, Path], BaseModel]
     catches: Callable[[list[GateEvent]], Sequence[BaseModel]]
+    trend: TrendCensus
 
     @property
     def flags(self) -> tuple[str, ...]:

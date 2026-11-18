@@ -27,6 +27,8 @@ from physgate.ui.table import registered
 
 #: The marker written into every planted target: it must never appear in a response.
 MARKER = b"PLANTED-TARGET-MARKER"
+#: The name a published gap trend of the control role is found under, at the top of a root.
+GAP_TREND = "gap-trend-control.json"
 RUN = "run-observe"
 PRICES = "2026-09-27"
 
@@ -98,7 +100,8 @@ def _plant(world: dict[str, Path], planted: str, toward: str, session: str) -> P
     """Replace the file ``planted`` with a link ``toward`` a target, and return the target."""
     run_dir = world["root"] / RUN
     relative = f"sessions/{session}/stdout.jsonl" if planted == "stream" else planted
-    path = run_dir / relative
+    # The published gap trend lies at the top of a root, beside the runs, not in one.
+    path = world["root"] / GAP_TREND if planted == "gap trend" else run_dir / relative
     if toward == "held-out tier":
         target = world["held"] / "target"
     elif toward == "outside every root":
@@ -107,7 +110,7 @@ def _plant(world: dict[str, Path], planted: str, toward: str, session: str) -> P
         target = run_dir / "sessions" / session / "config" / ".credentials.json"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(MARKER + b"\n")
-    path.unlink()
+    path.unlink(missing_ok=True)
     path.symlink_to(target)
     return target
 
@@ -382,6 +385,8 @@ REGISTERED_PLANTS: dict[str, dict[str, str]] = {
     },
     # A session's stream: the spend reads each call's result from it.
     "stream": {SPEND: "403"},
+    # The gap trend a person published for the page, at the top of the root.
+    "gap trend": {"/api/evidence/gaps": "refused"},
 }
 
 
@@ -426,6 +431,11 @@ def test_a_registered_route_refuses_a_run_file_that_links_out_of_its_roots(
             continue
         assert status == 200, (route, status, body[:200])
         answer = json.loads(body)
+        if expected == "refused":
+            (entry,) = [entry for entry in answer["roles"] if entry["role"] == "control"]
+            assert entry["state"] == "refused", entry
+            assert "weeks" not in entry, entry
+            continue
         if expected == "unread":
             assert set(answer) == {"kinds", "unread"}, answer
             (row,) = [row for row in answer["unread"] if row["name"] == RUN]
