@@ -87,16 +87,20 @@ def _marked(i: int) -> dict[str, Any]:
     return {"id": f"control.{marker(i)}", "specs": task["specs"]}
 
 
-def stand_in_store(root: Path, *, marked: bool = False) -> StandInStore:
+def stand_in_store(
+    root: Path, *, marked: bool = False, changes: dict[str, Any] | None = None
+) -> StandInStore:
     """Twenty-four fixture tasks, each with its own brief, split into one version.
 
     ``marked``: every field of task ``i`` but its brief carries :func:`marker` ``(i)``, so
-    what of a task reached a place can be found by a plain search.
+    what of a task reached a place can be found by a plain search. ``changes``: fields every
+    task is given in place of its own (a task the schema admits, though its role may not).
     """
     store = root.resolve() / "store"
     pool = store / "control" / "withheld" / "pool"
     for i in range(24):
         fields = _marked(i) if marked else {"id": f"control.t{i:02d}"}
+        fields = {**fields, **(changes or {})}
         slow = f"{marker(i)}_settling" if marked else "settling"
         write_task_dir(
             pool / str(fields["id"]),
