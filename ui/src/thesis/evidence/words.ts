@@ -125,24 +125,30 @@ export const EVIDENCE_COPY = {
   allChecks: "All checks",
   gapsTab: "Gaps",
   gapsLead:
-    "The two gaps, measured on a run set each time: what the visible tasks pass beyond the held-out ones, and what the validation tasks pass beyond the held-out ones. Each figure is the gap trend's own, as its reader read it.",
+    "The two gaps, measured each time on one batch of runs: how much more often the visible tasks pass than the held-out tasks, and how much more often the validation tasks pass than the held-out tasks. Every figure is copied from the gap trend, the record of every such measurement, as it was when it was last published; this page works none of them out.",
   readingGaps: "the gap trend",
   gapsRefused: "The gap trend could not be read",
   roleTitle: (role: string) => `${role.charAt(0).toUpperCase()}${role.slice(1)} role`,
   noTrend: "No gap trend of this role has been published for this page.",
   noPoint: "The gap trend of this role holds no measurement yet.",
   firstPoint:
-    "A first point appears once both gaps are measured on a run set of this role, the measurement is added to the role's trend, and the trend is published into a folder this server reads.",
-  readAt: (day: string, time: string, zone: string) =>
-    `Read from the trend on ${day} at ${time} ${zone}.`,
+    "A first point appears once both gaps are measured on a batch of this role's runs, that measurement is added to the role's gap trend, and the trend is published into a folder this page's server reads.",
+  readAt: (day: string, time: string, zone: string, age: string | null) =>
+    `Read from the gap trend on ${day} at ${time} ${zone}${age === null ? "" : ` (${age})`}.`,
+  justNow: "just now",
+  ago: (n: number, unit: "minute" | "hour" | "day") =>
+    `${String(n)} ${unit}${n === 1 ? "" : "s"} ago`,
+  aheadOfClock: "a time later than this computer's clock",
+  stale:
+    "This copy is more than a week old: anything measured since is not on it. Publish the gap trend again for a current copy.",
   asRead:
-    "This is the trend as it was read then: a measurement added, or a task version seen, since then is shown once the trend is published again.",
+    "This is the trend as it was then. A measurement added since, or held-out tasks that a run has seen since, shows here only once the trend is published again.",
   trendRefused: (role: string) => `The gap trend of the ${role} role is not shown`,
-  readerWords: "The reader's words:",
+  readerWords: "Why, in the words of the program that checks the trend:",
   onePoint:
     "One measurement so far: one point for each gap. One point is no trend, and none is drawn or claimed.",
   pointsAlone: (n: number) =>
-    `${String(n)} measurements so far. Each point stands alone: the page draws no line through them and claims no direction, since the trend's reader computes none.`,
+    `${String(n)} measurements so far. Each point stands alone: the page draws no line through them and claims no direction, since the trend records none.`,
   chartLabel:
     "Each measurement's two gaps as points, in percentage points, each with its 95 % interval where it has one. No line joins the points. The table below holds every value drawn.",
   rewardHacking: "Reward-hacking gap",
@@ -150,11 +156,12 @@ export const EVIDENCE_COPY = {
   optimiserOverfit: "Optimiser-overfit gap",
   optimiserOverfitSays: "validation minus held out",
   week: "Week",
-  version: "Task version",
+  version: "Task set",
+  versionSays: "the version of the tasks measured",
   visibleRate: "Visible tasks",
   validationRate: "Validation tasks",
   heldOutRate: "Held-out tasks",
-  measurements: "Times this version was measured",
+  measurements: "Times this task set was measured",
   noteColumn: "Notes",
   noMeasurement: "No measurement this week.",
   notMeasured: "Not measured: the validation tasks were not part of this measurement.",
@@ -167,7 +174,7 @@ export const EVIDENCE_COPY = {
   tableLabel: (role: string) => `The ${role} role's gap trend, week by week`,
   noNumbers: "None of the measurements' numbers can be shown: the table says why for each.",
   noNumberOfIt: "No number of it is shown.",
-  readAtAsSent: (readAt: string) => `Read from the trend at ${readAt}.`,
+  readAtAsSent: (readAt: string) => `Read from the gap trend at ${readAt}.`,
 } as const;
 
 /** Each kind's section heading, in the order the screen shows them. */

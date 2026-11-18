@@ -259,24 +259,21 @@ export const UNVERIFIED = "a vector the line names has no gaps measurement in th
 export const READER_REFUSAL =
   "the trend's last line (line 3) is cut: a write stopped part way through it, before its head moved. The head records 2 line(s); a person removes the bytes after the end of line 2, and the trend reads again";
 
-function tierCount(passed: number, n: number, rate: string) {
-  return { passed, n, tasks: 2, unscored: 0, flaky: 0, rate };
+/** A tier's count as the route serves it: its rate as the reader wrote it, and what failed. */
+function tierCount(rate: string) {
+  return { rate, unscored: 0, flaky: 0 };
 }
 
-/** A trend line as the reader gives it, its numbers given; ``over`` changes any field. */
+/** A trend line as the route serves it, its numbers given; ``over`` changes any field. */
 export function gapLine(week: string, over: Record<string, unknown> = {}) {
   return {
     week,
-    role: "control",
-    arm: "harness",
     version: TIER_VERSION,
-    manifest_ids: ["1".repeat(64)],
     measurements: 2,
-    floor: FLOOR,
     numbers: {
-      visible: tierCount(3, 4, "3/4 · 75.0 % [30.1, 95.4]"),
+      visible: tierCount("3/4 · 75.0 % [30.1, 95.4]"),
       validation: null,
-      held_out: tierCount(1, 4, "1/4 · 25.0 % [4.6, 69.9]"),
+      held_out: tierCount("1/4 · 25.0 % [4.6, 69.9]"),
       reward_hacking: { gap: 0.5, interval: [0.0, 1.0], words: BOOTSTRAP, label: null },
       optimiser_overfit: null,
     },
@@ -290,9 +287,9 @@ export function gapLine(week: string, over: Record<string, unknown> = {}) {
 export const SECOND = gapLine("2026-W47", {
   measurements: 3,
   numbers: {
-    visible: tierCount(4, 4, "4/4 · 100.0 % [51.0, 100.0]"),
-    validation: tierCount(2, 4, "2/4 · 50.0 % [15.0, 85.0]"),
-    held_out: tierCount(1, 4, "1/4 · 25.0 % [4.6, 69.9]"),
+    visible: tierCount("4/4 · 100.0 % [51.0, 100.0]"),
+    validation: tierCount("2/4 · 50.0 % [15.0, 85.0]"),
+    held_out: tierCount("1/4 · 25.0 % [4.6, 69.9]"),
     reward_hacking: { gap: 0.75, interval: [0.5, 1.0], words: BOOTSTRAP, label: null },
     optimiser_overfit: { gap: 0.25, interval: [-0.125, 0.5], words: BOOTSTRAP, label: FLOOR },
   },

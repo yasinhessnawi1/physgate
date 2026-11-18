@@ -584,14 +584,11 @@ export const GAPS_ROUTE = "/api/evidence/gaps";
 export const TREND_ROLES = ["control", "firmware"] as const;
 export type TrendRole = (typeof TREND_ROLES)[number];
 
-/** A tier's passing trials over tasks times trials, with its rate as the reader wrote it. */
+/** A tier's rate as the reader wrote it, and how many of its fails were unscored or flaky. */
 export interface TierCount {
-  readonly passed: number;
-  readonly n: number;
-  readonly tasks: number;
+  readonly rate: string;
   readonly unscored: number;
   readonly flaky: number;
-  readonly rate: string;
 }
 
 /** A gap as a fraction of a rate, its interval or none, and the reader's words for both. */
@@ -610,12 +607,11 @@ export interface GapNumbers {
   readonly optimiserOverfit: Gap | null;
 }
 
-/** A trend line as the reader gives it: its numbers, or why they are withheld. */
+/** A trend line as the route serves it: its numbers, or why they are withheld. */
 export interface GapLine {
   readonly week: string;
   readonly version: string;
   readonly measurements: number;
-  readonly floor: string;
   readonly numbers: GapNumbers | null;
   readonly unverified: string | null;
   readonly exposedSince: string | null;
@@ -663,17 +659,15 @@ function finite(value: unknown, what: string): number {
   return value;
 }
 
-const TIER_COUNT = ["passed", "n", "tasks", "unscored", "flaky", "rate"];
+/** What the route serves of a tier's count: only what the page shows. */
+const TIER_COUNT = ["rate", "unscored", "flaky"];
 
 function tierCount(value: unknown, what: string): TierCount {
   const c = exact(value, what, TIER_COUNT);
   return {
-    passed: count(c.passed, what),
-    n: count(c.n, what),
-    tasks: count(c.tasks, what),
+    rate: text(c.rate, what),
     unscored: count(c.unscored, what),
     flaky: count(c.flaky, what),
-    rate: text(c.rate, what),
   };
 }
 
@@ -707,24 +701,11 @@ function gapNumbers(value: unknown): GapNumbers {
   };
 }
 
-const LINE = [
-  "week",
-  "role",
-  "arm",
-  "version",
-  "manifest_ids",
-  "measurements",
-  "floor",
-  "numbers",
-  "unverified",
-  "exposed_since",
-];
+/** What the route serves of a trend line: only what the page shows, no run set's id. */
+const LINE = ["week", "version", "measurements", "numbers", "unverified", "exposed_since"];
 
-function gapLine(value: unknown, role: TrendRole): GapLine {
+function gapLine(value: unknown): GapLine {
   const l = exact(value, "a trend line", LINE);
-  if (l.role !== role) throw new ShapeError("a trend line of its role");
-  oneOf(l.arm, ["harness"], "a trend line's arm");
-  list(l.manifest_ids, "a line's runs").forEach((id) => matching(id, VERSION, "a manifest id"));
   const numbers = l.numbers === null ? null : gapNumbers(l.numbers);
   const unverified = optionalText(l.unverified, "why a line's numbers are withheld");
   // The reader gives a line's numbers, or says why it does not: never both, never neither.
@@ -733,17 +714,16 @@ function gapLine(value: unknown, role: TrendRole): GapLine {
     week: matching(l.week, WEEK, "a line's week"),
     version: matching(l.version, VERSION, "a task version"),
     measurements: count(l.measurements, "a version's measurement count"),
-    floor: text(l.floor, "the second gap's label"),
     numbers,
     unverified,
     exposedSince: optionalText(l.exposed_since, "a version seen since"),
   };
 }
 
-function gapWeek(value: unknown, role: TrendRole): GapWeek {
+function gapWeek(value: unknown): GapWeek {
   const w = exact(value, "a week of the trend", ["week", "lines", "missing"]);
   const week = matching(w.week, WEEK, "a week of the trend");
-  const lines = list(w.lines, "a week's lines").map((line) => gapLine(line, role));
+  const lines = list(w.lines, "a week's lines").map(gapLine);
   const missing = flag(w.missing, "whether a week is missing");
   if (missing !== (lines.length === 0) || lines.some((line) => line.week !== week))
     throw new ShapeError("a week of the trend");
@@ -763,7 +743,7 @@ function roleTrend(value: unknown): RoleTrend {
         role,
         state: "read",
         readAt: text(read.read_at, "when the trend was read"),
-        weeks: list(read.weeks, "the trend's weeks").map((week) => gapWeek(week, role)),
+        weeks: list(read.weeks, "the trend's weeks").map(gapWeek),
       };
     }
     case "refused": {

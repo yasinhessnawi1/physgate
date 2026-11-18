@@ -8,8 +8,12 @@
  *
  * The chart draws one point per gap and never a line through them: the reader computes no trend,
  * so none is drawn and no direction is claimed, whatever the number of points. Only the gaps'
- * own values are drawn, scaled to the chart; nothing else is computed here.
+ * own values are drawn, scaled to the chart; nothing else is computed here but how long ago the
+ * copy was read, by this computer's clock: a copy is a snapshot, so its age is said in words
+ * beside its time, and one older than a week is warned of, so it never reads as current.
  */
+import { useState } from "react";
+
 import { EmptyState } from "../../design/components/status/States";
 import type { Gap, GapLine, GapTrend, GapWeek, RoleTrend, TierCount } from "./api";
 import { ShortId } from "./parts";
@@ -38,14 +42,48 @@ export function weekWords(week: string): string {
   return `${EVIDENCE_COPY.week} ${String(Number(found[2]))}, ${found[1] ?? ""}`;
 }
 
-/** When the trend was read, in words: its day, its time to the minute and its zone. */
-export function readAtWords(readAt: string): string {
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+/** A copy older than this is warned of: the trend is measured about once a week. */
+export const STALE_AFTER = 7 * DAY;
+
+/** How long before ``now`` the copy was read, in words; ``null`` if its time cannot be read. */
+export function ageWords(readAt: string, now: number): string | null {
+  const at = Date.parse(readAt);
+  if (Number.isNaN(at)) return null;
+  const age = now - at;
+  if (age < -MINUTE) return EVIDENCE_COPY.aheadOfClock;
+  if (age < MINUTE) return EVIDENCE_COPY.justNow;
+  if (age < HOUR) return EVIDENCE_COPY.ago(Math.floor(age / MINUTE), "minute");
+  if (age < 2 * DAY) return EVIDENCE_COPY.ago(Math.floor(age / HOUR), "hour");
+  return EVIDENCE_COPY.ago(Math.floor(age / DAY), "day");
+}
+
+/** Whether the copy read at ``readAt`` is older than a week at ``now``. */
+function stale(readAt: string, now: number): boolean {
+  const at = Date.parse(readAt);
+  return !Number.isNaN(at) && now - at > STALE_AFTER;
+}
+
+/** When the trend was read, in words: its day, its time to the minute, its zone and its age. */
+export function readAtWords(readAt: string, now: number = Date.now()): string {
   const found = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.exec(
     readAt,
   );
   if (found === null) return EVIDENCE_COPY.readAtAsSent(readAt);
   const zone = found[3] === "Z" || found[3] === "+00:00" ? "UTC" : `UTC${found[3] ?? ""}`;
-  return EVIDENCE_COPY.readAt(found[1] ?? "", found[2] ?? "", zone);
+  return EVIDENCE_COPY.readAt(found[1] ?? "", found[2] ?? "", zone, ageWords(readAt, now));
+}
+
+/** A plain warning, beside a copy's time, once the copy is older than a week. */
+function Stale({ readAt, now }: { readonly readAt: string; readonly now: number }) {
+  if (!stale(readAt, now)) return null;
+  return (
+    <p className="evidence-note evidence-warn" data-note="stale" role="status">
+      {EVIDENCE_COPY.stale}
+    </p>
+  );
 }
 
 // -- the chart -----------------------------------------------------------------------------------
@@ -290,7 +328,10 @@ function Table({ role, weeks }: { readonly role: string; readonly weeks: readonl
         <thead>
           <tr>
             <th scope="col">{EVIDENCE_COPY.week}</th>
-            <th scope="col">{EVIDENCE_COPY.version}</th>
+            <th scope="col">
+              {EVIDENCE_COPY.version}
+              <span className="evidence-view">{EVIDENCE_COPY.versionSays}</span>
+            </th>
             <th scope="col">
               {EVIDENCE_COPY.rewardHacking}
               <span className="evidence-view">{EVIDENCE_COPY.rewardHackingSays}</span>
@@ -344,7 +385,7 @@ function Legend() {
   );
 }
 
-function RoleBody({ trend }: { readonly trend: RoleTrend }) {
+function RoleBody({ trend, now }: { readonly trend: RoleTrend; readonly now: number }) {
   if (trend.state === "none")
     return (
       <EmptyState title={EVIDENCE_COPY.noTrend} icon="microscope">
@@ -359,14 +400,21 @@ function RoleBody({ trend }: { readonly trend: RoleTrend }) {
           {EVIDENCE_COPY.readerWords} {trend.error}
         </p>
         <p className="evidence-note">{EVIDENCE_COPY.noNumberOfIt}</p>
-        {trend.readAt !== null && <p className="evidence-note">{readAtWords(trend.readAt)}</p>}
+        {trend.readAt !== null && (
+          <p className="evidence-note" data-note="read-at">
+            {readAtWords(trend.readAt, now)}
+          </p>
+        )}
       </div>
     );
   if (trend.weeks.length === 0)
     return (
-      <EmptyState title={EVIDENCE_COPY.noPoint} icon="microscope">
-        {EVIDENCE_COPY.firstPoint} {readAtWords(trend.readAt)}
-      </EmptyState>
+      <>
+        <EmptyState title={EVIDENCE_COPY.noPoint} icon="microscope">
+          {EVIDENCE_COPY.firstPoint} {readAtWords(trend.readAt, now)}
+        </EmptyState>
+        <Stale readAt={trend.readAt} now={now} />
+      </>
     );
   const drawn = pointsOf(trend.weeks);
   const measured = trend.weeks.reduce(
@@ -375,9 +423,10 @@ function RoleBody({ trend }: { readonly trend: RoleTrend }) {
   );
   return (
     <>
-      <p className="evidence-note">
-        {readAtWords(trend.readAt)} {EVIDENCE_COPY.asRead}
+      <p className="evidence-note" data-note="read-at">
+        {readAtWords(trend.readAt, now)} {EVIDENCE_COPY.asRead}
       </p>
+      <Stale readAt={trend.readAt} now={now} />
       {drawn.length > 0 ? (
         <figure className="evidence-figure">
           <Legend />
@@ -393,6 +442,8 @@ function RoleBody({ trend }: { readonly trend: RoleTrend }) {
 }
 
 export function GapsTab({ trend }: { readonly trend: GapTrend }) {
+  // The one clock reading the tab's ages are told against, taken when the tab is first shown.
+  const [now] = useState(() => Date.now());
   return (
     <>
       <p className="evidence-note">{EVIDENCE_COPY.gapsLead}</p>
@@ -405,7 +456,7 @@ export function GapsTab({ trend }: { readonly trend: GapTrend }) {
           data-source={`gap trend · ${role.role}`}
         >
           <h2 className="pg-panel-title">{EVIDENCE_COPY.roleTitle(role.role)}</h2>
-          <RoleBody trend={role} />
+          <RoleBody trend={role} now={now} />
         </section>
       ))}
     </>
