@@ -20,6 +20,7 @@ from typing import Any
 from physgate.evaluation.per_role import synthesise
 from physgate.evaluation.per_role.exceptions import SynthesisError
 from physgate.evaluation.per_role.scenario import TaskScenario
+from physgate.evaluation.per_role.scorers import control as scorer
 from physgate.evaluation.tiers.probe import Probed
 from physgate.evaluation.tiers.task import Task, canonical_json
 
@@ -46,6 +47,9 @@ class ControlSearch:
             "families": ["pid_filtered_derivative", "pid_lead"],
             "generations": synthesise.GENERATIONS,
             "population": synthesise.POPULATION,
+            # The search and the scorer give the same answer and score only on the same
+            # numerical libraries, so the result names them.
+            "libraries": scorer.library_versions(),
         }
 
     def probed(self, task: Task, seed: int) -> Probed:

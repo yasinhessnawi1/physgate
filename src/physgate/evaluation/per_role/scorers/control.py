@@ -376,7 +376,8 @@ def _holds(spec: Spec, value: float | None) -> tuple[bool, bool]:
     return held, near
 
 
-def _library_versions() -> dict[str, str]:
+def library_versions() -> dict[str, str]:
+    """The numerical libraries a score is computed with, and their versions."""
     return {name: version(name) for name in ("control", "numpy", "scipy")}
 
 
@@ -426,7 +427,7 @@ def score(task: Task, answer_path: Path) -> dict[str, Any]:
     require_known_metrics(task)
     record: dict[str, Any] = {
         "task": task.id,
-        "scorer": {"id": "control", "version": SCORER_VERSION, "libraries": _library_versions()},
+        "scorer": {"id": "control", "version": SCORER_VERSION, "libraries": library_versions()},
     }
     try:
         answer = read_lti_tf(answer_path)
