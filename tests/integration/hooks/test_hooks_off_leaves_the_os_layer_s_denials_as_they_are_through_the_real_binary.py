@@ -8,10 +8,20 @@ alike, and the command is told the same outcome place by place under both. Witho
 write lands, which shows the command reaches every place and that what keeps it out inside the
 layer is the layer, not a hook.
 
-What counts is the place on the disk. Where the layer denies a command the reads of a directory,
-the command may be shown an empty place there, and a write into it is not refused; it never
-reaches the directory itself. The command's own word is recorded beside the disk, and set
-``PHYSGATE_OSLAYER_REPORT`` to a directory to keep it as JSON.
+What counts is the place on the disk. Measured on Linux (bubblewrap) on both pins: a write into a
+directory whose reads the layer denies (the harness checkout, the held-out tier) is not refused
+to the command, yet nothing reaches the directory on the host, and no directory the command made
+on the way appears there either (what the command reads back is in the report). A hypothesis, not
+confirmed: the layer masks a read-denied directory inside the sandbox's own mount namespace with
+an empty mount of its own, so the write lands in a throwaway place that vanishes with the
+command. macOS is not measured by these rows: CI runs them on Linux only. The command's own word
+is recorded beside the disk, and set ``PHYSGATE_OSLAYER_REPORT`` to a directory to keep it as
+JSON.
+
+Without the layer the sentinel puts some protected files back as the session ends, so the
+control holds the disk after the session for every place the session's configuration does not
+put back, and for the ones it does, the bytes the command read back from the host right after its
+write, before any hook could act (no namespace stands between the command and the disk there).
 """
 
 from __future__ import annotations
@@ -27,6 +37,8 @@ from fake_messages_api import tool
 from os_layer_rig import Layout, layer_here, make_layout, python, run_session
 
 from physgate.flags import Hooks
+from physgate.hooks.config import SessionConfig
+from physgate.hooks.settings import CONFIG_NAME
 
 pytestmark = pytest.mark.integration
 
@@ -94,7 +106,9 @@ def _writes(layout: Layout) -> dict[str, object]:
             "        os.makedirs(os.path.dirname(p), exist_ok=True)\n"
             "        with open(p, 'a') as f:\n"
             "            f.write('planted\\n')\n"
-            "        out[what] = 'landed'\n"
+            "        with open(p) as f:\n"
+            "            back = 'planted' in f.read()\n"
+            "        out[what] = 'landed' if back else 'written, not read back'\n"
             "    except OSError:\n"
             "        out[what] = 'refused'\n"
             f"open({OUTCOMES!r}, 'w').write(json.dumps(out, sort_keys=True))"
@@ -118,21 +132,50 @@ def _planted(layout: Layout) -> set[str]:
     return landed
 
 
-def _session(root: Path, hooks: Hooks, *, layer: bool) -> tuple[dict[str, str], set[str]]:
+#: Who of the sentinel's watches puts a changed file back as the session ends.
+PUT_BACK = ("revert", "halt")
+
+
+def _put_back(layout: Layout) -> set[str]:
+    """The places a protected root the sentinel puts back holds, as the session was installed."""
+    config = SessionConfig.model_validate_json((layout.sdir / "session" / CONFIG_NAME).read_bytes())
+    return {
+        what
+        for what, path in PLACES.items()
+        if any(
+            Path(_placed(layout, path)).is_relative_to(root.path)
+            for root in config.protected_roots
+            if root.watch in PUT_BACK
+        )
+    }
+
+
+Seen = tuple[dict[str, str], set[str], set[str], set[str]]
+
+
+def _session(root: Path, hooks: Hooks, *, layer: bool) -> Seen:
+    """What the command was told, what is on the disk, what it put back, and stray directories."""
     with make_layout(root / f"{hooks}-{'layer' if layer else 'bare'}") as layout:
         (layout.worktree / ".env").write_text("NOT_A_SECRET=1\n")
-        run_session(layout, [_writes(layout)], layer=layer, hooks=hooks, fields=_fields(layout))
-        return _outcomes(layout), _planted(layout)
+        fields = _fields(layout)
+        missing = {
+            what: Path(_placed(layout, path)).parent
+            for what, path in PLACES.items()
+            if not Path(_placed(layout, path)).parent.exists()
+        }
+        run_session(layout, [_writes(layout)], layer=layer, hooks=hooks, fields=fields)
+        stray = {what for what, parent in missing.items() if parent.exists()}
+        return _outcomes(layout), _planted(layout), _put_back(layout), stray
 
 
-def _report(seen: dict[str, tuple[dict[str, str], set[str]]]) -> None:
+def _report(seen: dict[str, Seen]) -> None:
     where = os.environ.get("PHYSGATE_OSLAYER_REPORT")
     if not where:
         return
     Path(where).mkdir(parents=True, exist_ok=True)
     shown = {
-        hooks: {"told": told, "on_the_disk": sorted(planted)}
-        for hooks, (told, planted) in seen.items()
+        hooks: {"told": told, "on_the_disk": sorted(planted), "stray_directories": sorted(stray)}
+        for hooks, (told, planted, _, stray) in seen.items()
     }
     (Path(where) / "hooks_off_places.json").write_text(json.dumps(shown, indent=2) + "\n")
 
@@ -143,18 +186,23 @@ def test_inside_the_layer_no_command_writes_any_of_the_four_places_under_either_
 ) -> None:
     seen = {hooks: _session(tmp_path, hooks, layer=True) for hooks in ("on", "off")}
     _report(seen)
-    for hooks, (told, planted) in seen.items():
+    for hooks, (told, planted, _, stray) in seen.items():
         assert planted == set(), (hooks, told)
+        # Nor did a directory the command made on its way to a place appear on the host.
+        assert stray == set(), (hooks, told)
         assert set(told) == set(PLACES), hooks
         # In the worktree the layer's own rule refuses the write outright.
         assert told["the secrets"] == "refused", hooks
-    assert seen["off"] == seen["on"]
+    assert seen["off"][0] == seen["on"][0]
 
 
 @pytest.mark.usefixtures("layer")
 def test_without_the_layer_each_write_lands_which_shows_the_command_reaches_every_place(
     tmp_path: Path,
 ) -> None:
-    # The command's own word: the sentinel may put a protected file back at the session's end.
-    outcomes, _ = _session(tmp_path, "off", layer=False)
-    assert outcomes == dict.fromkeys(PLACES, "landed")
+    told, planted, put_back, _ = _session(tmp_path, "off", layer=False)
+    # Each write's bytes were read back from the host right after it, before any hook acted.
+    assert told == dict.fromkeys(PLACES, "landed")
+    # And every place the sentinel does not put back still holds them after the session.
+    assert set(PLACES) - put_back, "the sentinel puts every place back; the disk shows nothing"
+    assert planted >= set(PLACES) - put_back, (planted, put_back)
