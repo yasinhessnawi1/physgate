@@ -58,6 +58,9 @@ The routes:
 
 from __future__ import annotations
 
+import errno
+import os
+import stat
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -453,6 +456,55 @@ class Catches:
 # -- the gap trend ---------------------------------------------------------------------------
 
 
+#: The reason a publication that is not a plain file of its own, or not to be read, is refused.
+REFUSED = "publication_refused"
+
+
+def _published_bytes(context: Context, path: Path, most: int) -> bytes | None:
+    """At most ``most + 1`` bytes of the publication at ``path``; ``None`` if it is not there.
+
+    Judged by the allowlist first (a link out of the roots, toward the held-out tier or a
+    credential, or a file with a second name, is refused before anything is opened), then opened
+    never through a link and never waiting, and read only if what was opened is a regular file
+    with one name on disk. A read route may open only absolute paths, so this opens the path
+    itself, not a name beneath a directory's descriptor; the root is its parent, held real.
+
+    Raises:
+        PathRefusedError: any of those, in words.
+    """
+    context.allowlist.resolve(path)
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            msg = "a link stands in its place, and a link is never followed to it"
+            raise PathRefusedError(msg) from None
+        msg = f"it cannot be opened ({os.strerror(exc.errno or 0)})"
+        raise PathRefusedError(msg) from None
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode):
+            raise PathRefusedError("it is not a regular file, so nothing is read from it")
+        if opened.st_nlink != 1:
+            msg = "the file has more than one name on disk, so its other name may be refused"
+            raise PathRefusedError(msg)
+        chunks: list[bytes] = []
+        size = 0
+        while size <= most:
+            chunk = os.read(fd, min(1 << 16, most + 1 - size))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+        return b"".join(chunks)
+    except OSError as exc:
+        raise PathRefusedError(f"it cannot be read ({os.strerror(exc.errno or 0)})") from None
+    finally:
+        os.close(fd)
+
+
 def _trend_refused(role: str, error: str, reason: str, read_at: object = None) -> dict[str, object]:
     """A role's trend that is not shown: the sentence, its reason, and when it was read, if so."""
     return {"role": role, "state": "refused", "error": error, "reason": reason, "read_at": read_at}
@@ -474,21 +526,11 @@ class GapTrend:
         found: list[bytes] = []
         for root in context.allowlist.roots:
             try:
-                real = context.allowlist.resolve(root.path / trend.name(role))
-            except PathRefusedError:
-                msg = (
-                    "the published gap trend is a link out of the folders this server reads, or "
-                    "to a file it never reads, so it is not opened"
-                )
-                return _trend_refused(role, msg, "publication_refused")
-            try:
-                with open(real, "rb") as handle:
-                    found.append(handle.read(trend.most + 1))
-            except FileNotFoundError:
-                continue
-            except OSError as exc:
-                msg = f"the published gap trend cannot be read: {exc.strerror}"
-                return _trend_refused(role, msg, "publication_unreadable")
+                data = _published_bytes(context, root.path / trend.name(role), trend.most)
+            except PathRefusedError as exc:
+                return _trend_refused(role, f"the published gap trend is not read: {exc}", REFUSED)
+            if data is not None:
+                found.append(data)
         if not found:
             return {"role": role, "state": "none"}
         if len(found) > 1:
