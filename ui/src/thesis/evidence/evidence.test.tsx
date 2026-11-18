@@ -11,6 +11,7 @@ import {
   COMPARED,
   DIGEST,
   DRIFTED,
+  GAPS,
   readRow,
   RUNS,
   source,
@@ -42,6 +43,7 @@ function serve(over: Record<string, Answer> = {}) {
     [MATCHED]: [200, COMPARED],
     [DRIFTED_ROUTE]: [422, DRIFTED],
     "/api/evidence/catches": [200, CATCHES],
+    "/api/evidence/gaps": [200, GAPS],
     ...over,
   };
 }
@@ -116,7 +118,7 @@ function section(host: HTMLElement, label: string): Element | null {
 }
 
 describe("the screen", () => {
-  it("is titled Evidence, opens on the runs, and offers the four tabs and no other control", async () => {
+  it("is titled Evidence, opens on the runs, and offers the five tabs and no other control", async () => {
     let title = "";
     const host = document.createElement("main");
     document.body.append(host);
@@ -134,7 +136,7 @@ describe("the screen", () => {
     await settle();
     expect(title).toBe("Evidence");
     const tabs = [...host.querySelectorAll('[role="group"][aria-label="What to show"] button')];
-    expect(tabs.map((b) => text(b))).toEqual(["Runs", "Spend", "Compare", "Catches"]);
+    expect(tabs.map((b) => text(b))).toEqual(["Runs", "Gaps", "Spend", "Compare", "Catches"]);
     expect(tabs[0]?.getAttribute("aria-pressed")).toBe("true");
     expect(host.querySelector('section[data-tab="runs"]')).not.toBeNull();
   });
@@ -181,9 +183,10 @@ describe("the screen", () => {
     for (const search of ["", "tab=spend", "tab=compare&a=0/ev-development&b=0/ev-ablation"])
       await mount(search);
     await mount("tab=catches");
+    await mount("tab=gaps");
     expect(asked.length).toBeGreaterThan(0);
     for (const { path, init } of asked) {
-      expect(path).toMatch(/^\/api\/(evidence\/(runs|spend|compare|catches)(\/|$)|prices$)/);
+      expect(path).toMatch(/^\/api\/(evidence\/(runs|spend|compare|catches|gaps)(\/|$)|prices$)/);
       expect(init?.method ?? "GET").toBe("GET");
       expect(init?.body ?? null).toBeNull();
     }
@@ -191,7 +194,7 @@ describe("the screen", () => {
   });
 
   it("shows no headline figure on any tab: every number belongs to one run or one kind", async () => {
-    for (const tab of ["runs", "spend", "compare", "catches"]) {
+    for (const tab of ["runs", "gaps", "spend", "compare", "catches"]) {
       const search = tab === "compare" ? "tab=compare&a=0/ev-development&b=0/ev-ablation" : "";
       const host = await mount(search === "" ? `tab=${tab}` : search);
       expect(host.querySelector(`section[data-tab="${tab}"]`), tab).not.toBeNull();
@@ -310,13 +313,11 @@ describe("the runs, side by side", () => {
     expect(host.querySelector('th[data-run="ev-tampered"]')).toBeNull();
   });
 
-  it("says a kind with no run in words, and says the gaps are not on this page yet", async () => {
+  it("says a kind with no run in words, and no longer says the gaps are not on this page", async () => {
     serve({ "/api/evidence/runs": [200, { runs: [readRow("ev-ablation", "ablation", "1")] }] });
     const host = await mount();
     expect(text(section(host, KIND_HEADINGS.reportable))).toContain(EVIDENCE_COPY.noneOfKind);
-    expect(text(host)).toContain(
-      "The two gaps are not on this page yet: no measurement of them exists.",
-    );
+    expect(text(host)).not.toContain("The two gaps are not on this page yet");
     expect(sections(host)).toEqual(["reportable", "development", "ablation"]);
   });
 });
@@ -554,6 +555,7 @@ describe("held-out strings", () => {
       "tab=spend&run=0/ev-reportable",
       "tab=compare&a=0/ev-development&b=0/ev-drifted",
       "tab=catches",
+      "tab=gaps",
     ]) {
       const host = await mount(search);
       expect(host.querySelector("section[data-tab]"), search).not.toBeNull();

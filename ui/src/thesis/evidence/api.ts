@@ -478,8 +478,17 @@ export function evidenceComparison(value: unknown): Comparison {
     baseline: runNumbers(side.baseline),
     candidate: runNumbers(side.candidate),
     differsIn: texts(side.differs_in, "the settings that differ"),
-    notes: Object.hasOwn(side, "notes") ? texts(side.notes, "the comparison's notes") : [],
+    notes: Object.hasOwn(side, "notes") ? notesOf(side.notes) : [],
   };
+}
+
+/** The longest note a comparison's server writes is far shorter: a longer one is refused. */
+export const MOST_NOTE = 500;
+
+function notesOf(value: unknown): readonly string[] {
+  const notes = texts(value, "the comparison's notes");
+  if (notes.some((note) => note.length > MOST_NOTE)) throw new ShapeError("a comparison's note");
+  return notes;
 }
 
 /** The settings a refused comparison names, by path, or ``null`` for any other refusal. */
@@ -565,4 +574,197 @@ export function evidenceCatches(value: unknown): Catches {
     kinds: KINDS.map((kind, i) => kindCatches(kinds[i], kind)),
     unread: list(c.unread, "the runs not counted").map(unreadRun),
   };
+}
+
+// -- the gap trend ----------------------------------------------------------------------------
+
+export const GAPS_ROUTE = "/api/evidence/gaps";
+
+/** The roles a trend is published for, in the order the server sends them. */
+export const TREND_ROLES = ["control", "firmware"] as const;
+export type TrendRole = (typeof TREND_ROLES)[number];
+
+/** A tier's rate as the reader wrote it, and how many of its fails were unscored or flaky. */
+export interface TierCount {
+  readonly rate: string;
+  readonly unscored: number;
+  readonly flaky: number;
+}
+
+/** A gap as a fraction of a rate, its interval or none, and the reader's words for both. */
+export interface Gap {
+  readonly gap: number;
+  readonly interval: readonly [number, number] | null;
+  readonly words: string;
+  readonly label: string | null;
+}
+
+export interface GapNumbers {
+  readonly visible: TierCount;
+  readonly validation: TierCount | null;
+  readonly heldOut: TierCount;
+  readonly rewardHacking: Gap;
+  readonly optimiserOverfit: Gap | null;
+}
+
+/** A trend line as the route serves it: its numbers, or why they are withheld. */
+export interface GapLine {
+  readonly week: string;
+  readonly version: string;
+  readonly measurements: number;
+  readonly numbers: GapNumbers | null;
+  readonly unverified: string | null;
+  readonly exposedSince: string | null;
+}
+
+/** An ISO week of the trend: its lines, or none, and then it is missing. */
+export interface GapWeek {
+  readonly week: string;
+  readonly lines: readonly GapLine[];
+  readonly missing: boolean;
+}
+
+/** A role's trend: none published, its weeks as read, or why it is not shown. */
+export type RoleTrend =
+  | { readonly role: TrendRole; readonly state: "none" }
+  | {
+      readonly role: TrendRole;
+      readonly state: "read";
+      readonly readAt: string;
+      readonly weeks: readonly GapWeek[];
+    }
+  | {
+      readonly role: TrendRole;
+      readonly state: "refused";
+      readonly error: string;
+      readonly reason: string;
+      readonly readAt: string | null;
+    };
+
+export interface GapTrend {
+  readonly roles: readonly RoleTrend[];
+}
+
+const WEEK = /^\d{4}-W\d{2}$/;
+const VERSION = /^[0-9a-f]{64}$/;
+
+function matching(value: unknown, pattern: RegExp, what: string): string {
+  const found = text(value, what);
+  if (!pattern.test(found)) throw new ShapeError(what);
+  return found;
+}
+
+function finite(value: unknown, what: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new ShapeError(what);
+  return value;
+}
+
+/** What the route serves of a tier's count: only what the page shows. */
+const TIER_COUNT = ["rate", "unscored", "flaky"];
+
+function tierCount(value: unknown, what: string): TierCount {
+  const c = exact(value, what, TIER_COUNT);
+  return {
+    rate: text(c.rate, what),
+    unscored: count(c.unscored, what),
+    flaky: count(c.flaky, what),
+  };
+}
+
+function gap(value: unknown, what: string): Gap {
+  const g = exact(value, what, ["gap", "interval", "words", "label"]);
+  let interval: readonly [number, number] | null = null;
+  if (g.interval !== null) {
+    const ends = list(g.interval, what);
+    if (ends.length !== 2) throw new ShapeError(what);
+    interval = [finite(ends[0], what), finite(ends[1], what)];
+  }
+  return {
+    gap: finite(g.gap, what),
+    interval,
+    words: text(g.words, what),
+    label: optionalText(g.label, what),
+  };
+}
+
+const NUMBERS = ["visible", "validation", "held_out", "reward_hacking", "optimiser_overfit"];
+
+function gapNumbers(value: unknown): GapNumbers {
+  const n = exact(value, "a line's numbers", NUMBERS);
+  return {
+    visible: tierCount(n.visible, "the visible tier's count"),
+    validation: n.validation === null ? null : tierCount(n.validation, "the validation count"),
+    heldOut: tierCount(n.held_out, "the held-out tier's count"),
+    rewardHacking: gap(n.reward_hacking, "the reward-hacking gap"),
+    optimiserOverfit:
+      n.optimiser_overfit === null ? null : gap(n.optimiser_overfit, "the optimiser-overfit gap"),
+  };
+}
+
+/** What the route serves of a trend line: only what the page shows, no run set's id. */
+const LINE = ["week", "version", "measurements", "numbers", "unverified", "exposed_since"];
+
+function gapLine(value: unknown): GapLine {
+  const l = exact(value, "a trend line", LINE);
+  const numbers = l.numbers === null ? null : gapNumbers(l.numbers);
+  const unverified = optionalText(l.unverified, "why a line's numbers are withheld");
+  // The reader gives a line's numbers, or says why it does not: never both, never neither.
+  if ((numbers === null) === (unverified === null)) throw new ShapeError("a line's numbers");
+  return {
+    week: matching(l.week, WEEK, "a line's week"),
+    version: matching(l.version, VERSION, "a task version"),
+    measurements: count(l.measurements, "a version's measurement count"),
+    numbers,
+    unverified,
+    exposedSince: optionalText(l.exposed_since, "a version seen since"),
+  };
+}
+
+function gapWeek(value: unknown): GapWeek {
+  const w = exact(value, "a week of the trend", ["week", "lines", "missing"]);
+  const week = matching(w.week, WEEK, "a week of the trend");
+  const lines = list(w.lines, "a week's lines").map(gapLine);
+  const missing = flag(w.missing, "whether a week is missing");
+  if (missing !== (lines.length === 0) || lines.some((line) => line.week !== week))
+    throw new ShapeError("a week of the trend");
+  return { week, lines, missing };
+}
+
+function roleTrend(value: unknown): RoleTrend {
+  const r = object(value, "a role's trend");
+  const role = oneOf(r.role, TREND_ROLES, "a role");
+  switch (r.state) {
+    case "none":
+      exact(value, "a role with no trend", ["role", "state"]);
+      return { role, state: "none" };
+    case "read": {
+      const read = exact(value, "a role's trend", ["role", "state", "read_at", "weeks"]);
+      return {
+        role,
+        state: "read",
+        readAt: text(read.read_at, "when the trend was read"),
+        weeks: list(read.weeks, "the trend's weeks").map(gapWeek),
+      };
+    }
+    case "refused": {
+      const no = exact(value, "a refused trend", ["role", "state", "error", "reason", "read_at"]);
+      return {
+        role,
+        state: "refused",
+        error: text(no.error, "why a trend is not shown"),
+        reason: text(no.reason, "a reader's reason"),
+        readAt: optionalText(no.read_at, "when the trend was read"),
+      };
+    }
+    default:
+      throw new ShapeError("a role's trend");
+  }
+}
+
+export function evidenceGaps(value: unknown): GapTrend {
+  const answer = exact(value, "the gap trend", ["roles"]);
+  const roles = list(answer.roles, "the roles' trends").map(roleTrend);
+  if (new Set(roles.map((r) => r.role)).size !== roles.length)
+    throw new ShapeError("each role once");
+  return { roles };
 }

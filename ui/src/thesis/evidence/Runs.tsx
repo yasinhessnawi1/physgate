@@ -207,9 +207,6 @@ export function RunsTab({ rows }: { readonly rows: readonly RunRow[] }) {
   const unread = rows.filter((row): row is UnreadRun => !row.read);
   return (
     <>
-      <p className="evidence-note" data-note="gaps">
-        {EVIDENCE_COPY.gaps}
-      </p>
       {KINDS.map((kind) => (
         <KindSection key={kind} kind={kind} runs={read.filter((run) => run.kind === kind)} />
       ))}

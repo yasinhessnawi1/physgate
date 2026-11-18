@@ -48,10 +48,19 @@ The routes:
   side for the two runs, or its refusal naming every drifted setting by path and no value.
 - ``GET /api/evidence/catches``: the catch count per kind of run, over that kind's runs alone,
   each kind with the runs it counted; the runs not read named apart.
+- ``GET /api/evidence/gaps``: each role's gap trend as a person published it from the trend's
+  one reader at a terminal, found under the role's name at the top of a root: no publication,
+  the weeks as published with the time they were read, or a refusal in a sentence (the reader
+  refused the trend, the file is not one its writer could have written, a link out of the
+  roots, or a publication in more than one root). The server never runs the reader: its head
+  and register lie beneath the role's withheld root, which no root may reach.
 """
 
 from __future__ import annotations
 
+import errno
+import os
+import stat
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,19 +95,36 @@ KINDS: tuple[Kind, ...] = ("reportable", "development", "ablation")
 
 
 @dataclass(frozen=True)
+class TrendCensus:
+    """The published gap trend's own names, bound and parser, handed in by the root.
+
+    ``roles``: the roles a trend is published for, in order; ``name``: the name a role's
+    publication is found under at the top of a root; ``most``: the most of it read; ``parse``:
+    its own parser, given the bytes and the role; ``refused``: what that parser refuses with.
+    """
+
+    roles: tuple[str, ...]
+    name: Callable[[str], str]
+    most: int
+    parse: Callable[[bytes, str], BaseModel]
+    refused: type[Exception]
+
+
+@dataclass(frozen=True)
 class Census:
     """What the comparison classes and how it compares, and the catch count, handed in.
 
     ``drift``: the settings two runs are refused across, by path; ``reported``: the settings it
     reports beside the numbers; ``compare``: the comparison itself; ``catches``: the gate's catch
-    count over a set of gate events. The fence admits none of their modules, so the root hands
-    them in at registration.
+    count over a set of gate events; ``trend``: the published gap trend's names and parser. The
+    fence admits none of their modules, so the root hands them in at registration.
     """
 
     drift: tuple[str, ...]
     reported: tuple[str, ...]
     compare: Callable[[Path, Path], BaseModel]
     catches: Callable[[list[GateEvent]], Sequence[BaseModel]]
+    trend: TrendCensus
 
     @property
     def flags(self) -> tuple[str, ...]:
@@ -427,12 +453,142 @@ class Catches:
         return json_response({"kinds": kinds, "unread": unread})
 
 
+# -- the gap trend ---------------------------------------------------------------------------
+
+
+#: The reason a publication that is not a plain file of its own, or not to be read, is refused.
+REFUSED = "publication_refused"
+
+#: What the page shows of a trend line, and of a tier's count: all the route serves of either.
+#: A line's run-set ids, its role, arm and second label, and a tier's raw counts are not shown,
+#: so they are not sent.
+LINE_SHOWN = ("week", "version", "measurements", "numbers", "unverified", "exposed_since")
+COUNT_SHOWN = ("rate", "unscored", "flaky")
+TIERS = ("visible", "validation", "held_out")
+
+
+def _shown_line(line: Mapping[str, Any]) -> dict[str, object]:
+    """A published trend line cut to what the page shows."""
+    shown: dict[str, object] = {key: line[key] for key in LINE_SHOWN}
+    numbers = line["numbers"]
+    if numbers is not None:
+        counts = {
+            tier: None if numbers[tier] is None else {k: numbers[tier][k] for k in COUNT_SHOWN}
+            for tier in TIERS
+        }
+        shown["numbers"] = {**numbers, **counts}
+    return shown
+
+
+def _shown_weeks(weeks: Iterable[Mapping[str, Any]]) -> list[dict[str, object]]:
+    """The published weeks, each line cut to what the page shows."""
+    return [{**week, "lines": [_shown_line(line) for line in week["lines"]]} for week in weeks]
+
+
+def _published_bytes(context: Context, path: Path, most: int) -> bytes | None:
+    """At most ``most + 1`` bytes of the publication at ``path``; ``None`` if it is not there.
+
+    Judged by the allowlist first (a link out of the roots, toward the held-out tier or a
+    credential, or a file with a second name, is refused before anything is opened), then opened
+    never through a link and never waiting, and read only if what was opened is a regular file
+    with one name on disk. A read route may open only absolute paths, so this opens the path
+    itself, not a name beneath a directory's descriptor; the root is its parent, held real.
+
+    Raises:
+        PathRefusedError: any of those, in words.
+    """
+    context.allowlist.resolve(path)
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            msg = "a link stands in its place, and a link is never followed to it"
+            raise PathRefusedError(msg) from None
+        msg = f"it cannot be opened ({os.strerror(exc.errno or 0)})"
+        raise PathRefusedError(msg) from None
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode):
+            raise PathRefusedError("it is not a regular file, so nothing is read from it")
+        if opened.st_nlink != 1:
+            msg = "the file has more than one name on disk, so its other name may be refused"
+            raise PathRefusedError(msg)
+        chunks: list[bytes] = []
+        size = 0
+        while size <= most:
+            chunk = os.read(fd, min(1 << 16, most + 1 - size))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+        return b"".join(chunks)
+    except OSError as exc:
+        raise PathRefusedError(f"it cannot be read ({os.strerror(exc.errno or 0)})") from None
+    finally:
+        os.close(fd)
+
+
+def _trend_refused(role: str, error: str, reason: str, read_at: object = None) -> dict[str, object]:
+    """A role's trend that is not shown: the sentence, its reason, and when it was read, if so."""
+    return {"role": role, "state": "refused", "error": error, "reason": reason, "read_at": read_at}
+
+
+@dataclass(frozen=True)
+class GapTrend:
+    """``GET /api/evidence/gaps``: each role's published gap trend, or why it is not shown."""
+
+    census: Census
+
+    def __call__(self, context: Context, params: Mapping[str, str]) -> Response:
+        """Per role, in order: no publication, its weeks as published, or a refusal."""
+        return json_response({"roles": [self._role(context, r) for r in self.census.trend.roles]})
+
+    def _role(self, context: Context, role: str) -> dict[str, object]:
+        """The one publication of ``role`` at the top of a root, read by its own parser."""
+        trend = self.census.trend
+        found: list[bytes] = []
+        for root in context.allowlist.roots:
+            try:
+                data = _published_bytes(context, root.path / trend.name(role), trend.most)
+            except PathRefusedError as exc:
+                return _trend_refused(role, f"the published gap trend is not read: {exc}", REFUSED)
+            if data is not None:
+                found.append(data)
+        if not found:
+            return {"role": role, "state": "none"}
+        if len(found) > 1:
+            msg = (
+                f"two or more of the folders this server reads each hold a published gap trend of "
+                f"the {role} role, so which one is meant cannot be told; keep it in one folder"
+            )
+            return _trend_refused(role, msg, "publications_more_than_one")
+        try:
+            published = trend.parse(found[0], role).model_dump(mode="json")
+        except trend.refused as exc:
+            reason = getattr(exc, "context", {}).get("refused_because", "publication_unreadable")
+            return _trend_refused(role, str(exc), str(reason))
+        refused = published["refused"]
+        if refused is not None:
+            error, reason = refused["error"], refused["refused_because"]
+            return _trend_refused(role, error, reason, published["read_at"])
+        return {
+            "role": role,
+            "state": "read",
+            "read_at": published["read_at"],
+            "weeks": _shown_weeks(published["weeks"]),
+        }
+
+
 #: The path of the spend route over one run at one price sheet's date.
 SPEND = "/api/evidence/spend/{root:index}/{name:name}/{date:date}"
 #: The path of the comparison of a baseline run with a candidate.
 COMPARE = "/api/evidence/compare/{a_root:index}/{a_name:name}/{b_root:index}/{b_name:name}"
 #: The path of the catch count per kind of run.
 CATCHES = "/api/evidence/catches"
+#: The path of each role's published gap trend.
+GAPS = "/api/evidence/gaps"
 
 
 def routes(census: Census) -> tuple[Route, ...]:
@@ -446,4 +602,5 @@ def routes(census: Census) -> tuple[Route, ...]:
         Route("GET", SPEND, "read", Spend(census)),
         Route("GET", COMPARE, "read", Comparison(census)),
         Route("GET", CATCHES, "read", Catches(census)),
+        Route("GET", GAPS, "read", GapTrend(census)),
     )

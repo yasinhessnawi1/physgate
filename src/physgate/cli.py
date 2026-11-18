@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from physgate.evaluation import evidence, gaps_cli, tierset_cli
 from physgate.evaluation import requirements as evaluation_requirements
 from physgate.evaluation.baseline import cli as baseline_cli
+from physgate.evaluation.gap_trend_census import TREND
 from physgate.evaluation.inject import cli as inject_cli
 from physgate.evaluation.observe import cli as observe_cli
 from physgate.evaluation.observe import compare
@@ -19,13 +20,14 @@ from physgate.orchestrator import cli as orchestrator_cli
 from physgate.ui import cli as ui_cli
 from physgate.ui import table
 
-#: What the comparison classes and how it compares, and the gate's catch count, handed to the
-#: Evidence screen's routes.
+#: What the comparison classes and how it compares, the gate's catch count, and the published
+#: gap trend's names and parser, handed to the Evidence screen's routes.
 CENSUS = evidence.Census(
     drift=compare.DRIFT,
     reported=compare.REPORTED,
     compare=compare.compare,
     catches=catches.catches,
+    trend=TREND,
 )
 
 

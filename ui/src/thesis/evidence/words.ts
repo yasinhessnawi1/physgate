@@ -14,7 +14,6 @@ export const EVIDENCE_COPY = {
   spendTab: "Spend",
   compareTab: "Compare",
   catchesTab: "Catches",
-  gaps: "The two gaps are not on this page yet: no measurement of them exists.",
   noRun: "This server reads no run.",
   noReadable: "None of the runs could be read.",
   readingRuns: "the runs",
@@ -124,6 +123,58 @@ export const EVIDENCE_COPY = {
   artefactsCaught: "Artefacts caught",
   caughtAfterPass: "Caught after a reviewer passed",
   allChecks: "All checks",
+  gapsTab: "Gaps",
+  gapsLead:
+    "The two gaps, measured each time on one batch of runs: how much more often the visible tasks pass than the held-out tasks, and how much more often the validation tasks pass than the held-out tasks. Every figure is copied from the gap trend, the record of every such measurement, as it was when it was last published; this page works none of them out.",
+  readingGaps: "the gap trend",
+  gapsRefused: "The gap trend could not be read",
+  roleTitle: (role: string) => `${role.charAt(0).toUpperCase()}${role.slice(1)} role`,
+  noTrend: "No gap trend of this role has been published for this page.",
+  noPoint: "The gap trend of this role holds no measurement yet.",
+  firstPoint:
+    "A first point appears once both gaps are measured on a batch of this role's runs, that measurement is added to the role's gap trend, and the trend is published into a folder this page's server reads.",
+  readAt: (day: string, time: string, zone: string, age: string | null) =>
+    `Read from the gap trend on ${day} at ${time} ${zone}${age === null ? "" : ` (${age})`}.`,
+  justNow: "just now",
+  ago: (n: number, unit: "minute" | "hour" | "day") =>
+    `${String(n)} ${unit}${n === 1 ? "" : "s"} ago`,
+  aheadOfClock: "a time later than this computer's clock",
+  stale:
+    "This copy is more than a week old: anything measured since is not on it. Publish the gap trend again for a current copy.",
+  asRead:
+    "This is the trend as it was then. A measurement added since, or held-out tasks that a run has seen since, shows here only once the trend is published again.",
+  trendRefused: (role: string) => `The gap trend of the ${role} role is not shown`,
+  readerWords: "Why, in the words of the program that checks the trend:",
+  onePoint:
+    "One measurement so far: one point for each gap. One point is no trend, and none is drawn or claimed.",
+  pointsAlone: (n: number) =>
+    `${String(n)} measurements so far. Each point stands alone: the page draws no line through them and claims no direction, since the trend records none.`,
+  chartLabel:
+    "Each measurement's two gaps as points, in percentage points, each with its 95 % interval where it has one. No line joins the points. The table below holds every value drawn.",
+  rewardHacking: "Reward-hacking gap",
+  rewardHackingSays: "visible minus held out",
+  optimiserOverfit: "Optimiser-overfit gap",
+  optimiserOverfitSays: "validation minus held out",
+  week: "Week",
+  version: "Task set",
+  versionSays: "the version of the tasks measured",
+  visibleRate: "Visible tasks",
+  validationRate: "Validation tasks",
+  heldOutRate: "Held-out tasks",
+  measurements: "Times this task set was measured",
+  noteColumn: "Notes",
+  noMeasurement: "No measurement this week.",
+  notMeasured: "Not measured: the validation tasks were not part of this measurement.",
+  numbersWithheld: "Its numbers are not shown:",
+  pointsUnit: "points",
+  interval: (low: string, high: string) => `95 % interval ${low} to ${high}`,
+  notMeasuredTier: "Not part of this measurement.",
+  failsCounted: (unscored: number, flaky: number) =>
+    `Of these, ${String(unscored)} unscored and ${String(flaky)} flaky, each counted as a fail.`,
+  tableLabel: (role: string) => `The ${role} role's gap trend, week by week`,
+  noNumbers: "None of the measurements' numbers can be shown: the table says why for each.",
+  noNumberOfIt: "No number of it is shown.",
+  readAtAsSent: (readAt: string) => `Read from the gap trend at ${readAt}.`,
 } as const;
 
 /** Each kind's section heading, in the order the screen shows them. */

@@ -134,7 +134,7 @@ async function settle(page: Page) {
 
 /** The routes the page may ask: the screen's four, the price sheets, and what the shell reads. */
 const ROUTES: readonly RegExp[] = [
-  /^\/api\/evidence\/(runs|catches)$/,
+  /^\/api\/evidence\/(runs|catches|gaps)$/,
   /^\/api\/evidence\/spend\/0\/[^/]+\/\d{4}-\d{2}-\d{2}$/,
   /^\/api\/evidence\/compare\/0\/[^/]+\/0\/[^/]+$/,
   /^\/api\/prices$/,
@@ -164,6 +164,7 @@ async function held(page: Page) {
 
 const TABS = [
   ["runs", ""],
+  ["gaps", ""],
   ["spend", "&run=0/ev-development"],
   ["compare", "&a=0/ev-development&b=0/ev-ablation"],
   ["catches", ""],
@@ -247,8 +248,8 @@ test("the runs: each kind its own section, ablation last, each run tagged, the u
   const unread = page.locator('section[aria-label="Runs that could not be read"]');
   await expect(unread.locator('[data-run="ev-tampered"]')).toContainText("Its run.json");
   await expect(unread.locator('[data-run="ev-unreadable"]')).toContainText("Its events.jsonl");
-  await expect(page.locator('section[data-tab="runs"]')).toContainText(
-    "The two gaps are not on this page yet: no measurement of them exists.",
+  await expect(page.locator('section[data-tab="runs"]')).not.toContainText(
+    "The two gaps are not on this page yet",
   );
   await held(page);
 });

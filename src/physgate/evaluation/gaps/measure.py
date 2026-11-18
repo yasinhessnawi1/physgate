@@ -453,28 +453,52 @@ def _withheld_fd(store: Path, role: str) -> int | None:
     return _dir_fd(withheld_root(store, role))  # type: ignore[arg-type]
 
 
-def _read_trend(path: Path, store: Path, role: str) -> list[_TrendRecord]:
-    """The trend's lines held to its head, under its lock shared where a writer ever made one."""
+def _trend_lock(fd: int | None) -> int | None:
+    """The trend's lock beneath the withheld root, opened to read; ``None`` if none was made."""
     from physgate.evaluation.tiers.exposure import LOCK_SUFFIX
 
+    if fd is None:
+        return None
+    try:
+        # Never made here: a reader leaves the withheld root as it found it.
+        return os.open(TREND + LOCK_SUFFIX, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise _broken(f"the trend's lock cannot be taken: {exc.strerror}") from None
+
+
+def _read_under(path: Path, fd: int | None, role: str, lock: int | None) -> list[_TrendRecord]:
+    """The trend held to its head, under ``lock`` shared when there is one; ``lock`` is closed."""
+    try:
+        if lock is not None:
+            fcntl.flock(lock, fcntl.LOCK_SH)
+        return _held_to_head(_trend_bytes(path), _head_of(fd), role)
+    finally:
+        if lock is not None:
+            os.close(lock)
+
+
+def _read_trend(path: Path, store: Path, role: str) -> list[_TrendRecord]:
+    """The trend's lines held to its head, under its lock shared where a writer ever made one.
+
+    Before the trend's first writer has made the lock, a reader reads unlocked, and may see that
+    writer's line before its head moved. The writer makes the lock before it appends, so a
+    reader that found none and refuses looks for it once more: if it is there now, the trend is
+    read again under it, and that read's answer stands; if not, the refusal stands.
+    """
     fd = _withheld_fd(store, role)
     try:
-        lock: int | None = None
-        if fd is not None:
-            try:
-                # Never made here: a reader leaves the withheld root as it found it.
-                lock = os.open(TREND + LOCK_SUFFIX, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
-            except FileNotFoundError:
-                lock = None
-            except OSError as exc:
-                raise _broken(f"the trend's lock cannot be taken: {exc.strerror}") from None
+        lock = _trend_lock(fd)
         try:
+            return _read_under(path, fd, role, lock)
+        except GapsError:
             if lock is not None:
-                fcntl.flock(lock, fcntl.LOCK_SH)
-            return _held_to_head(_trend_bytes(path), _head_of(fd), role)
-        finally:
-            if lock is not None:
-                os.close(lock)
+                raise
+            made = _trend_lock(fd)
+            if made is None:
+                raise
+            return _read_under(path, fd, role, made)
     finally:
         if fd is not None:
             os.close(fd)

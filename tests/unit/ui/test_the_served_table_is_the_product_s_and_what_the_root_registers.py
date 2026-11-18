@@ -19,6 +19,7 @@ from ui_rig import fake_ui
 import physgate
 from physgate.cli import compose, main
 from physgate.evaluation import evidence
+from physgate.evaluation.gaps import published
 from physgate.evaluation.observe import compare
 from physgate.orchestrator import catches as catch_count
 from physgate.ui import cli as ui_cli
@@ -36,6 +37,7 @@ EVIDENCE_PATTERNS = {
     "/api/evidence/spend/{root:index}/{name:name}/{date:date}",
     "/api/evidence/compare/{a_root:index}/{a_name:name}/{b_root:index}/{b_name:name}",
     "/api/evidence/catches",
+    "/api/evidence/gaps",
 }
 #: The Evidence screen's routes over the comparison's own census, built here from the comparison
 #: itself, so the root's registration equals them only if it hands in that census.
@@ -45,6 +47,13 @@ EVIDENCE_ROUTES = evidence.routes(
         reported=compare.REPORTED,
         compare=compare.compare,
         catches=catch_count.catches,
+        trend=evidence.TrendCensus(
+            roles=published.ROLES,
+            name=published.published_name,
+            most=published.MOST_PUBLISHED_BYTES,
+            parse=published.read_published,
+            refused=published.GapsError,
+        ),
     )
 )
 
@@ -161,6 +170,12 @@ def test_the_routes_class_runs_by_the_comparison_s_own_lists_and_function() -> N
         assert census.compare is compare.compare
         # The catch count is the command line's own function, handed in the same way.
         assert census.catches is catch_count.catches
+        # The published gap trend's own name and parser, handed in the same way.
+        assert census.trend.parse is published.read_published
+        assert census.trend.name is published.published_name
+        assert census.trend.most == published.MOST_PUBLISHED_BYTES
+        assert census.trend.roles is published.ROLES
+        assert census.trend.refused is published.GapsError
 
 
 def test_the_evidence_module_imports_nothing_of_the_comparison() -> None:
@@ -173,6 +188,7 @@ def test_the_evidence_module_imports_nothing_of_the_comparison() -> None:
     ]
     assert [name for name in imported if "compare" in name] == []
     assert [name for name in imported if "catches" in name] == []
+    assert [name for name in imported if "gaps" in name] == []
 
 
 @pytest.mark.usefixtures("nothing_registered")
