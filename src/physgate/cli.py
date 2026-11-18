@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from physgate.evaluation import evidence, gaps_cli, tierset_cli
 from physgate.evaluation import requirements as evaluation_requirements
 from physgate.evaluation.baseline import cli as baseline_cli
-from physgate.evaluation.gaps import published
+from physgate.evaluation.gap_trend_census import TREND
 from physgate.evaluation.inject import cli as inject_cli
 from physgate.evaluation.observe import cli as observe_cli
 from physgate.evaluation.observe import compare
@@ -27,13 +27,7 @@ CENSUS = evidence.Census(
     reported=compare.REPORTED,
     compare=compare.compare,
     catches=catches.catches,
-    trend=evidence.TrendCensus(
-        roles=published.ROLES,
-        name=published.published_name,
-        most=published.MOST_PUBLISHED_BYTES,
-        parse=published.read_published,
-        refused=published.GapsError,
-    ),
+    trend=TREND,
 )
 
 
