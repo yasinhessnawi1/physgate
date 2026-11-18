@@ -212,3 +212,59 @@ def test_a_publication_not_at_the_top_of_a_root_is_not_read(
     status, body, answer = _answer(world, folder)
     assert status == 200, body[:300]
     assert _role(answer, "control") == {"role": "control", "state": "none"}
+
+
+def _answer_or_fail(world: dict[str, Any], folder: Path, fifo: Path | None = None) -> Any:  # noqa: ANN401
+    """The answer, or the row fails if the server is still reading after the client's timeout.
+
+    A route that opened a pipe to read would wait for a writer for ever: the pipe is then opened
+    for writing and closed here, so the server's thread ends and the row fails on its assertion.
+    """
+    import os
+
+    with serving(context_over(folder, ui_root=world["ui"])) as live:
+        try:
+            status, _, body = live.request("GET", ROUTE)
+        except TimeoutError:
+            if fifo is not None:
+                os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+            pytest.fail("the route waited on the published trend's place and never answered")
+    assert status == 200, body[:300]
+    return json.loads(body)
+
+
+def test_a_link_in_place_of_the_publication_is_not_followed_even_inside_the_root(
+    world: dict[str, Any], tmp_path: Path
+) -> None:
+    folder = _folder(tmp_path)
+    kept = _publish(world, _folder(folder, "kept"))
+    (folder / kept.name).symlink_to(kept)
+    entry = _role(_answer_or_fail(world, folder), "control")
+    assert entry.get("state") == "refused", entry
+    assert "link" in entry["error"], entry
+
+
+def test_a_pipe_in_place_of_the_publication_is_refused_without_waiting_on_it(
+    world: dict[str, Any], tmp_path: Path
+) -> None:
+    import os
+
+    folder = _folder(tmp_path)
+    fifo = folder / api(NAME)("control")
+    os.mkfifo(fifo)
+    entry = _role(_answer_or_fail(world, folder, fifo), "control")
+    assert entry.get("state") == "refused", entry
+    assert "regular file" in entry["error"], entry
+
+
+def test_a_publication_with_a_second_name_on_disk_is_refused_in_words(
+    world: dict[str, Any], tmp_path: Path
+) -> None:
+    import os
+
+    folder = _folder(tmp_path)
+    path = _publish(world, folder)
+    os.link(path, folder / "another-name.json")
+    entry = _role(_answer_or_fail(world, folder), "control")
+    assert entry.get("state") == "refused", entry
+    assert "more than one name" in entry["error"], entry
