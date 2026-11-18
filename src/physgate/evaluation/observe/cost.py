@@ -324,6 +324,10 @@ class CostLine(_Frozen):
     #: result was not reached. With a reconciliation, exactly when it names a call
     #: unread. Absent from lines written before the mark, which read as unmarked.
     lower_bound: bool = False
+    #: The usage of responses the binary cut short, by call: what each started with, charged
+    #: by none of the binary's totals and priced in no figure of this line. Left out of a
+    #: line with none, so such a line keeps its bytes.
+    abandoned: dict[NonEmptyStr, Usage] = Field(default_factory=dict, exclude_if=lambda v: not v)
 
     @model_validator(mode="after")
     def _basis_follows_auth(self) -> CostLine:
@@ -524,6 +528,11 @@ def price_events(
     write whose cache was not read, or a call whose result was not, is marked
     ``lower_bound``.
 
+    A response the binary cut short is priced in no figure, as its totals charge it in none;
+    the line names its usage apart. Its call's result splits by time to live every cache write
+    it counted, the cut response's among them, so that split is not read as the charged
+    writes': the call's writes are priced as unread, and the line is a lower bound for them.
+
     Raises:
         ManifestError: a token's model cannot be told from the records.
         PriceSheetError: a model the run used has no price on the sheet, or a call's
@@ -533,10 +542,14 @@ def price_events(
     usd_by_model: dict[str, Decimal] = {}
     reviews: dict[str, Usage] = {}
     priced: list[CallCost] = []
-    for attribution, usage in TokenAccount.from_events(events).by_attribution().items():
+    account = TokenAccount.from_events(events)
+    cut = account.abandoned()
+    for attribution, usage in account.by_attribution().items():
         model = _model_of(attribution, config, events)
         by_model[model] = _plus(by_model.get(model, _ZERO), usage)
         recorded = None if calls is None else calls.get(attribution)
+        if recorded is not None and attribution in cut:
+            recorded = recorded.model_copy(update={"cache_writes": None})
         call = _call_cost(attribution, model, usage, recorded, prices)
         priced.append(call)
         usd_by_model[model] = usd_by_model.get(model, Decimal(0)) + call.usd
@@ -575,6 +588,7 @@ def price_events(
         calls=() if calls is None else tuple(priced),
         reconciliation=reconciliation,
         lower_bound=lower_bound,
+        abandoned=dict(sorted(cut.items())),
     )
 
 

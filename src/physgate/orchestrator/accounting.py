@@ -13,6 +13,16 @@ once per content block, so summing per stream event over-counts (measured: two
 events of one message, 40 input tokens summed against 30 charged). A message
 seen twice is counted once, and seeing it twice with different usage is an
 error, not a choice between them.
+
+A response the binary cut short and closed itself (its stream broke, stalled or
+ended early) has only the usage it started with, and where the session then
+ended in an API error the binary's totals do not charge it (measured: a review
+whose network broke mid-response, its result's ``modelUsage`` the first
+response's alone while its top-level ``usage`` added the cut one). Such a line
+is marked ``abandoned``: it is recorded under the attribution that spent it and
+kept apart from every charged sum, so each charged token is still in exactly one
+bucket and the cut one is visible beside them. A cut response in a session that
+ended any other way is an error.
 """
 
 from __future__ import annotations
@@ -48,6 +58,41 @@ _MODEL_USAGE_FIELDS = {
 }
 
 
+def ended_in_api_error(
+    # The binary's result object: an untyped boundary, only its end is read.
+    result: Mapping[str, object] | None,
+) -> bool:
+    """Whether the binary's result is an API error's end, as every session's end reads one."""
+    return (
+        result is not None
+        and result.get("is_error") is True
+        and result.get("terminal_reason") == "api_error"
+    )
+
+
+def charged_lines(
+    # The binary's result object: an untyped boundary, only its end is read.
+    result: Mapping[str, object] | None,
+    usages: Iterable[MessageUsage],
+) -> tuple[MessageUsage, ...]:
+    """The lines the binary's totals charge: every one but a response it cut short.
+
+    A cut response (``abandoned``) is charged by no total where the session ended in an
+    API error, and is left out of the sum held to them. In a session that ended any other
+    way nothing says the totals left it out, so the account is refused rather than read.
+
+    Raises:
+        AccountingError: a cut response in a session whose result is no API error's end.
+    """
+    usages = tuple(usages)
+    cut = [m.message_id for m in usages if m.abandoned]
+    if cut and not ended_in_api_error(result):
+        msg = "a response the binary cut short, in a session that did not end in an API error"
+        end = str((result or {}).get("terminal_reason"))
+        raise AccountingError(msg, message_id=cut[0], terminal_reason=end)
+    return tuple(m for m in usages if not m.abandoned)
+
+
 def require_matching_totals(
     # The binary's result object: an untyped boundary, only its totals are read.
     result: Mapping[str, object] | None,
@@ -55,18 +100,20 @@ def require_matching_totals(
 ) -> None:
     """Hold one invocation's per-message account against the binary's own totals.
 
-    The result's ``modelUsage`` sums every model the invocation used. A session
+    The result's ``modelUsage`` sums every model the invocation used, and is held to
+    every line it charges (:func:`charged_lines`), field by field and exactly. A session
     with no result (killed, or stopped at its wall clock) has nothing to hold it
     against, and is not checked.
 
     Raises:
-        AccountingError: a field's per-message sum differs from the result's total.
+        AccountingError: a field's per-message sum differs from the result's total, or
+            a response was cut short in a session that did not end in an API error.
     """
     per_model = (result or {}).get("modelUsage")
     if not isinstance(per_model, dict) or not per_model:
         return
     total = _ZERO
-    for message in usages:
+    for message in charged_lines(result, usages):
         total = _plus(total, message.usage)
     for field, key in _MODEL_USAGE_FIELDS.items():
         charged = sum(int(m.get(key) or 0) for m in per_model.values() if isinstance(m, dict))
@@ -101,11 +148,13 @@ def compaction_line(
     shows ``compactions`` boundaries, the totals less every message counted so far (``usages``,
     an earlier invocation's compaction line included) is those calls' usage, counted once. Where
     the stream shows none, the totals are held to the messages as :func:`require_matching_totals`
-    holds them. A result without totals has nothing to hold the messages against.
+    holds them. A result without totals has nothing to hold the messages against. Either way
+    a response the binary cut short is no message the totals charge (:func:`charged_lines`).
 
     Raises:
         AccountingError: a difference without a boundary; a field the totals charge less than
-            the messages; more than ``compactions`` calls could add.
+            the messages; more than ``compactions`` calls could add; a response cut short in a
+            session that did not end in an API error.
     """
     usages = tuple(usages)
     if compactions == 0:
@@ -115,7 +164,7 @@ def compaction_line(
     if not isinstance(per_model, dict) or not per_model:
         return None
     counted = _ZERO
-    for message in usages:
+    for message in charged_lines(result, usages):
         counted = _plus(counted, message.usage)
     difference: dict[str, int] = {}
     for field, key in _MODEL_USAGE_FIELDS.items():
@@ -139,11 +188,11 @@ def compaction_line(
 
 
 class TokenAccount:
-    """Tokens per attribution, deduplicated by message id."""
+    """Tokens per attribution, deduplicated by message id; a cut response kept apart."""
 
     def __init__(self) -> None:
         """An empty account."""
-        self._messages: dict[tuple[str, str], Usage] = {}
+        self._messages: dict[tuple[str, str], tuple[Usage, bool]] = {}
 
     @classmethod
     def from_events(cls, events: Iterable[Event]) -> TokenAccount:
@@ -151,28 +200,45 @@ class TokenAccount:
         account = cls()
         for event in events:
             if isinstance(event, TokensUsed):
-                account.add(event.attribution, event.message_id, event.usage)
+                account.add(
+                    event.attribution, event.message_id, event.usage, abandoned=event.abandoned
+                )
         return account
 
-    def add(self, attribution: str, message_id: str, usage: Usage) -> None:
-        """Count one message's usage once.
+    def add(
+        self, attribution: str, message_id: str, usage: Usage, *, abandoned: bool = False
+    ) -> None:
+        """Count one message's usage once; a response cut short (``abandoned``) is never charged.
 
         Raises:
-            AccountingError: the same message was already counted with other usage.
+            AccountingError: the same message was already counted with other usage, or was
+                counted once as cut short and once as charged.
         """
         key = (attribution, message_id)
         seen = self._messages.get(key)
-        if seen is not None and seen != usage:
+        if seen is not None and seen != (usage, abandoned):
             msg = "one message reported with two different usages"
             raise AccountingError(msg, attribution=attribution, message_id=message_id)
-        self._messages[key] = usage
+        self._messages[key] = (usage, abandoned)
+
+    def _summed(self, *, abandoned: bool) -> dict[str, Usage]:
+        totals: dict[str, Usage] = {}
+        for (attribution, _), (usage, cut) in sorted(self._messages.items()):
+            if cut == abandoned:
+                totals[attribution] = _plus(totals.get(attribution, _ZERO), usage)
+        return totals
 
     def by_attribution(self) -> dict[str, Usage]:
-        """Summed usage per attribution, e.g. ``session:<id>``."""
-        totals: dict[str, Usage] = {}
-        for (attribution, _), usage in sorted(self._messages.items()):
-            totals[attribution] = _plus(totals.get(attribution, _ZERO), usage)
-        return totals
+        """Summed charged usage per attribution, e.g. ``session:<id>``."""
+        return self._summed(abandoned=False)
+
+    def abandoned(self) -> dict[str, Usage]:
+        """The usage of responses the binary cut short, per attribution: recorded, not charged.
+
+        Each such response's usage is what it started with, and is in no charged sum here
+        (:meth:`by_attribution`, :meth:`by_kind`, :meth:`total`), as in none of the binary's.
+        """
+        return self._summed(abandoned=True)
 
     def by_kind(self) -> dict[str, Usage]:
         """Summed usage per kind of spender: decomposition, session, reviewer, routing."""

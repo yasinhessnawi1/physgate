@@ -611,6 +611,7 @@ class RunRecord:
                 attribution=f"decomposition:{call.session_id}",
                 message_id=message.message_id,
                 usage=message.usage,
+                abandoned=message.abandoned,
             )
         for one in proposed:
             yield PlanProposed(
@@ -644,6 +645,7 @@ class RunRecord:
                 message_id=message.message_id,
                 usage=message.usage,
                 compaction=message.compaction,
+                abandoned=message.abandoned,
             )
         if reviewed.exposed:
             # The held-out tier counts as exposed (ARCH-141): the exposure, then one halt, and
