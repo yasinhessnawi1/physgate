@@ -243,3 +243,8 @@
 .evidence-warn {
   color: var(--color-warn);
 }
+
+.evidence-gaps td[data-version] .pg-id-wrap,
+.evidence-gaps td .evidence-value {
+  white-space: nowrap;
+}
