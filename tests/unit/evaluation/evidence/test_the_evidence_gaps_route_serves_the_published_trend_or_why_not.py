@@ -241,7 +241,7 @@ def test_a_link_in_place_of_the_publication_is_not_followed_even_inside_the_root
     (folder / kept.name).symlink_to(kept)
     entry = _role(_answer_or_fail(world, folder), "control")
     assert entry.get("state") == "refused", entry
-    assert "link" in entry["error"], entry
+    assert "never followed" in entry["error"], entry
 
 
 def test_a_pipe_in_place_of_the_publication_is_refused_without_waiting_on_it(
