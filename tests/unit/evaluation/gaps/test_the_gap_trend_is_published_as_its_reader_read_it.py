@@ -236,7 +236,7 @@ def _place(tmp_path: Path, places: SimpleNamespace, where: str) -> Path:
     places.harness.mkdir(parents=True)
     places.review_root.mkdir(parents=True)
     places.shared_temps[0].mkdir()
-    out = {
+    out: Path = {
         "in-a-run-directory": runs / "run-1" / "evidence",
         "a-run-directory-itself": runs / "run-1",
         "in-an-instrument-run": runs / "inject-1" / "evidence",
