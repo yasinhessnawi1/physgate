@@ -162,6 +162,7 @@ def _composes(result: dict[str, Any]) -> bool:
 
 
 def _rows(task: Task, answer: Any, tmp_path: Path) -> dict[str, bool]:  # noqa: ANN401
+    tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "answer.json"
     path.write_bytes(canonical_json(answer.model_dump(mode="json")))
     return {row["name"]: row["passed"] for row in score(task, path)["specs"]}
