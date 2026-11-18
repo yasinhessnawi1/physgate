@@ -71,6 +71,53 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     return {"made": made, "trend": trend, "ui": fake_ui(base / "checkout")}
 
 
+@pytest.fixture(autouse=True)
+def places(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The places the harness knows of, as folders of the row's own.
+
+    The rows' folders lie in the machine's shared temporary directory, where the publish command
+    refuses to write.
+    """
+    from types import SimpleNamespace
+
+    from physgate.evaluation.gaps import published
+
+    known = SimpleNamespace(
+        harness=tmp_path / "code" / "harness",
+        review_root=tmp_path / "home" / "review-scratch",
+        shared_temps=(tmp_path / "shared-tmp",),
+    )
+    monkeypatch.setattr(published, "known_places", lambda: known, raising=False)
+
+
+#: What the page shows of a trend line, and of a tier's count: the route serves nothing else.
+LINE_SHOWN = {"week", "version", "measurements", "numbers", "unverified", "exposed_since"}
+COUNT_SHOWN = {"rate", "unscored", "flaky"}
+
+
+def _as_shown(weeks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The weeks as published, with each line cut to what the page shows."""
+    shown = []
+    for week in weeks:
+        lines = []
+        for line in week["lines"]:
+            kept = {key: line[key] for key in LINE_SHOWN}
+            numbers = line["numbers"]
+            if numbers is not None:
+                kept["numbers"] = {
+                    **numbers,
+                    **{
+                        tier: None
+                        if numbers[tier] is None
+                        else {key: numbers[tier][key] for key in COUNT_SHOWN}
+                        for tier in ("visible", "validation", "held_out")
+                    },
+                }
+            lines.append(kept)
+        shown.append({**week, "lines": lines})
+    return shown
+
+
 def _folder(tmp_path: Path, name: str = "evidence") -> Path:
     folder = tmp_path / name
     folder.mkdir()
@@ -119,7 +166,7 @@ def test_a_published_trend_is_served_as_its_parser_reads_it_with_the_time_it_was
         "role": "control",
         "state": "read",
         "read_at": parsed.model_dump(mode="json")["read_at"],
-        "weeks": parsed.model_dump(mode="json")["weeks"],
+        "weeks": _as_shown(parsed.model_dump(mode="json")["weeks"]),
     }
     assert _role(answer, "firmware") == {"role": "firmware", "state": "none"}
     weeks = _role(answer, "control")["weeks"]
@@ -127,6 +174,30 @@ def test_a_published_trend_is_served_as_its_parser_reads_it_with_the_time_it_was
     assert weeks[0]["lines"][0]["numbers"]["reward_hacking"]["gap"] == pytest.approx(
         parsed.weeks[0].lines[0].numbers.reward_hacking.gap
     )
+
+
+def test_the_answer_serves_only_what_the_page_shows_and_no_run_set_id(
+    world: dict[str, Any], tmp_path: Path
+) -> None:
+    folder = _folder(tmp_path)
+    path = _publish(world, folder)
+    ids = [
+        i
+        for w in json.loads(path.read_text())["weeks"]
+        for x in w["lines"]
+        for i in x["manifest_ids"]
+    ]
+    assert ids, "the row needs a publication that holds run-set ids"
+    status, body, answer = _answer(world, folder)
+    assert status == 200, body[:300]
+    for i in ids:
+        assert i.encode() not in body, "a run set's id is served, which the page never shows"
+    lines = [line for week in _role(answer, "control")["weeks"] for line in week["lines"]]
+    assert lines, answer
+    for line in lines:
+        assert set(line) == LINE_SHOWN, sorted(line)
+        for tier in ("visible", "held_out"):
+            assert set(line["numbers"][tier]) == COUNT_SHOWN, sorted(line["numbers"][tier])
 
 
 def test_a_trend_the_reader_refused_is_served_as_the_reader_s_sentence_and_no_week(

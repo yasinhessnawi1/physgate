@@ -391,3 +391,24 @@ def test_a_reader_with_no_lock_still_refuses_a_line_past_the_head_when_no_writer
     with pytest.raises(Exception) as caught:
         _read(trend, made)
     assert "past" in str(caught.value), caught.value
+
+
+def test_a_link_in_place_of_the_trend_s_lock_is_refused_never_followed(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    trend = tmp_path / "gaps.jsonl"
+    assert _append(tmp_path, made, trend, "a")[0] == 0
+    lock = withheld_root(made.store, "control") / "trend.lock"
+    elsewhere = tmp_path / "elsewhere.lock"
+    elsewhere.write_bytes(b"")
+    lock.unlink()
+    lock.symlink_to(elsewhere)
+    try:
+        _read(trend, made)
+    except Exception as exc:  # noqa: BLE001 - the refusal is what this row reads
+        caught: BaseException | None = exc
+    else:
+        caught = None
+    assert caught is not None, "the reader took a lock through a link in its place"
+    assert _reason(caught) == "trend_broken", caught
+    assert "lock" in str(caught), caught
