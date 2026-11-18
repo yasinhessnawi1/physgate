@@ -1,20 +1,23 @@
-"""A response the binary cut short at an API error is recorded on its own line, and not charged.
+"""A response the binary cut short at an API error is a line of its own, apart from its totals.
 
 A review session's network broke mid-response. Its first response completed. Its second had a
 ``message_start`` (the usage it started with), streamed some thinking, and was then closed by
 the binary itself: a ``message_stop`` whose stream event carries ``abandoned_blocks`` naming that
 response, with no ``message_delta`` and no assistant message for it. The binary then wrote its
 own "API Error" message and a result with ``is_error`` and ``terminal_reason: api_error``. The
-result's ``modelUsage`` charges the first response alone; its top-level ``usage`` adds the cut
+result's ``modelUsage`` counts the first response alone; its top-level ``usage`` adds the cut
 one. The per-message account kept the cut response's starting usage and was held to
 ``modelUsage`` with strict equality, so the session's end, an API error with a retry path of its
 own, became a refused run.
 
-Now the cut response is a line of its own, marked abandoned: in the record, never in a charged
-sum, and the session's end is read as the API error it was. Every completed response is still
-held to the totals exactly, and a cut response in a session that did not end in an API error is
-still refused. The stream below is built by hand from that description, in the shapes the
-pinned binary writes; it is no copy of a run's transcript.
+Now the cut response is a line of its own, marked abandoned: in the record, never in a sum held
+to the binary's totals (whether the API billed it is unknown), and the session's end is read as
+the API error it was. Every completed response is still held to the totals exactly, and a cut
+response in a session that did not end in an API error is still refused. The stream below is
+built by hand from that description, in the shapes the pinned binary writes; it is no copy of a
+run's transcript. The cut response's ``message_stop`` line has the shape read from a real
+2.1.301 run's stream: beside ``event``, at the outer level, ``api_message_id`` and
+``abandoned_blocks`` holding ``api_message_id`` and ``from_block_index``.
 """
 
 from __future__ import annotations
@@ -69,7 +72,7 @@ CUT_START = {
     "cache_read_input_tokens": 0,
     "output_tokens": 1,
 }
-#: What the binary charged: the first response alone.
+#: What the binary's per-model totals count: the first response alone.
 CHARGED = {
     "inputTokens": 2,
     "outputTokens": 180,
@@ -244,6 +247,39 @@ def test_the_cut_response_is_its_own_line_marked_abandoned_with_the_usage_it_sta
     assert not any(_abandoned(u) for k, u in by_id.items() if k != "msg_02")
 
 
+#: The cut response's closing line as a 2.1.301 run wrote it, its ids made neutral: the outer keys
+#: the binary writes on every stream event, and its mark beside ``event``.
+CLOSED_AS_CUT_2_1_301 = {
+    "type": "stream_event",
+    "event": {"type": "message_stop"},
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "parent_tool_use_id": None,
+    "uuid": "00000000-0000-4000-8000-000000000001",
+    "api_message_id": "msg_02",
+    "abandoned_blocks": {"api_message_id": "msg_02", "from_block_index": 0},
+}
+
+
+def test_the_stand_in_closes_the_cut_response_in_the_shape_the_binary_writes() -> None:
+    (stop,) = [
+        json.loads(x)
+        for x in cut_stream().splitlines()
+        if '"message_stop"' in x and '"abandoned_blocks"' in x
+    ]
+    pinned = CLOSED_AS_CUT_2_1_301
+    assert set(stop) == set(pinned) - {"session_id", "uuid"}
+    assert stop["abandoned_blocks"] == pinned["abandoned_blocks"]
+    assert stop["api_message_id"] == pinned["api_message_id"]
+
+
+def test_the_binary_s_own_closing_line_marks_the_cut_response() -> None:
+    lines = cut_stream().splitlines()
+    at = next(i for i, x in enumerate(lines) if '"abandoned_blocks"' in x)
+    lines[at] = json.dumps(CLOSED_AS_CUT_2_1_301)
+    _, usages, _ = decompose.read_stream("\n".join(lines) + "\n")
+    assert [u.message_id for u in usages if _abandoned(u)] == ["msg_02"]
+
+
 def test_an_api_error_end_holds_the_completed_responses_to_the_totals_and_does_not_refuse() -> None:
     result, usages, _ = decompose.read_stream(cut_stream())
     assert _refusal(result, usages) is None
@@ -260,8 +296,8 @@ def test_a_completed_response_the_totals_do_not_bear_out_is_still_refused_at_an_
     assert refused.context == {"field": "output_tokens", "account": "180", "result": "179"}
 
 
-def test_totals_that_charge_the_cut_response_too_are_refused() -> None:
-    # Exact equality, one way only: totals that count the cut response as charged are not
+def test_totals_that_count_the_cut_response_too_are_refused() -> None:
+    # Exact equality, one way only: totals that count the cut response too are not
     # what the binary was measured to write, and are no account the cut line explains.
     both = _result(
         {
@@ -306,7 +342,7 @@ def test_a_response_the_binary_did_not_close_as_cut_is_never_abandoned(
     result, usages, _ = decompose.read_stream(cut_stream(**shape))
     (cut,) = [u for u in usages if u.message_id == "msg_02"]
     assert not _abandoned(cut)
-    # So it is counted, and the totals that do not charge it refuse the account.
+    # So it is counted, and the totals that do not count it refuse the account.
     refused = _refusal(result, usages)
     assert isinstance(refused, AccountingError)
     assert refused.context["field"] == "input_tokens"
@@ -332,7 +368,7 @@ def test_the_compaction_line_reads_no_compaction_from_an_api_error_with_a_cut_re
     assert line is None
 
 
-def test_a_compaction_s_call_is_the_totals_less_the_charged_responses_not_the_cut_one() -> None:
+def test_a_compaction_s_call_is_the_totals_less_the_counted_responses_not_the_cut_one() -> None:
     summary = {
         "inputTokens": 3,
         "outputTokens": 500,
@@ -365,7 +401,7 @@ def test_a_compacted_session_with_a_cut_response_that_did_not_end_in_an_api_erro
     assert caught.value.context.get("message_id") == "msg_02"
 
 
-# --- the token account: recorded, visible, not charged ----------------------------------------
+# --- the token account: recorded, visible, apart from the totals -------------------------------
 
 
 def _require_the_mark() -> None:
@@ -373,7 +409,7 @@ def _require_the_mark() -> None:
     assert "abandoned" in TokensUsed.model_fields, "a token line cannot be marked abandoned"
 
 
-def test_the_account_charges_no_cut_line_and_shows_it_apart_from_a_fresh_read_of_the_log(
+def test_the_account_sums_no_cut_line_and_shows_it_apart_from_a_fresh_read_of_the_log(
     tmp_path: Path,
 ) -> None:
     _require_the_mark()
@@ -395,15 +431,15 @@ def test_the_account_charges_no_cut_line_and_shows_it_apart_from_a_fresh_read_of
     assert [r["message_id"] for r in raw if r.get("abandoned") is True] == ["msg_02"]
     assert all("abandoned" not in r for r in raw if r["message_id"] != "msg_02")
     account = TokenAccount.from_events(read_events(path))
-    charged = account.by_attribution()["reviewer:rev-1"]
-    assert charged == _usage(FIRST_FINAL), "the cut response was charged"
-    assert account.total() == charged
+    counted = account.by_attribution()["reviewer:rev-1"]
+    assert counted == _usage(FIRST_FINAL), "the cut response was counted"
+    assert account.total() == counted
     assert account.abandoned() == {"reviewer:rev-1": _usage(CUT_START)}
-    # Every charged token is in exactly one kind, the cut one in none.
-    assert sum(u.total() for u in account.by_kind().values()) == charged.total()
+    # Every counted token is in exactly one kind, the cut one in none.
+    assert sum(u.total() for u in account.by_kind().values()) == counted.total()
 
 
-def test_one_message_recorded_once_cut_and_once_charged_is_an_error_not_a_choice() -> None:
+def test_one_message_recorded_once_cut_and_once_counted_is_an_error_not_a_choice() -> None:
     _require_the_mark()
     account = TokenAccount()
     account.add("session:a", "m1", _usage(CUT_START), abandoned=True)
@@ -605,7 +641,7 @@ def cut_lines() -> tuple[MessageUsage, ...]:
     return _cut_lines()
 
 
-def test_a_role_session_s_api_error_is_retried_and_its_cut_line_is_recorded_not_charged(
+def test_a_role_session_s_api_error_is_retried_and_its_cut_line_is_recorded_apart(
     tmp_path: Path, cut_lines: tuple[MessageUsage, ...]
 ) -> None:
     _require_the_mark()
@@ -633,7 +669,7 @@ def test_a_role_session_s_api_error_is_retried_and_its_cut_line_is_recorded_not_
     assert account.abandoned() == {"session:sess-1": _usage(CUT_START)}
 
 
-def test_a_role_review_s_api_error_is_retried_and_its_cut_line_is_recorded_not_charged(
+def test_a_role_review_s_api_error_is_retried_and_its_cut_line_is_recorded_apart(
     tmp_path: Path, cut_lines: tuple[MessageUsage, ...]
 ) -> None:
     _require_the_mark()
