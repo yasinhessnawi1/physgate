@@ -385,6 +385,7 @@ PLACES_IN_WORDS = {
     "relative": "runs/run-1/gaps.jsonl",
     "dot-relative": "./gaps.jsonl",
     "home": "~/runs/gaps.jsonl",
+    "a-user-s-home": "~someone",
     "windows": "C:\\Users\\someone\\gaps.jsonl",
     "windows-forward": "D:/runs/gaps.jsonl",
     "after-a-backtick": "`/srv/runs/gaps.jsonl`",
@@ -410,10 +411,19 @@ def test_a_refusal_that_names_a_place_in_any_form_is_published_without_it(
     assert refused["error"], refused
 
 
+def test_a_reason_that_names_a_place_is_published_without_it(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _failing_reader(monkeypatch, GapsError("it cannot be read", refused_because="at /srv/runs"))
+    published = json.loads(_publish(tmp_path / "gaps.jsonl", made, _out(tmp_path)).read_text())
+    assert "/srv" not in json.dumps(published["refused"]), published["refused"]
+    assert published["refused"]["refused_because"] == "GapsError", published["refused"]
+
+
 def test_a_refusal_that_names_no_place_is_published_in_its_own_words(
     tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    said = "the trend's head records 2 line(s) and the trend holds 3; 1/4 of it is past the head"
+    said = "the head records 2 line(s), read on 2026/11/18, and the trend holds 3; 1/4 is past it"
     _failing_reader(monkeypatch, GapsError(said, refused_because="trend_broken"))
     published = json.loads(_publish(tmp_path / "gaps.jsonl", made, _out(tmp_path)).read_text())
     assert published["refused"] == {"refused_because": "trend_broken", "error": said}
