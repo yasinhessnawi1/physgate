@@ -24,7 +24,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from openers import readers_in, readers_under
+from openers import readers_in, readers_of, readers_under, reexports_of, sources_under
 
 ROOT = Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
@@ -163,6 +163,122 @@ def test_a_reader_is_found_however_it_is_reached(source: str, where: str) -> Non
 def test_a_relative_import_inside_the_tiers_is_followed() -> None:
     source = "from .heldout import snapshot\ndef f(p):\n    return snapshot(p)\n"
     assert "f" in _found(source, module="physgate.evaluation.tiers.planted")
+
+
+@pytest.mark.parametrize(
+    ("source", "where"),
+    [
+        ("import os\ndef f(version):\n    return os.path.join(version, 'held_out')\n", "f"),
+        ("from os.path import join\ndef f(v):\n    return open(join(v, 'validation'))\n", "f"),
+        ("def f(version):\n    return version.joinpath('held_out').read_bytes()\n", "f"),
+        ("from pathlib import Path\ndef f(version):\n    return Path(version, 'held_out')\n", "f"),
+        ("def f(version):\n    return '/'.join([version, 'held_out'])\n", "f"),
+        ("def f(version, task):\n    return open(f'{version}/held_out/{task}')\n", "f"),
+        (
+            "import os\nfrom physgate.evaluation.tiers.probe import PROBED_TIER\n"
+            "def f(v):\n    return os.path.join(v, PROBED_TIER)\n",
+            "f",
+        ),
+        (
+            "from physgate.evaluation.tiers.probe import PROBED_TIER\n"
+            "def f(v):\n    return f'{v}/{PROBED_TIER}'\n",
+            "f",
+        ),
+    ],
+    ids=[
+        "by os.path.join",
+        "by join under another name",
+        "by joinpath",
+        "by a path's constructor",
+        "by a string's join",
+        "in a format",
+        "by os.path.join onto a name of the tiers",
+        "in a format, onto a name of the tiers",
+    ],
+)
+def test_a_path_joined_onto_a_protected_tier_s_name_is_found_however_it_is_joined(
+    source: str, where: str
+) -> None:
+    assert where in _found(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import os\ndef f(v):\n    return os.path.join(v, 'visible')\n",
+        "def f(v):\n    return f'the held_out tier of {v} is not read here'\n",
+        "def f(parts):\n    return '/'.join(parts)\n",
+    ],
+    ids=["onto the visible tier", "a tier's name in words", "a join of names it is given"],
+)
+def test_a_join_that_names_no_protected_tier_is_not_one(source: str) -> None:
+    assert _found(source) == {}
+
+
+#: The tiers package and a caller that takes a reader from it, as a re-export would have it.
+REEXPORTED = {
+    "physgate.evaluation.tiers": "from .heldout import snapshot\n",
+    "physgate.evaluation.tiers.heldout": "def snapshot(root):\n    return {}\n",
+}
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {
+            "physgate.planted": (
+                "from physgate.evaluation.tiers import snapshot\n"
+                "def f(p):\n    return snapshot(p)\n"
+            )
+        },
+        {
+            "physgate.planted": (
+                "import physgate.evaluation.tiers as tiers\ndef f(p):\n"
+                "    return tiers.snapshot(p)\n"
+            )
+        },
+        {
+            "physgate.evaluation.tiers.helpers": (
+                "from physgate.evaluation.tiers import heldout\nlook = heldout.snapshot\n"
+            ),
+            "physgate.evaluation.again": "from physgate.evaluation.tiers.helpers import look\n",
+            "physgate.planted": (
+                "from physgate.evaluation.again import look as glance\ndef f(p):\n"
+                "    return glance(p)\n"
+            ),
+        },
+    ],
+    ids=["from the package", "through the package's name", "through two re-exports, one an alias"],
+)
+def test_a_reader_taken_through_a_re_export_is_found(extra: dict[str, str]) -> None:
+    found = readers_of({**REEXPORTED, **extra})
+    assert "physgate.planted:f" in found
+
+
+def test_a_re_export_of_a_reader_is_found() -> None:
+    sources = {
+        **REEXPORTED,
+        "physgate.evaluation.tiers.helpers": (
+            "from physgate.evaluation.tiers import heldout\nlook = heldout.snapshot\n"
+        ),
+    }
+    assert reexports_of(sources) == {
+        "physgate.evaluation.tiers": frozenset({"snapshot"}),
+        "physgate.evaluation.tiers.helpers": frozenset({"look"}),
+    }
+
+
+#: The packages of the evaluation whose names a caller would take a reader from.
+PACKAGES = ("physgate.evaluation", "physgate.evaluation.tiers", "physgate.evaluation.gaps")
+#: Each reader a package of the evaluation re-exports, by ``package:name``; none today.
+PACKAGE_REEXPORTS: dict[str, str] = {}
+
+
+def test_no_package_re_exports_a_reader_that_is_not_named() -> None:
+    found = reexports_of(sources_under(SRC))
+    listed = {f"{module}:{name}" for module in PACKAGES for name in found.get(module, ())}
+    assert sorted(listed - set(PACKAGE_REEXPORTS)) == [], "a package re-exports a reader"
+    assert sorted(set(PACKAGE_REEXPORTS) - listed) == [], "a named re-export is gone"
 
 
 def test_a_name_that_only_shares_a_reader_s_name_is_not_one() -> None:
