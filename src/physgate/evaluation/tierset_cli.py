@@ -39,6 +39,14 @@ inside a harness session's environment, as defence in depth only.
   could not read whole, with the roots there already, is refused and nothing is appended.
 
 Each prints one JSON line, and a refusal as ``refused_because`` with exit 1.
+
+``physgate tiers probe --withheld W --version V --seed N`` is the isolation probe
+(:mod:`physgate.evaluation.tiers.probe`): for each task of ``V``'s held-out tier and each
+requirement it composes, an answer is built for that requirement alone by the seeded search and
+scored on the task, and the counts are printed on one JSON line. It is one measurement of ``V``,
+a line in the register, and like the writers it is given the role's withheld root and refuses
+inside a session. It runs in the evaluation environment; elsewhere it refuses
+(``evaluation_environment_missing``) and counts nothing.
 """
 
 from __future__ import annotations
@@ -73,6 +81,13 @@ def add_parser(subparsers: Any) -> None:
         else:
             sub.add_argument("--roots", type=Path, nargs="+")
         sub.set_defaults(func=_write)
+    probe = commands.add_parser(
+        "probe", help="count what answers built for one requirement alone score on the held out"
+    )
+    probe.add_argument("--withheld", type=Path, required=True)
+    probe.add_argument("--version", required=True)
+    probe.add_argument("--seed", type=int, required=True)
+    probe.set_defaults(func=_probe)
 
 
 def status(store: Path) -> dict[str, Any]:
@@ -208,4 +223,32 @@ def _write(args: argparse.Namespace) -> int:
         print(json.dumps({"refused_because": reason, "error": str(exc)}, sort_keys=True))
         return 1
     print(json.dumps(said, sort_keys=True))
+    return 0
+
+
+def _probe(args: argparse.Namespace) -> int:
+    """The isolation probe of one version's held-out tier; one JSON line."""
+    from physgate.evaluation.per_role.exceptions import PerRoleError
+    from physgate.evaluation.tiers import probe
+
+    said: dict[str, Any]
+    try:
+        method = probe.default_method()
+    except ImportError:
+        said = {
+            "refused_because": "evaluation_environment_missing",
+            "error": (
+                "the probe runs the search and the scorer, in the evaluation environment: "
+                "UV_PROJECT_ENVIRONMENT=.venv-evaluation uv run --group evaluation physgate ..."
+            ),
+        }
+        print(json.dumps(said, sort_keys=True))
+        return 1
+    try:
+        result = probe.probe_version(args.withheld, args.version, seed=args.seed, method=method)
+    except PerRoleError as exc:
+        reason = exc.context.get("refused_because", "refused")
+        print(json.dumps({"refused_because": reason, "error": str(exc)}, sort_keys=True))
+        return 1
+    print(json.dumps(result.model_dump(mode="json"), sort_keys=True))
     return 0
