@@ -19,6 +19,7 @@ import {
 } from "./answers";
 import { evidenceGaps, GAPS_ROUTE } from "./api";
 import Evidence from "./Evidence";
+import { ageWords } from "./Gaps";
 import { EVIDENCE_COPY } from "./words";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -47,11 +48,21 @@ beforeEach(() => {
 
 let root: Root | null = null;
 
+/** The page's clock set to ``readAt`` plus ``hours``: only the date is faked, never a timer. */
+function clockAt(hours: number, readAt = READ_AT) {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(Date.parse(readAt) + hours * 3_600_000));
+}
+
+const HOUR = 1;
+const DAY = 24 * HOUR;
+
 afterEach(() => {
   act(() => {
     root?.unmount();
   });
   root = null;
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   document.body.innerHTML = "";
@@ -147,6 +158,12 @@ describe("the gap trend's guard", () => {
       withLine({ numbers: { ...gapLine("x").numbers, held_out: { passed: 1 } } }),
       withLine({ store: "/somewhere" }),
       withLine({ version: "not a version" }),
+      withLine({ manifest_ids: ["1".repeat(64)] }),
+      withLine({ role: "control", arm: "harness" }),
+      withLine({ floor: FLOOR }),
+      withLine({
+        numbers: { ...gapLine("x").numbers, held_out: { ...gapLine("x").numbers.held_out, n: 4 } },
+      }),
       { roles: [], more: [] },
     ];
     for (const value of bad)
@@ -255,10 +272,60 @@ describe("the gap trend on the page", () => {
   });
 
   it("says when the trend was read, and that what came since is not on it", async () => {
+    clockAt(2 * HOUR);
     const host = await mount();
     const said = text(role(host, "control"));
-    expect(said).toContain("Read from the trend on 2026-11-18 at 10:02 UTC.");
+    expect(said).toContain("Read from the gap trend on 2026-11-18 at 10:02 UTC (2 hours ago).");
     expect(said).toContain(EVIDENCE_COPY.asRead);
+  });
+
+  it("says how old the copy is in words, next to the time it was read", async () => {
+    clockAt(9 * DAY + 3 * HOUR);
+    const host = await mount();
+    const note = role(host, "control")?.querySelector('[data-note="read-at"]');
+    expect(text(note)).toContain("2026-11-18 at 10:02 UTC");
+    expect(text(note)).toContain("(9 days ago)");
+  });
+
+  it("warns in plain words once the copy is older than seven days, and not before", async () => {
+    clockAt(7 * DAY - HOUR);
+    let host = await mount();
+    expect(role(host, "control")?.querySelector('[data-note="stale"]')).toBeNull();
+    clockAt(7 * DAY + HOUR);
+    host = await mount();
+    const warning = role(host, "control")?.querySelector('[data-note="stale"]');
+    expect(text(warning)).toBe(EVIDENCE_COPY.stale);
+    expect(warning?.getAttribute("role")).toBe("status");
+  });
+
+  it("warns on an old copy that holds no measurement yet, which reads as current as well", async () => {
+    clockAt(30 * DAY);
+    serve({
+      [GAPS_ROUTE]: [
+        200,
+        { roles: [{ role: "control", state: "read", read_at: READ_AT, weeks: [] }] },
+      ],
+    });
+    const host = await mount();
+    expect(text(role(host, "control"))).toContain("(30 days ago)");
+    expect(text(role(host, "control")?.querySelector('[data-note="stale"]'))).toBe(
+      EVIDENCE_COPY.stale,
+    );
+  });
+
+  it("says a copy's age in the words a person would use", () => {
+    expect(typeof ageWords).toBe("function");
+    const at = Date.parse(READ_AT);
+    const after = (ms: number) => ageWords(READ_AT, at + ms);
+    expect(after(20_000)).toBe("just now");
+    expect(after(60_000)).toBe("1 minute ago");
+    expect(after(45 * 60_000)).toBe("45 minutes ago");
+    expect(after(3_600_000)).toBe("1 hour ago");
+    expect(after(47 * 3_600_000)).toBe("47 hours ago");
+    expect(after(48 * 3_600_000)).toBe("2 days ago");
+    expect(after(9 * 86_400_000 + 5 * 3_600_000)).toBe("9 days ago");
+    expect(after(-5 * 60_000)).toBe(EVIDENCE_COPY.aheadOfClock);
+    expect(ageWords("the other day", at)).toBeNull();
   });
 
   it("says a role with no trend published what makes a first point appear, and draws nothing", async () => {
@@ -289,7 +356,7 @@ describe("the gap trend on the page", () => {
     const control = role(host, "control");
     expect(text(control?.querySelector("h3"))).toBe(EVIDENCE_COPY.trendRefused("control"));
     expect(text(control)).toContain(READER_REFUSAL);
-    expect(text(control)).toContain("Read from the trend on 2026-11-18 at 10:02 UTC.");
+    expect(text(control)).toContain("Read from the gap trend on 2026-11-18 at 10:02 UTC");
     expect(control?.querySelector("svg, table")).toBeNull();
   });
 
