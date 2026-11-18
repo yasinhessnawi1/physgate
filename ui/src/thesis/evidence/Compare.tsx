@@ -87,7 +87,7 @@ function Value({
   return <Quantity value={n} unit="tok" />;
 }
 
-function SideBySide({ compared }: { readonly compared: Comparison }) {
+export function SideBySide({ compared }: { readonly compared: Comparison }) {
   const a = sourceAttribute(answerSource(compared.a));
   const b = sourceAttribute(answerSource(compared.b));
   return (

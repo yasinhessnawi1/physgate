@@ -566,3 +566,85 @@ export function evidenceCatches(value: unknown): Catches {
     unread: list(c.unread, "the runs not counted").map(unreadRun),
   };
 }
+
+// -- the gap trend ----------------------------------------------------------------------------
+
+export const GAPS_ROUTE = "/api/evidence/gaps";
+
+/** The roles a trend is published for, in the order the server sends them. */
+export const TREND_ROLES = ["control", "firmware"] as const;
+export type TrendRole = (typeof TREND_ROLES)[number];
+
+/** A tier's passing trials over tasks times trials, with its rate as the reader wrote it. */
+export interface TierCount {
+  readonly passed: number;
+  readonly n: number;
+  readonly tasks: number;
+  readonly unscored: number;
+  readonly flaky: number;
+  readonly rate: string;
+}
+
+/** A gap as a fraction of a rate, its interval or none, and the reader's words for both. */
+export interface Gap {
+  readonly gap: number;
+  readonly interval: readonly [number, number] | null;
+  readonly words: string;
+  readonly label: string | null;
+}
+
+export interface GapNumbers {
+  readonly visible: TierCount;
+  readonly validation: TierCount | null;
+  readonly heldOut: TierCount;
+  readonly rewardHacking: Gap;
+  readonly optimiserOverfit: Gap | null;
+}
+
+/** A trend line as the reader gives it: its numbers, or why they are withheld. */
+export interface GapLine {
+  readonly week: string;
+  readonly version: string;
+  readonly measurements: number;
+  readonly floor: string;
+  readonly numbers: GapNumbers | null;
+  readonly unverified: string | null;
+  readonly exposedSince: string | null;
+}
+
+/** An ISO week of the trend: its lines, or none, and then it is missing. */
+export interface GapWeek {
+  readonly week: string;
+  readonly lines: readonly GapLine[];
+  readonly missing: boolean;
+}
+
+/** A role's trend: none published, its weeks as read, or why it is not shown. */
+export type RoleTrend =
+  | { readonly role: TrendRole; readonly state: "none" }
+  | {
+      readonly role: TrendRole;
+      readonly state: "read";
+      readonly readAt: string;
+      readonly weeks: readonly GapWeek[];
+    }
+  | {
+      readonly role: TrendRole;
+      readonly state: "refused";
+      readonly error: string;
+      readonly reason: string;
+      readonly readAt: string | null;
+    };
+
+export interface GapTrend {
+  readonly roles: readonly RoleTrend[];
+}
+
+/** A stub, until its rows are red. */
+export function evidenceGaps(value: unknown): GapTrend {
+  object(value, "the gap trend");
+  return { roles: [] };
+}
+
+/** A stub, until its row is red. */
+export const MOST_NOTE = 0;

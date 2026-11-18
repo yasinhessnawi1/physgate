@@ -245,3 +245,102 @@ export const CATCHES = {
   ],
   unread: [UNREADABLE],
 };
+
+// -- the gap trend ------------------------------------------------------------------------------
+
+/** A tier version, as a trend line names it. */
+export const TIER_VERSION = `3f70a6d8${"c".repeat(56)}`;
+export const FLOOR =
+  "a noise floor until the optimiser runs: neither tier has been seen by anything";
+export const BOOTSTRAP = "task-cluster bootstrap 95 %, 1000 draws, seed 7";
+export const EXPOSED =
+  "the tier version 3f70a6d8 is marked exposed as the register reads now: it has been seen since this line was measured";
+export const UNVERIFIED = "a vector the line names has no gaps measurement in the register";
+export const READER_REFUSAL =
+  "the trend's last line (line 3) is cut: a write stopped part way through it, before its head moved. The head records 2 line(s); a person removes the bytes after the end of line 2, and the trend reads again";
+
+function tierCount(passed: number, n: number, rate: string) {
+  return { passed, n, tasks: 2, unscored: 0, flaky: 0, rate };
+}
+
+/** A trend line as the reader gives it, its numbers given; ``over`` changes any field. */
+export function gapLine(week: string, over: Record<string, unknown> = {}) {
+  return {
+    week,
+    role: "control",
+    arm: "harness",
+    version: TIER_VERSION,
+    manifest_ids: ["1".repeat(64)],
+    measurements: 2,
+    floor: FLOOR,
+    numbers: {
+      visible: tierCount(3, 4, "3/4 · 75.0 % [30.1, 95.4]"),
+      validation: null,
+      held_out: tierCount(1, 4, "1/4 · 25.0 % [4.6, 69.9]"),
+      reward_hacking: { gap: 0.5, interval: [0.0, 1.0], words: BOOTSTRAP, label: null },
+      optimiser_overfit: null,
+    },
+    unverified: null,
+    exposed_since: null,
+    ...over,
+  };
+}
+
+/** The second measurement: both gaps, the validation tier measured, the version seen since. */
+export const SECOND = gapLine("2026-W47", {
+  measurements: 3,
+  numbers: {
+    visible: tierCount(4, 4, "4/4 · 100.0 % [51.0, 100.0]"),
+    validation: tierCount(2, 4, "2/4 · 50.0 % [15.0, 85.0]"),
+    held_out: tierCount(1, 4, "1/4 · 25.0 % [4.6, 69.9]"),
+    reward_hacking: { gap: 0.75, interval: [0.5, 1.0], words: BOOTSTRAP, label: null },
+    optimiser_overfit: { gap: 0.25, interval: [-0.125, 0.5], words: BOOTSTRAP, label: FLOOR },
+  },
+  exposed_since: EXPOSED,
+});
+
+export const READ_AT = "2026-11-18T10:02:00Z";
+
+/** The control role's trend of two measurements and a week between with none; firmware none. */
+export const GAPS = {
+  roles: [
+    {
+      role: "control",
+      state: "read",
+      read_at: READ_AT,
+      weeks: [
+        { week: "2026-W45", lines: [gapLine("2026-W45")], missing: false },
+        { week: "2026-W46", lines: [], missing: true },
+        { week: "2026-W47", lines: [SECOND], missing: false },
+      ],
+    },
+    { role: "firmware", state: "none" },
+  ],
+};
+
+/** One measurement alone. */
+export const ONE_POINT = {
+  roles: [
+    {
+      role: "control",
+      state: "read",
+      read_at: READ_AT,
+      weeks: [{ week: "2026-W47", lines: [gapLine("2026-W47")], missing: false }],
+    },
+    { role: "firmware", state: "none" },
+  ],
+};
+
+/** A trend the reader refused as it was published. */
+export const REFUSED_TREND = {
+  roles: [
+    {
+      role: "control",
+      state: "refused",
+      error: READER_REFUSAL,
+      reason: "trend_unreadable",
+      read_at: READ_AT,
+    },
+    { role: "firmware", state: "none" },
+  ],
+};

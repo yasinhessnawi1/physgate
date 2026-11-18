@@ -124,6 +124,44 @@ export const EVIDENCE_COPY = {
   artefactsCaught: "Artefacts caught",
   caughtAfterPass: "Caught after a reviewer passed",
   allChecks: "All checks",
+  gapsTab: "Gaps",
+  gapsLead:
+    "The two gaps, measured on a run set each time: what the visible tasks pass beyond the held-out ones, and what the validation tasks pass beyond the held-out ones. Each figure is the gap trend's own, as its reader read it.",
+  readingGaps: "the gap trend",
+  gapsRefused: "The gap trend could not be read",
+  roleTitle: (role: string) => `${role.charAt(0).toUpperCase()}${role.slice(1)} role`,
+  noTrend: "No gap trend of this role has been published for this page.",
+  noPoint: "The gap trend of this role holds no measurement yet.",
+  firstPoint:
+    "A first point appears once both gaps are measured on a run set of this role, the measurement is added to the role's trend, and the trend is published into a folder this server reads.",
+  readAt: (day: string, time: string, zone: string) =>
+    `Read from the trend on ${day} at ${time} ${zone}.`,
+  asRead:
+    "This is the trend as it was read then: a measurement added, or a task version seen, since then is shown once the trend is published again.",
+  trendRefused: (role: string) => `The gap trend of the ${role} role is not shown`,
+  readerWords: "The reader's words:",
+  onePoint:
+    "One measurement so far: one point for each gap. One point is no trend, and none is drawn or claimed.",
+  pointsAlone: (n: number) =>
+    `${String(n)} measurements so far. Each point stands alone: the page draws no line through them and claims no direction, since the trend's reader computes none.`,
+  chartLabel:
+    "Each measurement's two gaps as points, in percentage points, each with its 95 % interval where it has one. No line joins the points. The table below holds every value drawn.",
+  rewardHacking: "Reward-hacking gap",
+  rewardHackingSays: "visible minus held out",
+  optimiserOverfit: "Optimiser-overfit gap",
+  optimiserOverfitSays: "validation minus held out",
+  week: "Week",
+  version: "Task version",
+  visibleRate: "Visible tasks",
+  validationRate: "Validation tasks",
+  heldOutRate: "Held-out tasks",
+  measurements: "Times this version was measured",
+  noteColumn: "Notes",
+  noMeasurement: "No measurement this week.",
+  notMeasured: "Not measured: the validation tasks were not part of this measurement.",
+  numbersWithheld: "Its numbers are not shown:",
+  noGap: "no gap",
+  points: "percentage points",
 } as const;
 
 /** Each kind's section heading, in the order the screen shows them. */
