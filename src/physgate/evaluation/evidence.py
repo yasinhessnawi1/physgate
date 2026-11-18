@@ -459,6 +459,31 @@ class Catches:
 #: The reason a publication that is not a plain file of its own, or not to be read, is refused.
 REFUSED = "publication_refused"
 
+#: What the page shows of a trend line, and of a tier's count: all the route serves of either.
+#: A line's run-set ids, its role, arm and second label, and a tier's raw counts are not shown,
+#: so they are not sent.
+LINE_SHOWN = ("week", "version", "measurements", "numbers", "unverified", "exposed_since")
+COUNT_SHOWN = ("rate", "unscored", "flaky")
+TIERS = ("visible", "validation", "held_out")
+
+
+def _shown_line(line: Mapping[str, Any]) -> dict[str, object]:
+    """A published trend line cut to what the page shows."""
+    shown: dict[str, object] = {key: line[key] for key in LINE_SHOWN}
+    numbers = line["numbers"]
+    if numbers is not None:
+        counts = {
+            tier: None if numbers[tier] is None else {k: numbers[tier][k] for k in COUNT_SHOWN}
+            for tier in TIERS
+        }
+        shown["numbers"] = {**numbers, **counts}
+    return shown
+
+
+def _shown_weeks(weeks: Iterable[Mapping[str, Any]]) -> list[dict[str, object]]:
+    """The published weeks, each line cut to what the page shows."""
+    return [{**week, "lines": [_shown_line(line) for line in week["lines"]]} for week in weeks]
+
 
 def _published_bytes(context: Context, path: Path, most: int) -> bytes | None:
     """At most ``most + 1`` bytes of the publication at ``path``; ``None`` if it is not there.
@@ -552,7 +577,7 @@ class GapTrend:
             "role": role,
             "state": "read",
             "read_at": published["read_at"],
-            "weeks": published["weeks"],
+            "weeks": _shown_weeks(published["weeks"]),
         }
 
 

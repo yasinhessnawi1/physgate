@@ -13,7 +13,9 @@ in it: this module reaches the machinery only when a command runs.
   with its one reader and prints it as the Evidence page shows it: every week through today, or
   the reader's refusal (exit 1). ``--publish`` also writes that, whole, into the folder ``DIR``,
   which the UI's server is then given as a root: the server cannot run the reader, whose head and
-  register lie beneath the role's withheld root.
+  register lie beneath the role's withheld root. ``DIR`` is refused in any place the harness
+  knows a run's sessions, a reviewer or a commit reach; the command is given no run, so it
+  cannot know every such place, and its help says which folder to name.
 - ``physgate gaps vector --withheld W --version V --tier T --runs R --trials T`` is the harness
   side's step for a protected tier: it counts one measurement of ``V`` in the register and writes
   the tier's anonymous vector beneath ``W``, the role's withheld root, and prints its key. Its
@@ -54,8 +56,20 @@ def add_parser(subparsers: Any) -> None:
     trend.add_argument("--store", type=Path, required=True)
     trend.add_argument("--role", required=True, choices=("control", "firmware"))
     trend.add_argument("--trend", dest="trend_path", type=Path, required=True)
-    trend.add_argument("--publish", type=Path)
+    trend.add_argument("--publish", type=Path, help=_PUBLISH_HELP)
     trend.set_defaults(func=_trend)
+
+
+#: What ``--publish`` takes, said where the flag is listed. Kept here, beside the parser, so the
+#: command's help imports nothing of the gap machinery.
+_PUBLISH_HELP = (
+    "the folder to publish the trend into, for the operator UI's Evidence page. Refused inside "
+    "the store, the harness checkout or any git checkout or worktree, a run's directory or a "
+    "folder of runs, an installation, a review root, or the machine's shared temporary "
+    "directories. This command is given no run, so it cannot know every place a run's sessions "
+    "may read: publish into a folder of its own that no run names and nothing else writes, and "
+    "give that folder to the operator UI as a root (physgate ui --root)."
+)
 
 
 def _refused(exc: Exception) -> int:
