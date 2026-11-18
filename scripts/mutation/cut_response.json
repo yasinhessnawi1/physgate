@@ -11,7 +11,9 @@
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
    "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py"
+   "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py",
+   "knowledge",
+   "tests/unit/orchestrator/left_session.py"
   ]
  },
  {
@@ -21,7 +23,8 @@
   "new": "    lower_bound = (\n",
   "tests": [
    "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py"
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py",
+   "knowledge"
   ]
  },
  {
@@ -31,7 +34,8 @@
   "new": "    lower_bound = bool(cut and calls is None) or (\n",
   "tests": [
    "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py"
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py",
+   "knowledge"
   ]
  },
  {
@@ -41,7 +45,8 @@
   "new": "self.lower_bound != bool(held.unread or held.ttl_unread)",
   "tests": [
    "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py"
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py",
+   "knowledge"
   ]
  },
  {
@@ -51,7 +56,8 @@
   "new": "        if False:\n",
   "tests": [
    "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py"
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py",
+   "knowledge"
   ]
  },
  {
@@ -61,7 +67,8 @@
   "new": "        not_in_binary_totals_billing_unknown={},\n",
   "tests": [
    "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py"
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py",
+   "knowledge"
   ]
  },
  {
@@ -71,7 +78,8 @@
   "new": "\"not_in_binary_totals_billing_unknown\": dumped(account.by_attribution()),",
   "tests": [
    "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py"
+   "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py",
+   "knowledge"
   ]
  },
  {
@@ -81,7 +89,8 @@
   "new": "\"abandoned_not_charged\": dumped(account.abandoned()),",
   "tests": [
    "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py"
+   "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py",
+   "knowledge"
   ]
  },
  {
@@ -92,7 +101,9 @@
   "tests": [
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py"
+   "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
+   "knowledge",
+   "tests/unit/orchestrator/left_session.py"
   ]
  },
  {
@@ -107,7 +118,9 @@
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
    "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py"
+   "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py",
+   "knowledge",
+   "tests/unit/orchestrator/left_session.py"
   ]
  }
 ]
