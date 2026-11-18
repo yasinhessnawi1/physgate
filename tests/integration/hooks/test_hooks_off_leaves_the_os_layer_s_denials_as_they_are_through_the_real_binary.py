@@ -3,18 +3,22 @@
 The arm switches off hooks, not the operating system's layer. A shell command that builds its
 paths as it runs, so no hook can read them in its words, writes into each of the four places a
 run is judged by: the harness checkout, the run's records, the held-out tier and the secrets.
-Inside the layer every write is refused and nothing lands, under ``hooks: on`` and ``hooks: off``
-alike, with the same outcome place by place. Without the layer each write lands, which shows the
-command reaches every place and that the refusals inside it are the layer's, not a hook's.
+Inside the layer nothing reaches any of them on the disk, under ``hooks: on`` and ``hooks: off``
+alike, and the command is told the same outcome place by place under both. Without the layer each
+write lands, which shows the command reaches every place and that what keeps it out inside the
+layer is the layer, not a hook.
 
-As in a real run, the places outside the worktree lie outside every place the layer makes
-writable, and the secrets inside it, where a rule of the layer's own denies them.
+What counts is the place on the disk. Where the layer denies a command the reads of a directory,
+the command may be shown an empty place there, and a write into it is not refused; it never
+reaches the directory itself. The command's own word is recorded beside the disk, and set
+``PHYSGATE_OSLAYER_REPORT`` to a directory to keep it as JSON.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +29,9 @@ from os_layer_rig import Layout, layer_here, make_layout, python, run_session
 from physgate.flags import Hooks
 
 pytestmark = pytest.mark.integration
+
+#: Where the command writes what it was told, in the worktree, which it may write under either arm.
+OUTCOMES = "outcomes.json"
 
 #: A new file beneath each place, by what it is. ``@O`` is the directory outside the run, ``@R``
 #: the run's directory, ``@W`` the worktree, ``@H`` the held-out tier.
@@ -90,15 +97,14 @@ def _writes(layout: Layout) -> dict[str, object]:
             "        out[what] = 'landed'\n"
             "    except OSError:\n"
             "        out[what] = 'refused'\n"
-            "print('OUTCOMES ' + json.dumps(out, sort_keys=True))"
+            f"open({OUTCOMES!r}, 'w').write(json.dumps(out, sort_keys=True))"
         ),
     )
 
 
-def _outcomes(run: dict[str, Any]) -> dict[str, str]:
-    told = run["told"][0]
-    line = next(line for line in told.splitlines() if line.startswith("OUTCOMES "))
-    outcomes: dict[str, str] = json.loads(line.removeprefix("OUTCOMES "))
+def _outcomes(layout: Layout) -> dict[str, str]:
+    """What the command was told for each place, as it wrote it in the worktree."""
+    outcomes: dict[str, str] = json.loads((layout.worktree / OUTCOMES).read_text())
     return outcomes
 
 
@@ -115,10 +121,20 @@ def _planted(layout: Layout) -> set[str]:
 def _session(root: Path, hooks: Hooks, *, layer: bool) -> tuple[dict[str, str], set[str]]:
     with make_layout(root / f"{hooks}-{'layer' if layer else 'bare'}") as layout:
         (layout.worktree / ".env").write_text("NOT_A_SECRET=1\n")
-        run = run_session(
-            layout, [_writes(layout)], layer=layer, hooks=hooks, fields=_fields(layout)
-        )
-        return _outcomes(run), _planted(layout)
+        run_session(layout, [_writes(layout)], layer=layer, hooks=hooks, fields=_fields(layout))
+        return _outcomes(layout), _planted(layout)
+
+
+def _report(seen: dict[str, tuple[dict[str, str], set[str]]]) -> None:
+    where = os.environ.get("PHYSGATE_OSLAYER_REPORT")
+    if not where:
+        return
+    Path(where).mkdir(parents=True, exist_ok=True)
+    shown = {
+        hooks: {"told": told, "on_the_disk": sorted(planted)}
+        for hooks, (told, planted) in seen.items()
+    }
+    (Path(where) / "hooks_off_places.json").write_text(json.dumps(shown, indent=2) + "\n")
 
 
 @pytest.mark.usefixtures("layer")
@@ -126,9 +142,12 @@ def test_inside_the_layer_no_command_writes_any_of_the_four_places_under_either_
     tmp_path: Path,
 ) -> None:
     seen = {hooks: _session(tmp_path, hooks, layer=True) for hooks in ("on", "off")}
-    for hooks, (outcomes, planted) in seen.items():
-        assert outcomes == dict.fromkeys(PLACES, "refused"), hooks
-        assert planted == set(), hooks
+    _report(seen)
+    for hooks, (told, planted) in seen.items():
+        assert planted == set(), (hooks, told)
+        assert set(told) == set(PLACES), hooks
+        # In the worktree the layer's own rule refuses the write outright.
+        assert told["the secrets"] == "refused", hooks
     assert seen["off"] == seen["on"]
 
 
