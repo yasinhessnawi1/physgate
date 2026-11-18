@@ -132,7 +132,11 @@ def test_a_trend_the_reader_refuses_is_published_as_its_refusal_in_place_of_the_
     trend.write_bytes(trend.read_bytes() + b'{"format": 1, "n"')  # a write stopped part way
     with pytest.raises(Exception) as caught:
         api(READ)(trend, store=made.store, role="control")
-    assert _publish(trend, made, out) == path
+    try:
+        again = _publish(trend, made, out)
+    except Exception as exc:  # noqa: BLE001 - a raised refusal is the failure this row names
+        pytest.fail(f"the reader's refusal was raised, not published: {exc}")
+    assert again == path
     published = json.loads(path.read_text())
     assert published["weeks"] is None, "numbers the reader now refuses are still published"
     assert published["refused"] == {
