@@ -14,7 +14,8 @@ writes interface nodes; and since 03.11.2026, where the gate has a bound and wha
 relations, generated from the tables and the catalogue it loads; and since the catalogue widening
 of 04.11.2026, its new names and kinds; and since 16.11.2026, the paragraph saying a plan states
 interfaces and criteria, never a solution's law or coefficients; and since 18.11.2026, the
-paragraph saying how one acceptance criterion is written. A change to either for such a run is a
+paragraph saying how one acceptance criterion is written, and the sentence in the first
+paragraph saying which quantities go on an interface node. A change to either for such a run is a
 change to what every ordinary run sends, and turns this red.
 """
 
@@ -59,8 +60,12 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: designer's node wherever one module implements another's design, named in both
 #: specifications); and, since 18.11.2026, the paragraph after it saying each acceptance
 #: criterion is one statement of one thing with its verification method named
-#: (test_every_acceptance_criterion_is_one_statement_with_its_verification_method). Before the
-#: criterion paragraph: 38485dfa3eae..., c6bbc8f4ddd1... and 06b330e281cc....
+#: (test_every_acceptance_criterion_is_one_statement_with_its_verification_method); and, since
+#: 18.11.2026, the sentence in the first of those paragraphs saying a quantity is on an
+#: interface node only where another module's specification reads it, and is named in each
+#: reader's specification (test_an_interface_quantity_is_read_by_a_module_besides_its_producer).
+#: Before that sentence: 6672229b67f4..., 6219833c8874... and b85194b2c03a....
+#: Before the criterion paragraph: 38485dfa3eae..., c6bbc8f4ddd1... and 06b330e281cc....
 #: Before the rewording: 7394c68115d3..., 044c69c7b621... and 0e879c749f64....
 #: Before that paragraph: cd9d3713e8dd..., 66e80cd16451... and 6fd51bcf6f3a.... Before the unit
 #: sentence:
@@ -69,14 +74,14 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: widening, since 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
 #: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
 PROMPT_SHA256 = {
-    ("control", "firmware"): "6672229b67f470bee502b1d6112ec45b8d7d9c69f757f981b01ffb43a498e1f5",
-    ("electrical",): "6219833c887473ef711c6bd2a76ba3de4b5b0500561fede1e2f48ef514d4bc3d",
+    ("control", "firmware"): "11fc062c365c4f128038c88bae8f05c4a78f135a0b4970f3286ac9e4d3d285ab",
+    ("electrical",): "ccd58c178193d4b0963c808302e6e7d62aa3c4fe2d4dfb492f2dc5ee8d0c57c4",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "b85194b2c03a28804155747c42966a751c4180d3b973bc0270193861e4db7398",
+    ): "591a7d65fb70b6202d1b4bce6aaf05a1560b3b5361575bf978e1ba0daf746d37",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -101,8 +106,13 @@ PROMPT = (
     "or a condition is a source of those only. An interface node holds what both sides must "
     "agree on before either works (the signals that cross, with their units and rates; the "
     "limits both sides hold to; and the physical properties one side gives the other, such as a "
-    "mass or a motor constant), never a solution's tuned parameters. Where one module implements "
-    "what another designs, such as firmware running the control law that was analysed, the "
+    "mass or a motor constant), never a solution's tuned parameters. A quantity goes on an "
+    "interface node only where the specification of at least one module other than the one that "
+    "produces it reads it by name; a quantity that only its own module uses stays in that "
+    "module's specification, off every interface node; and each quantity on an interface node is "
+    "named, as the node names it, in the specification of every module that reads it. "
+    "Where one module implements what another designs, such as firmware running the control law "
+    "that was analysed, the "
     "designing module comes before the implementing module in the plan and writes its design on "
     "a node of its own, named in both specifications; the implementing module's acceptance "
     "criteria compare its implementation with that node as merged, and where the node is not "
