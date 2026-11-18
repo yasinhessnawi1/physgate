@@ -47,6 +47,7 @@ scenario that names fewer than two requirements; an outcome no scenario gives.
 task. An error the probe did not foresee, once the held-out tier is read (in reading a task,
 building an answer or scoring one), is refused as ``probe_failed`` with fixed words, since an
 error's own words may name a held-out task; nothing is counted, and the answers built are removed.
+The command says the same of any other error, which may come after the measurement was counted.
 
 The answers are built beneath the role's withheld root, each in a place of its own, and removed
 when the probe ends: an answer built for a held-out task says something about that task.
@@ -100,7 +101,7 @@ def _refuse(reason: str, msg: str) -> ProbeError:
 #: name a held-out task.
 FAILED = (
     "the probe stopped on an error; what the error says is not shown, since it may name a "
-    "held-out task, and nothing was counted"
+    "held-out task; the register shows whether this probe was counted"
 )
 
 
