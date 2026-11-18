@@ -2,7 +2,8 @@
  * Evidence: what the recorded runs measured, read-only. Five tabs over the evaluation's read
  * routes: the runs side by side with their kind, settings and pins; the two gaps each time they
  * were measured, as the gap trend's reader read them; a run's spend per role; two runs compared,
- * or the refusal naming the settings that differ; and the gate's catches per kind of run. Every figure is a route's answer and names the run it came from; none is made here.
+ * or the refusal naming the settings that differ; and the gate's catches per kind of run. Every
+ * figure is a route's answer and names the run it came from; none is made here.
  *
  * There is no headline figure: no reportable run exists yet, and an ablation or development run's
  * number is never one. Nothing here writes, starts a run or decides: the screen only reads.
