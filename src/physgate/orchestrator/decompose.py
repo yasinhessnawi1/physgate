@@ -742,11 +742,16 @@ UNIT_SPELLING_SENTENCE = (
 #: run or contain the method; a program the brief only cites for a number stays a source. An
 #: interface node's contents are described by what both sides must agree on, physical
 #: properties included, not by a closed list a planner could read as excluding a motor
-#: constant. Where one module implements what another designs, whether or not a criterion says
-#: so, the designer comes before the implementer (not before every module), writes its design on
-#: a node both specifications name, and the implementer is held to that node as merged, so what
-#: runs is what was analysed; an implementer that starts before the node is merged reports it
-#: and implements no design of its own.
+#: constant. A quantity is on an interface node because another module reads it: one only its
+#: producer uses is that module's own and stays in its specification, and the plan review fails
+#: a quantity on a node that no other module's specification reads. A plan told to state every
+#: quantity puts such ones on the nodes unless told where they go, so the prompt says both
+#: halves, and that each reader's specification names the quantity as the node does, so the
+#: reader is found by its name. Where one module implements what another designs, whether or
+#: not a criterion says so, the designer comes before the implementer (not before every module),
+#: writes its design on a node both specifications name, and the implementer is held to that
+#: node as merged, so what runs is what was analysed; an implementer that starts before the node
+#: is merged reports it and implements no design of its own.
 SOLUTION_SENTENCE = (
     "A specification states its module's interfaces and acceptance criteria, never the internal "
     "law, structure or coefficients of a solution, unless the brief fixes them. The brief fixes "
@@ -755,7 +760,12 @@ SOLUTION_SENTENCE = (
     "or a condition is a source of those only. An interface node holds what both sides must "
     "agree on before either works (the signals that cross, with their units and rates; the "
     "limits both sides hold to; and the physical properties one side gives the other, such as a "
-    "mass or a motor constant), never a solution's tuned parameters. Where one module implements "
+    "mass or a motor constant), never a solution's tuned parameters. A quantity goes on an "
+    "interface node only where the specification of at least one module other than the one that "
+    "produces it reads it by name; a quantity that only its own module uses stays in that "
+    "module's specification, off every interface node; and each quantity on an interface node is "
+    "named, as the node names it, in the specification of every module that reads it. "
+    "Where one module implements "
     "what another designs, such as firmware running the control law that was analysed, the "
     "designing module comes before the implementing module in the plan and writes its design on "
     "a node of its own, named in both specifications; the implementing module's acceptance "
