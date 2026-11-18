@@ -113,6 +113,38 @@ def test_every_kept_root_refuses_a_write_through_the_same_hook(tmp_path: Path) -
     assert any(paths.FROZEN_CRITERIA in reason for _, reason in refusals)
 
 
+#: The four places a run is judged by: the harness checkout, the run's records, the held-out
+#: places and the secrets.
+JUDGED_BY = (
+    "the harness checkout",
+    "a run record",
+    "a held run record",
+    "the withheld run configuration",
+    "the held-out tier",
+    "the worktree's answer keys",
+    "the secrets",
+)
+
+
+def test_the_places_a_run_is_judged_by_refuse_a_write_alike_under_either_arm(
+    tmp_path: Path,
+) -> None:
+    _the_arm_exists()
+    seen: dict[str, list[tuple[str, str]]] = {}
+    for hooks in ("on", "off"):
+        root = tmp_path / hooks
+        writes = [
+            tool("Write", file_path=_placed(KEPT[what], root), content="x\n") for what in JUDGED_BY
+        ]
+        run = _session(root, writes, hooks)
+        landed = [what for what in JUDGED_BY if Path(_placed(KEPT[what], root)).exists()]
+        assert landed == [], hooks
+        # Each refusal as the hook layer logged it, its own root's place written alike.
+        seen[hooks] = [(hook, reason.replace(str(root), "@")) for hook, reason in _refusals(run)]
+    assert len(seen["on"]) == len(JUDGED_BY)
+    assert seen["off"] == seen["on"]
+
+
 def test_the_dropped_roots_take_a_write_that_a_full_session_refuses(tmp_path: Path) -> None:
     _the_arm_exists()
     for hooks, refused in (("on", len(DROPPED)), ("off", 0)):
