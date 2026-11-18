@@ -1,9 +1,10 @@
 """The isolation probe: whether each held-out scenario needs its requirements together.
 
 A scenario that names two requirements but whose pass turns on one of them shows no gap when an
-implementer has isolated that one feature (ARCH-141; risk row 4, "held-out scenarios do not
-compose"). The tier's schema already refuses a task that declares fewer than two, so what the
-probe looks for is composition that does not hold in substance.
+implementer has isolated that one feature (ARCH-141): the held-out tier would then read clean on
+an implementer that tampers by isolating features, which is the gap the tier is there to show. The
+tier's schema already refuses a task that declares fewer than two, so what the probe looks for is
+composition that does not hold in substance.
 
 **What it does.** For each task of a version's held-out tier, and each requirement the task's
 headline specifications compose, it builds an answer aimed at that requirement's own
@@ -39,7 +40,13 @@ run on the role withholds); anything but a role's withheld root; a role its way 
 not for; a register that cannot be read whole; a version the role does not have, or that the
 register marks exposed as read now (also under the register's lock, when the measurement is
 counted); a held-out tier that is not, as read, the bytes its manifest names; a task that cannot
-be read; a scenario that names fewer than two requirements; an outcome no scenario gives.
+be read; a task of another role; a task its way of answering cannot make a scenario of; a
+scenario that names fewer than two requirements; an outcome no scenario gives.
+
+**Whatever goes wrong, no held-out task is named.** Every refusal's words are fixed and name no
+task. An error the probe did not foresee, once the held-out tier is read (in reading a task,
+building an answer or scoring one), is refused as ``probe_failed`` with fixed words, since an
+error's own words may name a held-out task; nothing is counted, and the answers built are removed.
 
 The answers are built beneath the role's withheld root, each in a place of its own, and removed
 when the probe ends: an answer built for a held-out task says something about that task.
@@ -87,6 +94,14 @@ class ProbeError(PerRoleError):
 
 def _refuse(reason: str, msg: str) -> ProbeError:
     return ProbeError(msg, refused_because=reason)
+
+
+#: What the probe says of an error it did not foresee: fixed, since the error's own words may
+#: name a held-out task.
+FAILED = (
+    "the probe stopped on an error; what the error says is not shown, since it may name a "
+    "held-out task, and nothing was counted"
+)
 
 
 @dataclass(frozen=True)
@@ -257,6 +272,40 @@ def _tasks(files: dict[str, bytes]) -> list[Task]:
     return tasks
 
 
+def _probed(method: Method, task: Task, role: str, seed: int) -> Probed:
+    """``task`` as ``method``'s scenario; refused without naming it where it cannot be one."""
+    if task.role != role:
+        raise _refuse("task_of_another_role", "a task of the held-out tier is of another role")
+    try:
+        return method.probed(task, seed)
+    except (PerRoleError, ValueError):
+        # A scenario that refuses a task names it; only what is wrong is said.
+        msg = "a task of the held-out tier is not one its way of answering makes a scenario of"
+        raise _refuse("task_not_probed", msg) from None
+
+
+def _probe_tier(
+    files: dict[str, bytes], method: Method, role: str, seed: int, withheld: Path
+) -> Findings:
+    """The findings on the tier read as ``files``; the answers built beneath ``withheld``, removed.
+
+    Raises:
+        ProbeError: as :func:`probe_scenarios`, a task cannot be read, is of another role or is
+            no scenario of ``method``'s, or an error the probe did not foresee (``probe_failed``).
+    """
+    try:
+        probed = [_probed(method, task, role, seed) for task in _tasks(files)]
+        work = Path(tempfile.mkdtemp(prefix=WORK_PREFIX, dir=withheld))
+        try:
+            return probe_scenarios(probed, work)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+    except ProbeError:
+        raise
+    except Exception:
+        raise _refuse("probe_failed", FAILED) from None
+
+
 def probe_version(
     withheld: Path, version: str, *, seed: int, method: Method | None = None
 ) -> ProbeResult:
@@ -266,7 +315,8 @@ def probe_version(
     of answering; the control role's when ``None`` (:func:`default_method`).
 
     Raises:
-        ProbeError: the probe refuses (``refused_because`` says why); nothing is counted.
+        ProbeError: the probe refuses (``refused_because`` says why), or stopped on an error once
+            the tier was read (``probe_failed``); nothing is counted.
         ExposureError: asked for inside a session; the register cannot be read whole; or, as the
             measurement is counted, the version is marked exposed.
         ImportError: no method is given and this is not the evaluation environment.
@@ -306,12 +356,7 @@ def probe_version(
     if digest != known[version].held_out.sha256:
         msg = "the held-out tier is not, as read now, the bytes its version's manifest names"
         raise _refuse("tier_changed", msg)
-    probed = [chosen.probed(task, seed) for task in _tasks(files)]
-    work = Path(tempfile.mkdtemp(prefix=WORK_PREFIX, dir=withheld))
-    try:
-        findings = probe_scenarios(probed, work)
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+    findings = _probe_tier(files, chosen, role, seed, withheld)
     payload: dict[str, Any] = {
         "format": PROBE_FORMAT,
         "role": role,

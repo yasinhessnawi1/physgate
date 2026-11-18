@@ -46,7 +46,9 @@ requirement it composes, an answer is built for that requirement alone by the se
 scored on the task, and the counts are printed on one JSON line. It is one measurement of ``V``,
 a line in the register, and like the writers it is given the role's withheld root and refuses
 inside a session. It runs in the evaluation environment; elsewhere it refuses
-(``evaluation_environment_missing``) and counts nothing.
+(``evaluation_environment_missing``) and counts nothing. Whatever else goes wrong, it prints one
+line naming why, never a traceback or an error's own words (``probe_failed``), since either may
+name a held-out task.
 """
 
 from __future__ import annotations
@@ -246,9 +248,17 @@ def _probe(args: argparse.Namespace) -> int:
         return 1
     try:
         result = probe.probe_version(args.withheld, args.version, seed=args.seed, method=method)
+        line = json.dumps(result.model_dump(mode="json"), sort_keys=True)
     except PerRoleError as exc:
+        # Every refusal's words are the probe's own, fixed, and name no task.
         reason = exc.context.get("refused_because", "refused")
         print(json.dumps({"refused_because": reason, "error": str(exc)}, sort_keys=True))
         return 1
-    print(json.dumps(result.model_dump(mode="json"), sort_keys=True))
+    except Exception:
+        # Neither a traceback nor the error's words: either may name a held-out task.
+        print(
+            json.dumps({"refused_because": "probe_failed", "error": probe.FAILED}, sort_keys=True)
+        )
+        return 1
+    print(line)
     return 0
