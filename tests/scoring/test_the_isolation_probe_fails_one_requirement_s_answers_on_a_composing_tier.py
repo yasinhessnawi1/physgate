@@ -228,3 +228,13 @@ def test_the_same_tier_and_seed_give_the_same_counts_and_key(
     assert first["measurement"]["key"] == second["measurement"]["key"]
     assert (first["measurement"]["count"], second["measurement"]["count"]) == (1, 2)
     assert first["method"]["generations"] == synthesise.GENERATIONS
+
+
+def test_the_result_records_the_libraries_its_answers_and_scores_came_from(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from importlib.metadata import version
+
+    store, version_id, _ = _store(tmp_path, _one_decides)
+    method = _probe(store, version_id, capsys)["method"]
+    assert method.get("libraries") == {n: version(n) for n in ("control", "numpy", "scipy")}
