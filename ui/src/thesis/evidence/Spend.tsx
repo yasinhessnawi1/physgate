@@ -10,6 +10,7 @@ import { Figure } from "../../design/components/data/Figure";
 import { Quantity } from "../../design/components/data/Quantity";
 import { sourceAttribute } from "../../design/components/data/source";
 import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
+import { CUT_OFF } from "../../screens/common/cost";
 import { useJson } from "../../screens/common/read";
 import {
   APART,
@@ -245,7 +246,10 @@ function SpendBody({ spend }: { readonly spend: Spend }) {
         <h2 className="pg-panel-title">{EVIDENCE_COPY.cost}</h2>
         <p className="evidence-note">{basisWords(line.basis, line.pricesDate)}</p>
         {line.partial && <p className="evidence-note">{EVIDENCE_COPY.partial}</p>}
-        {line.lowerBound && <p className="evidence-note">{EVIDENCE_COPY.lowerBoundLine}</p>}
+        {line.lowerBound && (line.unpriced.length > 0 || line.cutShort.length === 0) && (
+          <p className="evidence-note">{EVIDENCE_COPY.lowerBoundLine}</p>
+        )}
+        {line.cutShort.length > 0 && <p className="evidence-note">{CUT_OFF}</p>}
         <div className="pg-figure-line">
           <span>
             <AtLeast shown={line.lowerBound} />
