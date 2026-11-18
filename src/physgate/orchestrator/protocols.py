@@ -96,8 +96,9 @@ class MessageUsage(_Frozen):
     compaction: bool = Field(default=False, exclude_if=lambda v: not v)
     #: A response the binary cut short and closed itself (its stream failed, stalled or ended
     #: early), with no final usage and no assistant message: the usage it started with, which
-    #: the binary's totals do not charge where the session then ended in an API error. Recorded
-    #: so it is seen, never charged (``accounting``). Left out of every other line.
+    #: is not in the binary's per-model totals where the session then ended in an API error.
+    #: Recorded so it is seen, kept out of the sums held to those totals, its billing unknown
+    #: (``accounting``). Left out of every other line.
     abandoned: bool = Field(default=False, exclude_if=lambda v: not v)
 
     @model_validator(mode="after")

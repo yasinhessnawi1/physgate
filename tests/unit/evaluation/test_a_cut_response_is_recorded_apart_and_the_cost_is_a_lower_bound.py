@@ -17,7 +17,9 @@ from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from observe_rig import fake_run, target_repo
+from pydantic import ValidationError
 
 from physgate.evaluation.observe.calls import CacheWrites, RecordedCall
 from physgate.evaluation.observe.cost import CostLine, load_price_sheet, price_events
@@ -265,3 +267,21 @@ def test_a_cut_response_beside_a_call_with_no_cache_writes_makes_the_line_a_lowe
     assert line.reconciliation is not None and who not in line.reconciliation.ttl_unread
     assert line.lower_bound, "a cut response the API may have billed left the cost exact"
     assert _apart(line) == {who: CUT}
+
+
+@pytest.mark.parametrize("read", [True, False], ids=["with its calls read", "with none read"])
+def test_a_line_naming_a_cut_response_and_not_a_lower_bound_is_refused(
+    tmp_path: Path, read: bool
+) -> None:
+    run, events, _, calls = _read_whole(tmp_path)
+    resumed = _with_lines(events, "reviewer:rev-cut-only", _lines()[1:])
+    line = _priced(run, resumed, calls)
+    assert isinstance(line, CostLine), f"the run was not priced: {line!r}"
+    fields = line.model_dump()
+    if not read:
+        fields |= {"calls": (), "reconciliation": None}
+    marked = _outcome(lambda: CostLine.model_validate({**fields, "lower_bound": True}))
+    assert isinstance(marked, CostLine), f"a line marked a lower bound was refused: {marked!r}"
+    unmarked = _outcome(lambda: CostLine.model_validate({**fields, "lower_bound": False}))
+    assert isinstance(unmarked, ValidationError), "a cut response left the cost exact"
+    assert "cut response" in str(unmarked)

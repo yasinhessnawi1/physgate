@@ -320,14 +320,19 @@ class CostLine(_Frozen):
     #: The line held to the binary's figures; ``None`` where the records were not read.
     reconciliation: Reconciliation | None = None
     #: The figure is a lower bound: some call's cache writes were priced at the
-    #: five-minute rate because the cache they went to was not read, or some call's
-    #: result was not reached. With a reconciliation, exactly when it names a call
-    #: unread. Absent from lines written before the mark, which read as unmarked.
+    #: five-minute rate because the cache they went to was not read, some call's
+    #: result was not reached, or some response was cut short (its usage below). With a
+    #: reconciliation and no cut response, exactly when it names a call unread. Absent from
+    #: lines written before the mark, which read as unmarked.
     lower_bound: bool = False
-    #: The usage of responses the binary cut short, by call: what each started with, charged
-    #: by none of the binary's totals and priced in no figure of this line. Left out of a
-    #: line with none, so such a line keeps its bytes.
-    abandoned: dict[NonEmptyStr, Usage] = Field(default_factory=dict, exclude_if=lambda v: not v)
+    #: The usage of responses the binary cut short, by call: what each started with. It is not
+    #: in the binary's per-model totals, so no figure of this line prices it; the result's
+    #: top-level usage counts it and the API may have billed it, so whether it was billed is
+    #: unknown, and a line with any is a lower bound. Left out of a line with none, so such a
+    #: line keeps its bytes.
+    not_in_binary_totals_billing_unknown: dict[NonEmptyStr, Usage] = Field(
+        default_factory=dict, exclude_if=lambda v: not v
+    )
 
     @model_validator(mode="after")
     def _basis_follows_auth(self) -> CostLine:
@@ -340,8 +345,12 @@ class CostLine(_Frozen):
     @model_validator(mode="after")
     def _a_lower_bound_says_so(self) -> CostLine:
         held = self.reconciliation
-        if held is not None and self.lower_bound != bool(held.unread or held.ttl_unread):
-            msg = "a line is a lower bound exactly when it names a call unread"
+        cut = self.not_in_binary_totals_billing_unknown
+        if held is not None and self.lower_bound != bool(cut or held.unread or held.ttl_unread):
+            msg = "a line is a lower bound exactly when it names a call unread or a cut response"
+            raise ValueError(msg)
+        if cut and not self.lower_bound:
+            msg = "a line with a cut response, whose billing is unknown, is a lower bound"
             raise ValueError(msg)
         return self
 
@@ -528,10 +537,12 @@ def price_events(
     write whose cache was not read, or a call whose result was not, is marked
     ``lower_bound``.
 
-    A response the binary cut short is priced in no figure, as its totals charge it in none;
-    the line names its usage apart. Its call's result splits by time to live every cache write
-    it counted, the cut response's among them, so that split is not read as the charged
-    writes': the call's writes are priced as unread, and the line is a lower bound for them.
+    A response the binary cut short is in none of the binary's per-model totals, so it is
+    priced in no figure; the line names its usage apart, its billing unknown, and is a lower
+    bound whenever there is one, whatever else it read: the API may have billed the request.
+    Its call's result splits by time to live every cache write it counted, the cut response's
+    among them, so that split is not read as the counted writes': the call's writes are priced
+    as unread.
 
     Raises:
         ManifestError: a token's model cannot be told from the records.
@@ -563,7 +574,7 @@ def price_events(
     usd = sum((r.usd for r in rows), Decimal(0))
     rate = prices.sheet.exchange
     reconciliation = None if calls is None else reconcile(priced)
-    lower_bound = (
+    lower_bound = bool(cut) or (
         bool(reconciliation.unread or reconciliation.ttl_unread)
         if reconciliation is not None
         # No call's record was read, so no write's cache was.
@@ -588,7 +599,7 @@ def price_events(
         calls=() if calls is None else tuple(priced),
         reconciliation=reconciliation,
         lower_bound=lower_bound,
-        abandoned=dict(sorted(cut.items())),
+        not_in_binary_totals_billing_unknown=dict(sorted(cut.items())),
     )
 
 

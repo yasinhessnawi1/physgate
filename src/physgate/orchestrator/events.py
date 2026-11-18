@@ -568,8 +568,9 @@ class TokensUsed(_Event):
     #: line, so each keeps its bytes.
     compaction: bool = Field(default=False, exclude_if=lambda v: not v)
     #: The usage a response started with, where the binary cut that response short and closed
-    #: it itself: recorded under its attribution and never charged, so the account's sums stay
-    #: what the binary's totals charge. Left out of every other line, so each keeps its bytes.
+    #: it itself: recorded under its attribution and kept out of the account's sums, so they
+    #: stay what the binary's per-model totals count; whether the API billed it is unknown.
+    #: Left out of every other line, so each keeps its bytes.
     abandoned: bool = Field(default=False, exclude_if=lambda v: not v)
 
     @model_validator(mode="after")
