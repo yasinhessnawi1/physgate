@@ -238,3 +238,30 @@ def test_the_result_records_the_libraries_its_answers_and_scores_came_from(
     store, version_id, _ = _store(tmp_path, _one_decides)
     method = _probe(store, version_id, capsys)["method"]
     assert method.get("libraries") == {n: version(n) for n in ("control", "numpy", "scipy")}
+
+
+def _scored_otherwise(i: int) -> dict[str, Any]:
+    """A composing task that names a scorer the control scenario does not judge an answer by."""
+    task = _composing(i)
+    task.update(id=f"control.zqmark{i:02d}zq", scorer={"id": "whole_design", "version": "1.1.0"})
+    return task
+
+
+def test_a_task_the_control_scenario_does_not_judge_is_refused_without_its_id(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store, version, held = _store(tmp_path, _scored_otherwise)
+    args = ["tiers", "probe", "--withheld", str(withheld_root(store, "control"))]
+    try:
+        code = main([*args, "--version", version, "--seed", str(SEED)])
+    except SystemExit as exc:
+        code = int(exc.code or 0)
+    except Exception as exc:  # noqa: BLE001 - a row fails on its assertion, never on an error
+        code = -1
+        print(f"the command raised {type(exc).__name__}")
+    captured = capsys.readouterr()
+    said = captured.out + captured.err
+    assert code == 1, said
+    assert "zqmark" not in said, "a held-out task's id is in what the command printed"
+    assert not any(task.brief in said for task in held)
+    assert json.loads(said.strip().splitlines()[-1])["refused_because"] == "task_not_probed"

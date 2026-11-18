@@ -50,6 +50,8 @@ class FixtureScenario:
     outcome: str | None = None
     #: The requirements this scenario says it composes; its task's when ``None``.
     declared: tuple[str, ...] | None = None
+    #: ``"score"``: scoring raises an error naming the task's id.
+    raising: str | None = None
 
     @property
     def id(self) -> str:
@@ -60,6 +62,9 @@ class FixtureScenario:
         return requirements_of(self.task) if self.declared is None else self.declared
 
     def score(self, answer: Path) -> Any:  # noqa: ANN401
+        if self.raising == "score":
+            msg = f"the task {self.task.id} cannot be scored"
+            raise ValueError(msg)
         if self.outcome is not None:
             return self.outcome
         met = frozenset(json.loads(answer.read_text())["meets"])
@@ -73,6 +78,10 @@ class FixtureMethod:
     ``decides``: which requirements decide each scenario's pass. ``missing``: the requirements
     (by their place in a task's sorted list) for which no answer is found. ``outcome``: what every
     score says instead of judging. ``declared``: the requirements every scenario says it composes.
+    ``judges``: the one scorer whose tasks it makes scenarios of; a task of another is refused
+    with its id in the words, as the control role's scenario refuses one. ``raising``: where an
+    error naming the task's id is raised, ``"answer"`` (after the answer is written) or
+    ``"score"``.
     """
 
     decides: str = "every"
@@ -80,6 +89,8 @@ class FixtureMethod:
     outcome: str | None = None
     declared: tuple[str, ...] | None = None
     role: str = "control"
+    judges: str | None = None
+    raising: str | None = None
     #: Every answer built, by the requirement it was built for: what the rows look at.
     built: list[Path] = field(default_factory=list)
 
@@ -87,7 +98,10 @@ class FixtureMethod:
         return {"answers": "fixture"}
 
     def probed(self, task: Task, seed: int) -> Any:  # noqa: ANN401
-        scenario = FixtureScenario(task, self.decides, self.outcome, self.declared)
+        if self.judges is not None and task.scorer.id != self.judges:
+            error = api("physgate.evaluation.tiers.scenario.ScenarioError")
+            raise error(f"the task {task.id!r} is not judged here", task=task.id)
+        scenario = FixtureScenario(task, self.decides, self.outcome, self.declared, self.raising)
         requirements = scenario.requirements
 
         def answer_for(requirement: str, into: Path) -> Path | None:
@@ -96,6 +110,8 @@ class FixtureMethod:
             path = into / "answer.json"
             path.write_text(json.dumps({"meets": [requirement], "seed": seed}))
             self.built.append(path)
+            if self.raising == "answer":
+                raise OSError(5, f"the answer for {task.id} cannot be written", str(path))
             return path
 
         probed = api("physgate.evaluation.tiers.probe.Probed")
