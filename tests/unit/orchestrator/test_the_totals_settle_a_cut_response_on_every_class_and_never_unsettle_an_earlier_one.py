@@ -241,10 +241,13 @@ def test_a_cut_response_counted_earlier_beside_one_left_out_now_is_read_at_an_ap
     # The resumed invocation's totals are the session's: the earlier cut response is in them,
     # this invocation's is not.
     ended = _ended(_sum(COMPLETE.usage, SEVEN), api_error=True)
+    refused: AccountingError | None = None
+    settled: tuple[MessageUsage, ...] = ()
     try:
         settled = require_matching_totals(ended, (COMPLETE, earlier, now))
     except AccountingError as exc:
-        pytest.fail(f"{MIXED}: refused with {exc.context}")
+        refused = exc
+    assert refused is None, f"{MIXED}: refused with {refused!r}"
     assert _marked(settled, "msg_02"), MIXED
     assert not _marked(settled, "msg_04"), MIXED
 
