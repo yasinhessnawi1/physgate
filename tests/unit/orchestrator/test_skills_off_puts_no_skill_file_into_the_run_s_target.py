@@ -229,6 +229,9 @@ def _target_with(root: Path, write: Any, *, keep: bool = True) -> Path:  # noqa:
     if not keep:
         _git(repo, "rm", "-q", *names)
         _git(repo, "commit", "-q", "-m", "removed again")
+        # And a commit after it, so the start commit itself touches no skill file.
+        (repo / "README.md").write_text("target, later\n")
+        _git(repo, "commit", "-q", "-am", "later")
     return repo
 
 
