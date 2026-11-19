@@ -784,8 +784,22 @@ def _closed(problems: Sequence[str | None]) -> None:
         raise AuthoringError(msg, left=" | ".join(left))
 
 
+#: The raw record's tokens of responses cut short that the binary's totals left out: in no
+#: count, their billing unknown, so a spend beside a figure above 0 is a lower bound.
+CUT_OFF = "tokens_not_in_binary_totals"
+
+
+def _cut_off(record: dict[str, Any]) -> dict[str, Any]:
+    """The record's cut tokens left out of its count, where there are any; else nothing."""
+    figure = record.get(CUT_OFF)
+    return {CUT_OFF: figure} if figure else {}
+
+
 def _spent(record: dict[str, Any]) -> dict[str, Any]:
-    return {key: record.get(key) for key in ("end", "tokens", "cap", "wall_clock_s")}
+    return {
+        **{key: record.get(key) for key in ("end", "tokens", "cap", "wall_clock_s")},
+        **_cut_off(record),
+    }
 
 
 def _pool(staging: Path, held: Sequence[str], pool: Path) -> tuple[int, int]:
@@ -827,6 +841,7 @@ def _note_session(pool: Path, kept: Path, record: dict[str, Any]) -> None:
     }
     line = {
         **{key: record.get(key) for key in ("session_id", "end", "tokens", "cap", "wall_clock_s")},
+        **_cut_off(record),
         "held_out_seen": record.get("held_out_seen"),
         "files": files,
         # The session record carries neither, so the provenance says so rather than leave

@@ -57,7 +57,7 @@ from typing import Any
 from physgate.flags import ReviewCompaction
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
 from physgate.lines import split_lines
-from physgate.orchestrator.accounting import compaction_line
+from physgate.orchestrator.accounting import compaction_line, settle
 from physgate.orchestrator.budget import (
     PROMPT_TOO_LONG,
     STRUCTURED_OUTPUT_EXHAUSTED,
@@ -917,7 +917,8 @@ class ClaudeReviewer:
         # The scan and the totals are held to the same bytes.
         captured = read_captured(stdout, data)
         result = captured.result
-        usage = (*prior, *captured.usage)
+        # Each cut response marked as the totals count it, on every invocation's lines alike.
+        usage = settle(result, (*prior, *captured.usage))
         exposed = canary_seen(data, frozenset(self._setup.held_out_canaries))
         text = data.decode(errors="replace")
         here = compactions_in(text)

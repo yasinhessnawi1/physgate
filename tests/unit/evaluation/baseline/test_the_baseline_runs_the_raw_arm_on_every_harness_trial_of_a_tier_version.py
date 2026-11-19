@@ -933,3 +933,28 @@ def _digest_of(root: str) -> str:
     from physgate.evaluation.tiers.heldout import tier_digest
 
     return tier_digest(Path(root))
+
+
+def test_a_round_carries_the_cut_tokens_its_spend_leaves_out_so_the_spend_reads_as_a_floor(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    # One session's response was cut short and the binary's totals left it out: its tokens are
+    # in no session's count, and the round's spend is a lower bound by that much.
+    arm = StandInArm(cut_off={1: 70})
+    out = tmp_path / "round"
+    record = _round(store, _all_runs(tmp_path, store), out, arm)
+    rule = "a round's spend carries the cut tokens it leaves out"
+    left_out: dict[str, int | None] = {
+        tier: getattr(counts, "spent_not_in_binary_totals", None)
+        for tier, counts in record.counts.items()
+    }
+    assert None not in left_out.values(), f"{rule}: the tally has no such figure"
+    assert sorted(v or 0 for v in left_out.values()) == [0, 0, 70], rule
+    assert sum(c.spent for c in record.counts.values()) == 24 * 400
+    # A tier with none keeps its bytes.
+    written = json.loads((out / BASELINE_RECORD).read_text())["counts"]
+    assert sorted("spent_not_in_binary_totals" in c for c in written.values()) == [
+        False,
+        False,
+        True,
+    ]

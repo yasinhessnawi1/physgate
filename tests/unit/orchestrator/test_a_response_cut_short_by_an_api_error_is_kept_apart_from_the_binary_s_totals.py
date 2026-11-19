@@ -13,7 +13,9 @@ own, became a refused run.
 Now the cut response is a line of its own, marked abandoned: in the record, never in a sum held
 to the binary's totals (whether the API billed it is unknown), and the session's end is read as
 the API error it was. Every completed response is still held to the totals exactly, and a cut
-response in a session that did not end in an API error is still refused. The stream below is
+response the totals leave out of a session that did not end in an API error is still refused.
+(Totals that count the cut response too, as the binaries' were measured to at the scripted
+endpoint, count it: the neighbouring module's rows.) The stream below is
 built by hand from that description, in the shapes the pinned binary writes; it is no copy of a
 run's transcript. The cut response's ``message_stop`` line has the shape read from a real
 2.1.301 run's stream: beside ``event``, at the outer level, ``api_message_id`` and
@@ -296,9 +298,9 @@ def test_a_completed_response_the_totals_do_not_bear_out_is_still_refused_at_an_
     assert refused.context == {"field": "output_tokens", "account": "180", "result": "179"}
 
 
-def test_totals_that_count_the_cut_response_too_are_refused() -> None:
-    # Exact equality, one way only: totals that count the cut response too are not
-    # what the binary was measured to write, and are no account the cut line explains.
+def test_totals_that_count_the_cut_response_too_count_it() -> None:
+    # Measured since at the scripted endpoint, on both pins: the binary's totals can count the
+    # cut response too. Exact equality holds them to every line then, the cut one counted.
     both = _result(
         {
             "inputTokens": 4,
@@ -308,7 +310,11 @@ def test_totals_that_count_the_cut_response_too_are_refused() -> None:
         }
     )
     result, usages, _ = decompose.read_stream(cut_stream(result=both))
-    assert isinstance(_refusal(result, usages), AccountingError)
+    assert _refusal(result, usages) is None, "totals that count the cut response were refused"
+    settled = require_matching_totals(result, usages)
+    assert settled is not None, "the check returns no lines to record"
+    (cut,) = [u for u in settled if u.message_id == "msg_02"]
+    assert _abandoned(cut) and getattr(cut, "in_binary_totals", False)
 
 
 @pytest.mark.parametrize(
