@@ -13,10 +13,16 @@ the cut ones, it is kept apart (read only at an API error's end). The rows here 
   At a completed end such a session is refused, as before. At an API error's end each token the
   totals count is counted once: the sums equal the totals, the cut response listed apart;
 - a mark an earlier invocation's totals set stands: a resumed invocation that compacted has
-  totals that equal no plain sum of the lines, and its settling must not clear that mark.
+  totals that equal no plain sum of the lines, and its settling must not clear that mark;
+- so the lines can mix a cut response an earlier invocation's totals counted with one this
+  invocation's totals leave out. A resumed invocation's totals are the whole session's,
+  cumulative, so the earlier one is still in them, and each break takes its own shape: the mix
+  is read at an API error's end. The same mix within one invocation (both cut responses
+  unmarked, the totals counting one) was never seen, and is refused.
 
-The per-model totals are summed over every model before the comparison: the lines do not carry
-the model that answered them, so the comparison cannot be held per model.
+The per-model totals are summed over every model before the comparison. The usage line has no
+model: a response's ``message_start`` names one, but the stream's reader does not take it onto
+the line, so the comparison is not held per model.
 """
 
 from __future__ import annotations
@@ -210,3 +216,43 @@ def test_an_earlier_invocation_s_counted_mark_stands_when_a_resumed_one_compacte
     except AccountingError as exc:
         pytest.fail(f"{STANDS}: the resumed review was refused with {exc.context}")
     assert line is not None and line.usage == SUMMARY, STANDS
+
+
+# --- a cut response counted earlier beside one left out now ------------------------------------
+
+MIXED = "an earlier invocation's counted cut response stands beside one this invocation omits"
+COMPLETE = MessageUsage(
+    message_id="msg_01",
+    usage=Usage(
+        input_tokens=10, output_tokens=5, cache_read_input_tokens=0, cache_creation_input_tokens=0
+    ),
+)
+SEVEN = Usage(
+    input_tokens=7, output_tokens=0, cache_read_input_tokens=0, cache_creation_input_tokens=0
+)
+THREE = Usage(
+    input_tokens=3, output_tokens=0, cache_read_input_tokens=0, cache_creation_input_tokens=0
+)
+
+
+def test_a_cut_response_counted_earlier_beside_one_left_out_now_is_read_at_an_api_error() -> None:
+    earlier = _cut(SEVEN, "msg_02").model_copy(update={"in_binary_totals": True})
+    now = _cut(THREE, "msg_04")
+    # The resumed invocation's totals are the session's: the earlier cut response is in them,
+    # this invocation's is not.
+    ended = _ended(_sum(COMPLETE.usage, SEVEN), api_error=True)
+    try:
+        settled = require_matching_totals(ended, (COMPLETE, earlier, now))
+    except AccountingError as exc:
+        pytest.fail(f"{MIXED}: refused with {exc.context}")
+    assert _marked(settled, "msg_02"), MIXED
+    assert not _marked(settled, "msg_04"), MIXED
+
+
+def test_the_same_mix_within_one_invocation_is_refused() -> None:
+    # Both cut responses read from this invocation's stream, unmarked; the totals count one.
+    lines = (COMPLETE, _cut(SEVEN, "msg_02"), _cut(THREE, "msg_04"))
+    ended = _ended(_sum(COMPLETE.usage, SEVEN), api_error=True)
+    with pytest.raises(AccountingError) as caught:
+        require_matching_totals(ended, lines)
+    assert caught.value.context.get("field") == "input_tokens"

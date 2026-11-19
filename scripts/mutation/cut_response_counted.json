@@ -399,5 +399,16 @@
   "tests": [
    "tests/unit/evaluation/baseline/test_the_baseline_runs_the_raw_arm_on_every_harness_trial_of_a_tier_version.py"
   ]
+ },
+ {
+  "name": "lines_in_totals_refuses_a_cut_counted_earlier_beside_one_left_out",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    cut = [m.message_id for m in usages if not m.counted]\n",
+  "new": "    cut = [m.message_id for m in usages if not m.counted]\n    if cut and any(m.abandoned and m.counted for m in usages):\n        msg = \"a session that mixes counted and left-out cut responses\"\n        raise AccountingError(msg, message_id=cut[0], terminal_reason=\"mixed\")\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_cut_response_the_binary_s_totals_count_is_counted_and_listed.py",
+   "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
+   "tests/unit/orchestrator/test_the_totals_settle_a_cut_response_on_every_class_and_never_unsettle_an_earlier_one.py"
+  ]
  }
 ]

@@ -94,22 +94,30 @@ def settle(
     """The lines, each cut response marked as counted or not by the binary's totals.
 
     The totals count a session's cut responses where they equal every line, the cut ones
-    included, in each of the four token classes: each is then marked ``in_binary_totals``.
-    Where they are of another figure, none is newly so marked. All or none: totals that count
-    some of a session's cut responses and not others were never seen, and are left for the
-    check to refuse. A cut response that started with no usage meets both figures, and is read
-    the one way, as counted.
+    included, in each of the four token classes: each unmarked one is then marked
+    ``in_binary_totals``. Where they are of another figure, none is newly so marked. A cut
+    response that started with no usage meets both figures, and is read the one way, as
+    counted.
 
-    The comparison is of the totals summed over every model: a line does not carry the model
-    that answered it, so it cannot be held per model. Equality is still no proof: totals that
+    A mark is only ever set here, never cleared: a line an earlier invocation's totals settled
+    keeps its mark whatever this result's totals are. A resumed invocation's totals are the
+    whole session's, cumulative, so a response an earlier result counted is still in them; and
+    a compaction's call makes them equal no plain sum of the lines. So the lines returned may
+    mix a cut response counted earlier with one this result leaves out: the check reads that as
+    it reads any cut response left out, at an API error's end only, and holds the totals to
+    every counted line. Within one settling it is all or none: totals that count one of the
+    unmarked cut responses and not another leave both unmarked, and the check then refuses
+    them, the counted one's usage being in the totals and in no counted line.
+
+    The comparison is of the totals summed over every model. The usage line
+    (:class:`~physgate.orchestrator.protocols.MessageUsage`) has no model: a response's
+    ``message_start`` in the stream names one, but the stream's reader does not take it onto
+    the line, so the comparison is not held per model. Equality is still no proof: totals that
     left a cut response out but counted a response the stream does not show, whose four classes
     equal the cut one's, would be read as counting the cut response.
 
-    A mark is only ever set here, never cleared: a line an earlier invocation's totals settled
-    keeps its mark whatever this result's totals are (a resumed invocation's are the whole
-    session's, and a compaction's call makes them equal no plain sum of the lines). A result
-    with no totals settles nothing, and the lines are returned as given: a line read from a
-    stream is then not counted. Nothing is raised here and no other line is changed.
+    A result with no totals settles nothing, and the lines are returned as given: a line read
+    from a stream is then not counted. Nothing is raised here and no other line is changed.
     """
     usages = tuple(usages)
     per_model = (result or {}).get("modelUsage")
