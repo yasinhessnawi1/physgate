@@ -96,6 +96,15 @@ def test_with_skills_off_only_the_skill_file_moves_from_what_is_read_to_what_is_
     assert Path(SPEC) in off.required
 
 
+def test_the_cross_role_has_no_skill_file_so_skills_off_changes_nothing_it_reads() -> None:
+    reading = getattr(loader, "session_reading", None)
+    assert reading is not None, "the loader names no session's reading by the skills switch"
+    on = reading(loader.CROSS, Path(SPEC), skills="on")
+    off = reading(loader.CROSS, Path(SPEC), skills="off")
+    assert off == on
+    assert off.withheld == ()
+
+
 def _install_argv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: RunConfig) -> list[str]:
     seen: list[list[str]] = []
 
