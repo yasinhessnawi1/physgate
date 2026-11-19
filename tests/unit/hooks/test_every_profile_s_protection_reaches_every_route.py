@@ -84,7 +84,11 @@ ROLE = {
     # nothing of the session writes or reads there, by a tool or by a command. Put back
     # where the OS layer does not run, as this request's session; left to the layer where it does.
     "home_claude_code": "R R R R R T T revert",
-    "harness_checkout": "A R R A R T T revert",
+    # The checkout the orchestrator runs from: refused to every file tool's read, which runs
+    # outside the OS layer, and, as this request names no layer for the session, to a command's
+    # read too (inside the layer that read is the layer's to deny). What a session is given to
+    # read is in its worktree.
+    "harness_checkout": "R R R R R T T revert",
     "ordinary": "A A A A A F F -",
 }
 #: The raw agent: the role's row, without the harness's discipline over a design worktree.

@@ -33,10 +33,13 @@ BEFORE = {
     ("reviewer", False): "3b2eb0d2326b0a7f56e8e81909b6e9595cdb5c470715b15280a68981475c448b",
     ("orchestrator", False): "800ac5b48e5a17c7f826c29f0eb139f1afbe42a65b556df75df7c21d7ebd4a1d",
     ("baseline", False): "69c7151686244ca906d90bcfb742c39a3fe4f478aa9f0a1f71eee56389ed4307",
-    ("role", True): "8bbce40f54a3bb43334c24d442212533cb617850bcf8485ac0a71e2f9725747c",
-    ("reviewer", True): "ff6f7abf3766a404d4bae52bdabaa62ee831b27139859e2088ace0c103e4eada",
-    ("orchestrator", True): "22f0941ec785c9576eef2a0b960b820a860bd07f1ae18cce32f7d95aea1dd770",
-    ("baseline", True): "0af6aac9268f4f0c8db9f2eb45e563d4688aa03304132ac013d30ba4b679f33b",
+    # Inside the layer the configuration now says so (``"os_layer": true``), so that a command's
+    # read of the harness checkout is left to the layer there and refused where it is absent.
+    # That key is the only change from the digests taken before the options.
+    ("role", True): "d59f4e7ae7bcca2a7c0fcb2d18aa751857e3f568a3d6306a724853b4196151eb",
+    ("reviewer", True): "87cda4c5a1f00139c62616cf73093bd31aede175173e3abc5e863b884ff020a1",
+    ("orchestrator", True): "079ef308e0296f25884a74816781c3102e5dd69a6be36bc7420f88ca32fdaa1f",
+    ("baseline", True): "9c59fe55db2d04be298af79f078814e4c5809376dd6ea4d7ff367e1fd6b2a798",
 }
 PLACEHOLDER = "<rig>"
 

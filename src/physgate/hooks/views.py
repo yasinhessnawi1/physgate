@@ -130,6 +130,9 @@ class ConfigView(Protocol):
     def survivor_reaper(self) -> bool: ...  # noqa: D102
 
     @property
+    def os_layer(self) -> bool: ...  # noqa: D102
+
+    @property
     def after_compaction(self) -> Sequence[str]: ...  # noqa: D102
 
     @property

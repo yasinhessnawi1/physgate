@@ -202,8 +202,9 @@ _CONFIG_FIELDS = (
     "survivor_reaper",
 )  # fmt: skip
 #: Left out of the written configuration of every session but a reviewer whose run allows
-#: compaction, so every other configuration keeps its bytes.
-_OPTIONAL_CONFIG_FIELDS = ("after_compaction", "compaction_note")
+#: compaction (the first two) and a session inside the OS layer (the third), so every other
+#: configuration keeps its bytes.
+_OPTIONAL_CONFIG_FIELDS = ("after_compaction", "compaction_note", "os_layer")
 
 
 def _note(value: object, where: str) -> str:
@@ -265,6 +266,7 @@ class LeanConfig:
             data["hook_timeout_seconds"], "hook_timeout_seconds"
         )
         self.survivor_reaper: bool = _bool(data["survivor_reaper"], "survivor_reaper")
+        self.os_layer: bool = _bool(data.get("os_layer", False), "os_layer")
         self.after_compaction: tuple[str, ...] = _strings(
             data.get("after_compaction", []), "after_compaction", _absolute
         )
