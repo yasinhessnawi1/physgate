@@ -13,6 +13,10 @@ same commit as the module specifications. What was copied is what the run's
 sealed harness commit holds, since a reportable run starts only from a clean
 checkout; the spec commit holds the bytes.
 
+Under the run's ``skills: off``, an ablation run's arm, only the standards files are copied:
+no role's skill file goes into the target at all, so no worktree, checkout or object of the
+run holds one for a session to read (:func:`skill_files` names what is left out).
+
 Refused rather than guessed:
 
 - a planned role whose curated file is missing, a link, or empty in the library:
@@ -61,6 +65,11 @@ def read_library(library: Path | None, roles: Iterable[str]) -> dict[Path, bytes
                 raise LibraryError(msg, role=role, path=relative.as_posix())
             contents[relative] = data
     return contents
+
+
+def skill_files(contents: Mapping[Path, bytes]) -> dict[Path, bytes]:
+    """The skill files among ``contents``, by relative path: what ``skills: off`` leaves out."""
+    return {relative: data for relative, data in contents.items() if loader.is_skill_file(relative)}
 
 
 def put_into(worktree: Path, contents: Mapping[Path, bytes]) -> tuple[Path, ...]:

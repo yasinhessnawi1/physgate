@@ -38,7 +38,7 @@ from physgate.evaluation.inject.runner import CONFIG_NAME as INSTRUMENT_CONFIG_N
 from physgate.evaluation.inject.runner import CONTROLS_DIRNAME as INSTRUMENT_CONTROLS_DIRNAME
 from physgate.evaluation.inject.runner import InstrumentConfig
 from physgate.gate.exceptions import GateError
-from physgate.knowledge.library import LibraryError, read_library
+from physgate.knowledge.library import LibraryError, read_library, skill_files
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.orchestrator import binaries
 from physgate.orchestrator.accounting import TokenAccount
@@ -56,6 +56,7 @@ from physgate.orchestrator.decompose import (
     binary_version,
     call,
     require_fresh,
+    require_no_skill_file,
 )
 from physgate.orchestrator.decomposition_review import stop_left_review
 from physgate.orchestrator.design_rounds import decompose_in_rounds
@@ -823,7 +824,10 @@ def _decompose_run(args: argparse.Namespace, *, registrations: Registrations | N
         # content, before the one model call is spent: without either it could never be
         # dispatched.
         require_registered(config.models.roles)
-        read_library(_library_root(), config.models.roles)
+        curated = read_library(_library_root(), config.models.roles)
+        if config.skills == "off":
+            # A target the arm could not keep its skill files out of, refused before the call too.
+            require_no_skill_file(args.target.resolve(), config.target_head, skill_files(curated))
     except (LibraryError, OrchestratorError) as exc:
         return _fail(str(exc), **exc.context)
     try:
