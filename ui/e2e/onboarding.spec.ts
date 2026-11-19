@@ -1058,6 +1058,54 @@ test.describe("a trigger other than a plain click makes the calls a click makes"
     await holds(page, seen, "an arrow key onto a model on this Mac");
   });
 
+  for (const key of ["Escape", "Enter"] as const)
+    test(`${key} on the welcome makes the calls Skip makes`, async ({ page }) => {
+      const flow = "the welcome, skipped";
+      const seen = await rig(page, fixture({ intro_seen: false }));
+      await open(page, "");
+      await upTo(page, flow, 1);
+      await expect(page.locator("#skip")).toBeFocused();
+      await page.keyboard.press(key);
+      await engineStepDrawn(page, flow, 6);
+      await settle();
+      expect(await calls(page)).toEqual(recorded(flow));
+      await holds(page, seen, `${key} on the welcome`);
+    });
+
+  test("Enter held in the operator name opens its confirmation once, and no repeat cancels it", async ({
+    page,
+  }) => {
+    const flow = "operator name";
+    const seen = await rig(page, fixture());
+    await open(page, "operator");
+    await operatorDrawn(page, flow);
+    await page.locator("#operator-name").focus();
+    // Every time the confirmation closes, counted: a repeat landing on Cancel would close it.
+    await page.evaluate(() => {
+      const held = window as unknown as { confirmClosed: number };
+      held.confirmClosed = 0;
+      document.getElementById("confirm")?.addEventListener("close", () => {
+        held.confirmClosed += 1;
+      });
+    });
+    const closed = () =>
+      page.evaluate(() => (window as unknown as { confirmClosed: number }).confirmClosed);
+    // Held down: the first press, then the repeats the keyboard sends while it is held.
+    await page.keyboard.down("Enter");
+    await expect(confirmation(page)).toBeVisible();
+    for (let i = 0; i < 4; i += 1) await page.keyboard.down("Enter");
+    await page.keyboard.up("Enter");
+    await settle();
+    await expect(confirmation(page)).toBeVisible();
+    expect(await closed()).toBe(0);
+    expect(await calls(page)).toEqual(recorded(flow).slice(0, 2));
+    await confirmation(page).locator(".pg-btn-act").click();
+    await upTo(page, flow, 3);
+    await settle();
+    expect(await calls(page)).toEqual(recorded(flow));
+    await holds(page, seen, "Enter held in the operator name");
+  });
+
   test("Enter in the operator name makes the calls clicking its button makes", async ({ page }) => {
     const flow = "operator name";
     const seen = await rig(page, fixture());
