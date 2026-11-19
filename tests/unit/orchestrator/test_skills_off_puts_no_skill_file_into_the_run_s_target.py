@@ -4,9 +4,10 @@ A role session reads its curated content in its own worktree, which checks out t
 the run branch starts at the specification commit, which decomposition writes with the curated
 library in it. Under ``skills: off`` decomposition puts only the standards files there, so no
 worktree of the run, no checkout of the orchestrator's integration worktree and no object the run
-writes holds a skill file. A target that already holds one, in the history of the commit the run
-starts from or as the library's bytes anywhere in its object store, is refused before anything is
-written, with its own reason: a role session's shell reads files, and the store's objects are files.
+writes holds a skill file. A target that already holds one is refused before anything is written,
+with its own reason: a role session's shell reads files, and the store's objects are files. Judged
+by path in every commit any ref, reflog entry or stash reaches, the start commit's history among
+them; by presence for any object none of those reaches; and by content for the library's bytes.
 
 The specification commit then differs between the arms by exactly the skill files. The plan's
 bytes are the same under both, and ``skills: on`` puts into the target what it always put there.

@@ -1607,50 +1607,93 @@ SKILL_IN_TARGET = (
     "under skills: off the target may hold no skill file, and it already holds one a session "
     "of the run could read"
 )
+#: Why it refuses a store holding what no ref, reflog or stash reaches: such an object has no path
+#: left to judge it by, and a skill file of any version, an earlier run's among them, is one.
+UNREACHABLE_IN_TARGET = (
+    "under skills: off the target's store may hold no object that no ref, reflog or stash "
+    "reaches, since its content cannot be told from a skill file a session could read; start "
+    "from a fresh clone made without sharing the object files (git clone --no-local)"
+)
 
 
 def require_no_skill_file(repo: Path, commit: str, skills: Mapping[Path, bytes]) -> None:
     """Refuse, under ``skills: off``, a target that already holds a skill file in a session's reach.
 
-    Two places, both read from git through the clean object store: the history of ``commit``,
-    where the run branch starts, for any role's skill file by name, in any letter case, at any
-    commit (every worktree of the run checks out a descendant, and the store holds them all);
-    and the whole object store, on any branch or none, for the bytes of ``skills``, the library's
-    own skill files, as an earlier run of the same target leaves them. Nothing is written.
+    Every worktree of the run shares the target's object store, and a session's shell can open
+    any file of it, so the whole store is judged, three ways, nothing written:
+
+    - by path: every commit reachable from ``commit``, from every ref (every branch, tag, other
+      namespace, the stash, every worktree's ``HEAD``) and from every reflog entry (older stashes
+      included), for any role's skill file, ``knowledge/*/skill.md`` in any letter case, of any
+      bytes, added, changed or removed at any commit;
+    - by presence: any object none of those reaches (a dropped stash, a file staged and never
+      committed, a loose object nothing names, what an earlier run left behind), whatever it
+      holds, since no path is left to judge it by;
+    - by content: the bytes of ``skills``, the library's own skill files, anywhere in the store,
+      under any path.
+
+    The tips are named by the target itself; the history and the objects are read through the
+    clean object store, which holds none of the target's refs, so the tips are handed to it.
+
+    Not judged: skill content under another path, in bytes the library does not hold now (a
+    renamed copy); a submodule's own store, which is another repository.
 
     Raises:
-        DecompositionError: either place holds one.
-        GitError: git could not read the target.
+        DecompositionError: one of the three finds one.
+        GitError: git could not read the target, or its store's connectivity.
     """
+    # Every commit any ref or reflog of the target names, as git itself lists them.
+    named = git(repo, "rev-list", "--all", "--reflog", "--no-walk=unsorted")
+    tips = list(dict.fromkeys([commit, *named.split()]))
     pattern = (loader.DEFAULT_ROOT / "*" / loader.SKILL_NAME).as_posix()
     found = git(
         repo,
         "rev-list",
         "--full-history",
         "-1",
-        commit,
+        "--stdin",
         "--",
         f":(icase){pattern}",
+        stdin="".join(f"{tip}\n" for tip in tips),
         objects_only=True,
     ).strip()
     if found:
-        raise DecompositionError(SKILL_IN_TARGET, where="history", commit=found)
+        raise DecompositionError(SKILL_IN_TARGET, where="refs", commit=found)
+    # Connectivity only: every commit and tree is read, no blob is, so the check is cheap.
+    checked = git(
+        repo,
+        "fsck",
+        "--unreachable",
+        "--connectivity-only",
+        "--no-progress",
+        *tips,
+        objects_only=True,
+    )
+    unreachable = [line.split() for line in checked.splitlines() if line.startswith("unreachable ")]
+    if unreachable:
+        _, kind, oid = unreachable[0]
+        raise DecompositionError(
+            UNREACHABLE_IN_TARGET,
+            where="unreachable objects",
+            count=str(len(unreachable)),
+            first=f"{kind} {oid}",
+        )
     if not skills:
         return
     object_format = git(repo, "rev-parse", "--show-object-format", objects_only=True).strip()
-    named = {_blob_id(data, object_format): relative for relative, data in sorted(skills.items())}
+    by_id = {_blob_id(data, object_format): relative for relative, data in sorted(skills.items())}
     listed = git(
         repo,
         "cat-file",
         "--batch-check",
-        stdin="".join(f"{oid}\n" for oid in named),
+        stdin="".join(f"{oid}\n" for oid in by_id),
         objects_only=True,
     )
     for line in listed.splitlines():
         oid, _, kind = line.partition(" ")
-        if kind != "missing" and oid in named:
+        if kind != "missing" and oid in by_id:
             raise DecompositionError(
-                SKILL_IN_TARGET, where="object store", path=named[oid].as_posix()
+                SKILL_IN_TARGET, where="object store", path=by_id[oid].as_posix()
             )
 
 

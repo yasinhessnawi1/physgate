@@ -261,10 +261,16 @@ SKILLS = Flag(
         ),
         "off": (
             "an ablation run's arm: no role's skill file is put into the run's target, so no "
-            "worktree of the run holds one, and a target that already holds one is refused at "
-            "decomposition; the skill file leaves what every role session must read and its "
-            "always-loaded set, the standards files stay, and the session is still held to "
-            "reading them before it acts; only an ablation run takes it"
+            "worktree of the run holds one; decomposition refuses a target whose store already "
+            "holds one a session could read: a skill file (knowledge/*/skill.md in any letter "
+            "case, of any bytes) in any commit a ref, a reflog entry or a stash reaches, any "
+            "object none of those reaches, or the library's own skill bytes under any path; the "
+            "skill file leaves what every role session must read and its always-loaded set, the "
+            "standards files stay, and the session is still held to reading them before it acts. "
+            "Not covered: skill content of other bytes under another path in the target, and a "
+            "submodule's own store; the paired reviewers read the role's skill and standards "
+            "under both arms, so a reviewer's finding can carry skill content to the builder; "
+            "only an ablation run takes it"
         ),
     },
     architecture="ARCH-140",
