@@ -480,3 +480,298 @@ def test_the_command_refuses_such_a_target_before_the_one_model_call(
     said = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
     assert REFUSAL in said["error"], f"the command did not refuse the target first: {said}"
     assert not (tmp_path / "run").exists(), "the command wrote a run for a refused target"
+
+
+# -- tags, and what a ref names that is no commit ------------------------------------------------
+
+
+def _starts(root: Path, repo: Path, why: str) -> None:
+    """The run starts under ``skills: off``; a refusal fails on an assertion that says ``why``."""
+    try:
+        run_dir, _, _ = _start(root, "off", repo)
+    except DecompositionError as exc:
+        raise AssertionError(f"{why}: {exc} {exc.context}") from None
+    assert _decomposed(run_dir)["subtasks"] == len(ROLES)
+
+
+def _annotated(repo: Path) -> None:
+    _git(repo, "tag", "-a", "v1", "-m", "a release")
+
+
+def _a_tag_of_a_tag(repo: Path) -> None:
+    _git(repo, "tag", "-a", "v1", "-m", "a release")
+    _git(repo, "tag", "-a", "v1-signed-off", "-m", "the release, tagged again", "v1")
+
+
+def _retagged_with_its_reflog(repo: Path) -> None:
+    # A tag moved, its old object kept by the tag's own reflog: git writes one for a tag only
+    # when every ref update is logged.
+    _git(repo, "config", "core.logAllRefUpdates", "always")
+    _git(repo, "tag", "-a", "v1", "-m", "a release")
+    _git(repo, "tag", "-a", "-f", "v1", "-m", "the release, tagged again")
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [_annotated, _a_tag_of_a_tag, _retagged_with_its_reflog],
+    ids=lambda f: f.__name__[1:],
+)
+def test_under_skills_off_an_annotated_tag_on_a_clean_target_starts(
+    tmp_path: Path, tag: Any
+) -> None:
+    repo = target_repo(tmp_path)
+    tag(repo)
+    _starts(tmp_path, repo, "a tag object a ref names is judged as an object no ref reaches")
+
+
+def test_under_skills_off_an_annotated_tag_does_not_hide_an_object_no_ref_reaches(
+    tmp_path: Path,
+) -> None:
+    repo = target_repo(tmp_path)
+    _annotated(repo)
+    _git(repo, "hash-object", "-w", "--stdin", stdin=OTHER_BYTES)
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "unreachable objects", refused.context
+    _nothing_written(tmp_path, repo)
+
+
+def _tree_holding(repo: Path, name: str, data: str) -> str:
+    """A tree, written to the store and named by no commit, holding ``data`` at ``name``."""
+    oid = _git(repo, "hash-object", "-w", "--stdin", stdin=data).strip()
+    *dirs, leaf = name.split("/")
+    entry = f"100644 blob {oid}\t{leaf}\n"
+    for directory in reversed(dirs):
+        oid = _git(repo, "mktree", stdin=entry).strip()
+        entry = f"040000 tree {oid}\t{directory}\n"
+    return _git(repo, "mktree", stdin=entry).strip()
+
+
+#: A tag names its object as annotated or as lightweight: both are refs to judge by.
+TAG_KINDS = {
+    "annotated": ("tag", "-a", "-m", "a tree, tagged"),
+    "lightweight": ("tag",),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(TAG_KINDS))
+def test_under_skills_off_a_tag_naming_a_tree_that_holds_a_skill_file_is_refused(
+    tmp_path: Path, kind: str
+) -> None:
+    repo = target_repo(tmp_path)
+    tree = _tree_holding(repo, "Knowledge/Other/Skill.md", OTHER_BYTES)
+    _git(repo, *TAG_KINDS[kind], "a-tree", tree)
+    _nowhere_at_the_start(repo)
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "a tree a ref names", refused.context
+    _nothing_written(tmp_path, repo)
+
+
+@pytest.mark.parametrize("kind", sorted(TAG_KINDS))
+def test_under_skills_off_a_tag_naming_a_tree_with_no_skill_file_starts(
+    tmp_path: Path, kind: str
+) -> None:
+    repo = target_repo(tmp_path)
+    tree = _tree_holding(repo, "notes/plan.md", "a plan\n")
+    _git(repo, *TAG_KINDS[kind], "a-tree", tree)
+    _starts(tmp_path, repo, "a tree a ref names is refused though it holds no skill file")
+
+
+@pytest.mark.parametrize("kind", sorted(TAG_KINDS))
+def test_under_skills_off_a_tag_naming_a_file_s_content_is_refused(
+    tmp_path: Path, kind: str
+) -> None:
+    # A blob a ref names directly has no path, so its content cannot be told from a skill file.
+    repo = target_repo(tmp_path)
+    blob = _git(repo, "hash-object", "-w", "--stdin", stdin=OTHER_BYTES).strip()
+    _git(repo, *TAG_KINDS[kind], "a-blob", blob)
+    _nowhere_at_the_start(repo)
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "a blob a ref names", refused.context
+    _nothing_written(tmp_path, repo)
+
+
+# -- a target that is not a complete repository with a working tree ------------------------------
+
+
+def _source(root: Path) -> Path:
+    """A target with two commits, served by file transport with filters allowed."""
+    source = target_repo(root / "source")
+    (source / "modules" / "note.md").write_text("a note\n")
+    _git(source, "add", "-A")
+    _git(source, "commit", "-q", "-m", "a second commit")
+    (source / "modules" / "note.md").write_text("a note, changed\n")
+    _git(source, "commit", "-q", "-am", "a third commit")
+    _git(source, "config", "uploadpack.allowFilter", "true")
+    return source
+
+
+def _incomplete(root: Path, *clone: str) -> Path:
+    source = _source(root)
+    _git(root, "clone", "-q", "--no-local", *clone, f"file://{source}", str(root / "target"))
+    return root / "target"
+
+
+def test_under_skills_off_a_bare_target_is_refused_with_what_to_do(tmp_path: Path) -> None:
+    repo = _incomplete(tmp_path, "--bare")
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "a bare repository", refused.context
+    assert "git clone --no-local" in str(refused), str(refused)
+
+
+def test_under_skills_off_a_shallow_target_is_refused_with_what_to_do(tmp_path: Path) -> None:
+    repo = _incomplete(tmp_path, "--depth", "1")
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "a shallow clone", refused.context
+    assert "git clone --no-local" in str(refused), str(refused)
+    _nothing_written(tmp_path, repo)
+
+
+def test_under_skills_off_a_partial_target_is_refused_without_fetching(tmp_path: Path) -> None:
+    repo = _incomplete(tmp_path, "--filter=blob:none")
+    # Any fetch from the promisor remote would run this program first, and leave its mark.
+    mark = tmp_path / "fetched"
+    script = tmp_path / "upload-pack"
+    script.write_text(f'#!/bin/sh\ntouch "{mark}"\nexec git-upload-pack "$@"\n')
+    script.chmod(0o755)
+    _git(repo, "config", "remote.origin.uploadpack", str(script))
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "a partial clone", refused.context
+    assert "git clone --no-local" in str(refused), str(refused)
+    assert not mark.exists(), "judging a partial target fetched from its promisor remote"
+    _nothing_written(tmp_path, repo)
+
+
+def test_every_git_command_of_the_check_runs_with_every_transport_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.knowledge.library import read_library, skill_files  # noqa: PLC0415
+    from physgate.orchestrator import decompose  # noqa: PLC0415
+
+    repo = target_repo(tmp_path)
+    _git(repo, "branch", "side")
+    skills = skill_files(read_library(_library(tmp_path), ROLES))
+    head = _git(repo, "rev-parse", "HEAD").strip()
+    ran: list[list[str]] = []
+    real = subprocess.run
+
+    def recorded(argv: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        ran.append([str(a) for a in argv])
+        return real(argv, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", recorded)
+    decompose.require_no_skill_file(repo, head, skills)
+    monkeypatch.undo()
+    # A config read as a file, from outside any repository, and the making of an empty store
+    # open no repository and no remote: every other command is the check's reading of the target.
+    commands = [
+        argv
+        for argv in ran
+        if Path(argv[0]).name == "git" and "--file" not in argv and "init" not in argv
+    ]
+    assert commands, "the check ran no git"
+    open_ = [" ".join(argv[-6:]) for argv in commands if "protocol.allow=never" not in argv]
+    assert open_ == [], f"a git command of the check may reach a remote: {open_}"
+
+
+# -- what a run leaves in its target ---------------------------------------------------------
+
+
+def _off_overrides() -> dict[str, Any]:
+    return {"skills": "off", "ablation": True, "harness": CLEAN_HARNESS}
+
+
+def test_a_second_skills_off_run_starts_on_the_target_a_finished_one_used(tmp_path: Path) -> None:
+    # Through the real loop, git, merger and store, with a stand-in session and gate: one
+    # attempt refused by the gate, the next merged, the other subtask merged, the run finished.
+    from ui_rig import evaluation_rig  # noqa: PLC0415
+
+    from physgate.orchestrator.events import (  # noqa: PLC0415
+        AttemptRejected,
+        IntegrationGateRan,
+        Merged,
+        WorktreeRemoved,
+        read_events,
+    )
+
+    rig = evaluation_rig()
+    repo = rig.target_repo(tmp_path)
+    runs = tmp_path / "runs"
+    first = rig.fake_run(
+        runs, "run-1", repo, gate=rig.Gate(fail_on={1}), overrides=_off_overrides()
+    )
+    events = read_events(first / "events.jsonl")
+    kinds = {type(e) for e in events}
+    assert {AttemptRejected, Merged, IntegrationGateRan, WorktreeRemoved} <= kinds, kinds
+    try:
+        second = rig.start(runs, "run-2", repo, **_off_overrides())
+    except DecompositionError as exc:
+        raise AssertionError(f"the arm refused its own second run: {exc} {exc.context}") from None
+    assert second.skills == "off"
+
+
+def test_after_a_merge_the_harness_aborted_the_next_off_run_needs_a_fresh_clone(
+    tmp_path: Path,
+) -> None:
+    # The harness aborts a merge that does not apply cleanly; git has written the merge's
+    # objects by then, and no ref reaches them. The arm then refuses the target, and says how
+    # to start: from a fresh clone of it.
+    repo = target_repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "side")
+    (repo / "README.md").write_text("target, on the side\n")
+    _git(repo, "commit", "-q", "-am", "side")
+    _git(repo, "checkout", "-q", "master")
+    (repo / "README.md").write_text("target, on master\n")
+    _git(repo, "commit", "-q", "-am", "master")
+    conflicted = subprocess.run(
+        ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "merge", "side"],
+        cwd=repo,
+        capture_output=True,
+        check=False,
+    )
+    assert conflicted.returncode != 0, "the row's merge applied cleanly"
+    _git(repo, "merge", "--abort")
+    _git(repo, "branch", "-D", "side")
+    _git(repo, "reflog", "expire", "--expire=now", "--all")
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "unreachable objects", refused.context
+    assert "git clone --no-local" in str(refused), str(refused)
+    assert "fresh clone" in str(refused), str(refused)
+    fresh = tmp_path / "fresh"
+    _git(tmp_path, "clone", "-q", "--no-local", str(repo), str(fresh))
+    _starts(tmp_path / "again", fresh, "a fresh clone of the target is refused")
+
+
+# -- a target with very many refs ----------------------------------------------------------
+
+
+#: A command line longer than this is refused here, as the system refuses a longer one than its
+#: own limit: the row's stand-in for a target whose tips outgrow the real one.
+ARGUMENT_LIMIT = 8192
+
+
+def test_under_skills_off_a_target_with_very_many_refs_is_judged_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import errno  # noqa: PLC0415
+
+    repo = target_repo(tmp_path)
+    head = _git(repo, "rev-parse", "HEAD").strip()
+    # Branches of distinct commits, each its own tip: more than the limit holds as arguments.
+    stream = "".join(
+        f"commit refs/heads/b{i}\ncommitter t <t@example.invalid> {1_700_000_000 + i} +0000\n"
+        f"data 0\nfrom {head}\n\n"
+        for i in range(400)
+    )
+    _git(repo, "fast-import", "--quiet", stdin=stream)
+    real = subprocess.run
+
+    def limited(argv: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        if sum(len(str(a)) + 1 for a in argv) > ARGUMENT_LIMIT:
+            raise OSError(errno.E2BIG, "Argument list too long")
+        return real(argv, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", limited)
+    try:
+        _start(tmp_path, "off", repo)
+    except OSError as exc:
+        raise AssertionError(f"the target's tips went to git as arguments: {exc}") from None
