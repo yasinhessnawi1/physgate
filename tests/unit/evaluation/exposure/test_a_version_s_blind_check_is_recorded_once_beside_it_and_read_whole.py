@@ -131,6 +131,8 @@ def test_a_record_changed_by_hand_or_not_the_version_s_is_refused_as_read(
     with pytest.raises(api(f"{CHECKS}.CheckError")) as refused:
         _read(made)
     assert _reason(refused.value) == reason, "a record that is not the check's own was read"
+    if how == "too large":
+        assert "larger than any record" in str(refused.value), "read past the record's bound"
 
 
 @pytest.mark.parametrize("how", ["a flagged task taken out", "a link", "not a record"])
