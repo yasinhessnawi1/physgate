@@ -920,6 +920,7 @@ class Loop:
                         usage=message.usage,
                         partial=not left.complete,
                         abandoned=message.abandoned,
+                        in_binary_totals=message.in_binary_totals,
                     )
                 )
         for cause, detail in found if len(found) > 1 else ():
@@ -1922,6 +1923,7 @@ class Loop:
                     message_id=message.message_id,
                     usage=message.usage,
                     abandoned=message.abandoned,
+                    in_binary_totals=message.in_binary_totals,
                 )
             )
         env = self._env()
@@ -2868,6 +2870,7 @@ class Loop:
                     usage=message.usage,
                     compaction=message.compaction,
                     abandoned=message.abandoned,
+                    in_binary_totals=message.in_binary_totals,
                 )
             )
         # An earlier attempt is judged only where the verdict confirmed or dismissed every one of
@@ -3108,6 +3111,7 @@ class Loop:
                             usage=message.usage,
                             compaction=message.compaction,
                             abandoned=message.abandoned,
+                            in_binary_totals=message.in_binary_totals,
                         )
                     )
                 self._halt_for(subtask_id, "held_out_read")
@@ -3122,6 +3126,7 @@ class Loop:
                             usage=message.usage,
                             compaction=message.compaction,
                             abandoned=message.abandoned,
+                            in_binary_totals=message.in_binary_totals,
                         )
                     )
                 if self._review_held(subtask_id, exc.session_id, exc.managed):
@@ -3182,6 +3187,7 @@ class Loop:
                         usage=message.usage,
                         compaction=message.compaction,
                         abandoned=message.abandoned,
+                        in_binary_totals=message.in_binary_totals,
                     )
                 )
         detail = f"review session {session_id or 'none'} {changed}"

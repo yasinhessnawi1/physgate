@@ -13,10 +13,11 @@ import {
   type EvidenceSource,
   type Kind,
   type Place,
+  placeKey,
   type ReadRun,
   type UnreadRun,
 } from "./api";
-import { EVIDENCE_COPY, KIND_TAGS, unreadWords } from "./words";
+import { EVIDENCE_COPY, KIND_TAGS, rootWords, unreadWords } from "./words";
 
 /** How many of a manifest id's characters are shown; the whole id is copied. */
 const SHORT = 12;
@@ -105,8 +106,9 @@ export function UnreadList({
       <h2 className="pg-panel-title">{title}</h2>
       <ul className="evidence-list">
         {rows.map((row) => (
-          <li key={`${String(row.root)}/${row.name}`} data-run={row.name}>
+          <li key={placeKey(row)} data-run={placeKey(row)}>
             <span className="evidence-run-name">{row.name}</span>
+            <span className="evidence-root">{rootWords(row.root)}</span>
             <span className="evidence-reason">{unreadWords(row)}</span>
           </li>
         ))}

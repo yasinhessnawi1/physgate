@@ -2,8 +2,9 @@
  * A part of the plan, as a person decides it (ARCH-122): which part it is (its label, domain,
  * module role and the quantities a part on hand states), and three choices, never approve or
  * reject: I have it (its real values, each with its unit), I will make it (values, short texts or
- * both), or Find it, the default, stating nothing. A part the release's gate stopped shows the
- * gate's finding and offers have and make only, asking again for every name stated before.
+ * both), or Find it, the default, stating nothing. A part the release raised again (its gate
+ * stopped it, or an interface holds another value) shows its finding under a title naming what
+ * raised it, and offers have and make only, asking again for every name stated before.
  *
  * The page refuses what the queue would refuse and it can know before anything is sent; the
  * server checks everything again, and a refusal is shown in its own words with nothing written.
@@ -12,7 +13,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 import type { Result } from "../../api/client";
-import type { PlanComponent } from "../../api/events";
+import type { PlanComponent, RaisedBy } from "../../api/events";
 import {
   type ItemView,
   type PartsPosition,
@@ -51,6 +52,7 @@ export function PartsDecide({
   component,
   total,
   earlier,
+  raised = null,
   runId,
   operator,
   holdsToken,
@@ -66,6 +68,8 @@ export function PartsDecide({
   readonly total: number | null;
   /** What the round before chose and stated, for a part the release raised again. */
   readonly earlier: { readonly position: PartsPosition; readonly parts: StatedPart } | null;
+  /** What raised the part again at the release, where the run's log says; ``null`` otherwise. */
+  readonly raised?: RaisedBy | null;
   readonly runId: string;
   readonly operator: string | null;
   /** Whether this page holds the action token; without it, it can only read. */
@@ -173,7 +177,13 @@ export function PartsDecide({
       {why !== null && <p className="pg-queue-why-not">{why}</p>}
       {again && (
         <div className="pg-parts-raised" role="note">
-          <p className="pg-parts-raised-title">{PARTS_COPY.raisedTitle}</p>
+          <p className="pg-parts-raised-title">
+            {raised === "gate"
+              ? PARTS_COPY.raisedTitle
+              : raised === "interface"
+                ? PARTS_COPY.raisedTitleInterface
+                : PARTS_COPY.raisedTitleUnread}
+          </p>
           <p className="pg-parts-raised-finding">{view.item.triggeringFinding}</p>
           <p>{PARTS_COPY.raisedRule}</p>
         </div>
@@ -382,7 +392,6 @@ export function PartsDecide({
           disabledBecause={blocked}
         />
       </div>
-      <p className="pg-panel-note pg-parts-find-all">{PARTS_COPY.findAll}</p>
       {refusal !== null && !refusal.ok && <PartsRefusal refusal={refusal.refusal} />}
     </section>
   );

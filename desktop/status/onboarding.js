@@ -71,6 +71,11 @@ function askFirst(what, write) {
     dialog.close();
   };
   $("confirm-cancel").onclick = () => dialog.close();
+  // A held key repeats: an Enter that opened this dialog and is still held must not press the
+  // dialog's first button, Cancel. A repeated Enter is never a choice here.
+  dialog.onkeydown = (event) => {
+    if (event.key === "Enter" && event.repeat) event.preventDefault();
+  };
   dialog.onclose = () => {
     if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
     if (confirmed) write();
@@ -509,6 +514,8 @@ async function showOperator() {
     if (event.key !== "Enter") return;
     // The same keystroke must not reach the confirmation this opens: its first button is Cancel.
     event.preventDefault();
+    // A held Enter repeats; only its first press asks.
+    if (event.repeat) return;
     $("operator-save").click();
   };
 }

@@ -136,6 +136,9 @@ def test_the_tokens_are_the_account_s(world: dict[str, Path], live: Live, run: s
     assert served.get("not_in_binary_totals_billing_unknown") == {
         a: u.model_dump(mode="json") for a, u in account.abandoned().items()
     }
+    assert served.get("cut_short_in_binary_totals") == {
+        a: u.model_dump(mode="json") for a, u in account.cut_in_binary_totals().items()
+    }
     assert (
         served["total"]["output_tokens"] > 0 and served["by_kind"]["routing"]["input_tokens"] == 0
     )

@@ -304,13 +304,23 @@ describe("the runs, side by side", () => {
   it("lists a run it could not read with its record and reason, and none of its settings", async () => {
     const host = await mount();
     const unread = section(host, EVIDENCE_COPY.unread);
-    expect(text(unread?.querySelector('[data-run="ev-tampered"]'))).toContain(
+    expect(text(unread?.querySelector('[data-run="0/ev-tampered"]'))).toContain(
       `Its run.json could not be read: ${TAMPERED.error}.`,
     );
-    expect(text(unread?.querySelector('[data-run="ev-unreadable"]'))).toContain(
+    expect(text(unread?.querySelector('[data-run="0/ev-unreadable"]'))).toContain(
       `Its events.jsonl could not be read at offset 4211: ${UNREADABLE.error} (unknown kind).`,
     );
-    expect(host.querySelector('th[data-run="ev-tampered"]')).toBeNull();
+    expect(host.querySelector('th[data-run="0/ev-tampered"]')).toBeNull();
+  });
+
+  it("keeps two unread runs of one name under two roots apart, by place and in words", async () => {
+    const second = { ...TAMPERED, root: 1 };
+    serve({ "/api/evidence/runs": [200, { runs: [TAMPERED, second] }] });
+    const host = await mount();
+    const rows = [...(section(host, EVIDENCE_COPY.unread)?.querySelectorAll("li") ?? [])];
+    expect(rows.map((r) => r.getAttribute("data-run"))).toEqual(["0/ev-tampered", "1/ev-tampered"]);
+    expect(text(rows[0])).toContain("Root 0");
+    expect(text(rows[1])).toContain("Root 1");
   });
 
   it("says a kind with no run in words, and no longer says the gaps are not on this page", async () => {
@@ -459,6 +469,31 @@ describe("two runs compared", () => {
     for (const q of table?.querySelectorAll(".pg-quantity") ?? [])
       expect(q.closest("[data-source]")).not.toBeNull();
     expect(text(host.querySelector(".evidence-marks"))).toContain(KIND_TAGS.ablation);
+  });
+
+  it("names each column's root, so two runs of one name under two roots read apart", async () => {
+    const route = "/api/evidence/compare/0/run-01/1/run-01";
+    const a = source("run-01", "development", "2");
+    const b = { ...source("run-01", "development", "3"), root: 1 };
+    serve({
+      "/api/evidence/runs": [
+        200,
+        {
+          runs: [
+            readRow("run-01", "development", "2"),
+            { ...readRow("run-01", "development", "3"), root: 1 },
+          ],
+        },
+      ],
+      [route]: [200, { ...COMPARED, a, b }],
+    });
+    const host = await mount("tab=compare&a=0/run-01&b=1/run-01");
+    const heads = [...(host.querySelector("table.evidence-compare thead tr")?.children ?? [])];
+    expect(heads.slice(1).map((h) => h.getAttribute("data-run"))).toEqual(["0/run-01", "1/run-01"]);
+    expect(text(heads[1])).toContain(`${EVIDENCE_COPY.baseline}: run-01`);
+    expect(text(heads[1])).toContain("Root 0");
+    expect(text(heads[2])).toContain(`${EVIDENCE_COPY.candidate}: run-01`);
+    expect(text(heads[2])).toContain("Root 1");
   });
 
   it("shows a refusal over drifted settings in words, each setting named, and no number", async () => {

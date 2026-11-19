@@ -34,7 +34,7 @@ import {
 import { evidenceAddress, go } from "./address";
 import { RunChooser } from "./Chooser";
 import { answerSource, RunMark } from "./parts";
-import { driftWords, EVIDENCE_COPY, settingLabel, valueWords } from "./words";
+import { driftWords, EVIDENCE_COPY, rootWords, settingLabel, valueWords } from "./words";
 
 function named(runs: readonly ReadRun[], key: string | null): ReadRun | undefined {
   const wanted = parsePlace(key);
@@ -119,8 +119,14 @@ export function SideBySide({ compared }: { readonly compared: Comparison }) {
           <thead>
             <tr>
               <th scope="col">{EVIDENCE_COPY.setting}</th>
-              <th scope="col">{`${EVIDENCE_COPY.baseline}: ${compared.a.name}`}</th>
-              <th scope="col">{`${EVIDENCE_COPY.candidate}: ${compared.b.name}`}</th>
+              <th scope="col" data-run={placeKey(compared.a)}>
+                {`${EVIDENCE_COPY.baseline}: ${compared.a.name}`}
+                <span className="evidence-root">{rootWords(compared.a.root)}</span>
+              </th>
+              <th scope="col" data-run={placeKey(compared.b)}>
+                {`${EVIDENCE_COPY.candidate}: ${compared.b.name}`}
+                <span className="evidence-root">{rootWords(compared.b.root)}</span>
+              </th>
             </tr>
           </thead>
           <tbody>
