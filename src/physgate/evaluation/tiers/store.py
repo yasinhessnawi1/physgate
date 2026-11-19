@@ -98,6 +98,7 @@ from physgate.evaluation.tiers.manifest import (
     make_tierset,
     manifest_bytes,
     read_version,
+    record_refusal,
     requirements_digest,
     tier_record,
 )
@@ -847,13 +848,17 @@ def write_version(
 
     Raises:
         AuthoringError: the split refuses, the version exists (``version_exists``), a spent
-            pool is left (``pool_left``), or what was written cannot be removed or renamed
-            (loudly, naming what to remove by hand).
+            pool is left (``pool_left``), a record is larger than the reader takes
+            (``record_too_large``), or what was written cannot be removed or renamed (loudly,
+            naming what to remove by hand).
         ExposureError: the role's register or run roots cannot be made, or refuse as read.
     """
     # The exposure register reads this module; it is reached when a version is written.
     from physgate.evaluation.tiers.exposure import start_logs
 
+    # A version is never written again, so one its own reader would refuse could never be
+    # read: refused before anything is written, with the pool left whole.
+    _require_readable(PROVENANCE_NAME, provenance)
     make_role_root(root)
     # Before the version is there: a role never holds a version without its two logs, so a log
     # removed later is told from one never written.
@@ -889,7 +894,9 @@ def write_version(
                 runtime=runtime,
                 provenance_sha256=hashlib.sha256(provenance).hexdigest(),
             )
-            _write_whole(fd, MANIFEST_NAME, manifest_bytes(manifest))
+            written = manifest_bytes(manifest)
+            _require_readable(MANIFEST_NAME, written)
+            _write_whole(fd, MANIFEST_NAME, written)
         finally:
             os.close(fd)
     except BaseException:
@@ -897,6 +904,18 @@ def write_version(
         raise
     _publish(temporary, root / manifest.version, retire)
     return manifest, placed
+
+
+def _require_readable(name: str, data: bytes) -> None:
+    """Refuse a record of a version that its reader would refuse (``record_too_large``).
+
+    Raises:
+        AuthoringError: ``data`` is larger than :func:`.manifest.read_version` reads.
+    """
+    refusal = record_refusal(name, len(data))
+    if refusal is not None:
+        msg = f"{refusal}; its reader would refuse the version, so it is not cut"
+        raise AuthoringError(msg, refused_because="record_too_large", record=name)
 
 
 def _publish(temporary: Path, target: Path, retire: Path | None) -> None:

@@ -3,9 +3,11 @@
 This hook covers the tools that name a file: Write, Edit and NotebookEdit, and
 Read for the held-out tier, which nothing may read before measurement
 (ARCH-141), for an evaluation corpus that carries its own answers, which no
-reviewer may read, and for the session's own hook state directory, which the hooks
-alone read. Shell commands are a separate check, and a sentinel behind both
-catches what either misses.
+reviewer may read, for the session's own hook state directory, which the hooks
+alone read, and for the checkout the orchestrator runs from, whose curated library a
+session is given in its own worktree or not at all (a shell command's read there is
+the OS layer's to deny). Shell commands are a separate
+check, and a sentinel behind both catches what either misses.
 
 **What is protected is data, not code.** The session configuration lists
 protected roots with the reason an agent is given, the experiment rule, and the
@@ -33,7 +35,13 @@ either of which protects:
 
 An existing file with more than one link is refused as well. A hard link gives
 a protected file a second name anywhere on the volume, and nothing in the name
-being written says so.
+being written says so. To a read, such a file is refused in the session's
+worktree: a link there to a file the session may not read (the harness's skill
+file, a held-out scenario) would pass every root test, since the inode test
+compares directories, and a session's commands write the worktree on every
+layer. A worktree's own files have one name each. Outside the worktree a session
+reads files with a second name for reasons of their own (an interpreter's
+packages hard-linked from a package cache), and those are not refused.
 
 **A root may carry its own exceptions** — paths beneath it that this root does
 not protect after all. This exists for exactly one real case: `knowledge/` is
@@ -74,6 +82,7 @@ from typing import TYPE_CHECKING
 from physgate.hooks.reasons import (
     ANSWER_KEY_REASON,
     CLAUDE_TEMP_REASON,
+    HARNESS_REASON,
     HELD_OUT_REASON,
     HOME_CLAUDE_REASON,
     HOOK_STATE_REASON,
@@ -103,6 +112,10 @@ FROZEN_CRITERIA = (
 HARD_LINKED = (
     "the file has more than one name on disk, so writing it could change a protected file "
     "through its other name"
+)
+HARD_LINKED_READ = (
+    "the file has more than one name on disk, and it lies in the session's worktree, where a "
+    "command could have given a file the session may not read that second name"
 )
 REFUSED = "{path} is protected: {reason}. The {tool} call is refused."
 RELATIVE_TO_UNKNOWN = (
@@ -437,7 +450,19 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
         # directory of its interpreter, named exactly), exactly as spelt, is read.
         # Claude Code's directory in the session's scratch home is read by none either: what
         # is there is not the session's, and the OS layer denies the shell's reads alike.
-        for root in config.protected_roots:
+        # Nor, to a file tool, the checkout the orchestrator runs from: the curated library in
+        # it holds every role's skill and standards, and a session is given its own in its
+        # worktree, or, in an arm that leaves the skill out, not given it; nothing a session is
+        # given to read lies there. A file tool runs in the binary's own process, outside the
+        # OS layer, so this refusal is the only one it meets. A shell command's word is refused
+        # too where the session has no OS layer, which leaves nothing else to deny it; inside
+        # the layer, which denies the command's reads there, it is left to the layer: a
+        # session's search path names the binary's directory, which may lie in the checkout, so
+        # a word that expands it (``echo $PATH``) names the checkout without reading it.
+        # The checkout is asked last: a root of its own nested in it (a withheld record, the
+        # sentinel's place apart) answers with its own reason, which says the sentinel keeps
+        # no byte of it, and is never read as the checkout's, whose bytes the sentinel keeps.
+        for root in sorted(config.protected_roots, key=lambda r: r.reason == HARNESS_REASON):
             if (
                 root.reads == "denied"
                 and (
@@ -452,6 +477,7 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
                         SESSION_TEMPS_REASON,
                         HOME_CLAUDE_REASON,
                     )
+                    or (root.reason == HARNESS_REASON and not (shell and config.os_layer))
                 )
                 and _reaches(absolute, root.path, chain)
                 and not any(
@@ -516,6 +542,8 @@ def protection(
         reason = _rules(spelling, config, writing=writing, shell=shell)
         if reason is not None:
             return reason
+    if not writing and _hard_linked(physical) and _within(physical, config.worktree):
+        return HARD_LINKED_READ
     if config.profile == "reviewer" and not writing:
         if not all(any(_within(s, root) for root in config.read_roots) for s in spellings):
             return OUTSIDE_REVIEW_REASON
@@ -533,9 +561,15 @@ def read_refused(path: str, config: ConfigView) -> bool:
     """
     # The run's session directories are kept from a session for what the other sessions keep
     # there; the session's own files there (its settings, its home's git configuration) are read
-    # by no other session, so their kept bytes need no seal.
+    # by no other session, so their kept bytes need no seal. Nor does the harness checkout's: it
+    # is kept from a session for what its library would teach, not as a secret, and the sentinel
+    # needs its trusted bytes to put a changed file there back. This is the sentinel's question,
+    # not a session's: the session's read is refused all the same. It exempts only a path the
+    # checkout alone holds: :func:`_rules` asks the checkout after every other root, so one nested
+    # in it answers first with its own reason (and the installer refuses a run's withheld places
+    # inside the checkout besides).
     return any(
-        _rules(spelling, config, writing=False) not in (None, SESSIONS_REASON)
+        _rules(spelling, config, writing=False) not in (None, SESSIONS_REASON, HARNESS_REASON)
         for spelling in dict.fromkeys((path, os.path.realpath(path)))
     )
 

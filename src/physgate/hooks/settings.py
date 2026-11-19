@@ -508,6 +508,29 @@ def _design_discipline(worktree: Path) -> tuple[str, ...]:
     )
 
 
+def _withheld_inside_the_harness(request: InstallRequest) -> str | None:
+    """Why a place of the run's that no session reads lies in the harness checkout, if one does.
+
+    The run's withheld records, a root withheld whole, the sentinel's place apart and the run's
+    session directories belong to a run, never to the checkout it is judged by. Inside it, each
+    would sit beneath a root whose bytes the sentinel keeps, and a session's own issued state in
+    the session directories would be refused as the checkout's.
+    """
+    if request.harness_root is None:
+        return None
+    places = {
+        "a withheld run record": request.withheld,
+        "a root withheld whole": request.withheld_whole,
+        "the sentinel's place apart": (request.sentinel_apart,),
+        "the run's session directories": (request.sessions_root,),
+    }
+    for what, paths in places.items():
+        for path in (p for p in paths if p is not None):
+            if _inside(path, request.harness_root):
+                return f"{what} ({path}) is inside the harness checkout {request.harness_root}"
+    return None
+
+
 def build_config(request: InstallRequest, installation: Installation) -> SessionConfig:
     """The session configuration for ``request``.
 
@@ -527,6 +550,9 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         if _inside(path, request.worktree):
             msg = f"{what} ({path}) is inside the worktree, where the session could change it"
             raise ValueError(msg)
+    harness_refusal = _withheld_inside_the_harness(request)
+    if harness_refusal is not None:
+        raise ValueError(harness_refusal)
     for root in request.read_roots:
         if not root.strip("/"):
             msg = f"the read root {root!r} names the whole filesystem"
@@ -840,14 +866,16 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         watchdog_seconds=WATCHDOG_SECONDS,
         hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
         survivor_reaper=reaper_on,
+        os_layer=request.os_layer_temp_dir is not None,
         after_compaction=tuple(sorted(request.after_compaction)),
         compaction_note=request.compaction_note,
     )
 
 
 #: The configuration's fields left out of its written bytes when empty: only a reviewer whose
-#: run allows compaction has them, so every other session's configuration keeps its bytes.
-_LEFT_OUT_WHEN_EMPTY = ("after_compaction", "compaction_note")
+#: run allows compaction has the first two, and only a session inside the OS layer the third,
+#: so every other session's configuration keeps its bytes.
+_LEFT_OUT_WHEN_EMPTY = ("after_compaction", "compaction_note", "os_layer")
 
 
 def config_bytes(config: SessionConfig) -> bytes:
