@@ -121,7 +121,7 @@ def test_inside_the_os_layer_a_path_built_at_run_time_does_not_read_it(tmp_path:
         pytest.skip("the OS layer cannot run here")
     # The name is joined while the program runs, so no hook can see it: the sandbox alone judges.
     program = (
-        f"import os\np = os.path.join('knowledge', {ROLE!r}, 'sk' + 'ill.md')\n"
+        f"import os\np = os.path.join('know' + 'ledge', {ROLE!r}, 'sk' + 'ill.md')\n"
         "try:\n    print(open(p).read())\nexcept OSError as e:\n    print('denied:', e.strerror)\n"
     )
     steps = [*_reads(tmp_path), bash(f"python3 - <<'PY'\n{program}PY")]

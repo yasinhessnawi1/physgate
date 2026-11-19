@@ -26,10 +26,13 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
-from physgate.flags import Skills
 from physgate.knowledge.exceptions import RoleNameError
+
+if TYPE_CHECKING:
+    # A name for the type only: the hook layer loads this module, and loads nothing more for it.
+    from physgate.flags import Skills
 
 #: A role name becomes a directory name under the knowledge root, so it is held
 #: to the same safe-identifier pattern an ablation flag's name already uses
