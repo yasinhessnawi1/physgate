@@ -1676,14 +1676,14 @@ def _tips(repo: Path, commit: str) -> list[str]:
 
     ``rev-list --all --reflog --objects --no-walk`` with every tree and blob below a commit
     left out names each ref, reflog entry (a tag's included) and worktree ``HEAD`` by the object
-    it records, not by the commit it peels to; ``for-each-ref`` adds a ref that names a tree.
+    it records, not by the commit it peels to. A ref that names the root tree of a commit it
+    also names is left out with that commit's trees, and is judged with that commit.
     """
     walked = git(
         repo, *NO_TRANSPORT, "rev-list", "--all", "--reflog", "--objects", "--no-walk=unsorted",
         "--filter=tree:0",
     )  # fmt: skip
-    refs = git(repo, *NO_TRANSPORT, "for-each-ref", "--format=%(objectname)")
-    named = [line.split(maxsplit=1)[0] for line in (walked + refs).splitlines() if line.strip()]
+    named = [line.split(maxsplit=1)[0] for line in walked.splitlines() if line.strip()]
     return list(dict.fromkeys([commit, *named]))
 
 
