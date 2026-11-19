@@ -19,18 +19,27 @@ import hashlib
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    ValidationError,
+    model_validator,
+)
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
+from physgate.evaluation.tiers.checks import LeftOut
 
 #: The directory beneath a role's withheld root that holds the role's vectors.
 VECTORS = "gaps"
 #: The vector's form as written now. In form 1 the configuration digest held every held-out
 #: root's digest, the role's withheld root's among them, which any register line, vector or
 #: trend line changes; from form 2 it holds the protected tiers' only, and whether each role
-#: root's withheld and work roots were named, as ``compare`` does. A form-1 vector is still read,
-#: and refused where it would be compared.
-VECTOR_FORMAT: Literal[2] = 2
+#: root's withheld and work roots were named, as ``compare`` does. From form 3 a held-out vector
+#: leaves out the tasks its version's blind check flagged, and says which (``left_out``). An
+#: earlier form is still read, and refused where it would be compared.
+VECTOR_FORMAT: Literal[3] = 3
 #: The most bytes a vector is read to: a vector of a tier of thousands of tasks is far less.
 MOST_VECTOR_BYTES = 1024 * 1024
 
@@ -60,8 +69,9 @@ class TaskOutcome(_Frozen):
 class GapVector(_Frozen):
     """A protected tier's per-task outcomes, with nothing that names a task."""
 
-    #: 1 or :data:`VECTOR_FORMAT`; it says what ``drift_sha256`` was made from.
-    format: Literal[1, 2]
+    #: 1, 2 or :data:`VECTOR_FORMAT`; it says what ``drift_sha256`` was made from, and whether
+    #: a held-out vector left out what its blind check flagged.
+    format: Literal[1, 2, 3]
     role: Literal["control", "firmware"]
     arm: Literal["harness"]
     tier: Literal["held_out", "validation"]
@@ -76,6 +86,17 @@ class GapVector(_Frozen):
     harness_commits: tuple[Sha1, ...] = Field(min_length=1)
     accounts: tuple[Name, ...]
     tasks: tuple[TaskOutcome, ...] = Field(min_length=1)
+    #: Of a held-out vector from form 3: the tasks its version's check flagged, left out of
+    #: ``tasks``, by digest, with the check record's digest. ``None`` of a validation vector,
+    #: which is counted whole, and of an earlier form's.
+    left_out: LeftOut | None = None
+
+    @model_validator(mode="after")
+    def _says_what_it_left_out(self) -> GapVector:
+        if self.format >= VECTOR_FORMAT and (self.left_out is None) != (self.tier != "held_out"):
+            msg = "a held-out vector says what it left out, and a validation vector leaves none"
+            raise ValueError(msg)
+        return self
 
 
 def vector_key(raw: bytes) -> str:

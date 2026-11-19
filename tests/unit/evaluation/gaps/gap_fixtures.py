@@ -25,6 +25,7 @@ from exposure_fixtures import (  # noqa: E402
     api,
     config,
     harness_run,
+    record_check,
     stand_in_store,
 )
 
@@ -40,6 +41,7 @@ __all__ = [
     "design",
     "measured",
     "record",
+    "record_check",
     "run_on",
     "stand_in_store",
     "write_records",

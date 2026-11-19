@@ -5,6 +5,8 @@ Two records, each written once, as a new file:
 - ``<out>/evaluation/tiers.json``: the tier version the round ran on and each tier's digest,
   as the version's manifest names them (:class:`TiersRecord`). The record a comparison of two
   runs reads beside each to refuse runs on different tiers.
+  A round on a version leaves out the held-out tasks its blind check flagged (it runs none of
+  them), and the record says which (``held_out_left_out``), beside the held-out count.
 - ``<out>/baseline.json``: the round's record (:class:`BaselineRecord`): the tier version and
   digests, the pin set every raw session ran under with its digest, and per tier the trials,
   their outcomes and excluded trials counted, and the caps and tokens spent summed. A
@@ -36,6 +38,7 @@ from pydantic import Field, StringConstraints, model_validator
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.base import Identifier, _Frozen
+from physgate.evaluation.tiers.checks import LeftOut
 from physgate.evaluation.tiers.manifest import TierSet
 from physgate.evaluation.tiers.task import Role, Sha256, canonical_json
 
@@ -59,7 +62,12 @@ class BaselineRecordError(PerRoleError):
 
 
 class TiersRecord(_Frozen):
-    """The tier version a run ran on, and each tier's digest as its manifest names it."""
+    """The tier version a run ran on, and each tier's digest as its manifest names it.
+
+    And the held-out tasks its version's blind check flagged, which the round left out of its
+    held-out count and did not run: two records on one version that left out different tasks
+    are no comparison. Left out of the bytes of a record written before there was any.
+    """
 
     format: Literal[1]
     version: Sha256
@@ -67,6 +75,7 @@ class TiersRecord(_Frozen):
     visible: Sha256
     validation: Sha256
     held_out: Sha256
+    held_out_left_out: LeftOut | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class ExternalSetRecord(_Frozen):
@@ -134,8 +143,11 @@ class BaselineRecord(_Frozen):
         return self
 
 
-def tiers_record(manifest: TierSet) -> TiersRecord:
-    """The tiers record of the version ``manifest`` names, from the manifest's own digests."""
+def tiers_record(manifest: TierSet, left: LeftOut | None = None) -> TiersRecord:
+    """The tiers record of the version ``manifest`` names, from the manifest's own digests.
+
+    ``left``: the held-out tasks its check flagged, which the round left out.
+    """
     return TiersRecord(
         format=1,
         version=manifest.version,
@@ -143,6 +155,7 @@ def tiers_record(manifest: TierSet) -> TiersRecord:
         visible=manifest.visible.sha256,
         validation=manifest.validation.sha256,
         held_out=manifest.held_out.sha256,
+        held_out_left_out=left,
     )
 
 

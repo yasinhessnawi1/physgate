@@ -29,12 +29,12 @@ from physgate.evaluation.per_role.author_session import (
     author,
     blind_check,
 )
-from physgate.evaluation.per_role.validate import id_digest
 from physgate.evaluation.tiers import store as store_module
 from physgate.evaluation.tiers.authoring import TIERS, AuthoringError
 from physgate.evaluation.tiers.canaries import root_canaries
 from physgate.evaluation.tiers.manifest import VERSION_NAME
 from physgate.evaluation.tiers.store import pool_dir
+from physgate.evaluation.tiers.task import id_digest
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.run_config import RunBounds
 from physgate.oslayer.probe import Absent

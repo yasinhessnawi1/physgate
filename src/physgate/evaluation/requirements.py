@@ -37,8 +37,10 @@ is given the spelling on disk.
 
 A reportable or ablation run that names held-out roots is on one version of a tier-set store,
 found by its brief, and is refused unless that version is known, unchanged since the run
-recorded it, not marked exposed by the store's register, and its run directory lies beneath one
-of the run roots the register scans (:func:`.tiers.exposure.version_refusal`). A version the run
+recorded it, not marked exposed by the store's register, has its held-out tier's blind check
+recorded beside it (a held-out tier nobody checked is not scored, so nothing on its version is
+measured), and its run directory lies beneath one of the run roots the register scans
+(:func:`.tiers.exposure.version_refusal`). A version the run
 only withholds, as every run on the role withholds every version, is not one it is on.
 
 These are the evaluation's rules, not the product's: the command's composition root

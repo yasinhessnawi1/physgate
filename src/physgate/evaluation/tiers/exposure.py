@@ -1112,6 +1112,29 @@ def _scan_refusal(
     return None
 
 
+def _check_refusal(store: Path, role: Role, version: str) -> tuple[str, str] | None:
+    """Why a measured run on ``version`` may not be made for want of its blind check; or ``None``.
+
+    A version is measured only once its held-out tier's check is recorded: what the check
+    flagged is left out of every held-out figure, so a version with no record, or one whose
+    record does not read as the version's, has no held-out figure, and no run on it is
+    measured (``held_out_unchecked``, or the record's own reason).
+    """
+    from physgate.evaluation.tiers.checks import CheckError, read_check
+
+    try:
+        record = read_check(store, role, version, manifest=versions(store, role)[version])
+    except CheckError as exc:
+        reason = str(exc.context.get("refused_because", "check_record_unreadable"))
+        return reason, str(exc)
+    if record is None:
+        return "held_out_unchecked", (
+            f"the version {version[:_PREFIX]} the run is on has no record of its blind check: a "
+            "held-out tier nobody checked is not scored, so no run on it is measured"
+        )
+    return None
+
+
 def _inside_a_run(run_dir: Path, roots: Sequence[Path]) -> bool:
     """Whether a directory between ``run_dir`` and the run root it lies beneath holds a run."""
     for root in roots:
@@ -1132,7 +1155,8 @@ def version_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str] 
     digest the run recorded (``tier_digest`` recomputed now); a tier whose version is not what
     its manifest says, or whose manifest names another digest; a brief in no version of the
     stores the run names, or in several; that version marked exposed by the register, freshly
-    scanned; a run directory beneath none of the role's run roots; and the pre-run scan of the
+    scanned; that version with no record of its blind check, or one that does not read as its
+    own; a run directory beneath none of the role's run roots; and the pre-run scan of the
     version's two protected tiers. Nothing but a digest's prefix is said: never a task id or
     content. ``None`` if the run may go on.
     """
@@ -1193,6 +1217,9 @@ def _version_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str]
             f"the version {version[:_PREFIX]} the run is on has been seen; it is no measurement "
             "until a new version is generated"
         )
+    unchecked = _check_refusal(store, role, version)
+    if unchecked is not None:
+        return unchecked
     roots = run_roots(store, role)
     if run_dir is None or not any(run_dir.resolve().is_relative_to(r) for r in roots):
         return "run_outside_run_roots", (

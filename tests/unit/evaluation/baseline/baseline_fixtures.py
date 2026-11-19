@@ -14,7 +14,7 @@ import hashlib
 import json
 import shutil
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -57,6 +57,17 @@ PRICES = "2026-10-16"
 #: measures the binary it runs, so the harness runs record the build the raw session is given.
 BINARY = Path(__file__).resolve()
 BUILT = measure(str(BINARY))
+#: The pins a stand-in check record names.
+CHECK_PINS = {
+    "model": "claude-sonnet-5",
+    "implementer_model": MODEL,
+    "claude_version": "2.1.301",
+    "effort": "high",
+    "max_output_tokens": 64000,
+    "endpoint": "given",
+    "commit": "0" * 40,
+    "clean": True,
+}
 
 
 @dataclass(frozen=True)
@@ -88,13 +99,21 @@ def _marked(i: int) -> dict[str, Any]:
 
 
 def stand_in_store(
-    root: Path, *, marked: bool = False, changes: dict[str, Any] | None = None
+    root: Path,
+    *,
+    marked: bool = False,
+    changes: dict[str, Any] | None = None,
+    checked: bool = True,
+    flagged: Sequence[int] = (),
 ) -> StandInStore:
     """Twenty-four fixture tasks, each with its own brief, split into one version.
 
     ``marked``: every field of task ``i`` but its brief carries :func:`marker` ``(i)``, so
     what of a task reached a place can be found by a plain search. ``changes``: fields every
     task is given in place of its own (a task the schema admits, though its role may not).
+    ``checked``: the version's blind check is recorded beside it, as a check that answered
+    leaves it, flagging the held-out tasks at the places ``flagged`` gives (none by default);
+    without it the version has no check record.
     """
     store = root.resolve() / "store"
     pool = store / "control" / "withheld" / "pool"
@@ -138,7 +157,39 @@ def stand_in_store(
         str(work_root(store, "control")),
         *(str(directory / tier) for tier in TIERS[1:]),
     )
+    if checked:
+        record_check(store, manifest.version, [tasks["held_out"][i].id for i in flagged])
     return StandInStore(store, manifest.version, tasks, canaries, held_out)
+
+
+def record_check(store: Path, version: str, flagged: Sequence[str], **changes: Any) -> Any:  # noqa: ANN401
+    """Record the version's blind check as a check that answered does: ``flagged`` by id.
+
+    ``changes``: fields of the record given in place of the check's own. Returns the record.
+    """
+    from physgate.evaluation.tiers.checks import make_check, write_check
+    from physgate.evaluation.tiers.manifest import read_version
+    from physgate.evaluation.tiers.task import id_digest
+
+    manifest = read_version(store / "control" / version)
+    tasks = manifest.held_out.count
+    fields: dict[str, Any] = {
+        "role": "control",
+        "version": version,
+        "tier": "held_out",
+        "tier_sha256": manifest.held_out.sha256,
+        "source": "check",
+        "checked": "2026-11-19T20:49:00Z",
+        "pins": CHECK_PINS,
+        "session": {"end": "ended", "tokens": 1000, "cap": 500000, "wall_clock_s": 1.5},
+        "tasks": tasks,
+        "all_yes": tasks - len(flagged),
+        "flagged": [id_digest(task) for task in flagged],
+        **changes,
+    }
+    record = make_check(**fields)
+    write_check(store, "control", record)
+    return record
 
 
 def copied(made: StandInStore, copy: Path) -> StandInStore:

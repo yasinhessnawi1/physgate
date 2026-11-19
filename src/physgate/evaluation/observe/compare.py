@@ -24,7 +24,10 @@ run named those two roots is compared all the same (:func:`compared_held_out`): 
 not name them did not withhold what lies there from its sessions. And when
 they were measured on different tier versions: the evaluation's record beside each run,
 ``evaluation/tiers.json``, names the version and each tier's digest; absent from both, nothing
-is held; present in one only, differing, or not a record, the comparison is refused.
+is held; present in one only, differing, or not a record, the comparison is refused. Two
+records of one version that left out different held-out tasks (what the version's blind check
+flagged, ``held_out_left_out``), or of which one left out none, are refused in words of their
+own: their held-out counts are not of one tier.
 
 What an ablation changes on purpose is reported beside the numbers, never
 refused: the gate mode and every other flag, the run's kind, the OS layer, the
@@ -410,7 +413,20 @@ def compare(baseline: Path, candidate: Path) -> SideBySide:
             "the baseline under the candidate's before comparing"
         )
         raise CompareRefusedError(msg, drifted=",".join(drifted))
-    if _tiers(baseline) != _tiers(candidate):
+    ours, others = _tiers(baseline), _tiers(candidate)
+    if (
+        ours is not None
+        and others is not None
+        and (ours.role, ours.version) == (others.role, others.version)
+        and ours.held_out_left_out != others.held_out_left_out
+    ):
+        msg = (
+            "the runs were measured on one tier version but left out different held-out tasks, "
+            "or one left out what its version's check flagged and the other did not: their "
+            "held-out counts are not of one tier, so they are no comparison"
+        )
+        raise CompareRefusedError(msg, drifted=f"{TIERS_RECORD.as_posix()}:held_out_left_out")
+    if ours != others:
         msg = (
             "the runs were measured on different tier versions, or one names a tier version and "
             "the other none: they are no comparison"

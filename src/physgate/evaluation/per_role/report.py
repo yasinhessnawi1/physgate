@@ -38,6 +38,13 @@ reviews, and those that failed. On these tasks the gate checks no control or fir
 performance, so its catches can only be units and magnitudes, and the firmware's timing
 is unchecked by it. The report says both, every time.
 
+**What a version's blind check flagged is left out.** A held-out suite that names its tier
+version is held to that version's check record (:mod:`physgate.evaluation.tiers.checks`): a
+version with none is refused, since a held-out tier nobody checked is not scored; the tasks the
+check flagged, found by the digest of their ids, are left out of the suite's every figure and
+of the gap, and the count and digests left out are printed beside them. A held-out suite that
+names no version is not held to any check.
+
 **A published number is shown beside ours, never against it,** and only with a record of
 its split, protocol and scorer and of how they differ from ours, next to our own raw arm
 on the same split. Without either, the report refuses.
@@ -46,6 +53,7 @@ on the same split. Without either, the report refuses.
 from __future__ import annotations
 
 import statistics
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Annotated, Literal
@@ -60,7 +68,8 @@ from physgate.evaluation.gaps.stats import (
 )
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.base import Identifier, _Frozen
-from physgate.evaluation.tiers.task import Role, TaskId, Tier
+from physgate.evaluation.tiers.checks import CheckRecord, LeftOut, left_out
+from physgate.evaluation.tiers.task import Role, Sha256, TaskId, Tier, id_digest
 
 Arm = Literal["harness", "observe", "raw"]
 #: The arms in the order the report shows them.
@@ -208,6 +217,10 @@ class Suite(_Frozen):
     tasks: tuple[TaskId, ...] = Field(min_length=1)
     arms: tuple[Arm, ...] = Field(min_length=2)
     trials: Annotated[int, Field(ge=1)]
+    #: The tier version the suite's tasks are the tier of, when they are one. A held-out suite
+    #: that names one is held to that version's blind check: it is the whole held-out tier, and
+    #: the tasks the check flagged are left out of every figure of it.
+    version: Sha256 | None = None
 
     @model_validator(mode="after")
     def _is_comparable(self) -> Suite:
@@ -612,7 +625,18 @@ def _firmware_notes(suite: Suite, records: Sequence[TrialRecord]) -> list[str]:
     ]
 
 
-def _suite(design: Design, suite: Suite, records: Sequence[TrialRecord]) -> list[str]:
+def _left_words(left: LeftOut) -> str:
+    """What a held-out suite's figures say beside them of the tasks its check left out."""
+    named = ", ".join(f"`{d}`" for d in left.digests) or "none"
+    return (
+        f"Held-out tasks left out as the version's blind check flagged: {left.count} "
+        f"({named}; check record `{left.check_sha256[:16]}`)."
+    )
+
+
+def _suite(
+    design: Design, suite: Suite, records: Sequence[TrialRecord], left: LeftOut | None = None
+) -> list[str]:
     lines = [
         f"### {suite.label}",
         "",
@@ -620,6 +644,8 @@ def _suite(design: Design, suite: Suite, records: Sequence[TrialRecord]) -> list
         f"trials per arm.",
         "",
     ]
+    if left is not None:
+        lines += [_left_words(left), ""]
     lines += _headline(design, suite, records)
     lines += ["", *_contrasts(design, suite, records), ""]
     lines += [*_catches(suite, records), ""]
@@ -631,7 +657,12 @@ def _suite(design: Design, suite: Suite, records: Sequence[TrialRecord]) -> list
     return [*lines, ""]
 
 
-def _gaps(design: Design, role: Role, by_suite: Mapping[str, list[TrialRecord]]) -> list[str]:
+def _gaps(
+    design: Design,
+    role: Role,
+    by_suite: Mapping[str, list[TrialRecord]],
+    left: Mapping[str, LeftOut] | None = None,
+) -> list[str]:
     own = [s for s in design.suites if s.role == role]
     visible = [s for s in own if s.tier == "visible"]
     held = [s for s in own if s.tier == "held_out"]
@@ -661,11 +692,13 @@ def _gaps(design: Design, role: Role, by_suite: Mapping[str, list[TrialRecord]])
                 f"{_span(low, high)} points",
             ]
         )
+    beside = (left or {}).get(unseen.name)
     return [
         "### Reward-hacking gap: visible minus held-out",
         "",
         *_table(["Arm", "Visible", "Held-out", "Gap", "Task-cluster bootstrap 95 %"], rows),
         "",
+        *([_left_words(beside), ""] if beside is not None else []),
     ]
 
 
@@ -700,14 +733,80 @@ def _beside(design: Design, by_suite: Mapping[str, list[TrialRecord]]) -> list[s
     return lines
 
 
-def render(design: Design, records: Sequence[TrialRecord]) -> str:
+def leave_out(
+    design: Design,
+    records: Sequence[TrialRecord],
+    checks: Mapping[str, CheckRecord] | None = None,
+) -> tuple[Design, list[TrialRecord], dict[str, LeftOut]]:
+    """The design and records with what each held-out suite's version's check flagged left out.
+
+    A held-out suite that names a version is held to that version's check record in
+    ``checks`` (by version id): with none it is refused (a held-out tier nobody checked is not
+    scored); it must be the whole tier the record checked (as many tasks), and each task the
+    record flags exactly one of its tasks, by the digest of its id. Those tasks, and every
+    record of them, are left out; what was left out is returned by suite. A held-out suite
+    that names no version, and every other suite, is as the design has it.
+
+    Raises:
+        ReportError: a held-out suite's version has no check record, or the record is another
+            role's, another tier's or leaves no task; nothing is named but by digest.
+    """
+    left: dict[str, LeftOut] = {}
+    suites: list[Suite] = []
+    dropped: set[tuple[str, str]] = set()
+    for suite in design.suites:
+        if suite.tier != "held_out" or suite.version is None:
+            suites.append(suite)
+            continue
+        record = (checks or {}).get(suite.version)
+        if record is None:
+            msg = (
+                f"the suite {suite.name!r} is of version {suite.version[:8]}, which has no record "
+                "of its blind check: a held-out tier nobody checked is not scored"
+            )
+            raise ReportError(msg, suite=suite.name, refused_because="held_out_unchecked")
+        by_digest = Counter(id_digest(task) for task in suite.tasks)
+        if (
+            record.role != suite.role
+            or record.version != suite.version
+            or record.tasks != len(suite.tasks)
+            or any(by_digest[digest] != 1 for digest in record.flagged)
+        ):
+            msg = (
+                f"the suite {suite.name!r} is not the held-out tier its version's check record "
+                "checked: another role, another count, or a flagged task that is not one of it"
+            )
+            raise ReportError(msg, suite=suite.name, refused_because="check_record_not_the_suite")
+        flagged = set(record.flagged)
+        kept = tuple(task for task in suite.tasks if id_digest(task) not in flagged)
+        if not kept:
+            msg = f"the suite {suite.name!r} has no task its version's check did not flag"
+            raise ReportError(msg, suite=suite.name, refused_because="nothing_counted")
+        suites.append(suite.model_copy(update={"tasks": kept}))
+        dropped |= {(suite.name, task) for task in suite.tasks if id_digest(task) in flagged}
+        left[suite.name] = left_out(record)
+    kept_records = [r for r in records if (r.suite, r.task) not in dropped]
+    return design.model_copy(update={"suites": tuple(suites)}), kept_records, left
+
+
+def render(
+    design: Design,
+    records: Sequence[TrialRecord],
+    *,
+    checks: Mapping[str, CheckRecord] | None = None,
+) -> str:
     """The report of ``records`` under ``design``, as Markdown.
+
+    A held-out suite that names its version leaves out what the version's check record in
+    ``checks`` flagged, and says so beside its figures and its gap (:func:`leave_out`).
 
     Raises:
         ReportError: the records are not every trial the design registered, once each; a
-            published number lacks its record or our raw arm beside it; or one arm's cost
-            mixes a billed price with an estimate.
+            published number lacks its record or our raw arm beside it; one arm's cost
+            mixes a billed price with an estimate; or a held-out suite's version has no check
+            record, or is not the tier the record checked.
     """
+    design, records, left = leave_out(design, records, checks)
     by_suite = complete(design, records)
     require_comparable(design)
     lines = [
@@ -728,7 +827,7 @@ def render(design: Design, records: Sequence[TrialRecord]) -> str:
             lines.append(f"> {FIRMWARE_TIMING}")
         lines.append("")
         for suite in suites:
-            lines += _suite(design, suite, by_suite[suite.name])
-        lines += _gaps(design, role, by_suite)
+            lines += _suite(design, suite, by_suite[suite.name], left.get(suite.name))
+        lines += _gaps(design, role, by_suite, left)
     lines += _beside(design, by_suite)
     return "\n".join(lines).rstrip("\n") + "\n"

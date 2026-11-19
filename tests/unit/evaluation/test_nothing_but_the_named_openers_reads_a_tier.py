@@ -61,6 +61,9 @@ NAMED: dict[str, str] = {
     # The isolation probe.
     "physgate.evaluation.tiers.probe:probe_version": "the probe: the held-out tier, read once",
     "physgate.evaluation.tiers.probe:_tasks": "the probe: the held-out tasks it scores",
+    # The blind check's record, imported once from an earlier check's printed answer.
+    "physgate.evaluation.tiers.checks:import_check": "the version an imported answer is held to",
+    "physgate.evaluation.tiers.checks:_held_out_digests": "each held-out id's digest, counted",
     # The author session and the blind check.
     "physgate.evaluation.per_role.author_session:author": "the author's protected tiers' places",
     "physgate.evaluation.per_role.author_session:blind_check": "the blind check of a version",

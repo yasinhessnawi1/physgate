@@ -8,7 +8,10 @@ and this module reaches it only when a command runs.
 reader reads it (its manifest held to the bytes on disk) and prints, for each, its state:
 ``fresh``, ``stale`` (which tiers, and why: a changed author brief or requirements source),
 or ``refused`` (the version is not what its manifest says, and why). Beside each, the tiers'
-counts and digests, the model, the seed and the date; and for the store, what only a split in
+counts and digests, the model, the seed and the date, and its blind check (``check``): the
+record's counts (tasks, all three answers yes, flagged) and whether the check wrote it or it
+was imported; ``null`` where the version has none, and so is not scored on its held-out tier;
+or why the record is refused. Never a flagged task's digest. And for the store, what only a split in
 progress holds (pools, versions being written) and records of a session's work out of a role's
 root, counted. Never a task id, a brief or a canary. It exits 1 if a version is refused or the
 store holds a split's leftovers or work left; and if the store cannot be read, it prints one
@@ -100,6 +103,7 @@ def status(store: Path) -> dict[str, Any]:
         ExposureError: a role's register, its run roots or what they hold cannot be read whole.
     """
     from physgate.evaluation.tiers.authoring import TIERS
+    from physgate.evaluation.tiers.checks import CheckError, counts, read_check
     from physgate.evaluation.tiers.exposure import ExposureError, exposure_sources
     from physgate.evaluation.tiers.manifest import VERSION_NAME, TierSetError, read_version
     from physgate.evaluation.tiers.manifest import staleness as stale
@@ -134,6 +138,12 @@ def status(store: Path) -> dict[str, Any]:
                 continue
             found = stale(manifest)
             stale_tiers, because = list(found.tiers), list(found.because)
+            check: dict[str, Any] | None
+            try:
+                record = read_check(store, role, name, manifest=manifest)
+                check = None if record is None else counts(record)
+            except CheckError as exc:
+                check = {"refused_because": exc.context.get("refused_because", "unreadable")}
             if name in exposed:
                 stale_tiers = sorted({*stale_tiers, "held_out"})
                 # Nobody looked, apart from a confirmed read: both keep the version unmeasured.
@@ -150,6 +160,7 @@ def status(store: Path) -> dict[str, Any]:
                     "model": manifest.model,
                     "seed": manifest.seed,
                     "generated": manifest.generated,
+                    "check": check,
                 }
             )
     return {"versions": versions, "left": leftovers(store)}

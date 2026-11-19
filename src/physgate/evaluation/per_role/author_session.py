@@ -55,7 +55,8 @@ keys is no answer. It is held to the store and the canaries as the author is: it
 looking for every canary under the role's root, and a check whose stream showed one (or
 cannot say it did not), or under whose root they grew while it ran, gives no answer. Its
 stream is kept under the withheld root as well. What leaves is counts and the digests of the
-tasks with a ``false``.
+tasks with a ``false``, and the same, with the checking model and its pins, as the version's
+check record beside it (:mod:`.tiers.checks`): written once, so a version is checked once.
 
 Both are tested against the scripted endpoint; a real session is started by a person.
 """
@@ -74,14 +75,16 @@ import threading
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, RootModel, ValidationError
 
 from physgate.evaluation.per_role.arms.raw import WATCH_FAILURES, RawSetup, run_session
+from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.firmware.sandbox import open_directory
-from physgate.evaluation.per_role.validate import id_digest, refusal_reasons, sound, validate
+from physgate.evaluation.per_role.validate import refusal_reasons, sound, validate
 from physgate.evaluation.tiers.authoring import (
     PER_TIER,
     TIERS,
@@ -90,7 +93,8 @@ from physgate.evaluation.tiers.authoring import (
     require_author_model,
 )
 from physgate.evaluation.tiers.canaries import names_a_list, store_canaries
-from physgate.evaluation.tiers.manifest import VERSION_NAME, read_version
+from physgate.evaluation.tiers.checks import CheckError, make_check, read_check, write_check
+from physgate.evaluation.tiers.manifest import VERSION_NAME, TierSet, read_version
 from physgate.evaluation.tiers.store import (
     AUTHOR_EVIDENCE,
     CHECK_EVIDENCE,
@@ -113,7 +117,7 @@ from physgate.evaluation.tiers.store import (
     work_root,
     write_version,
 )
-from physgate.evaluation.tiers.task import Role, canonical_json, fold_id, load_task
+from physgate.evaluation.tiers.task import Role, canonical_json, fold_id, id_digest, load_task
 from physgate.hooks.withheld import survey
 
 _READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
@@ -1225,11 +1229,19 @@ def blind_check(
     *,
     implementer_model: str,
     cap: int,
+    commit: str | None = None,
+    clean: bool | None = None,
 ) -> dict[str, Any]:
     """Run the blind check on a version's held-out tier; counts and the flagged tasks' digests.
 
     The version is read as every reader reads it, its manifest held to the bytes on disk
-    (:func:`.tiers.manifest.read_version`). The check is held to the canaries under every
+    (:func:`.tiers.manifest.read_version`). A version is checked once: one that has a check
+    record is refused before the session starts (``check_recorded``). A check that answers
+    leaves its answer as the version's check record beside the version (:mod:`.tiers.checks`):
+    the counts, the flagged tasks' digests, the checking model and its pins (``commit`` and
+    ``clean``, the harness checkout it ran from, when the caller knows them) and when it ran;
+    what it returns names the version and the record's digest. A check that gives no answer
+    leaves no record. The check is held to the canaries under every
     role's root in the store, as an author is (:func:`.tiers.canaries.store_canaries`): it runs
     only looking for every one of them, and its answer is taken only when its record says none
     showed in its stream and none came under any of them while it ran. Its stream is kept
@@ -1264,7 +1276,8 @@ def blind_check(
             there holds none, the session would not look for every canary the root names, or
             (its answer not taken, ``refused_because`` says why) its stream showed one, the
             root's canaries changed while it ran, or the role's root changed
-            (``version_changed``, ``role_root_changed``).
+            (``version_changed``, ``role_root_changed``); the version has a check record, or
+            its record cannot be read; or its answer cannot be recorded.
         TierSetError: the version is not what its manifest says.
         PerRoleError: a task in the tier does not load.
     """
@@ -1303,7 +1316,8 @@ def blind_check(
         raise AuthoringError(refusal[1], refused_because=refusal[0], store=str(store))
     _require_no_work_left(root)
     _require_nothing_left(store)
-    read_version(version_dir(store, role, version))
+    manifest = read_version(version_dir(store, role, version))
+    _require_unchecked(store, role, version, manifest)
     canaries = store_canaries(store)
     _require_looking(canaries, setup)
     tasks = bundle(tier)
@@ -1332,13 +1346,67 @@ def blind_check(
     if answers is None:
         return {"tasks": len(tasks), "answered": False, "session": _spent(record)}
     flagged = sorted(key for key, a in answers.items() if not all(getattr(a, q) for q in QUESTIONS))
+    try:
+        kept = make_check(
+            role=role,
+            version=version,
+            tier="held_out",
+            tier_sha256=manifest.held_out.sha256,
+            source="check",
+            checked=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            pins={
+                "model": setup.model,
+                "implementer_model": implementer_model,
+                "claude_version": setup.claude_version,
+                "effort": setup.effort,
+                "max_output_tokens": setup.max_output_tokens,
+                "endpoint": "default" if setup.base_url is None else "given",
+                "commit": commit,
+                "clean": clean,
+            },
+            session=_spent(record),
+            tasks=len(tasks),
+            all_yes=len(tasks) - len(flagged),
+            flagged=flagged,
+        )
+        write_check(store, role, kept)
+    except PerRoleError as exc:
+        reason = exc.context.get("refused_because", "check_record_unwritten")
+        msg = f"the check's answer could not be recorded beside the version: {exc}"
+        raise AuthoringError(msg, refused_because=reason) from None
     return {
         "tasks": len(tasks),
         "answered": True,
         "all_yes": len(tasks) - len(flagged),
         "flagged": flagged,
         "session": _spent(record),
+        "version": version,
+        "record": kept.sha256,
     }
+
+
+def _require_unchecked(store: Path, role: Role, version: str, manifest: TierSet) -> None:
+    """Refuse a check of a version that has a check record, or one that cannot be read.
+
+    A version is checked once. Running a check again until it passes is what the record is
+    there to stop, so a second check is refused before its session starts, at no cost.
+
+    Raises:
+        AuthoringError: the version has a record (``check_recorded``), or its record refuses as
+            read (its own reason).
+    """
+    try:
+        earlier = read_check(store, role, version, manifest=manifest)
+    except CheckError as exc:
+        reason = exc.context.get("refused_because", "check_record_unreadable")
+        msg = f"the version's check record cannot be read ({exc}); no second check is made"
+        raise AuthoringError(msg, refused_because=reason) from None
+    if earlier is not None:
+        msg = (
+            f"the version {version[:8]} has been checked already: a version's held-out tier is "
+            "checked once, and a check is never run again to get another answer"
+        )
+        raise AuthoringError(msg, refused_because="check_recorded")
 
 
 __all__ = [
