@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 from design_review_rig import ROLES, config, outcome, target_repo
-from knowledge_fixture import FIXTURE_ROLES, write_fixture
+from knowledge_fixture import FIXTURE_ROLES, fixture_text, write_fixture
 from orch_helpers import CLEAN_HARNESS
 
 from physgate.knowledge import loader
@@ -411,6 +411,21 @@ def test_under_skills_off_a_dropped_stash_holding_a_skill_file_is_refused(tmp_pa
     _nowhere_at_the_start(repo)
     refused = _refusal(tmp_path, repo)
     assert refused.context.get("where") == "unreachable objects", refused.context
+
+
+def test_under_skills_off_the_library_s_skill_bytes_under_another_path_are_refused(
+    tmp_path: Path,
+) -> None:
+    # A renamed copy of the skill as the library holds it now: no path says what it is, its
+    # bytes do.
+    repo = target_repo(tmp_path)
+    copy = repo / "notes" / "copied.md"
+    copy.parent.mkdir()
+    copy.write_text(fixture_text(loader.DEFAULT_ROOT / ROLES[0] / loader.SKILL_NAME))
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a note")
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "object store", refused.context
 
 
 def test_under_skills_off_a_fresh_clone_of_a_target_with_history_starts(tmp_path: Path) -> None:
