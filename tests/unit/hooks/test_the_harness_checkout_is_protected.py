@@ -21,9 +21,14 @@ from typing import Any
 import pytest
 from hook_helpers import event, volume_is_case_insensitive
 
-from physgate.hooks.config import HookInput
+from physgate.hooks.config import HookInput, ProtectedRoot
 from physgate.hooks.paths import pre_tool_use, protection, read_refused
-from physgate.hooks.reasons import HARNESS_REASON
+from physgate.hooks.reasons import (
+    HARNESS_REASON,
+    SENTINEL_APART_REASON,
+    WITHHELD_REASON,
+    WITHHELD_WHOLE_REASON,
+)
 from physgate.hooks.settings import (
     HARNESS_REVERTED,
     InstallRequest,
@@ -248,3 +253,52 @@ def test_the_orchestrators_startup_files_are_watched_and_nothing_else_in_its_env
     # A new startup file of any name, and an existing one, are refused before a write.
     for rel in ("zz_new.pth", "sitecustomize.py", "usercustomize.py", "x.pth"):
         assert protection(str(site / rel), str(tmp_path / "worktree"), config, writing=True)
+
+
+#: The roots whose files the sentinel keeps no byte of (sealed), each as a root of its own nested
+#: inside the harness checkout: what the harness's own exemption from sealing must never shadow.
+SEALING = [
+    pytest.param(WITHHELD_REASON, "revert", id="a withheld record"),
+    pytest.param(SENTINEL_APART_REASON, "none", id="the sentinel's place apart"),
+    pytest.param(WITHHELD_WHOLE_REASON, "none", id="a root withheld whole"),
+]
+
+
+@pytest.mark.parametrize(("reason", "watch"), SEALING)
+def test_a_sealing_root_inside_the_checkout_keeps_its_own_reason_whichever_is_listed_first(
+    tmp_path: Path, reason: str, watch: str
+) -> None:
+    # Built by hand, past the installer, which refuses such a nesting: the matcher alone must
+    # hold, whatever order the roots come in.
+    harness = _harness(tmp_path)
+    nested = harness / "run" / "records"
+    nested.mkdir(parents=True)
+    (nested / "record.json").write_text("{}\n")
+    config = build_config(_request(tmp_path, harness_root=str(harness)), current_installation())
+    sealing = ProtectedRoot(path=str(nested), reason=reason, watch=watch, reads="denied")  # type: ignore[arg-type]
+    roots = [r for r in config.protected_roots if r.path == str(harness)]
+    for order in ((*roots, sealing), (sealing, *roots)):
+        ordered = config.model_copy(update={"protected_roots": order})
+        target = str(nested / "record.json")
+        assert protection(target, str(tmp_path / "worktree"), ordered, writing=False) == reason, (
+            "the harness checkout's reason shadows a sealing root nested inside it"
+        )
+        assert read_refused(target, ordered), (
+            "the sentinel keeps the bytes of a sealed file because it lies in the harness checkout"
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["withheld", "sentinel_apart", "withheld_whole", "sessions_root"],
+)
+def test_a_run_place_inside_the_checkout_is_refused_at_install(tmp_path: Path, field: str) -> None:
+    harness = _harness(tmp_path)
+    inside = str(harness / "runs" / "r1" / field)
+    value: object = (inside,) if field in ("withheld", "withheld_whole") else inside
+    extra: dict[str, Any] = {"own_place": str(tmp_path)} if field == "withheld_whole" else {}
+    with pytest.raises(ValueError, match="inside the harness checkout"):
+        build_config(
+            _request(tmp_path, harness_root=str(harness), **{field: value}, **extra),
+            current_installation(),
+        )
