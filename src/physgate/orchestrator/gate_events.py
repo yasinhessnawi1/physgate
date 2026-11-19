@@ -52,6 +52,7 @@ from physgate.orchestrator.events import (
     IntegrationGateRan,
     Resumed,
     ReviewRan,
+    RunStarted,
     SessionEnded,
     WriteDone,
     read_events,
@@ -111,6 +112,14 @@ class GateEvent(BaseModel):
     #: The attempt that review reviewed.
     reviewed_subtask: NonEmptyStr | None
     reviewed_attempt: Annotated[int, Field(ge=1)] | None
+    #: The run's ablation arms, as its opening line names them, so a count never reads an arm's
+    #: runs as the full harness's. Each is left out where the run kept that component, so a
+    #: full harness run's line keeps its bytes.
+    reviewers: Literal["generalist", "off"] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    skills: Literal["off"] | None = Field(default=None, exclude_if=lambda v: v is None)
+    hooks: Literal["off"] | None = Field(default=None, exclude_if=lambda v: v is None)
 
     @model_validator(mode="after")
     def _a_verdict_names_its_review(self) -> GateEvent:
@@ -168,6 +177,7 @@ def _derived(events: Iterable[Event], manifest_id: str) -> Iterator[tuple[GateEv
     come from two different walks of the log.
     """
     log = list(events)
+    opening = next((e for e in log if isinstance(e, RunStarted)), None)
     for index, event in enumerate(log):
         if isinstance(event, GateRan):
             subtask, attempt = event.subtask_id, event.attempt
@@ -213,6 +223,9 @@ def _derived(events: Iterable[Event], manifest_id: str) -> Iterator[tuple[GateEv
                     review_seq=None if review is None else review.seq,
                     reviewed_subtask=None if review is None else review.subtask_id,
                     reviewed_attempt=None if review is None else review.attempt,
+                    reviewers=opening.reviewers if opening is not None else None,
+                    skills=opening.skills if opening is not None else None,
+                    hooks=opening.hooks if opening is not None else None,
                 ),
                 record,
             )

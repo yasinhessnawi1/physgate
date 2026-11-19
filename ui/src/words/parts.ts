@@ -5,6 +5,7 @@
  * Plain words: no command, no record's raw field, and never more than the run does.
  */
 import type { PartsPosition, StatedPart } from "../api/queue";
+import { countOf } from "./count";
 import { quantityLabel } from "./humanise";
 
 /** Each choice as its radio button names it, and the line under it. */
@@ -37,10 +38,26 @@ export const PARTS_COPY = {
   addText: "Add a text",
   record: "Record this choice…",
   fixProblems: "Correct what is listed above first.",
-  findAll:
-    "Finding every remaining part in one step is not offered on this page yet: it is done from " +
-    "the command line. Here, choose Find it on each part you do not state.",
+  findAllLead:
+    "Or find every part still open in one step: each is sourced and sized as before, and you " +
+    "state nothing of any. A part raised again is left as it is.",
+  findAllLabel: "Find every remaining part…",
+  findAllTitle: "Record that every remaining part is to be found?",
+  findAllCheck:
+    "that each item is still the one shown (its digest is in its line), one part at a time in " +
+    "the queue's order; the first part the server refuses stops the rest, and those before it " +
+    "stay recorded",
+  findAllOutcome: "Each part is sourced and sized as before.",
+  findAllWritten:
+    "None can be edited or undone; each item closes. Each time is stamped when it is written.",
+  findAllSending: "Recording each part in turn…",
+  findAllTime: "‹the time it is written›",
+  noOperator: "no operator: this page names none",
   raisedTitle: "The physics gate stopped this part at the release",
+  raisedTitleInterface:
+    "At the release, an interface the design produced holds another value than one stated for " +
+    "this part",
+  raisedTitleUnread: "This part was raised again at the release",
   raisedRule:
     "Choose I have it or I will make it again, and state every value you stated before, with " +
     "the value it now has. Find it is not offered: the values are already on the part's node.",
@@ -102,4 +119,24 @@ export function statedWords(stated: StatedPart): string {
   );
   const texts = stated.texts.map((t) => `"${t}"`);
   return [...values, ...texts].join("; ");
+}
+
+/** What the find-all confirmation records, naming each part: `"A", "B"`. */
+export function findAllSummary(who: string, labels: readonly string[]): string {
+  return `This records: ${who} chose "${CHOICE_WORDS.find.label}" for ${countOf(labels.length, "part")}: ${labels.map((l) => `"${l}"`).join(", ")}.`;
+}
+
+/** Where the find-all's lines go. */
+export function findAllLines(n: number, runId: string): string {
+  return `${n === 1 ? "One line" : `${String(n)} lines, one per part,`} appended to queue_decisions.jsonl in run ${runId}.`;
+}
+
+/** Every remaining part recorded as to be found. */
+export function foundAllWords(n: number, by: string): string {
+  return `Recorded "choose find" for ${countOf(n, "part")} by ${by}.`;
+}
+
+/** The find-all stopped by a refusal: how many were recorded before it. */
+export function foundAllStoppedWords(recorded: number, of: number): string {
+  return `${String(recorded)} of ${countOf(of, "part")} were recorded as to be found before the server refused the next, and nothing was written for it or any after it:`;
 }

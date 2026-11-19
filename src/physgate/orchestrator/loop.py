@@ -112,6 +112,7 @@ from physgate.orchestrator.events import (
     ReleasedPart,
     Resumed,
     ReviewRan,
+    ReviewSkipped,
     ReviewUnavailable,
     SessionEnded,
     SessionFinding,
@@ -919,6 +920,7 @@ class Loop:
                         usage=message.usage,
                         partial=not left.complete,
                         abandoned=message.abandoned,
+                        in_binary_totals=message.in_binary_totals,
                     )
                 )
         for cause, detail in found if len(found) > 1 else ():
@@ -1921,6 +1923,7 @@ class Loop:
                     message_id=message.message_id,
                     usage=message.usage,
                     abandoned=message.abandoned,
+                    in_binary_totals=message.in_binary_totals,
                 )
             )
         env = self._env()
@@ -2827,6 +2830,17 @@ class Loop:
             artefact = artefact.model_copy(update={"parts_record": record})
         self._environment_before_a_spawn()
         self._stage(subtask_id, attempt, "review")
+        if self.config.reviewers == "off":
+            # An ablation run's arm: no reviewer is invoked, and the gate's result alone decides.
+            # The gate's order above is every value's, so an attempt it refused under on never
+            # reaches this stage, and the merge below is held to the same gate condition.
+            self._emit(
+                ReviewSkipped(
+                    **self._env(), subtask_id=subtask_id, attempt=attempt, reason="reviewers=off"
+                )
+            )
+            self._stage(subtask_id, attempt, "decide")
+            return self._merge_attempt(subtask_id, attempt)
         reviewer = self._reviewers[role]
         # The implementer's model is read from the run's record on disk, never from the
         # configuration object this loop was handed: what the check compares must be
@@ -2840,6 +2854,13 @@ class Loop:
         if review.reviewer_model != reviewer.model:
             msg = "a reviewer reported a model other than the one it is pinned to"
             raise ReviewerNotRegisteredError(msg, role=role, reported=review.reviewer_model)
+        arm_s = "generalist" if self.config.reviewers == "generalist" else "paired"
+        if (review.rubric_kind or "paired") != arm_s:
+            # Before any line of the review: a verdict of another arm's rubric is not this run's.
+            msg = "a reviewer judged with a rubric other than the one the run's reviewers name"
+            raise ReviewerNotRegisteredError(
+                msg, role=role, reviewers=self.config.reviewers, rubric=str(review.rubric_kind)
+            )
         for message in review.usage:
             self._emit(
                 TokensUsed(
@@ -2849,6 +2870,7 @@ class Loop:
                     usage=message.usage,
                     compaction=message.compaction,
                     abandoned=message.abandoned,
+                    in_binary_totals=message.in_binary_totals,
                 )
             )
         # An earlier attempt is judged only where the verdict confirmed or dismissed every one of
@@ -2995,7 +3017,9 @@ class Loop:
         """
         sub = self.state.subtasks[subtask_id]
         now = sub.attempts[-1]
-        line = require_mergeable(self.ledger.path, subtask_id, self.config.gate_mode)
+        line = require_mergeable(
+            self.ledger.path, subtask_id, self.config.gate_mode, self.config.reviewers
+        )
         changes = now.changes
         if changes is None:
             msg = "a merge with no recorded change check"
@@ -3087,6 +3111,7 @@ class Loop:
                             usage=message.usage,
                             compaction=message.compaction,
                             abandoned=message.abandoned,
+                            in_binary_totals=message.in_binary_totals,
                         )
                     )
                 self._halt_for(subtask_id, "held_out_read")
@@ -3101,6 +3126,7 @@ class Loop:
                             usage=message.usage,
                             compaction=message.compaction,
                             abandoned=message.abandoned,
+                            in_binary_totals=message.in_binary_totals,
                         )
                     )
                 if self._review_held(subtask_id, exc.session_id, exc.managed):
@@ -3161,6 +3187,7 @@ class Loop:
                         usage=message.usage,
                         compaction=message.compaction,
                         abandoned=message.abandoned,
+                        in_binary_totals=message.in_binary_totals,
                     )
                 )
         detail = f"review session {session_id or 'none'} {changed}"

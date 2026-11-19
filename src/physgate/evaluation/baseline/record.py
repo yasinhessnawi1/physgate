@@ -94,7 +94,12 @@ class TierCounts(_Frozen):
     #: Trials whose own records said not to take them; never a pass or a fail.
     excluded: Count
     cap: Count
+    #: The tokens the sessions' records count, as the run's account counts them.
     spent: Count
+    #: The tokens of responses the binary cut short that its totals left out: in no session's
+    #: count, their billing unknown. Where it is above 0, ``spent`` is a lower bound by up to
+    #: that much. Left out of a tier with none, so such a tier keeps its bytes.
+    spent_not_in_binary_totals: Count = Field(default=0, exclude_if=lambda v: not v)
 
 
 class BaselineRecord(_Frozen):

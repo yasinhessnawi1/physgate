@@ -320,14 +320,18 @@ BEFORE_THE_SWITCH: dict[str, str | bool] = {
 #: the register names is refused at a run's configuration. Each reads as the first for a run
 #: recorded before the switch existed.
 BUILT: dict[str, tuple[str, ...]] = {
-    "reviewers": ("paired",),
+    "reviewers": ("paired", "generalist", "off"),
     "skills": ("on", "off"),
     "hooks": ("on", "off"),
 }
 
 #: The values a run takes only as an ablation run, by the flag's name: each removes a component
 #: of the harness, so the product never sets one and no reportable number is measured under one.
-ABLATION_ONLY: dict[str, tuple[str, ...]] = {"skills": ("off",), "hooks": ("off",)}
+ABLATION_ONLY: dict[str, tuple[str, ...]] = {
+    "reviewers": ("generalist", "off"),
+    "skills": ("off",),
+    "hooks": ("off",),
+}
 
 
 class RunConfig(_Frozen):

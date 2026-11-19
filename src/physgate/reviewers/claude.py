@@ -54,10 +54,10 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from physgate.flags import ReviewCompaction
+from physgate.flags import ReviewCompaction, Reviewers
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
 from physgate.lines import split_lines
-from physgate.orchestrator.accounting import compaction_line
+from physgate.orchestrator.accounting import compaction_line, settle
 from physgate.orchestrator.budget import (
     PROMPT_TOO_LONG,
     STRUCTURED_OUTPUT_EXHAUSTED,
@@ -149,6 +149,7 @@ from physgate.reviewers.rubric import (
     Rubric,
     RubricItem,
     RubricKind,
+    generalist_of,
     load_rubric,
     not_evaluable_needs,
 )
@@ -917,7 +918,8 @@ class ClaudeReviewer:
         # The scan and the totals are held to the same bytes.
         captured = read_captured(stdout, data)
         result = captured.result
-        usage = (*prior, *captured.usage)
+        # Each cut response marked as the totals count it, on every invocation's lines alike.
+        usage = settle(result, (*prior, *captured.usage))
         exposed = canary_seen(data, frozenset(self._setup.held_out_canaries))
         text = data.decode(errors="replace")
         here = compactions_in(text)
@@ -1299,6 +1301,10 @@ class ReviewerSetup:
     #: Whether a review session may compact its conversation (the run's ``review_compaction``,
     #: ARCH-060). ``off``, as every review before the flag, unless the run says otherwise.
     review_compaction: ReviewCompaction = "off"
+    #: Who reviews the role work (the run's ``reviewers``): each role's paired specialist, or,
+    #: in an ablation run, the generalist rubric of it on the same pin. ``paired``, as every
+    #: review before the switch, unless the run says otherwise.
+    reviewers: Reviewers = "paired"
 
     @classmethod
     def of_run(
@@ -1337,6 +1343,7 @@ class ReviewerSetup:
             held_out=config.held_out,
             held_out_canaries=config.held_out_canaries,
             review_compaction=config.review_compaction,
+            reviewers=config.reviewers,
         )
 
 
@@ -1360,8 +1367,10 @@ def claude_reviewers(setup: ReviewerSetup) -> dict[str, Reviewer]:
 
     Each with its role's rubric, loaded once, here, before anything is reviewed: a
     rubric that is missing, malformed, or not its last promoted version stops the
-    run before it starts. A role with no pinned reviewer model gets none, and the
-    run's own check of its registrations refuses it.
+    run before it starts. Under ``reviewers: generalist`` each judges with the generalist rubric
+    made from that paired one by code (:func:`generalist_of`), on the same pin; the packet of a
+    generalist rubric holds none of the role's own library files. A role with no pinned reviewer
+    model gets none, and the run's own check of its registrations refuses it.
 
     Raises:
         ReviewerNotRegisteredError: a role's rubric does not load, or ``review_compaction: on``
@@ -1372,6 +1381,8 @@ def claude_reviewers(setup: ReviewerSetup) -> dict[str, Reviewer]:
     for role in sorted(setup.models):
         try:
             rubric = load_rubric(setup.library / KNOWLEDGE_ROOT, role)
+            if setup.reviewers == "generalist":
+                rubric = generalist_of(rubric)
         except ReviewError as exc:
             msg = f"every role needs a paired reviewer, and this one's rubric does not load: {exc}"
             raise ReviewerNotRegisteredError(msg, **{**exc.context, "role": role}) from None

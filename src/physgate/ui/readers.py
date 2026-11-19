@@ -384,8 +384,10 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
 def tokens(context: Context, params: Mapping[str, str]) -> Response:
     """The token account: per attribution, per kind of spender, and the run's total.
 
-    Beside them, per attribution, the usage of responses the binary cut short: recorded, in
-    none of these figures and none of the binary's totals, and with its billing unknown.
+    Beside them, per attribution, the usage of responses the binary cut short: those its totals
+    leave out, in none of these figures and with their billing unknown; and those its totals
+    count, in these figures as in the totals, listed so that what they streamed is seen to be in
+    no figure.
     """
     run_dir = run_dir_of(context, params)
     account = TokenAccount.from_events(read_events(_file(context, run_dir, EVENTS)))
@@ -399,6 +401,7 @@ def tokens(context: Context, params: Mapping[str, str]) -> Response:
             "by_kind": dumped(account.by_kind()),
             "total": _model(account.total()),
             "not_in_binary_totals_billing_unknown": dumped(account.abandoned()),
+            "cut_short_in_binary_totals": dumped(account.cut_in_binary_totals()),
         }
     )
 

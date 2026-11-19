@@ -29,8 +29,9 @@ from knowledge_fixture import build_fixture_library  # noqa: E402
 from physgate.orchestrator.decompose import start_run  # noqa: E402
 from physgate.orchestrator.run_config import load_run_config  # noqa: E402
 
-#: The runs the parts decision's browser tests read: one only looked at, one decided and driven.
-PARTS_RUNS = ("run-parts-view", "run-parts-decide")
+#: The runs the parts decision's browser tests read: one only looked at, one decided and driven,
+#: and one whose every part is found in one step.
+PARTS_RUNS = ("run-parts-view", "run-parts-decide", "run-parts-find")
 
 
 def _target(out: Path, name: str) -> Path:

@@ -612,6 +612,7 @@ class RunRecord:
                 message_id=message.message_id,
                 usage=message.usage,
                 abandoned=message.abandoned,
+                in_binary_totals=message.in_binary_totals,
             )
         for one in proposed:
             yield PlanProposed(
@@ -646,6 +647,7 @@ class RunRecord:
                 usage=message.usage,
                 compaction=message.compaction,
                 abandoned=message.abandoned,
+                in_binary_totals=message.in_binary_totals,
             )
         if reviewed.exposed:
             # The held-out tier counts as exposed (ARCH-141): the exposure, then one halt, and
