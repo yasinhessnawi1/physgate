@@ -33,6 +33,7 @@ from physgate.evaluation.per_role import author_session
 from physgate.evaluation.per_role.author_session import QUESTIONS
 from physgate.evaluation.tiers.authoring import AuthoringError, sha256sums
 from physgate.evaluation.tiers.canaries import root_canaries
+from physgate.evaluation.tiers.task import canonical_json
 
 
 def _api(name: str) -> Any:
@@ -703,3 +704,67 @@ def test_an_author_s_first_session_makes_the_role_s_withheld_and_work_roots(
     assert out["status"] == "pooled"
     for name in ("withheld", "work"):
         assert (_root(tmp_path) / name).is_dir(), f"the role's {name} root is not made with it"
+
+
+def _earlier_sessions(tmp_path: Path, sessions: int, files: int) -> None:
+    """Note in the pool ``sessions`` earlier sessions of the round, each with ``files`` kept files.
+
+    As the author notes them: one line each, every file of the session's kept stream with its
+    digest.
+    """
+    pool = _root(tmp_path) / "withheld" / "pool"
+    pool.mkdir(parents=True)
+    with (pool / author_session.SESSIONS).open("wb") as handle:
+        for s in range(sessions):
+            session_id = f"{s:08d}-0000-4000-8000-000000000000"
+            kept = {
+                f"config/file-history/{session_id}/{n:016x}@v1": hashlib.sha256(
+                    f"{s}/{n}".encode()
+                ).hexdigest()
+                for n in range(files)
+            }
+            handle.write(
+                canonical_json({"session_id": session_id, "end": "task_cap", "files": kept})
+            )
+
+
+def test_a_round_whose_provenance_is_over_a_megabyte_is_cut_and_blind_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Eleven earlier sessions of the round, as many kept files as the first real round's.
+    _earlier_sessions(tmp_path, sessions=11, files=700)
+    _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    assert out["status"] == "split"
+    version = _root(tmp_path) / out["version"]
+    size = (version / "provenance.json").stat().st_size
+    assert size > 1024 * 1024, size
+    fake = FakeSession(_answers(_all_yes), session_id="c-1")
+    monkeypatch.setattr(author_session, "run_session", fake)
+    error = _api("physgate.evaluation.tiers.manifest.TierSetError")
+    try:
+        checked = _blind_check(tmp_path, out["version"])
+    except error as exc:
+        pytest.fail(f"the blind check refuses a version its round's author cut: {exc}")
+    assert checked["answered"] and checked["tasks"] == 8
+
+
+def test_a_round_whose_provenance_its_reader_would_refuse_is_not_cut_and_keeps_its_pool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    most = _api("physgate.evaluation.tiers.manifest.MOST_PROVENANCE_BYTES")
+    # Earlier sessions whose notes alone are over the limit.
+    per_session = 1024 * 1024
+    _earlier_sessions(tmp_path, sessions=most // per_session + 1, files=per_session // 130)
+    with pytest.raises(AuthoringError) as refused:
+        _author(tmp_path, monkeypatch, _tasks(24))
+    assert refused.value.context.get("refused_because") == "record_too_large", (
+        "a round whose provenance its reader would refuse is cut"
+    )
+    root = _root(tmp_path)
+    assert not [p for p in root.iterdir() if p.name not in ("withheld", "work")], (
+        "a version, or one half written, is left"
+    )
+    pool = root / "withheld" / "pool"
+    assert len([p for p in pool.iterdir() if p.is_dir()]) == 24
+    lines = (pool / author_session.SESSIONS).read_text().splitlines()
+    assert json.loads(lines[-1])["session_id"] == "s-1", "the last session is not noted"
