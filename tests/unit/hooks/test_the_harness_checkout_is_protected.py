@@ -19,8 +19,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from hook_helpers import event, volume_is_case_insensitive
 
-from physgate.hooks.paths import protection
+from physgate.hooks.config import HookInput
+from physgate.hooks.paths import pre_tool_use, protection, read_refused
 from physgate.hooks.reasons import HARNESS_REASON
 from physgate.hooks.settings import (
     HARNESS_REVERTED,
@@ -35,6 +37,8 @@ def _harness(tmp: Path) -> Path:
     for rel in (
         "src/physgate/gate/runner.py",
         "knowledge/control/standards.md",
+        "knowledge/control/skill.md",
+        "knowledge/electrical/skill.md",
         "knowledge/electrical/bounds.toml",
         "knowledge/staging/candidate.md",
         "experiments/R-XX-01/CRITERIA.md",
@@ -118,12 +122,92 @@ def test_every_write_into_the_checkout_is_refused(tmp_path: Path, rel: str) -> N
     assert protection(str(harness / rel), str(worktree), config, writing=True) == HARNESS_REASON
 
 
-def test_reading_the_checkout_is_not_refused(tmp_path: Path) -> None:
-    # Refusing reads is the held-out tier's and the answer keys' job, not this one's.
+#: Every place in the checkout a file tool could aim a read at: the role's own skill and
+#: standards (what an arm without the skill must not reach through the harness's copy),
+#: another role's, the gate's source, a frozen record, an untrusted file, the orchestrator's
+#: environment, and a path that does not exist yet.
+READ_TARGETS = [
+    "knowledge/control/skill.md",
+    "knowledge/control/standards.md",
+    "knowledge/electrical/skill.md",
+    "knowledge/electrical/bounds.toml",
+    "src/physgate/gate/runner.py",
+    "experiments/R-XX-01/RESULT.md",
+    "README.md",
+    ".venv/lib/python3.12/site-packages/x.pth",
+    "a/path/that/does/not/exist/yet.md",
+]
+
+
+def _arm_request(tmp: Path, profile: str, hooks: str, harness: Path) -> InstallRequest:
+    if profile == "baseline":
+        # The raw agent names its own session directory, as its arm installs it.
+        return _request(
+            tmp,
+            profile="baseline",
+            role=None,
+            own_branch=None,
+            sessions_root=str(tmp / "sdir"),
+            harness_root=str(harness),
+        )
+    return _request(tmp, hooks=hooks, harness_root=str(harness))
+
+
+@pytest.mark.parametrize("rel", READ_TARGETS)
+@pytest.mark.parametrize(
+    ("profile", "hooks"), [("role", "on"), ("role", "off"), ("baseline", "on")]
+)
+def test_every_read_of_the_checkout_by_a_file_tool_is_refused_under_every_arm(
+    tmp_path: Path, rel: str, profile: str, hooks: str
+) -> None:
+    harness = _harness(tmp_path)
+    config = build_config(_arm_request(tmp_path, profile, hooks, harness), current_installation())
+    reason = protection(str(harness / rel), str(tmp_path / "worktree"), config, writing=False)
+    assert reason == HARNESS_REASON, (
+        f"a file tool may read {rel} in the harness checkout; every read there is refused"
+    )
+
+
+def test_the_read_tool_is_refused_the_harness_s_skill_file_naming_the_checkout(
+    tmp_path: Path,
+) -> None:
     harness = _harness(tmp_path)
     config = build_config(_request(tmp_path, harness_root=str(harness)), current_installation())
-    target = str(harness / "knowledge/control/standards.md")
-    assert protection(target, str(tmp_path / "worktree"), config, writing=False) is None
+    target = str(harness / "knowledge/control/skill.md")
+    call = event(cwd=str(tmp_path / "worktree"), tool_name="Read", tool_input={"file_path": target})
+    decision = pre_tool_use(HookInput.model_validate(call), config)
+    assert not decision.allow, "the Read tool may read the harness's own copy of the role's skill"
+    assert HARNESS_REASON in decision.reason
+
+
+def test_a_case_variant_or_a_link_into_the_checkout_is_refused_a_read(tmp_path: Path) -> None:
+    harness = _harness(tmp_path)
+    worktree = tmp_path / "worktree"
+    config = build_config(_request(tmp_path, harness_root=str(harness)), current_installation())
+    link = worktree / "library"
+    link.symlink_to(harness / "knowledge")
+    via_link = protection(str(link / "control/skill.md"), str(worktree), config, writing=False)
+    assert via_link == HARNESS_REASON, "a link in the worktree reads the harness's library"
+    if volume_is_case_insensitive(tmp_path):
+        variant = str(harness / "KNOWLEDGE/Control/SKILL.md")
+        assert protection(variant, str(worktree), config, writing=False) == HARNESS_REASON, (
+            "a case variant reads the harness's library"
+        )
+
+
+def test_the_sentinel_still_keeps_the_checkout_s_trusted_bytes_to_put_them_back(
+    tmp_path: Path,
+) -> None:
+    # Refused to every tool for what the library would teach a session, not because its bytes
+    # are a secret: the sentinel keeps them in the hooks' own state, which nothing of the
+    # session reads, so that it can put a changed trusted file back. Sealed, a tampered gate
+    # source or standards file would stay as the session left it.
+    harness = _harness(tmp_path)
+    config = build_config(_request(tmp_path, harness_root=str(harness)), current_installation())
+    for rel in ("src/physgate/gate/runner.py", "knowledge/control/standards.md"):
+        assert not read_refused(str(harness / rel), config), (
+            f"the sentinel would seal {rel} and could not put the harness's file back"
+        )
 
 
 def test_without_a_harness_nothing_changes(tmp_path: Path) -> None:

@@ -13,8 +13,8 @@ nowhere else. Every case aims at the files that matter most, by absolute path:
 the gate's source, a curated standards file, a bounds table, an experiment's
 frozen record, and a file planted in the library.
 
-- The tool path and every shell form the first layer can see are refused before
-  they run.
+- The tool path, a read as much as a write, and every shell form the first layer
+  can see are refused before they run.
 - A path assembled inside another interpreter is not seen by the first layer;
   the command runs, and the sentinel puts every trusted file back and moves the
   planted file aside. Each such command also writes a marker in the worktree,
@@ -98,7 +98,9 @@ def test_the_tool_path_is_refused_for_every_trusted_file_and_a_planted_one(
     run = _session(tmp_path, *steps)
     _unchanged(tmp_path, *TRUSTED)
     refused = _refusals(run)
-    assert len(refused) == 2 * len(TRUSTED) + 1, refused
+    # Every Read, Write and Edit of a trusted file, and the planted write: a read of the
+    # checkout is refused as a write is.
+    assert len(refused) == 3 * len(TRUSTED) + 1, refused
     assert all(HARNESS_REASON in reason for _, reason in refused), refused
 
 
