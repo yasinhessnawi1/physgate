@@ -7,7 +7,9 @@ worktree of the run, no checkout of the orchestrator's integration worktree and 
 writes holds a skill file. A target that already holds one is refused before anything is written,
 with its own reason: a role session's shell reads files, and the store's objects are files. Judged
 by path in every commit any ref, reflog entry or stash reaches, the start commit's history among
-them; by presence for any object none of those reaches; and by content for the library's bytes.
+them; by presence for a tree or blob a ref names directly and for any object none of those
+reaches; by content for the library's bytes; and in every working tree of the target, its own and
+each linked one, by where a file sits, whatever git tracks or ignores there.
 
 The specification commit then differs between the arms by exactly the skill files. The plan's
 bytes are the same under both, and ``skills: on`` puts into the target what it always put there.
@@ -566,14 +568,54 @@ def test_under_skills_off_a_tag_naming_a_tree_that_holds_a_skill_file_is_refused
     _nothing_written(tmp_path, repo)
 
 
+def _refused_for(root: Path, repo: Path, rule: str) -> DecompositionError:
+    """The target's refusal under ``skills: off``; a start fails on an assertion of ``rule``."""
+    try:
+        _start(root, "off", repo)
+    except DecompositionError as exc:
+        assert REFUSAL in str(exc), f"the refusal does not say why: {exc}"
+        return exc
+    raise AssertionError(f"under skills: off {rule}, and the run started")
+
+
+#: The rule for a tree a ref names: it has no path of its own, so it is refused whatever it holds.
+TREE_RULE = "a tree a ref names directly is refused, since it has no path to judge it by"
+
+
 @pytest.mark.parametrize("kind", sorted(TAG_KINDS))
-def test_under_skills_off_a_tag_naming_a_tree_with_no_skill_file_starts(
+def test_under_skills_off_a_tag_naming_a_tree_with_a_skill_file_at_its_root_is_refused(
     tmp_path: Path, kind: str
 ) -> None:
+    # The tree is a role's directory itself: skill.md at its own root, no knowledge/ above it.
+    repo = target_repo(tmp_path)
+    tree = _tree_holding(repo, "skill.md", OTHER_BYTES)
+    _git(repo, *TAG_KINDS[kind], "a-tree", tree)
+    _nowhere_at_the_start(repo)
+    refused = _refused_for(tmp_path, repo, TREE_RULE)
+    assert refused.context.get("where") == "a tree a ref names", refused.context
+    _nothing_written(tmp_path, repo)
+
+
+@pytest.mark.parametrize("kind", sorted(TAG_KINDS))
+def test_under_skills_off_a_tag_naming_a_tree_of_harmless_files_is_refused_too(
+    tmp_path: Path, kind: str
+) -> None:
+    # Pinned: the rule judges no tree a ref names by what it holds, so a harmless one is refused.
     repo = target_repo(tmp_path)
     tree = _tree_holding(repo, "notes/plan.md", "a plan\n")
     _git(repo, *TAG_KINDS[kind], "a-tree", tree)
-    _starts(tmp_path, repo, "a tree a ref names is refused though it holds no skill file")
+    refused = _refused_for(tmp_path, repo, TREE_RULE)
+    assert refused.context.get("where") == "a tree a ref names", refused.context
+    _nothing_written(tmp_path, repo)
+
+
+def test_under_skills_off_a_ref_naming_the_start_commit_s_own_tree_is_judged_with_it(
+    tmp_path: Path,
+) -> None:
+    # A ref to the root tree of a commit another ref names is judged by that commit's paths.
+    repo = target_repo(tmp_path)
+    _git(repo, "tag", "root-tree", "HEAD^{tree}")
+    _starts(tmp_path, repo, "a ref to the start commit's own tree is refused")
 
 
 @pytest.mark.parametrize("kind", sorted(TAG_KINDS))
@@ -588,6 +630,164 @@ def test_under_skills_off_a_tag_naming_a_file_s_content_is_refused(
     refused = _refusal(tmp_path, repo)
     assert refused.context.get("where") == "a blob a ref names", refused.context
     _nothing_written(tmp_path, repo)
+
+
+# -- the target's working trees --------------------------------------------------------------------
+
+
+#: The rule for a working tree: a session can read the target's working directory, so a file there
+#: is judged by where it sits, tracked or not, ignored or not.
+WORKING_RULE = (
+    "a working tree of the target holding a skill file, or a link where one goes, is refused"
+)
+
+
+def _untracked(repo: Path, name: str = "knowledge/elsewhere/skill.md") -> None:
+    (repo / name).parent.mkdir(parents=True, exist_ok=True)
+    (repo / name).write_text("a skill file no commit holds\n")
+
+
+def _in_working_tree(refused: DecompositionError, path: str) -> None:
+    assert refused.context.get("where") == "a working tree", refused.context
+    assert refused.context.get("path") == path, refused.context
+
+
+def test_under_skills_off_an_untracked_skill_file_in_the_target_is_refused(
+    tmp_path: Path,
+) -> None:
+    repo = target_repo(tmp_path)
+    _untracked(repo)
+    assert "knowledge/" in _git(repo, "status", "--porcelain", "--untracked-files=all")
+    refused = _refused_for(tmp_path, repo, WORKING_RULE)
+    _in_working_tree(refused, "knowledge/elsewhere/skill.md")
+    _nothing_written(tmp_path, repo)
+
+
+def test_under_skills_off_an_ignored_skill_file_of_another_letter_case_is_refused(
+    tmp_path: Path,
+) -> None:
+    repo = target_repo(tmp_path)
+    (repo / ".gitignore").write_text("knowledge/\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "ignore the knowledge directory")
+    _untracked(repo, "knowledge/control/Skill.MD")
+    # git itself reports nothing there: only a walk that honours no ignore rule finds it.
+    assert _git(repo, "status", "--porcelain", "--untracked-files=all").strip() == ""
+    refused = _refused_for(tmp_path, repo, WORKING_RULE)
+    _in_working_tree(refused, "knowledge/control/Skill.MD")
+
+
+def _link_at_the_skill_file(repo: Path, outside: Path) -> str:
+    (repo / "knowledge" / "control").mkdir(parents=True)
+    (repo / "knowledge" / "control" / "skill.md").symlink_to(outside / "notes.md")
+    return "knowledge/control/skill.md"
+
+
+def _link_at_a_role_s_directory(repo: Path, outside: Path) -> str:
+    (repo / "knowledge").mkdir()
+    (repo / "knowledge" / "control").symlink_to(outside, target_is_directory=True)
+    return "knowledge/control"
+
+
+def _link_at_the_knowledge_directory(repo: Path, outside: Path) -> str:
+    (repo / "knowledge").symlink_to(outside, target_is_directory=True)
+    return "knowledge"
+
+
+@pytest.mark.parametrize(
+    "link",
+    [_link_at_the_skill_file, _link_at_a_role_s_directory, _link_at_the_knowledge_directory],
+    ids=lambda f: f.__name__[1:],
+)
+def test_under_skills_off_a_link_where_a_skill_file_or_its_directory_goes_is_refused(
+    tmp_path: Path, link: Any
+) -> None:
+    # A link could name a skill file anywhere; what it names now holds none, and is not followed.
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "notes.md").write_text("notes\n")
+    repo = target_repo(tmp_path)
+    path = link(repo, outside)
+    refused = _refused_for(tmp_path, repo, WORKING_RULE)
+    _in_working_tree(refused, path)
+
+
+def test_under_skills_off_a_skill_file_in_a_linked_worktree_of_the_target_is_refused(
+    tmp_path: Path,
+) -> None:
+    repo = target_repo(tmp_path)
+    other = tmp_path / "other"
+    _git(repo, "worktree", "add", "-q", "-b", "other", str(other))
+    _untracked(other)
+    assert _skill_files_in(repo) == []
+    refused = _refused_for(tmp_path, repo, WORKING_RULE)
+    _in_working_tree(refused, "knowledge/elsewhere/skill.md")
+    assert Path(refused.context.get("worktree", "")).resolve() == other.resolve(), refused.context
+
+
+def test_under_skills_off_a_working_tree_with_standards_files_only_starts(tmp_path: Path) -> None:
+    repo = target_repo(tmp_path)
+    _untracked(repo, f"knowledge/{ROLES[0]}/standards.md")
+    _untracked(repo, "knowledge/README.md")
+    (repo / "notes" / "skill.md").parent.mkdir()
+    (repo / "notes" / "skill.md").write_text("a skill file outside the knowledge directory\n")
+    _starts(tmp_path, repo, "a working tree with standards files only is refused")
+
+
+def test_under_skills_off_a_skill_file_s_backup_copy_in_a_working_tree_starts(
+    tmp_path: Path,
+) -> None:
+    # Pinned: skill.md.bak is not knowledge/*/skill.md, so the rule does not match it; a limit.
+    repo = target_repo(tmp_path)
+    _untracked(repo, "knowledge/control/skill.md.bak")
+    _starts(tmp_path, repo, "a file that only begins with a skill file's name is refused")
+
+
+def test_under_skills_off_the_run_s_own_worktrees_pass_the_check_and_the_run_resumes(
+    tmp_path: Path,
+) -> None:
+    from physgate.knowledge.library import read_library, skill_files  # noqa: PLC0415
+    from physgate.orchestrator import decompose  # noqa: PLC0415
+
+    run_dir, repo, library = _start(tmp_path, "off")
+    first, second = _subtasks(run_dir)
+    run = RunGit(repo=repo, run_dir=run_dir, run_id="run-1")
+    opened = [run.integration, run.open_subtask(first), run.open_subtask(second)]
+    listed = _git(repo, "worktree", "list", "--porcelain")
+    for worktree in opened:
+        assert f"worktree {worktree.resolve()}" in listed, (
+            f"{worktree} is no worktree of the target"
+        )
+    skills = skill_files(read_library(library, ROLES))
+    head = _git(repo, "rev-parse", "master").strip()
+
+    def accepted(why: str) -> None:
+        try:
+            decompose.require_no_skill_file(repo, head, skills)
+        except DecompositionError as exc:
+            raise AssertionError(f"{why}: {exc} {exc.context}") from None
+
+    accepted("the check refuses the run's own worktrees")
+    # The process is gone; a resume opens the run's worktrees again from its records alone.
+    recorded = load_run_config(run_dir / "run.json")
+    again = RunGit(repo=repo, run_dir=run_dir, run_id=recorded.run_id)
+    again.open_subtask(first)
+    again.open_subtask(first, 1)
+    accepted("the check refuses the worktrees a resume opened")
+    # And a second run of the arm starts on the same target, through start_run, the first's
+    # worktrees still there.
+    later = tmp_path / "later"
+    try:
+        start_run(
+            outcome(later),
+            config=config(repo, "off", **_arm("off"), run_id="run-2"),
+            run_dir=later,
+            target_repo=repo,
+            library=library,
+        ).close()
+    except DecompositionError as exc:
+        raise AssertionError(f"a second off run is refused: {exc} {exc.context}") from None
+    assert _decomposed(later)["subtasks"] == len(ROLES)
 
 
 # -- a target that is not a complete repository with a working tree ------------------------------

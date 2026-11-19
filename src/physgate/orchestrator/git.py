@@ -572,7 +572,9 @@ def promisor(cwd: Path) -> bool:
 
     Read as data, with no git command run in the repository: a promisor pack in any of its
     object directories, the partial-clone extension, or any remote's promisor or filter key in
-    its config (read without its includes).
+    its config. The config is read without its includes, so a key held only in a file it
+    includes is not seen; every command of the check refuses every transport all the same, so
+    such a clone is read as it is, and nothing is fetched.
 
     Raises:
         GitError: ``cwd`` holds no git directory, or its config cannot be read.
