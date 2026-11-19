@@ -85,20 +85,29 @@ def _pool(store: Path) -> Path:
     return pool
 
 
-def _write(store: Path, provenance: bytes) -> tuple[Any, Path]:
+def _write(store: Path, provenance: bytes, *, accepted: bool = True) -> tuple[Any, Path]:
+    """Split a pool of 24 into a version with ``provenance``; its manifest and directory.
+
+    With ``accepted``, a refusal fails the row: the split takes every record its reader reads.
+    """
     write_version = _api("physgate.evaluation.tiers.store.write_version")
     pool = _pool(store)
-    manifest, _ = write_version(
-        store / "control",
-        sorted(p for p in pool.iterdir() if p.is_dir()),
-        role="control",
-        seed=5,
-        model="claude-sonnet-5",
-        runtime="2.1.301",
-        provenance=provenance,
-        retire=pool,
-        generated="2026-11-19",
-    )
+    try:
+        manifest, _ = write_version(
+            store / "control",
+            sorted(p for p in pool.iterdir() if p.is_dir()),
+            role="control",
+            seed=5,
+            model="claude-sonnet-5",
+            runtime="2.1.301",
+            provenance=provenance,
+            retire=pool,
+            generated="2026-11-19",
+        )
+    except AuthoringError as exc:
+        if not accepted:
+            raise
+        pytest.fail(f"the split refuses a {len(provenance)}-byte provenance record: {exc}")
     return manifest, store / "control" / manifest.version
 
 
@@ -214,7 +223,7 @@ def test_the_reader_and_the_split_hold_the_provenance_to_one_constant(
     assert _refusal(written) == "manifest_unreadable", "the reader keeps a limit of its own"
     other = tmp_path.resolve() / "other"
     with pytest.raises(AuthoringError) as refused:
-        _write(other, _sized(100_000))
+        _write(other, _sized(100_000), accepted=False)
     assert refused.value.context.get("refused_because") == "record_too_large", (
         "the split keeps a limit of its own"
     )
@@ -235,7 +244,7 @@ def test_the_split_holds_the_manifest_to_the_reader_s_limit_and_leaves_the_pool_
     monkeypatch.setattr(manifest_module, "MOST_MANIFEST_BYTES", 256)
     store = tmp_path.resolve() / "store"
     with pytest.raises(AuthoringError) as refused:
-        _write(store, _round_provenance(sessions=1, files=4))
+        _write(store, _round_provenance(sessions=1, files=4), accepted=False)
     assert refused.value.context.get("refused_because") == "record_too_large", (
         "the split wrote a manifest its reader would refuse"
     )

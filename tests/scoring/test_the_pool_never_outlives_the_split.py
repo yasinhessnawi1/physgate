@@ -733,7 +733,10 @@ def test_a_round_whose_provenance_is_over_a_megabyte_is_cut_and_blind_checked(
 ) -> None:
     # Eleven earlier sessions of the round, as many kept files as the first real round's.
     _earlier_sessions(tmp_path, sessions=11, files=700)
-    _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    try:
+        _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    except AuthoringError as exc:
+        pytest.fail(f"the author does not cut a round whose provenance its reader reads: {exc}")
     assert out["status"] == "split"
     version = _root(tmp_path) / out["version"]
     size = (version / "provenance.json").stat().st_size
