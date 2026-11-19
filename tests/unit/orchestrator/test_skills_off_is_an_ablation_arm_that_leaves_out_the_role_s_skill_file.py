@@ -1,4 +1,4 @@
-"""``skills: off`` is an ablation run's arm: it withholds the role's skill file and nothing else.
+"""``skills: off`` is an ablation run's arm: it leaves out the role's skill file and nothing else.
 
 A run takes ``skills: off`` only as an ablation run: a run that is not one is refused at its
 configuration by a rule that names the arm, so the product can never set it and no reportable
@@ -6,10 +6,12 @@ number is measured without the skill library.
 
 Under the arm every role session of the run is installed as under ``skills: on`` but for the
 role's skill file: it leaves the files the session must read before it acts and the always-loaded
-set, and it is withheld, refused to every read as the run's recorded configuration is. The cross
-standards file and the role's own standards file stay in both sets, so the reading rule still
-refuses every call until they are read, and the ceiling is measured on them. Nothing else of the
-installation moves, so the arm differs from the full harness in the skill file alone.
+set. It is not withheld, since no worktree of the run holds it (decomposition puts none into the
+target), so the installation gains nothing in its place. The cross standards file and the role's
+own standards file stay in both sets, so the reading rule still refuses every call until they are
+read, and the ceiling is measured on them. Nothing else of the installation moves, so the arm
+differs from the full harness in the skill file alone, and under ``skills: on`` every session is
+installed exactly as before the switch existed.
 """
 
 from __future__ import annotations
@@ -78,10 +80,14 @@ def test_with_skills_on_a_session_reads_exactly_what_it_always_read() -> None:
     given = _given("on")
     assert given.required == loader.required_reading(ROLE, Path(SPEC))
     assert given.always_loaded == loader.always_loaded(ROLE)
-    assert given.withheld == ()
 
 
-def test_with_skills_off_only_the_skill_file_moves_from_what_is_read_to_what_is_withheld() -> None:
+def test_a_session_s_reading_names_what_it_reads_and_nothing_to_withhold() -> None:
+    # One mechanism for the arm: the file is left out of the target, never withheld in place.
+    assert loader.SessionReading._fields == ("required", "always_loaded")
+
+
+def test_with_skills_off_only_the_skill_file_leaves_what_is_read() -> None:
     on, off = _given("on"), _given("off")
     skill = loader.DEFAULT_ROOT / ROLE / loader.SKILL_NAME
     standards = (
@@ -90,7 +96,6 @@ def test_with_skills_off_only_the_skill_file_moves_from_what_is_read_to_what_is_
     )
     assert skill not in off.required, "the skill file is still required reading under skills: off"
     assert skill not in off.always_loaded, "the skill file is still always loaded under skills: off"
-    assert off.withheld == (skill,), "the skill file is not withheld under skills: off"
     assert off.always_loaded == standards
     assert set(off.required) == set(on.required) - {skill}
     assert Path(SPEC) in off.required
@@ -102,7 +107,6 @@ def test_the_cross_role_has_no_skill_file_so_skills_off_changes_nothing_it_reads
     on = reading(loader.CROSS, Path(SPEC), skills="on")
     off = reading(loader.CROSS, Path(SPEC), skills="off")
     assert off == on
-    assert off.withheld == ()
 
 
 def _install_argv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: RunConfig) -> list[str]:
@@ -167,17 +171,23 @@ def _skills(value: str) -> RunConfig:
     return make_config().model_copy(update={"skills": value, "ablation": value == "off"})
 
 
-def test_with_skills_on_every_role_session_reads_its_skill_file_and_none_is_withheld(
+def test_with_skills_on_every_role_session_reads_exactly_what_it_read_before_the_switch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     argv = _install_argv(tmp_path, monkeypatch, _skills("on"))
-    skill = str(tmp_path / "worktree" / "knowledge" / ROLE / "skill.md")
-    assert skill in _values(argv, "--reading")
-    assert skill in _values(argv, "--always-loaded")
+    worktree = tmp_path / "worktree"
+    skill = str(worktree / "knowledge" / ROLE / "skill.md")
+    # The installer is given what the loader's two sets have always named, in their order.
+    assert _values(argv, "--reading") == [
+        str(worktree / p) for p in loader.required_reading(ROLE, Path(SPEC))
+    ]
+    assert _values(argv, "--always-loaded") == [
+        str(worktree / p) for p in loader.always_loaded(ROLE)
+    ]
     assert skill not in _values(argv, "--withheld")
 
 
-def test_with_skills_off_every_role_session_is_withheld_its_skill_file_and_reads_the_standards(
+def test_with_skills_off_every_role_session_reads_the_standards_and_is_withheld_nothing_more(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     argv = _install_argv(tmp_path, monkeypatch, _skills("off"))
@@ -189,7 +199,7 @@ def test_with_skills_off_every_role_session_is_withheld_its_skill_file_and_reads
     ]
     assert skill not in _values(argv, "--reading"), "the skill file is still required reading"
     assert skill not in _values(argv, "--always-loaded"), "the skill file is still always loaded"
-    assert skill in _values(argv, "--withheld"), "the skill file is not withheld"
+    assert skill not in _values(argv, "--withheld"), "the skill file is withheld in place"
     assert _values(argv, "--always-loaded") == standards
     assert set(standards) | {str(worktree / SPEC)} <= set(_values(argv, "--reading"))
     # The run's own withheld records stay withheld beside it.
@@ -204,9 +214,8 @@ def test_skills_off_changes_nothing_else_a_role_session_is_installed_with(
     skill_on = str(tmp_path / "on" / "worktree" / "knowledge" / ROLE / "skill.md")
     skill_off = str(tmp_path / "off" / "worktree" / "knowledge" / ROLE / "skill.md")
     rest_on = _without(on, {("--reading", skill_on), ("--always-loaded", skill_on)})
-    rest_off = _without(off, {("--withheld", skill_off)})
     assert len(rest_on) == len(on) - 4
-    assert len(rest_off) == len(off) - 2
+    assert skill_off not in off, "skills: off names the skill file to the installer"
     assert [a.replace(str(tmp_path / "on"), "@") for a in rest_on] == [
-        a.replace(str(tmp_path / "off"), "@") for a in rest_off
-    ]
+        a.replace(str(tmp_path / "off"), "@") for a in off
+    ], "skills: off installs a role session otherwise than on does, beyond the skill file"

@@ -1,16 +1,16 @@
-"""``skills: off``: the role's skill file is withheld, and the reading rule still holds the rest.
+"""``skills: off``: the role's skill file is not there, and the reading rule still holds the rest.
 
 A role session of an ablation run's ``skills: off`` arm is installed with what the dispatcher gives
 it under that arm (the loader's reading for the switch): the cross standards file, the role's own
 standards file and the module specification to read before it acts, and the two standards files
-as its always-loaded set. The role's skill file is in neither. It is withheld instead, as the run's
-recorded configuration is: refused to every read of the file tools and of a shell command, denied
-to every read in the OS layer, and held by the tripwire on the files no session reads.
+as its always-loaded set. Its worktree holds no skill file, since decomposition put none into the
+run's target, so nothing is withheld for it.
 
 The reading rule is not switched off with it: every call but a read is refused until the smaller
 set is read, and a role whose standards file is missing is still refused. The token ceiling is
-unchanged and is measured on the smaller set. Under ``hooks: off`` too the skill file stays
-withheld: that arm drops what the session must read, not what it may not.
+unchanged and is measured on the smaller set. Every other part of the installation, the hooks'
+protected places and the OS layer's policy, is the same under both arms, under ``hooks: on`` and
+under ``hooks: off``.
 """
 
 from __future__ import annotations
@@ -21,10 +21,9 @@ from typing import Any
 import pytest
 from hook_helpers import SESSION, bash, event
 
-from physgate.hooks import paths, reading, shell_paths, token_ceiling, withheld
+from physgate.hooks import reading, token_ceiling, withheld
 from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
-from physgate.hooks.shell import parse
 from physgate.knowledge import loader
 from physgate.oslayer.policy import sandbox_policy
 
@@ -35,11 +34,16 @@ CANARY = "ef" * 16
 #: Sizes that put the two standards files under the ceiling and all three files over it.
 CEILING = 1000
 SIZES = {"cross/standards.md": 300, f"{ROLE}/standards.md": 300, f"{ROLE}/skill.md": 600}
+#: What the session's configuration is told to read; everything else of it is the same per arm.
+READING_FIELDS = ("required_reading", "always_loaded")
 
 
-def _worktree(tmp: Path) -> Path:
+def _worktree(tmp: Path, skills: str) -> Path:
+    """The session's worktree as the arm's specification commit checks it out."""
     worktree = tmp / "run" / "worktrees" / "e1"
     for name, size in SIZES.items():
+        if skills == "off" and name.endswith(loader.SKILL_NAME):
+            continue
         path = worktree / "knowledge" / name
         path.parent.mkdir(parents=True, exist_ok=True)
         body = CANARY + "\n" if name.endswith("skill.md") else ""
@@ -52,16 +56,10 @@ def _worktree(tmp: Path) -> Path:
     return worktree
 
 
-def _given(skills: str) -> Any:  # noqa: ANN401 - what a role session is given to read
-    session_reading = getattr(loader, "session_reading", None)
-    assert session_reading is not None, "the loader names no session's reading by the skills switch"
-    return session_reading(ROLE, SPEC, skills=skills)
-
-
 def _config(tmp: Path, skills: str, hooks: str = "on") -> SessionConfig:
     """A role session installed with what the dispatcher gives it under ``skills``."""
-    worktree = _worktree(tmp)
-    given = _given(skills)
+    worktree = _worktree(tmp, skills)
+    given = loader.session_reading(ROLE, SPEC, skills=skills)  # type: ignore[arg-type]
     request = InstallRequest(
         profile="role",
         role=ROLE,
@@ -75,7 +73,7 @@ def _config(tmp: Path, skills: str, hooks: str = "on") -> SessionConfig:
         token_ceiling=CEILING,
         required_reading=tuple(str(worktree / p) for p in given.required),
         always_loaded=tuple(str(worktree / p) for p in given.always_loaded),
-        withheld=(str(tmp / "run" / "run.json"), *(str(worktree / p) for p in given.withheld)),
+        withheld=(str(tmp / "run" / "run.json"),),
         hooks=hooks,  # type: ignore[arg-type]
     )
     return build_config(request, current_installation())
@@ -163,54 +161,53 @@ def test_the_ceiling_is_measured_on_the_two_standards_files(base: Path) -> None:
     assert on.token_ceiling == off.token_ceiling == CEILING
     # The same files and the same ceiling: over it with the skill file, under it without.
     assert not token_ceiling.measure(on).allow
-    assert token_ceiling.measure(off).allow, "the ceiling still counts the withheld skill file"
+    assert token_ceiling.measure(off).allow, "the ceiling still counts the skill file"
+
+
+def _spelled(data: Any, root: Path) -> Any:  # noqa: ANN401 - a configuration's own shape
+    """``data`` with ``root`` written as one placeholder, so two runs' places compare."""
+    if isinstance(data, dict):
+        return {k: _spelled(v, root) for k, v in data.items()}
+    if isinstance(data, list | tuple):
+        return [_spelled(v, root) for v in data]
+    if isinstance(data, str):
+        return data.replace(str(root), "@")
+    return data
 
 
 @pytest.mark.parametrize("hooks", ["on", "off"])
-def test_a_file_tool_neither_reads_nor_writes_the_skill_file(base: Path, hooks: str) -> None:
-    config = _config(base, "off", hooks)
-    read = paths.protection(_skill(config), config.worktree, config, writing=False)
-    assert read is not None, f"a file tool reads the withheld skill file (hooks: {hooks})"
-    relative = f"knowledge/{ROLE}/skill.md"
-    assert paths.protection(relative, config.worktree, config, writing=False) is not None
-    assert paths.protection(_skill(config), config.worktree, config, writing=True) is not None
-
-
-@pytest.mark.parametrize("hooks", ["on", "off"])
-def test_a_shell_command_does_not_read_the_skill_file(base: Path, hooks: str) -> None:
-    config = _config(base, "off", hooks)
-    for command in (
-        f"cat {_skill(config)}",
-        f"head -c 99 knowledge/{ROLE}/skill.md",
-        f"grep -r line knowledge/{ROLE}/skill.md",
-        f"python3 -c \"print(open('knowledge/{ROLE}/skill.md').read())\"",
-        f'cat <<< "knowledge/{ROLE}/skill.md"',
-    ):
-        said = shell_paths.check(parse(command)[0], config.worktree, config)
-        assert said is not None, f"a shell command reads the withheld skill file: {command}"
-
-
-@pytest.mark.parametrize("hooks", ["on", "off"])
-def test_the_os_layer_denies_every_read_of_the_skill_file(base: Path, hooks: str) -> None:
-    config = _config(base, "off", hooks)
-    policy = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/tmp/pg-sk")
-    deny = policy.settings["sandbox"]["filesystem"]["denyRead"]
-    skill = _skill(config)
-    assert any(skill == d or skill.startswith(d.rstrip("/") + "/") for d in deny), (
-        "the OS layer lets a shell command read the withheld skill file"
+def test_the_hooks_are_installed_as_under_skills_on_but_for_what_is_read(
+    base: Path, hooks: str
+) -> None:
+    on = _config(base / "on", "on", hooks).model_dump(mode="json")
+    off = _config(base / "off", "off", hooks).model_dump(mode="json")
+    for field in READING_FIELDS:
+        on.pop(field)
+        off.pop(field)
+    assert _spelled(off, base / "off") == _spelled(on, base / "on"), (
+        f"skills: off installs the hooks otherwise than on does (hooks: {hooks})"
     )
 
 
-def test_the_tripwire_holds_the_skill_file_to_one_name(base: Path) -> None:
-    config = _config(base, "off")
-    assert _skill(config) in withheld.roots_of(config), "the tripwire does not hold the skill file"
+@pytest.mark.parametrize("hooks", ["on", "off"])
+def test_the_os_layer_s_policy_is_the_one_under_skills_on(base: Path, hooks: str) -> None:
+    policies = []
+    for arm in ("on", "off"):
+        config = _config(base / arm, arm, hooks)
+        home = str(base / arm / "outside" / "home")
+        policy = sandbox_policy(config, home=home, temp_dir="/tmp/pg-sk")
+        policies.append(_spelled(policy.settings, base / arm))
+    assert policies[1] == policies[0], f"skills: off changes the OS layer (hooks: {hooks})"
+
+
+def test_nothing_is_withheld_for_the_skill_file_under_either_arm(base: Path) -> None:
+    for arm in ("on", "off"):
+        config = _config(base / arm, arm)
+        assert _skill(config) not in withheld.roots_of(config), arm
 
 
 def test_with_skills_on_the_skill_file_is_read_and_loaded_as_it_always_was(base: Path) -> None:
     config = _config(base, "on")
     assert _skill(config) in config.required_reading
     assert _skill(config) in config.always_loaded
-    assert paths.protection(_skill(config), config.worktree, config, writing=False) is None
-    assert _skill(config) not in withheld.roots_of(config)
-    # Its writes stay refused, as the knowledge tree's always were.
-    assert paths.protection(_skill(config), config.worktree, config, writing=True) is not None
+    assert sorted(config.always_loaded) == sorted([*_standards(config), _skill(config)])

@@ -1,0 +1,341 @@
+"""Under ``skills: off`` no role's skill file is put into the run's target, by any route.
+
+A role session reads its curated content in its own worktree, which checks out the run branch;
+the run branch starts at the specification commit, which decomposition writes with the curated
+library in it. Under ``skills: off`` decomposition puts only the standards files there, so no
+worktree of the run, no checkout of the orchestrator's integration worktree and no object the run
+writes holds a skill file. A target that already holds one, in the history of the commit the run
+starts from or as the library's bytes anywhere in its object store, is refused before anything is
+written, with its own reason: a role session's shell reads files, and the store's objects are files.
+
+The specification commit then differs between the arms by exactly the skill files. The plan's
+bytes are the same under both, and ``skills: on`` puts into the target what it always put there.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import pytest
+from design_review_rig import ROLES, config, outcome, target_repo
+from knowledge_fixture import FIXTURE_ROLES, write_fixture
+from orch_helpers import CLEAN_HARNESS
+
+from physgate.knowledge import loader
+from physgate.orchestrator.decompose import start_run
+from physgate.orchestrator.exceptions import DecompositionError
+from physgate.orchestrator.merge import RunGit
+from physgate.orchestrator.run_config import load_run_config
+
+#: Where the series writer goes, beside the library, in every run.
+SERIES_WRITER = ".physgate/lib/series_writer.py"
+#: The words the refusal of a target that already holds a skill file says, under the arm.
+REFUSAL = "under skills: off"
+
+
+def _git(cwd: Path, *argv: str, stdin: str | None = None) -> str:
+    done = subprocess.run(
+        ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", *argv],
+        cwd=cwd,
+        input=stdin,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return done.stdout
+
+
+def _arm(skills: str) -> dict[str, Any]:
+    return {"skills": skills, "ablation": skills == "off", "harness": CLEAN_HARNESS}
+
+
+def _library(root: Path) -> Path:
+    library = root / "library"
+    write_fixture(library, (*FIXTURE_ROLES, *ROLES))
+    return library
+
+
+def _start(root: Path, skills: str, repo: Path | None = None) -> tuple[Path, Path, Path]:
+    """A run started from the rig's plan under ``skills``: its directory, target and library."""
+    repo = repo or target_repo(root)
+    library = _library(root)
+    run_dir = root / "run"
+    start_run(
+        outcome(run_dir),
+        config=config(repo, "off", **_arm(skills)),
+        run_dir=run_dir,
+        target_repo=repo,
+        library=library,
+    ).close()
+    return run_dir, repo, library
+
+
+def _decomposed(run_dir: Path) -> dict[str, Any]:
+    for raw in (run_dir / "events.jsonl").read_text().splitlines():
+        line = json.loads(raw)
+        if line["kind"] == "decomposed":
+            return dict(line)
+    raise AssertionError("the run recorded no decomposition")
+
+
+def _tree(repo: Path, commit: str) -> dict[str, tuple[str, str]]:
+    """Every file of ``commit``, by path: its mode and its object id."""
+    entries: dict[str, tuple[str, str]] = {}
+    for item in _git(repo, "ls-tree", "-r", "-z", "--full-tree", commit).split("\0"):
+        if item:
+            meta, name = item.split("\t", 1)
+            mode, _, oid = meta.split()
+            entries[name] = (mode, oid)
+    return entries
+
+
+def _skills_of(roles: tuple[str, ...]) -> set[str]:
+    return {(loader.DEFAULT_ROOT / role / loader.SKILL_NAME).as_posix() for role in roles}
+
+
+def _skill_files_in(directory: Path) -> list[Path]:
+    return sorted(p for p in directory.rglob(loader.SKILL_NAME) if ".git" not in p.parts)
+
+
+def _subtasks(run_dir: Path) -> list[str]:
+    return [json.loads(raw)["id"] for raw in (run_dir / "ledger.jsonl").read_text().splitlines()]
+
+
+def _blob_id(repo: Path, path: Path) -> str:
+    return _git(repo, "hash-object", "--no-filters", str(path)).strip()
+
+
+def _in_store(repo: Path, oid: str) -> bool:
+    listed = _git(repo, "cat-file", "--batch-check", stdin=oid + "\n")
+    return not listed.strip().endswith("missing")
+
+
+# -- what the run writes ----------------------------------------------------------------------
+
+
+def test_under_skills_off_the_specification_commit_holds_the_standards_and_no_skill_file(
+    tmp_path: Path,
+) -> None:
+    run_dir, repo, library = _start(tmp_path, "off")
+    tree = _tree(repo, _decomposed(run_dir)["spec_commit"])
+    held = sorted(name for name in tree if Path(name).name == loader.SKILL_NAME)
+    assert held == [], f"under skills: off the specification commit holds {held}"
+    for role in ROLES:
+        for relative in loader.always_loaded(role)[:2]:
+            assert tree[relative.as_posix()][1] == _blob_id(repo, library / relative), relative
+
+
+def test_the_specification_commit_differs_between_the_arms_by_exactly_the_skill_files(
+    tmp_path: Path,
+) -> None:
+    on_dir, on_repo, _ = _start(tmp_path / "on", "on")
+    off_dir, off_repo, _ = _start(tmp_path / "off", "off")
+    on = _tree(on_repo, _decomposed(on_dir)["spec_commit"])
+    off = _tree(off_repo, _decomposed(off_dir)["spec_commit"])
+    assert set(on) - set(off) == _skills_of(ROLES), "the arms differ by more than the skill files"
+    assert set(off) <= set(on), "skills: off puts a file into the target that on does not"
+    assert {name: on[name] for name in off} == off, "a file both arms hold differs between them"
+
+
+def test_with_skills_on_the_specification_commit_holds_every_planned_role_s_library(
+    tmp_path: Path,
+) -> None:
+    run_dir, repo, library = _start(tmp_path, "on")
+    tree = _tree(repo, _decomposed(run_dir)["spec_commit"])
+    curated = {p for role in ROLES for p in loader.always_loaded(role)}
+    for relative in curated:
+        assert tree[relative.as_posix()] == ("100644", _blob_id(repo, library / relative))
+    knowledge = {name for name in tree if name.startswith(f"{loader.DEFAULT_ROOT.as_posix()}/")}
+    assert knowledge == {p.as_posix() for p in curated}
+    assert SERIES_WRITER in tree
+
+
+def test_the_plan_and_its_specifications_are_the_same_bytes_under_both_arms(
+    tmp_path: Path,
+) -> None:
+    on_dir, on_repo, _ = _start(tmp_path / "on", "on")
+    off_dir, off_repo, _ = _start(tmp_path / "off", "off")
+    on, off = _decomposed(on_dir), _decomposed(off_dir)
+    assert on["plan_sha256"] == off["plan_sha256"]
+    assert on["interface_nodes"] == off["interface_nodes"]
+    assert (on_dir / "ledger.jsonl").read_bytes() == (off_dir / "ledger.jsonl").read_bytes()
+    on_tree, off_tree = _tree(on_repo, on["spec_commit"]), _tree(off_repo, off["spec_commit"])
+    specs = [name for name in on_tree if name.startswith(".physgate/")]
+    assert specs, "the specification commit holds no specification"
+    assert [on_tree[n] for n in specs] == [off_tree.get(n) for n in specs]
+
+
+# -- no copy in any worktree, checkout or object -------------------------------------------------
+
+
+def test_under_skills_off_no_worktree_of_the_run_holds_a_skill_file(tmp_path: Path) -> None:
+    run_dir, repo, _ = _start(tmp_path, "off")
+    run = RunGit(repo=repo, run_dir=run_dir, run_id="run-1")
+    first, second = _subtasks(run_dir)
+    opened = [run.integration, run.open_subtask(first), run.open_subtask(second)]
+    # A sibling of the first subtask's own, as a reopen makes one.
+    opened.append(run.open_subtask(first, reopen=1))
+    for worktree in opened:
+        found = _skill_files_in(worktree)
+        assert found == [], f"under skills: off the worktree {worktree.name} holds {found}"
+
+
+def test_under_skills_off_no_object_of_the_target_holds_a_skill_file_s_bytes(
+    tmp_path: Path,
+) -> None:
+    run_dir, repo, library = _start(tmp_path, "off")
+    RunGit(repo=repo, run_dir=run_dir, run_id="run-1").open_subtask(_subtasks(run_dir)[0])
+    for name in sorted(_skills_of(ROLES)):
+        oid = _blob_id(repo, library / name)
+        assert not _in_store(repo, oid), f"under skills: off the target's store holds {name}"
+
+
+def test_with_skills_on_the_store_holds_the_skill_file_as_it_always_did(tmp_path: Path) -> None:
+    _, repo, library = _start(tmp_path, "on")
+    for name in sorted(_skills_of(ROLES)):
+        assert _in_store(repo, _blob_id(repo, library / name)), name
+
+
+def test_a_resumed_skills_off_run_puts_no_skill_file_back(tmp_path: Path) -> None:
+    run_dir, repo, _ = _start(tmp_path, "off")
+    first, second = _subtasks(run_dir)
+    RunGit(repo=repo, run_dir=run_dir, run_id="run-1").open_subtask(first)
+    # The process is gone. A resume reads the run from its records alone: its configuration says
+    # the arm, and its worktrees are opened again, or for the first time, from the run branch.
+    recorded = load_run_config(run_dir / "run.json")
+    assert recorded.skills == "off"
+    again = RunGit(repo=repo, run_dir=run_dir, run_id=recorded.run_id)
+    opened = [again.open_subtask(first), again.open_subtask(second), again.open_subtask(first, 1)]
+    for worktree in [again.integration, *opened]:
+        assert _skill_files_in(worktree) == [], f"a resume put a skill file into {worktree.name}"
+    spec = Path(json.loads((run_dir / "ledger.jsonl").read_text().splitlines()[0])["spec_path"])
+    given = loader.session_reading("control", spec, skills=recorded.skills)
+    skill = loader.DEFAULT_ROOT / "control" / loader.SKILL_NAME
+    assert skill not in given.required and skill not in given.always_loaded
+
+
+# -- a target that already holds one ------------------------------------------------------------
+
+
+def _target_with(root: Path, write: Any, *, keep: bool = True) -> Path:  # noqa: ANN401
+    """The rig's target, with a commit of ``write`` on it; deleted again unless ``keep``."""
+    repo = target_repo(root)
+    names = write(repo)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "the target's own content")
+    if not keep:
+        _git(repo, "rm", "-q", *names)
+        _git(repo, "commit", "-q", "-m", "removed again")
+    return repo
+
+
+def _the_library_s_skill_file(repo: Path) -> list[str]:
+    name = f"knowledge/{ROLES[0]}/skill.md"
+    (repo / name).parent.mkdir(parents=True)
+    write_fixture(repo, (ROLES[0],))
+    return [name]
+
+
+def _another_skill_file(repo: Path) -> list[str]:
+    name = "knowledge/elsewhere/skill.md"
+    (repo / name).parent.mkdir(parents=True)
+    (repo / name).write_text("a skill file of the target's own\n")
+    return [name]
+
+
+def _a_skill_file_by_another_case(repo: Path) -> list[str]:
+    name = "Knowledge/Control/Skill.md"
+    (repo / name).parent.mkdir(parents=True)
+    (repo / name).write_text("the same file, on a file system that ignores case\n")
+    return [name]
+
+
+def _refused(root: Path, repo: Path) -> str:
+    with pytest.raises(DecompositionError) as caught:
+        _start(root, "off", repo)
+    return str(caught.value)
+
+
+def _nothing_written(root: Path, repo: Path) -> None:
+    assert not (root / "run" / "run.json").exists(), "a refused run left its record"
+    assert not (root / "run" / "worktrees").exists(), "a refused run left a worktree"
+    assert "physgate/" not in _git(repo, "branch", "--list", "physgate/*")
+
+
+@pytest.mark.parametrize(
+    "write",
+    [_the_library_s_skill_file, _another_skill_file, _a_skill_file_by_another_case],
+    ids=lambda f: f.__name__[1:],
+)
+def test_under_skills_off_a_target_whose_start_commit_holds_a_skill_file_is_refused(
+    tmp_path: Path, write: Any
+) -> None:
+    repo = _target_with(tmp_path, write)
+    said = _refused(tmp_path, repo)
+    assert REFUSAL in said, f"the refusal does not say why: {said}"
+    _nothing_written(tmp_path, repo)
+
+
+def test_under_skills_off_a_target_whose_history_held_a_skill_file_is_refused(
+    tmp_path: Path,
+) -> None:
+    repo = _target_with(tmp_path, _another_skill_file, keep=False)
+    assert _skill_files_in(repo) == []  # gone from the commit the run starts from
+    assert REFUSAL in _refused(tmp_path, repo)
+    _nothing_written(tmp_path, repo)
+
+
+def test_under_skills_off_a_target_whose_store_holds_the_library_s_skill_bytes_is_refused(
+    tmp_path: Path,
+) -> None:
+    # An earlier run's branch, or any other: its objects are files a session's shell reads.
+    repo = target_repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "elsewhere")
+    _the_library_s_skill_file(repo)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "another branch's content")
+    _git(repo, "checkout", "-q", "master")
+    assert _skill_files_in(repo) == []
+    assert REFUSAL in _refused(tmp_path, repo)
+    _nothing_written(tmp_path, repo)
+
+
+def test_under_skills_on_a_target_holding_the_library_s_own_bytes_starts_as_it_always_did(
+    tmp_path: Path,
+) -> None:
+    repo = _target_with(tmp_path, _the_library_s_skill_file)
+    run_dir, _, _ = _start(tmp_path, "on", repo)
+    assert _decomposed(run_dir)["subtasks"] == len(ROLES)
+
+
+def test_the_command_refuses_such_a_target_before_the_one_model_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from test_the_physgate_command_starts_and_decides import (  # noqa: PLC0415
+        PARAMS,
+        _decompose_args,
+    )
+
+    from physgate.cli import main  # noqa: PLC0415
+    from physgate.orchestrator import cli  # noqa: PLC0415
+    from physgate.oslayer.probe import Present  # noqa: PLC0415
+
+    repo = _target_with(tmp_path, _another_skill_file)
+    layer = Present(mechanism="seatbelt", claude_version="2.1.301")
+    the_config = config(repo, "off", **_arm("off"), os_layer=layer)
+    # The run's own measurements and requirements are other rows' to judge: this row is the
+    # target's. No binary is on the path, so a model call would fail on another reason.
+    monkeypatch.setattr(cli, "_config", lambda *_a: the_config)
+    monkeypatch.setattr(cli, "refusals", lambda *_a: [])
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.setenv("PATH", "/nonexistent")
+    monkeypatch.delenv("PHYSGATE_CLAUDE_BIN", raising=False)
+    argv = _decompose_args(tmp_path, PARAMS)
+    argv[argv.index("--target") + 1] = str(repo)
+    assert main(argv) == 2
+    said = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert REFUSAL in said["error"], f"the command did not refuse the target first: {said}"
+    assert not (tmp_path / "run").exists(), "the command wrote a run for a refused target"
