@@ -866,14 +866,16 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         watchdog_seconds=WATCHDOG_SECONDS,
         hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
         survivor_reaper=reaper_on,
+        os_layer=request.os_layer_temp_dir is not None,
         after_compaction=tuple(sorted(request.after_compaction)),
         compaction_note=request.compaction_note,
     )
 
 
 #: The configuration's fields left out of its written bytes when empty: only a reviewer whose
-#: run allows compaction has them, so every other session's configuration keeps its bytes.
-_LEFT_OUT_WHEN_EMPTY = ("after_compaction", "compaction_note")
+#: run allows compaction has the first two, and only a session inside the OS layer the third,
+#: so every other session's configuration keeps its bytes.
+_LEFT_OUT_WHEN_EMPTY = ("after_compaction", "compaction_note", "os_layer")
 
 
 def config_bytes(config: SessionConfig) -> bytes:

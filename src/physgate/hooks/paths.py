@@ -444,10 +444,11 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
         # it holds every role's skill and standards, and a session is given its own in its
         # worktree, or, in an arm that leaves the skill out, not given it; nothing a session is
         # given to read lies there. A file tool runs in the binary's own process, outside the
-        # OS layer, so this refusal is the only one it meets. A shell command's word is left to
-        # the OS layer, which denies the command's reads there: a session's search path names
-        # the binary's directory, which may lie in the checkout, so a word that expands it
-        # (``echo $PATH``) names the checkout without reading it.
+        # OS layer, so this refusal is the only one it meets. A shell command's word is refused
+        # too where the session has no OS layer, which leaves nothing else to deny it; inside
+        # the layer, which denies the command's reads there, it is left to the layer: a
+        # session's search path names the binary's directory, which may lie in the checkout, so
+        # a word that expands it (``echo $PATH``) names the checkout without reading it.
         # The checkout is asked last: a root of its own nested in it (a withheld record, the
         # sentinel's place apart) answers with its own reason, which says the sentinel keeps
         # no byte of it, and is never read as the checkout's, whose bytes the sentinel keeps.
@@ -466,7 +467,7 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
                         SESSION_TEMPS_REASON,
                         HOME_CLAUDE_REASON,
                     )
-                    or (root.reason == HARNESS_REASON and not shell)
+                    or (root.reason == HARNESS_REASON and not (shell and config.os_layer))
                 )
                 and _reaches(absolute, root.path, chain)
                 and not any(

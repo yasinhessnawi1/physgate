@@ -157,6 +157,12 @@ class SessionConfig(BaseModel):
     #: Whether each shell command runs under the survivor reaper (macOS with the OS layer),
     #: which ends every sandboxed command's output with its ``done`` line.
     survivor_reaper: bool
+    #: Whether the installer wrote the OS layer's sandbox for this session, which the dispatcher
+    #: asks for only where it judged the layer present. Inside it a shell command's read of the
+    #: harness checkout is the layer's to deny; without it the hooks refuse a command that names
+    #: one. Left out of the written configuration when false, so a session without the layer
+    #: keeps its bytes, and a configuration without it reads as having none.
+    os_layer: bool = False
     #: For a reviewer whose run allows compaction (ARCH-060): the required files read again in
     #: full after each compaction before any tool but Read (the rubric, ARCH-020), and what the
     #: session is told when it starts again after one, in place of its required reading. Both

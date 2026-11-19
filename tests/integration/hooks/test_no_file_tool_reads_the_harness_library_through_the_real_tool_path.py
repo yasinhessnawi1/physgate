@@ -13,7 +13,8 @@ request the session sent after its call, whatever refused the call. Under both h
 whether or not the worktree holds its own copy of the skill (the two skill arms), the Read tool is
 refused by the path hook naming the checkout. The binary under test offers no Grep or Glob tool to
 a role session; a call to either is refused before it runs, by the binary or by the closed tool
-list, and the marker reaches the session neither way.
+list, and the marker reaches the session neither way. Without the OS layer, as here, a shell
+command that names the harness's skill file is refused by the hooks too.
 """
 
 from __future__ import annotations
@@ -121,3 +122,20 @@ def test_under_any_arm_a_search_tool_cannot_read_the_harness_s_library(
     assert INPUT_REFUSED in told or CLOSED_LIST in told or HARNESS_REASON in told, (
         f"the {name} call was not refused: {told[:400]!r}"
     )
+
+
+@pytest.mark.parametrize(("hooks", "own_skill"), ARMS)
+def test_without_the_os_layer_a_command_naming_the_harness_s_skill_file_is_refused(
+    tmp_path: Path, hooks: str, own_skill: bool
+) -> None:
+    # This session runs without the OS layer, as every row of this file does: nothing but the
+    # hooks stands between a command and the checkout. Inside the layer the layer denies it.
+    path = str(tmp_path / HARNESS_REL / SKILL)
+    run, markers = _session(
+        tmp_path,
+        [tool("Bash", command=f"cat {path}", description="read")],
+        hooks=hooks,
+        own_skill=own_skill,
+    )
+    assert _reached(run, markers) == [], "a command read the harness's skill file"
+    assert HARNESS_REASON in run.told_after(1)
