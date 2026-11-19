@@ -40,7 +40,7 @@ import {
 import { StatusTag } from "../../design/components/status/StatusTag";
 import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
-import { PARTS_COPY, releasedWords } from "../../words/parts";
+import { foundAllStoppedWords, foundAllWords, PARTS_COPY, releasedWords } from "../../words/parts";
 import { REFRESH_FAILED, SOURCE_WORDS } from "../../words/queue";
 import { allItems } from "../common/queueItems";
 import { subtaskNames } from "../common/rows";
@@ -48,13 +48,16 @@ import { RunSwitcher } from "../common/RunSwitcher";
 import { phaseOfResult, runSource, useChosenRun } from "../common/runs";
 import { useResult } from "../common/useResult";
 import { Decide } from "./Decide";
+import { FindRemaining } from "./FindRemaining";
 import { chosenItem } from "./model";
 import {
   componentOf,
   earlierDecision,
   everyPartDecided,
   nextOpenPart,
+  partRound,
   planComponents,
+  raisedBy,
   releasedChoices,
 } from "./parts";
 import { PartsDecide, PartsRefusal } from "./PartsDecide";
@@ -233,6 +236,17 @@ export default function Queue({ setHeader, query }: ViewProps) {
   const [advanceFrom, setAdvanceFrom] = useState<string | null>(null);
   const [focus, setFocus] = useState<"part" | "next" | null>(null);
   const [just, setJust] = useState<JustRecorded | null>(null);
+  // What the last find of every remaining part came to: how many it recorded, of how many, and
+  // the refusal that stopped it, if one did.
+  const [foundAll, setFoundAll] = useState<{
+    readonly recorded: number;
+    readonly of: number;
+    readonly refusal: Refusal | null;
+  } | null>(null);
+  const foundLine = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (foundAll !== null) foundLine.current?.focus();
+  }, [foundAll]);
   // The server's last refusal of a part's choice, kept for when the part turns out to be
   // decided meanwhile and its panel gives way to the decided view.
   const [refusedOn, setRefusedOn] = useState<{
@@ -412,9 +426,44 @@ export default function Queue({ setHeader, query }: ViewProps) {
           refusal: { status: 0, error: "no item is chosen", context: {} },
         })
       : postAction(`${base}/queue/decisions`, partsRequest(item, position, stated), resolved);
+  // The parts Find every remaining part decides: each open part asked for the first time, in the
+  // queue's order, the one on screen by the view read when it was chosen.
+  const remaining = views.value
+    .filter((v) => v.open && v.item.source === "parts" && partRound(v.item.itemId)?.round === 1)
+    .sort((a, b) => a.position - b.position)
+    .map((v) => {
+      const view = item !== undefined && item.item.itemId === v.item.itemId ? item : v;
+      const label =
+        componentOf(v.item.itemId, v.item.decisionRequired, components)?.label ?? v.item.itemId;
+      return { view, label };
+    });
+  const findPart = (view: ItemView) =>
+    postAction(`${base}/queue/decisions`, partsRequest(view, "find", null), resolved);
   return (
     <div className="pg-screen">
       {switcher}
+      {foundAll !== null && (
+        <div ref={foundLine} tabIndex={-1}>
+          {foundAll.refusal === null ? (
+            <p className="pg-queue-recorded pg-parts-found-all" role="status">
+              {foundAllWords(foundAll.recorded, operator ?? "no one")}
+            </p>
+          ) : (
+            <div className="pg-parts-refused pg-parts-found-all-refused" role="alert">
+              <p className="pg-parts-refused-title">
+                {foundAllStoppedWords(foundAll.recorded, foundAll.of)}
+              </p>
+              <p>{foundAll.refusal.error}</p>
+              {Object.entries(foundAll.refusal.context).map(([key, said]) => (
+                <p key={key} className="pg-parts-refused-reason">
+                  {said}
+                </p>
+              ))}
+              <p className="pg-panel-note">{PARTS_COPY.refusedReread}</p>
+            </div>
+          )}
+        </div>
+      )}
       {released !== null && (
         <p className="pg-parts-released" role="status">
           {releasedWords(released)}
@@ -468,35 +517,56 @@ export default function Queue({ setHeader, query }: ViewProps) {
             phase={phase}
           >
             {item.item.source === "parts" ? (
-              <PartsDecide
-                // Started again once the plan's line is read: its rows are the part's names. A
-                // read of the queue again keeps it, and what the person typed in it.
-                key={`${item.item.itemId}#${String(components !== null)}`}
-                view={item}
-                component={componentOf(item.item.itemId, item.item.decisionRequired, components)}
-                total={components === null ? null : components.length}
-                earlier={earlierDecision(item.item.itemId, listing.value.decided)}
-                runId={config.value.runId}
-                operator={operator}
-                holdsToken={actToken() !== null}
-                send={sendPart}
-                focusOnStart={focus === "part"}
-                onDecided={(written) => {
-                  const component = componentOf(
+              <>
+                <PartsDecide
+                  // Started again once the plan's line is read: its rows are the part's names. A
+                  // read of the queue again keeps it, and what the person typed in it.
+                  key={`${item.item.itemId}#${String(components !== null)}`}
+                  view={item}
+                  component={componentOf(item.item.itemId, item.item.decisionRequired, components)}
+                  total={components === null ? null : components.length}
+                  earlier={earlierDecision(item.item.itemId, listing.value.decided)}
+                  raised={raisedBy(
                     item.item.itemId,
-                    item.item.decisionRequired,
-                    components,
-                  );
-                  setJust({ label: component?.label ?? item.item.itemId, resolved: written });
-                  setRefusedOn(null);
-                  setAdvanceFrom(item.item.itemId);
-                  setVersion((v) => v + 1);
-                }}
-                onRefused={(refusal) => {
-                  setRefusedOn({ itemId: item.item.itemId, refusal });
-                  setVersion((v) => v + 1);
-                }}
-              />
+                    events.result?.ok === true ? events.result.value : null,
+                  )}
+                  runId={config.value.runId}
+                  operator={operator}
+                  holdsToken={actToken() !== null}
+                  send={sendPart}
+                  focusOnStart={focus === "part"}
+                  onDecided={(written) => {
+                    const component = componentOf(
+                      item.item.itemId,
+                      item.item.decisionRequired,
+                      components,
+                    );
+                    setJust({ label: component?.label ?? item.item.itemId, resolved: written });
+                    setFoundAll(null);
+                    setRefusedOn(null);
+                    setAdvanceFrom(item.item.itemId);
+                    setVersion((v) => v + 1);
+                  }}
+                  onRefused={(refusal) => {
+                    setRefusedOn({ itemId: item.item.itemId, refusal });
+                    setVersion((v) => v + 1);
+                  }}
+                />
+                <FindRemaining
+                  parts={remaining}
+                  runId={config.value.runId}
+                  operator={operator}
+                  holdsToken={actToken() !== null}
+                  send={findPart}
+                  onDone={(recorded, of, refusal) => {
+                    setJust(null);
+                    setRefusedOn(null);
+                    setAdvanceFrom(null);
+                    setFoundAll({ recorded, of, refusal });
+                    setVersion((v) => v + 1);
+                  }}
+                />
+              </>
             ) : (
               <Decide
                 key={`${item.item.itemId}#${String(version)}`}

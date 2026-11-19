@@ -24,13 +24,14 @@ import {
  * its three choices and no approve or reject, held to the design, axe clean, nothing outbound.
  * Then one part is had, one made and the rest found from the page, each through its
  * confirmation; the run is driven once more, as the run command would, and the page shows it
- * released.
+ * released. On a third run, every part is found in one step, through one confirmation.
  */
 
 const ORIGIN = `http://127.0.0.1:${String(PORT)}`;
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const VIEW = "run-parts-view";
 const DECIDE = "run-parts-decide";
+const FIND = "run-parts-find";
 
 /** The operator's address as `physgate ui --operator` printed it; the token is in its fragment. */
 function operatorUrl(): string {
@@ -185,4 +186,41 @@ test("one part had, one made and the rest found from the page, and the run is re
     "Every part is decided, and the run was released: 1 you have, 1 you will make, 4 to find.",
     { timeout: 30_000 },
   );
+});
+
+test("every remaining part is found in one step from the page, through one confirmation", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const seen = await watch(page);
+  await open(page, "light", FIND, `${FIND}-parts-1`);
+  await page.getByRole("button", { name: "Find every remaining part…" }).click();
+  const dialog = page.locator("dialog[open]");
+  await expect(dialog).toContainText("Record that every remaining part is to be found?");
+  for (const label of [
+    "Drive gearmotors, 50:1 Micro Metal HPCB 6V",
+    "Bumper cage",
+    "Wheel encoders",
+  ])
+    await expect(dialog).toContainText(`"${label}"`);
+  const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(" ")}`)).toEqual(
+    [],
+  );
+  expect(await decided(page, FIND)).toEqual([]);
+  await dialog.getByRole("button", { name: "Record", exact: true }).click();
+  await expect(page.locator(".pg-parts-found-all")).toHaveText(
+    'Recorded "choose find" for 6 parts by e2e-operator.',
+  );
+  const lines = await decided(page, FIND);
+  expect(lines.map((d) => d.item_id)).toEqual(
+    [1, 2, 3, 4, 5, 6].map((n) => `${FIND}-parts-${String(n)}`),
+  );
+  expect(lines.map((d) => d.position)).toEqual(Array(6).fill("find"));
+  expect(lines.map((d) => d.parts ?? null)).toEqual(Array(6).fill(null));
+  await expect(page.locator(".pg-parts-next")).toContainText("Every part is decided");
+  await namesNoCommand(page, "found all");
+  await saysNoMoreThanTheRecord(page, "found all");
+  expect(seen.outbound).toEqual([]);
+  expect(await cspViolations(page)).toEqual([]);
 });
