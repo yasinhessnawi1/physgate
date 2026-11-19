@@ -60,7 +60,17 @@ from physgate.orchestrator.exceptions import (
     RunConfigError,
     RunStateError,
 )
-from physgate.orchestrator.git import commit_all, common_dir, git, init_repo
+from physgate.orchestrator.git import (
+    EMPTY_TREES,
+    NO_TRANSPORT,
+    commit_all,
+    common_dir,
+    git,
+    init_repo,
+    promisor,
+    shallow,
+    unreachable_from,
+)
 from physgate.orchestrator.invocation import (
     TRAFFIC_ALLOWED_VERSIONS,
     claude_binary,
@@ -1611,67 +1621,152 @@ SKILL_IN_TARGET = (
 #: left to judge it by, and a skill file of any version, an earlier run's among them, is one.
 UNREACHABLE_IN_TARGET = (
     "under skills: off the target's store may hold no object that no ref, reflog or stash "
-    "reaches, since its content cannot be told from a skill file a session could read; start "
-    "from a fresh clone made without sharing the object files (git clone --no-local)"
+    "reaches, since its content cannot be told from a skill file a session could read; an off "
+    "run starts from a fresh clone of the target made without sharing its object files (git "
+    "clone --no-local), and a target an earlier run used holds such objects once a merge of "
+    "that run was aborted"
 )
+#: Why it refuses a ref that names a file's content itself: that content has no path either.
+NAMELESS_IN_TARGET = (
+    "under skills: off no ref of the target may name a file's content directly, since it has no "
+    "path to judge it by and cannot be told from a skill file a session could read; delete the "
+    "ref, or start from a fresh clone of the target that leaves it out (git clone --no-local "
+    "--no-tags)"
+)
+#: Why it refuses a target that is not a complete repository with a working tree: what it lacks
+#: cannot be judged, and what it lacks a partial clone fetches the moment it is read.
+BARE_TARGET = (
+    "under skills: off the target must be a complete repository with a working tree, and it is "
+    "a bare repository; start from a fresh clone of it (git clone --no-local)"
+)
+SHALLOW_TARGET = (
+    "under skills: off the target must be a complete repository, and it is a shallow clone, "
+    "whose missing history cannot be judged; start from a fresh full clone of it (git clone "
+    "--no-local, with no --depth)"
+)
+PARTIAL_TARGET = (
+    "under skills: off the target must be a complete repository, and it is a partial clone, "
+    "whose missing objects cannot be judged and would be fetched to be read; start from a fresh "
+    "full clone of it (git clone --no-local, with no --filter)"
+)
+
+
+def _require_complete(repo: Path) -> None:
+    """Refuse, under ``skills: off``, a target the check cannot judge whole, before it reads one.
+
+    Bare (no working tree), shallow (commits missing) or partial (objects missing, fetched from
+    a remote on reading). The last two are read from the git directory's files, no git command
+    run in it, so nothing is fetched to decide.
+
+    Raises:
+        DecompositionError: the target is one of the three.
+        GitError: git could not read the target.
+    """
+    bare = git(repo, *NO_TRANSPORT, "rev-parse", "--is-bare-repository").strip()
+    if bare == "true":
+        raise DecompositionError(BARE_TARGET, where="a bare repository")
+    if shallow(repo):
+        raise DecompositionError(SHALLOW_TARGET, where="a shallow clone")
+    if promisor(repo):
+        raise DecompositionError(PARTIAL_TARGET, where="a partial clone")
+
+
+def _tips(repo: Path, commit: str) -> list[str]:
+    """Every object the target names: its refs' own objects, its reflogs', its worktrees' heads.
+
+    ``rev-list --all --reflog --objects --no-walk`` with every tree and blob below a commit
+    left out names each ref, reflog entry (a tag's included) and worktree ``HEAD`` by the object
+    it records, not by the commit it peels to; ``for-each-ref`` adds a ref that names a tree.
+    """
+    walked = git(
+        repo, *NO_TRANSPORT, "rev-list", "--all", "--reflog", "--objects", "--no-walk=unsorted",
+        "--filter=tree:0",
+    )  # fmt: skip
+    refs = git(repo, *NO_TRANSPORT, "for-each-ref", "--format=%(objectname)")
+    named = [line.split(maxsplit=1)[0] for line in (walked + refs).splitlines() if line.strip()]
+    return list(dict.fromkeys([commit, *named]))
 
 
 def require_no_skill_file(repo: Path, commit: str, skills: Mapping[Path, bytes]) -> None:
     """Refuse, under ``skills: off``, a target that already holds a skill file in a session's reach.
 
     Every worktree of the run shares the target's object store, and a session's shell can open
-    any file of it, so the whole store is judged, three ways, nothing written:
+    any file of it, so the whole store is judged, nothing written, no transport allowed:
 
+    - whole: a bare, shallow or partial target is refused first, since what it lacks cannot be
+      judged (and a partial clone would fetch it on reading);
     - by path: every commit reachable from ``commit``, from every ref (every branch, tag, other
       namespace, the stash, every worktree's ``HEAD``) and from every reflog entry (older stashes
       included), for any role's skill file, ``knowledge/*/skill.md`` in any letter case, of any
-      bytes, added, changed or removed at any commit;
-    - by presence: any object none of those reaches (a dropped stash, a file staged and never
-      committed, a loose object nothing names, what an earlier run left behind), whatever it
-      holds, since no path is left to judge it by;
+      bytes, added, changed or removed at any commit; and every tree a ref or a tag names
+      directly, by the same pattern;
+    - by presence: any blob a ref or a tag names directly, and any object none of the above
+      reaches (a dropped stash, a file staged and never committed, a loose object nothing names,
+      what an aborted merge left behind), whatever it holds, since no path is left to judge it by;
     - by content: the bytes of ``skills``, the library's own skill files, anywhere in the store,
       under any path.
 
-    The tips are named by the target itself; the history and the objects are read through the
-    clean object store, which holds none of the target's refs, so the tips are handed to it.
+    The tips are named by the target itself, a tag by its own object; the history and the
+    objects are read through clean object stores, which hold none of the target's refs, so the
+    tips are handed to them on standard input or as a store's own refs, never as arguments.
 
     Not judged: skill content under another path, in bytes the library does not hold now (a
-    renamed copy); a submodule's own store, which is another repository.
+    renamed copy); a submodule's own store, which is another repository; a file in a working
+    directory of the target that no commit or object holds.
 
     Raises:
-        DecompositionError: one of the three finds one.
+        DecompositionError: one of the rules finds one.
         GitError: git could not read the target, or its store's connectivity.
     """
-    # Every commit any ref or reflog of the target names, as git itself lists them.
-    named = git(repo, "rev-list", "--all", "--reflog", "--no-walk=unsorted")
-    tips = list(dict.fromkeys([commit, *named.split()]))
-    pattern = (loader.DEFAULT_ROOT / "*" / loader.SKILL_NAME).as_posix()
+    _require_complete(repo)
+    tips = _tips(repo, commit)
+    object_format = git(
+        repo, *NO_TRANSPORT, "rev-parse", "--show-object-format", objects_only=True
+    ).strip()
+    # Each tip as what it peels to: a commit's history, a tree's paths, or a blob with neither.
+    peeled = git(
+        repo, *NO_TRANSPORT, "cat-file", "--batch-check=%(objecttype) %(objectname)",
+        stdin="".join(f"{tip}^{{}}\n" for tip in tips), objects_only=True,
+    )  # fmt: skip
+    kinds: dict[str, list[str]] = {}
+    for line in peeled.splitlines():
+        kind, _, oid = line.partition(" ")
+        kinds.setdefault(kind, []).append(oid)
+    pattern = f":(icase){(loader.DEFAULT_ROOT / '*' / loader.SKILL_NAME).as_posix()}"
     found = git(
         repo,
+        *NO_TRANSPORT,
         "rev-list",
         "--full-history",
         "-1",
         "--stdin",
         "--",
-        f":(icase){pattern}",
-        stdin="".join(f"{tip}\n" for tip in tips),
+        pattern,
+        stdin="".join(f"{oid}\n" for oid in dict.fromkeys(kinds.get("commit", []))),
         objects_only=True,
     ).strip()
     if found:
         raise DecompositionError(SKILL_IN_TARGET, where="refs", commit=found)
-    # Connectivity only: every commit and tree is read, no blob is, so the check is cheap.
-    checked = git(
-        repo,
-        "fsck",
-        "--unreachable",
-        "--connectivity-only",
-        "--no-progress",
-        *tips,
-        objects_only=True,
-    )
-    unreachable = [line.split() for line in checked.splitlines() if line.startswith("unreachable ")]
+    trees = list(dict.fromkeys(kinds.get("tree", [])))
+    if trees:
+        # Each tree against the empty one: every path it holds is an added path, matched by git's
+        # own pathspec. git echoes each pair it reads; every other line is a path that matched.
+        pairs = [f"{EMPTY_TREES[object_format]} {tree}" for tree in trees]
+        listed = git(
+            repo, *NO_TRANSPORT, "diff-tree", "--stdin", "-r", "--name-only", "--no-renames",
+            "--no-ext-diff", "--no-textconv", "--no-color", "--", pattern,
+            stdin="".join(f"{pair}\n" for pair in pairs), objects_only=True,
+        )  # fmt: skip
+        held = [line for line in listed.splitlines() if line and line not in pairs]
+        if held:
+            raise DecompositionError(SKILL_IN_TARGET, where="a tree a ref names", path=held[0])
+    if kinds.get("blob"):
+        raise DecompositionError(
+            NAMELESS_IN_TARGET, where="a blob a ref names", first=kinds["blob"][0]
+        )
+    unreachable = unreachable_from(repo, tips)
     if unreachable:
-        _, kind, oid = unreachable[0]
+        kind, oid = unreachable[0]
         raise DecompositionError(
             UNREACHABLE_IN_TARGET,
             where="unreachable objects",
@@ -1680,10 +1775,10 @@ def require_no_skill_file(repo: Path, commit: str, skills: Mapping[Path, bytes])
         )
     if not skills:
         return
-    object_format = git(repo, "rev-parse", "--show-object-format", objects_only=True).strip()
     by_id = {_blob_id(data, object_format): relative for relative, data in sorted(skills.items())}
     listed = git(
         repo,
+        *NO_TRANSPORT,
         "cat-file",
         "--batch-check",
         stdin="".join(f"{oid}\n" for oid in by_id),
