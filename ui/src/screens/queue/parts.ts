@@ -10,7 +10,7 @@
  * server checks everything again and its refusal is shown as it gives it.
  */
 import catalogueNames from "../../api/catalogue-names.json";
-import type { PlanComponent, RunEvent } from "../../api/events";
+import type { PlanComponent, RaisedBy, RunEvent } from "../../api/events";
 import {
   type Decided,
   type DeclaredValue,
@@ -87,6 +87,15 @@ export function nextOpenPart(views: readonly ItemView[], from: ItemView): ItemVi
 export function everyPartDecided(views: readonly ItemView[]): boolean {
   const parts = views.filter((v) => v.item.source === "parts");
   return parts.length > 0 && parts.every((v) => !v.open);
+}
+
+/**
+ * What raised the part of item ``itemId`` again at the release: the gate, or an interface that
+ * holds another value; ``null`` where the log read holds no line that raised it.
+ */
+export function raisedBy(itemId: string, events: readonly RunEvent[] | null): RaisedBy | null {
+  const line = events?.find((e) => e.kind === "parts_raised_again" && e.itemIds.includes(itemId));
+  return line?.kind === "parts_raised_again" ? line.cause : null;
 }
 
 /** The choices the release recorded, once the run was released; ``null`` before. */

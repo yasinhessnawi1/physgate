@@ -21,6 +21,10 @@ export const RELEASED_HOW = [
   "mutual_readers",
 ] as const;
 
+/** What raises a decided part again at the release, as the loop writes it. */
+export const RAISED_BY = ["gate", "interface"] as const;
+export type RaisedBy = (typeof RAISED_BY)[number];
+
 interface Line {
   readonly seq: number;
   readonly ts: string;
@@ -41,6 +45,13 @@ export type RunEvent = Line &
         readonly kind: "parts_released";
         /** Each component's item and the choice that released it, in the plan's order. */
         readonly choices: readonly { readonly itemId: string; readonly choice: string }[];
+      }
+    | {
+        readonly kind: "parts_raised_again";
+        /** What raised them: the release's gate call, or an interface that holds another value. */
+        readonly cause: RaisedBy;
+        /** Each part's new item, in the line's order. */
+        readonly itemIds: readonly string[];
       }
     | { readonly kind: "subtask_planned"; readonly subtask: string; readonly role: string }
     | {
@@ -296,6 +307,15 @@ export function runEvent(value: unknown): RunEvent {
             choice: text(part.choice, "a part's choice"),
           };
         }),
+      };
+    case "parts_raised_again":
+      return {
+        ...line,
+        kind: "parts_raised_again",
+        cause: oneOf(e.cause, RAISED_BY, "what raised the parts again"),
+        itemIds: list(e.parts, "the parts raised again").map((raw) =>
+          text(object(raw, "a part raised again").item_id, "a part's new item"),
+        ),
       };
     case "subtask_planned":
       return {

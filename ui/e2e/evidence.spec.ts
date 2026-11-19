@@ -246,8 +246,8 @@ test("the runs: each kind its own section, ablation last, each run tagged, the u
   );
   await expect(kinds.nth(1).locator("td .evidence-kind-tag").first()).toHaveText("Not reportable");
   const unread = page.locator('section[aria-label="Runs that could not be read"]');
-  await expect(unread.locator('[data-run="ev-tampered"]')).toContainText("Its run.json");
-  await expect(unread.locator('[data-run="ev-unreadable"]')).toContainText("Its events.jsonl");
+  await expect(unread.locator('[data-run="0/ev-tampered"]')).toContainText("Its run.json");
+  await expect(unread.locator('[data-run="0/ev-unreadable"]')).toContainText("Its events.jsonl");
   await expect(page.locator('section[data-tab="runs"]')).not.toContainText(
     "The two gaps are not on this page yet",
   );

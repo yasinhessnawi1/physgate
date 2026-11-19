@@ -25,6 +25,7 @@ import raisedItem from "../../api/served/item-parts-raised.json";
 import partsOpen from "../../api/served/queue-parts-open.json";
 import partsRaised from "../../api/served/queue-parts-raised.json";
 import status from "../../api/served/status.json";
+import { foundAllStoppedWords, foundAllWords, PARTS_COPY } from "../../words/parts";
 import { reviewTimeWords } from "../../words/queue";
 import Queue from "./Queue";
 
@@ -77,6 +78,24 @@ describe("the page's parser reads a part's item as the route sends it", () => {
         texts: ["printed in PETG, walls at least 2 mm"],
       },
     });
+  });
+
+  it("reads the line that raises parts again: what raised them, and each part's new item", () => {
+    for (const cause of ["gate", "interface"] as const) {
+      const read = outcome(() => runEvent(raisedLine(cause)));
+      expect(read).toEqual({
+        ok: true,
+        value: {
+          seq: 4,
+          ts: "2026-11-16T22:20:00.000000Z",
+          kind: "parts_raised_again",
+          cause,
+          itemIds: ["run-raised-parts-2-r2"],
+        },
+      });
+    }
+    const other = { ...(raisedLine("gate") as Record<string, unknown>), cause: "reviewer" };
+    expect(outcome(() => runEvent(other))).toMatchObject({ ok: false });
   });
 
   it("reads the components the decomposition's line lists", () => {
@@ -242,6 +261,28 @@ const RELEASED = {
     choice: n === 1 ? "have" : n === 2 ? "make" : "find",
   })),
 };
+
+/** The line the run writes when the release raises the bumper cage again, for ``cause``. */
+function raisedLine(cause: "gate" | "interface"): unknown {
+  return {
+    kind: "parts_raised_again",
+    run_id: "run-raised",
+    gate_mode: "on",
+    seq: 4,
+    ts: "2026-11-16T22:20:00.000000Z",
+    cause,
+    parts: [
+      {
+        item_id: "run-raised-parts-2-r2",
+        node: "mechanical.bumper_cage",
+        why:
+          cause === "gate"
+            ? "the gate blocked its declared values: efficiency is 1.5 1, outside 0 to 1 1"
+            : "interface iface.drive holds efficiency as 0.8, and the part was declared with 1.5",
+      },
+    ],
+  };
+}
 
 /** The Queue screen over the scripted run's answers, ``raised`` for the round after the gate. */
 async function mounted(raised = false, item?: string): Promise<HTMLElement> {
@@ -432,9 +473,128 @@ describe("the Queue screen with a part open", () => {
     expect(beside(host)).toEqual({});
   });
 
-  it("says that finding every remaining part at once is not on this page", async () => {
+  it("offers to find every remaining part on the page, and no longer sends a person elsewhere", async () => {
     const host = await mounted();
-    expect(host.querySelector(".pg-parts-find-all")?.textContent).toContain("command line");
+    expect(findAllButton(host)).toBeDefined();
+    expect(host.querySelector(".pg-parts-find-all")?.textContent).not.toContain("command line");
+  });
+});
+
+function findAllButton(host: HTMLElement): HTMLButtonElement | undefined {
+  return [...host.querySelectorAll<HTMLButtonElement>(".pg-parts-find-all button")].find(
+    (b) => b.textContent.trim() === PARTS_COPY.findAllLabel,
+  );
+}
+
+/** Open the find-all confirmation; its dialog, still open, nothing sent yet. */
+function openFindAll(host: HTMLElement): HTMLDialogElement | null {
+  const button = findAllButton(host);
+  expect(button, "no find-all button").toBeDefined();
+  expect(button?.disabled).toBe(false);
+  act(() => {
+    button?.click();
+  });
+  return document.querySelector<HTMLDialogElement>("dialog[open]");
+}
+
+async function confirmFindAll(host: HTMLElement): Promise<void> {
+  const dialog = openFindAll(host);
+  const confirm = [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
+    (b) => b.textContent.trim() === "Record",
+  );
+  expect(confirm, "no Record button in the confirmation").toBeDefined();
+  act(() => {
+    confirm?.click();
+  });
+  await settle();
+}
+
+/** The labels the plan gives its six parts, in its order. */
+const LABELS = (
+  (decomposed as { components: { label: string }[] }).components as { label: string }[]
+).map((c) => c.label);
+
+describe("every remaining part found in one step, from the page", () => {
+  it("names each part it finds and the line each writes, and sends nothing before Record", async () => {
+    const host = await mounted();
+    const dialog = openFindAll(host);
+    const said = dialog?.textContent ?? "";
+    expect(said).toContain(PARTS_COPY.findAllTitle);
+    for (const label of LABELS) expect(said).toContain(`"${label}"`);
+    const line = dialog?.querySelector(".pg-writes-line")?.textContent ?? "";
+    expect(line.split("\n")).toHaveLength(6);
+    expect(line.match(/"decision":"choose find"/g)).toHaveLength(6);
+    expect(posted).toEqual([]);
+  });
+
+  it("records Find it on every open part, one decision each through the page's route, in order", async () => {
+    const host = await mounted();
+    await confirmFindAll(host);
+    expect(posted.map((p) => p.url)).toEqual(Array(6).fill(`${BASE}/queue/decisions`));
+    expect(posted.map((p) => p.body.item_id)).toEqual(
+      [1, 2, 3, 4, 5, 6].map((n) => `run-parts-parts-${String(n)}`),
+    );
+    for (const [n, p] of posted.entries()) {
+      const view = served[`${BASE}/queue/items/${String(n)}`] as {
+        item_sha256: string;
+        view_id: string;
+      };
+      expect(p.body).toEqual({
+        item_id: `run-parts-parts-${String(n + 1)}`,
+        verb: "choose",
+        position: "find",
+        note: "",
+        shown: { item_sha256: view.item_sha256, trajectories: ["no_seal"] },
+        view_id: view.view_id,
+      });
+    }
+    expect(host.querySelector(".pg-parts-found-all")?.textContent).toBe(
+      foundAllWords(6, "parts-operator"),
+    );
+  });
+
+  it("leaves a part already decided as it was decided", async () => {
+    decidedUpTo(2);
+    const host = await mounted(false, "run-parts-parts-3");
+    await confirmFindAll(host);
+    expect(posted.map((p) => p.body.item_id)).toEqual(
+      [3, 4, 5, 6].map((n) => `run-parts-parts-${String(n)}`),
+    );
+  });
+
+  it("is not offered on a part raised again, which find does not decide", async () => {
+    const host = await mounted(true);
+    expect(host.querySelector(".pg-parts-decide")).not.toBeNull();
+    expect(findAllButton(host)).toBeUndefined();
+  });
+
+  it("stops at the first refusal, says how many were recorded, and gives the server's words", async () => {
+    let n = 0;
+    answer = () => {
+      n += 1;
+      return n === 3
+        ? new Response(
+            JSON.stringify({ error: "the item is no longer as shown", item: "run-parts-parts-3" }),
+            { status: 409 },
+          )
+        : RECORDED();
+    };
+    const host = await mounted();
+    await confirmFindAll(host);
+    expect(posted.map((p) => p.body.item_id)).toEqual(
+      [1, 2, 3].map((k) => `run-parts-parts-${String(k)}`),
+    );
+    const refused = host.querySelector(".pg-parts-found-all-refused")?.textContent ?? "";
+    expect(refused).toContain(foundAllStoppedWords(2, 6));
+    expect(refused).toContain("the item is no longer as shown");
+  });
+
+  it("sends nothing from a page that holds no token, and says why", async () => {
+    forgetToken();
+    window.history.replaceState(null, "", "/");
+    const host = await mounted();
+    expect(findAllButton(host)?.disabled).toBe(true);
+    expect(posted).toEqual([]);
   });
 });
 
@@ -616,6 +776,27 @@ describe("a part raised again after the release gate", () => {
     expect(Object.keys(said)).toEqual(["have", "make", "note"]);
     expect(said.have).toBe(PART_SENTENCES.choose_have);
     expect(said.make).toBe(PART_SENTENCES.choose_make);
+  });
+
+  it("names the physics gate as what raised it only when the gate did", async () => {
+    logged = [decomposed, raisedLine("gate")];
+    const host = await mounted(true);
+    expect(host.querySelector(".pg-parts-raised-title")?.textContent).toBe(PARTS_COPY.raisedTitle);
+  });
+
+  it("names a contradicting interface, never the gate, when an interface raised it", async () => {
+    logged = [decomposed, raisedLine("interface")];
+    const host = await mounted(true);
+    const title = host.querySelector(".pg-parts-raised-title")?.textContent ?? "";
+    expect(title).toBe(PARTS_COPY.raisedTitleInterface);
+    expect(title).not.toContain("gate");
+  });
+
+  it("blames nothing it has not read when the line that raised it is not in the log", async () => {
+    const host = await mounted(true);
+    const title = host.querySelector(".pg-parts-raised-title")?.textContent ?? "";
+    expect(title).toBe(PARTS_COPY.raisedTitleUnread);
+    expect(title).not.toContain("gate");
   });
 
   it("asks again for every name stated before, with the value stated then", async () => {

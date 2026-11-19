@@ -85,6 +85,7 @@ export function eventActor(
     case "dispatch_held":
     case "dispatch_released":
     case "parts_released":
+    case "parts_raised_again":
       return ORCHESTRATOR;
     case "decomposed":
       return {
