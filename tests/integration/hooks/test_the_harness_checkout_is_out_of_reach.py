@@ -98,10 +98,14 @@ def test_the_tool_path_is_refused_for_every_trusted_file_and_a_planted_one(
     run = _session(tmp_path, *steps)
     _unchanged(tmp_path, *TRUSTED)
     refused = _refusals(run)
-    # Every Read, Write and Edit of a trusted file, and the planted write: a read of the
-    # checkout is refused as a write is.
-    assert len(refused) == 3 * len(TRUSTED) + 1, refused
+    # Every Read of a trusted file is refused by the hook, and so is the planted write. With no
+    # Read let through, the binary itself refuses a Write or an Edit of a file it has not read,
+    # before any hook; the files stay as they were either way.
+    assert len(refused) == len(TRUSTED) + 1, refused
     assert all(HARNESS_REASON in reason for _, reason in refused), refused
+    told = [run.told_after(n) for n in range(1, len(steps) + 1)]
+    for n, step in enumerate(steps):
+        assert HARNESS_REASON in told[n] or "<tool_use_error>" in told[n], (step, told[n][:300])
 
 
 @pytest.mark.parametrize(
