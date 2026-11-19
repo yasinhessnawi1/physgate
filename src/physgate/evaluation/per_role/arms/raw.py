@@ -173,9 +173,10 @@ def spent(
     """The tokens the run's account counts of these lines, and those of cut responses it omits.
 
     Counted as the harness run's account counts its own (:func:`.accounting.settle`), so the
-    raw session is held to the cap in the same tokens the cap is a total of: a response the
-    binary cut short is counted where the binary's totals count it, and is the second figure
-    where they leave it out or there are no totals yet.
+    raw session's record is in the same tokens the cap is a total of: a response the binary cut
+    short is counted where the binary's totals count it, and is the second figure where they
+    leave it out or there are no totals. The watch that holds the session to the cap counts
+    every line instead (:func:`stream_total`).
     """
     lines = settle(result, usages)
     return (
@@ -185,15 +186,20 @@ def spent(
 
 
 def stream_total(stream: Path) -> int:
-    """Every token the stream's messages were charged for so far, each message once.
+    """Every token the stream's messages started or ended with so far, each message once.
 
     Read as every session file is (:func:`read_session_file`): a link, a pipe or a file with
-    another link at the stream's name raises, and the watch stops the session for it. Counted
-    as the run's account counts (:func:`spent`).
+    another link at the stream's name raises, and the watch stops the session for it.
+
+    Every line is counted, a response the binary cut short included, with a result or without:
+    the cap fails closed. While the session runs there is no result, so nothing yet says
+    whether the binary's totals will count a cut response; a watch that left it out until then
+    would let the session run past its cap. The session's record counts as the run's account
+    does (:func:`spent`); the cap may so stop a session a few cut tokens early, never late.
     """
     text = read_session_file(stream).decode("utf-8", errors="replace")
-    result, usages, _ = read_stream(text)
-    return spent(result, usages)[0]
+    _, usages, _ = read_stream(text)
+    return sum(m.usage.total() for m in usages)
 
 
 #: A checkpoint the watch asks at each reading, given the tokens spent so far: a reason to

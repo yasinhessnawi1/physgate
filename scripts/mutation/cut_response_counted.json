@@ -328,5 +328,76 @@
   "tests": [
    "tests/unit/orchestrator/test_a_cut_response_the_binary_s_totals_count_is_counted_and_listed.py"
   ]
+ },
+ {
+  "name": "lines_in_totals_reads_a_left_out_cut_at_any_end",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    if cut and not ended_in_api_error(result):\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_cut_response_the_binary_s_totals_count_is_counted_and_listed.py",
+   "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
+   "tests/unit/orchestrator/test_the_totals_settle_a_cut_response_on_every_class_and_never_unsettle_an_earlier_one.py"
+  ]
+ },
+ {
+  "name": "settle_compares_one_class_of_token",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    counted = every == _charged(per_model)\n",
+  "new": "    counted = every.input_tokens == _charged(per_model).input_tokens\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_cut_response_the_binary_s_totals_count_is_counted_and_listed.py",
+   "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
+   "tests/unit/orchestrator/test_the_totals_settle_a_cut_response_on_every_class_and_never_unsettle_an_earlier_one.py"
+  ]
+ },
+ {
+  "name": "settle_clears_an_earlier_invocation_s_mark",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    if not counted:\n        return usages\n",
+  "new": "    if not counted:\n        return tuple(\n            m.model_copy(update={\"in_binary_totals\": False}) if m.abandoned else m\n            for m in usages\n        )\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_cut_response_the_binary_s_totals_count_is_counted_and_listed.py",
+   "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
+   "tests/unit/orchestrator/test_the_totals_settle_a_cut_response_on_every_class_and_never_unsettle_an_earlier_one.py"
+  ]
+ },
+ {
+  "name": "raw_watch_counts_as_the_record_mid_session",
+  "file": "src/physgate/evaluation/per_role/arms/raw.py",
+  "old": "    _, usages, _ = read_stream(text)\n    return sum(m.usage.total() for m in usages)\n",
+  "new": "    result, usages, _ = read_stream(text)\n    return spent(result, usages)[0]\n",
+  "tests": [
+   "tests/unit/evaluation/test_a_cut_response_is_counted_by_every_reader_as_the_binary_s_totals_count_it.py",
+   "tests/unit/evaluation/per_role/test_the_raw_arm_s_cap_fails_closed.py"
+  ]
+ },
+ {
+  "name": "raw_watch_counts_no_cut_line",
+  "file": "src/physgate/evaluation/per_role/arms/raw.py",
+  "old": "    return sum(m.usage.total() for m in usages)\n",
+  "new": "    return sum(m.usage.total() for m in usages if not m.abandoned)\n",
+  "tests": [
+   "tests/unit/evaluation/test_a_cut_response_is_counted_by_every_reader_as_the_binary_s_totals_count_it.py",
+   "tests/unit/evaluation/per_role/test_the_raw_arm_s_cap_fails_closed.py"
+  ]
+ },
+ {
+  "name": "baseline_tally_drops_the_cut_tokens",
+  "file": "src/physgate/evaluation/baseline/runner.py",
+  "old": "        tally.spent_not_in_binary_totals += int(record.get(\"tokens_not_in_binary_totals\") or 0)\n",
+  "new": "        tally.spent_not_in_binary_totals += 0\n",
+  "tests": [
+   "tests/unit/evaluation/baseline/test_the_baseline_runs_the_raw_arm_on_every_harness_trial_of_a_tier_version.py"
+  ]
+ },
+ {
+  "name": "baseline_record_writes_a_tier_with_no_cut_tokens_anew",
+  "file": "src/physgate/evaluation/baseline/record.py",
+  "old": "    spent_not_in_binary_totals: Count = Field(default=0, exclude_if=lambda v: not v)\n",
+  "new": "    spent_not_in_binary_totals: Count = 0\n",
+  "tests": [
+   "tests/unit/evaluation/baseline/test_the_baseline_runs_the_raw_arm_on_every_harness_trial_of_a_tier_version.py"
+  ]
  }
 ]

@@ -530,6 +530,7 @@ class _Tally:
     excluded: int = 0
     cap: int = 0
     spent: int = 0
+    spent_not_in_binary_totals: int = 0
 
     def counts(self) -> TierCounts:
         return TierCounts(**vars(self))
@@ -713,6 +714,8 @@ def run_baseline(
         tally.trials += 1
         tally.cap += trial.cap
         tally.spent += int(record.get("tokens", 0))
+        # Cut tokens the session's count leaves out: the spend is a lower bound by them.
+        tally.spent_not_in_binary_totals += int(record.get("tokens_not_in_binary_totals") or 0)
         if isinstance(line, ExcludedTrial):
             tally.excluded += 1
         elif line.outcome == "pass":

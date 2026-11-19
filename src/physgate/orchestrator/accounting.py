@@ -94,12 +94,22 @@ def settle(
     """The lines, each cut response marked as counted or not by the binary's totals.
 
     The totals count a session's cut responses where they equal every line, the cut ones
-    included, field by field: each is then marked ``in_binary_totals``. Where they are of
-    another figure, none is so marked. All or none: totals that count some of a session's cut
-    responses and not others were never seen, and are left for the check to refuse. A result
+    included, in each of the four token classes: each is then marked ``in_binary_totals``.
+    Where they are of another figure, none is newly so marked. All or none: totals that count
+    some of a session's cut responses and not others were never seen, and are left for the
+    check to refuse. A cut response that started with no usage meets both figures, and is read
+    the one way, as counted.
+
+    The comparison is of the totals summed over every model: a line does not carry the model
+    that answered it, so it cannot be held per model. Equality is still no proof: totals that
+    left a cut response out but counted a response the stream does not show, whose four classes
+    equal the cut one's, would be read as counting the cut response.
+
+    A mark is only ever set here, never cleared: a line an earlier invocation's totals settled
+    keeps its mark whatever this result's totals are (a resumed invocation's are the whole
+    session's, and a compaction's call makes them equal no plain sum of the lines). A result
     with no totals settles nothing, and the lines are returned as given: a line read from a
-    stream is then not counted, and one an earlier invocation's totals settled keeps its mark.
-    Nothing is raised here and no other line is changed.
+    stream is then not counted. Nothing is raised here and no other line is changed.
     """
     usages = tuple(usages)
     per_model = (result or {}).get("modelUsage")
@@ -109,9 +119,11 @@ def settle(
     for message in usages:
         every = _plus(every, message.usage)
     counted = every == _charged(per_model)
+    if not counted:
+        return usages
     return tuple(
-        m.model_copy(update={"in_binary_totals": counted})
-        if m.abandoned and m.in_binary_totals != counted
+        m.model_copy(update={"in_binary_totals": True})
+        if m.abandoned and not m.in_binary_totals
         else m
         for m in usages
     )
