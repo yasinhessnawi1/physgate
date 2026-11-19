@@ -186,6 +186,7 @@ def record_check(store: Path, version: str, flagged: Sequence[str], **changes: A
         "tasks": tasks,
         "all_yes": tasks - len(flagged),
         "flagged": [id_digest(task) for task in flagged],
+        "answer_sha256": "a" * 64,
         **changes,
     }
     record = make_check(**fields)

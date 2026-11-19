@@ -40,6 +40,7 @@ from physgate.evaluation.baseline import runner
 from physgate.evaluation.baseline.runner import BASELINE_DIR, PLACE, BaselineError
 from physgate.evaluation.per_role import author_session
 from physgate.evaluation.per_role.author_session import blind_check
+from physgate.evaluation.tiers import check_tasks
 from physgate.evaluation.tiers.authoring import AuthoringError
 from physgate.evaluation.tiers.canaries import root_canaries
 from physgate.evaluation.tiers.store import WORKING, role_root, work_root
@@ -105,7 +106,8 @@ def test_a_trial_made_after_the_check_s_last_look_for_work_left_still_refuses_it
     plan, version = _held_tier(tmp_path, monkeypatch)
     fake = FakeSession(_answers)
     monkeypatch.setattr(author_session, "run_session", fake)
-    real = author_session.bundle
+    # The check's own name for the tasks file's maker, which the row replaces.
+    real = check_tasks.bundle
     with contextlib.ExitStack() as living:
         made: list[tuple[Path, Path]] = []
 

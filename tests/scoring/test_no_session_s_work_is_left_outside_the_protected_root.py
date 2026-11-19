@@ -29,13 +29,10 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
 )
 
 from physgate.evaluation.per_role import author_session
-from physgate.evaluation.per_role.author_session import (
-    QUESTIONS,
-    author,
-    blind_check,
-)
+from physgate.evaluation.per_role.author_session import author, blind_check
 from physgate.evaluation.tiers.authoring import AuthoringError
 from physgate.evaluation.tiers.canaries import root_canaries
+from physgate.evaluation.tiers.check_tasks import QUESTIONS
 
 
 class _Stopped(BaseException):

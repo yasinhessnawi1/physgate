@@ -19,10 +19,11 @@ record's canonical JSON with that field left out: a record whose bytes were chan
 without it no longer names itself, and is refused.
 
 **Written once, whole.** The record is written to a temporary file beneath the role's withheld
-root, synced, then linked into place under its own name, which fails if a record is there: one
-is never replaced (:func:`write_check`), and a crash leaves either no record or a whole one,
-never an empty one. A check on a version that has one is refused before its session starts,
-since running a check again until it passes is what the record is there to stop.
+root, synced, then renamed into place under its own name, under the writers' lock and only if
+no record is there: one is never replaced (:func:`write_check`), and a crash leaves either no
+record or a whole one, never an empty one. A check on a version that has one is refused before
+its session starts, since running a check again until it passes is what the record is there to
+stop.
 
 **Before any result.** A check, or an import, of a version is refused once the version has a
 measurement or an exposure in the register, or any run or raw record names it
@@ -52,6 +53,7 @@ import could then be made again only while nothing has measured, seen or run on 
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -81,6 +83,8 @@ from physgate.evaluation.tiers.task import (
 #: What a version's check record is called beside it: ``<version>.check.json``.
 CHECK_SUFFIX = ".check.json"
 CHECK_NAME = re.compile(r"^[0-9a-f]{64}\.check\.json$")
+#: The writers' lock beneath the role's withheld root, held while a record is put in place.
+CHECK_LOCK = "check-record.lock"
 #: The largest check record read or written: counts, pins and a few dozen digests.
 MOST_CHECK_BYTES = 64 * 1024
 #: The largest printed answer an import reads: the check's one line of counts and digests.
@@ -186,6 +190,9 @@ class _CheckBody(_Frozen):
     tasks: Annotated[int, Field(ge=1)]
     all_yes: Count
     flagged: tuple[TaskDigest, ...]
+    #: The digest of the answer file the flagged tasks were computed from: as the check read
+    #: it, or (imported) as its kept session's stream shows it written.
+    answer_sha256: Sha256
 
     @model_validator(mode="after")
     def _holds_its_counts(self) -> _CheckBody:
@@ -416,10 +423,12 @@ def write_check(store: Path, role: Role, record: CheckRecord) -> None:
     """Write ``record`` beside its version, whole and once; one already there is never replaced.
 
     The bytes go to a new temporary file beneath the role's withheld root (where nothing judges
-    a stray entry, and the same volume as the role's root), which is synced and then linked
-    into place under the record's name: the link fails if a record is there, so none is ever
-    replaced, and a crash leaves no record or a whole one, never an empty or a cut one. The
-    temporary name is removed whatever happens.
+    a stray entry, on the same volume as the role's root), which is synced and then renamed into
+    place under the record's name, so a crash leaves no record or a whole one, never an empty or
+    a cut one. The rename is made under the writers' lock beneath the withheld root, after a
+    look, under that lock, that no record is there: no writer ever replaces one. No second name
+    is made (a hard link inside the protected root would trip every later session's
+    tripwire). The temporary name is removed whatever happens.
 
     Raises:
         CheckError: it is another role's (``check_record_not_the_version``), or the version has
@@ -450,11 +459,18 @@ def write_check(store: Path, role: Role, record: CheckRecord) -> None:
             os.fsync(fd)
         finally:
             os.close(fd)
+        lock = os.open(
+            withheld_root(store, role) / CHECK_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600
+        )
         try:
-            os.link(temporary, path, follow_symlinks=False)
-        except FileExistsError:
-            raise _recorded(record) from None
-        _sync_directory(path.parent)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            # Under the lock no other writer makes a record: one there now is never replaced.
+            if os.path.lexists(path):
+                raise _recorded(record)
+            os.rename(temporary, path)
+            _sync_directory(path.parent)
+        finally:
+            os.close(lock)
     except OSError as exc:
         msg = f"the check record cannot be written: {exc.strerror}"
         raise _refuse("check_record_unwritten", msg) from None
@@ -573,10 +589,18 @@ def import_check(
     - when the session's whole read of its tasks file is not what the version's held-out tier
       gives a check now (``check_session_not_the_version``);
     - when its model is the implementers' (``checked_on_the_implementers_model``);
+    - when the store holds work a session left (``work_left``): a check that left it may have
+      been refused;
     - when ``printed`` (the line the check printed) is given and is not exactly what the
-      session derives (``check_answer_disagrees``), or is not given where a tool call named the
-      answer file after its last write, so what the check read at its end needs it
-      (``check_answer_not_derivable``).
+      session derives (``check_answer_disagrees``); or is not given where the session's record
+      is of the earlier kind, which says neither whether the check took the answer nor what the
+      file held (``check_answer_unconfirmed``), or where any call but a read followed the
+      answer's last write, or the digest the record keeps of the file is not the written
+      answer's (``check_answer_not_derivable``).
+
+    A session is passed over unless it ended as a session ends (``end`` is ``ended``), its
+    stream showed no canary, and, where its record says what the check made of its answer, every
+    gate passed (``answer_taken`` is ``true``).
 
     Raises:
         CheckError: as above; the reason is counted, and no task is named.
@@ -586,21 +610,38 @@ def import_check(
     from physgate.evaluation.tiers.check_sessions import kept_answers
     from physgate.evaluation.tiers.check_tasks import QUESTIONS
     from physgate.evaluation.tiers.exposure import results_refusal
+    from physgate.evaluation.tiers.store import leftovers
 
     manifest = read_version(version_dir(store, role, version))
     refusal = results_refusal(store, role, version)
     if refusal is not None:
         raise _refuse(*refusal)
+    try:
+        left = {reason: n for reason, n in leftovers(store).items() if n}
+    except OSError as exc:
+        raise _refuse("work_left", f"the store cannot be read whole: {exc}") from None
+    if left:
+        msg = (
+            f"the store holds work a session left ({left}): a check that left it may have been "
+            "refused, so no kept session's answer is taken until a person has looked"
+        )
+        raise _refuse("work_left", msg)
     if read_check(store, role, version, manifest=manifest) is not None:
         raise _refuse("check_recorded", "the version has a check record already")
     held = _held_out_digests(store, role, version)
     if any(n != 1 for n in held.values()) or sum(held.values()) != manifest.held_out.count:
         msg = "the held-out tier's tasks are not each one id digest of the manifest's count"
         raise _refuse("tier_unreadable", msg)
+    # An answer the check took: on this tier, in a session that ended as a session ends, whose
+    # stream showed no canary, and, where its record says, one every gate of the check passed.
     answered = [
         kept
         for kept in kept_answers(store, role)
-        if kept.answer is not None and set(kept.answer) == set(held) and kept.took
+        if kept.answer is not None
+        and set(kept.answer) == set(held)
+        and kept.took
+        and kept.ended
+        and kept.taken is not False
     ]
     if not answered:
         msg = (
@@ -643,11 +684,19 @@ def import_check(
             "shows it answered: nothing is recorded"
         )
         raise _refuse("check_answer_disagrees", msg)
-    if printed is None and kept.touched_after:
+    if printed is None and kept.taken is None:
         msg = (
-            "after the kept session last wrote its answer file, a tool call named that file "
-            "again, so what the check read at its end cannot be told from the stream alone; "
-            "give the line the check printed (--from), which must agree with it exactly"
+            "the kept session's record is of the earlier kind, which does not say whether the "
+            "check took its answer or what the answer file held as it read it: its answer is "
+            "taken only with the line the check printed (--from), which must agree exactly"
+        )
+        raise _refuse("check_answer_unconfirmed", msg)
+    if printed is None and (kept.touched_after or kept.answer_sha256 != kept.written_sha256):
+        msg = (
+            "after the kept session last wrote its answer file a tool call other than a read "
+            "followed, or the file the check read is not the one the stream shows written, so "
+            "what the check read at its end cannot be told from the stream alone; give the line "
+            "the check printed (--from), which must agree with it exactly"
         )
         raise _refuse("check_answer_not_derivable", msg)
     record = make_check(
@@ -671,6 +720,7 @@ def import_check(
         tasks=len(held),
         all_yes=len(held) - len(flagged),
         flagged=flagged,
+        answer_sha256=kept.written_sha256,
     )
     write_check(store, role, record)
     return record

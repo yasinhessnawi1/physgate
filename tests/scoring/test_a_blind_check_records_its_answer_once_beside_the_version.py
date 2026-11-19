@@ -32,9 +32,10 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
 )
 
 from physgate.evaluation.per_role import author_session
-from physgate.evaluation.per_role.author_session import QUESTIONS, blind_check
+from physgate.evaluation.per_role.author_session import blind_check
 from physgate.evaluation.tiers.authoring import AuthoringError
 from physgate.evaluation.tiers.canaries import root_canaries
+from physgate.evaluation.tiers.check_tasks import QUESTIONS
 from physgate.evaluation.tiers.checks import CheckPins, check_path, read_check
 from physgate.evaluation.tiers.exposure import mark_exposed, record_measurement
 from physgate.evaluation.tiers.store import leftovers
@@ -66,6 +67,9 @@ def test_a_check_that_answers_leaves_its_record_beside_the_version(
     kept = _plan(tmp_path).root / "withheld" / "check" / "s-1" / "stdout.jsonl"
     assert record.kept.session_id == "s-1" and record.kept.bound_by == "ran"
     assert record.kept.stream_sha256 == hashlib.sha256(kept.read_bytes()).hexdigest()
+    session = json.loads((kept.parent / "record.json").read_text())
+    assert session["answer_taken"] is True, "the session's record does not say its answer was taken"
+    assert session["answer_sha256"] == record.answer_sha256, "the file's digest is not kept"
     assert leftovers(store)["work_left"] == 0, "the record lies out of place"
 
 
@@ -104,6 +108,10 @@ def test_a_check_that_gives_no_answer_leaves_no_record(
     assert out["answered"] is False
     store = _plan(tmp_path).store
     assert not any(p.name.endswith(".check.json") for p in (store / "control").iterdir())
+    session = json.loads(
+        (store / "control" / "withheld" / "check" / "s-1" / "record.json").read_text()
+    )
+    assert session["answer_taken"] == "no_answer", "a session the check took no answer of says so"
 
 
 def test_what_the_check_returns_and_records_names_no_task(

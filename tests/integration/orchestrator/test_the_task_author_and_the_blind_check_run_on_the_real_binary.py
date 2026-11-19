@@ -22,12 +22,11 @@ from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool  # noqa: E4
 
 from physgate.evaluation.per_role.arms.raw import RawSetup  # noqa: E402
 from physgate.evaluation.per_role.author_session import (  # noqa: E402
-    QUESTIONS,
     AuthoringPlan,
     author,
     blind_check,
-    bundle,
 )
+from physgate.evaluation.tiers.check_tasks import QUESTIONS, bundle  # noqa: E402
 from physgate.evaluation.tiers.store import check_roots, work_root, write_version  # noqa: E402
 from physgate.evaluation.tiers.task import canonical_json  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
@@ -357,14 +356,9 @@ def test_a_check_s_kept_session_on_the_real_binary_gives_back_the_record_the_che
     made = read_check(store, "control", manifest.version)
     assert made is not None and made.source == "check"
     check_path(store, "control", manifest.version).unlink()
-    line = {k: out[k] for k in ("tasks", "answered", "all_yes", "flagged", "session")}
-    record = import_check(
-        store,
-        "control",
-        manifest.version,
-        implementer_model="claude-opus-5-5",
-        printed=json.dumps(line).encode(),
-    )
+    # The session's record says the check took its answer and what the file held: the stream
+    # alone gives the answer back, with no printed line.
+    record = import_check(store, "control", manifest.version, implementer_model="claude-opus-5-5")
     assert (record.source, record.kept.bound_by) == ("imported", "tasks_read")
     assert (record.tasks, record.all_yes, record.flagged) == (
         made.tasks,
@@ -372,6 +366,7 @@ def test_a_check_s_kept_session_on_the_real_binary_gives_back_the_record_the_che
         made.flagged,
     )
     assert record.session == made.session, "the spend is not the check's own"
+    assert record.answer_sha256 == made.answer_sha256, "the stream's answer is not the file read"
     assert (record.kept.session_id, record.kept.stream_sha256) == (
         made.kept.session_id,
         made.kept.stream_sha256,

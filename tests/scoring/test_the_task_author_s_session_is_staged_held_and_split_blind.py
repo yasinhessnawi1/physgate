@@ -23,7 +23,6 @@ from physgate.evaluation.per_role import author_session
 from physgate.evaluation.per_role import validate as validate_module
 from physgate.evaluation.per_role.arms.raw import RawSetup
 from physgate.evaluation.per_role.author_session import (
-    QUESTIONS,
     AuthoringPlan,
     AuthorProgress,
     author,
@@ -32,6 +31,7 @@ from physgate.evaluation.per_role.author_session import (
 from physgate.evaluation.tiers import store as store_module
 from physgate.evaluation.tiers.authoring import TIERS, AuthoringError
 from physgate.evaluation.tiers.canaries import root_canaries
+from physgate.evaluation.tiers.check_tasks import QUESTIONS
 from physgate.evaluation.tiers.manifest import VERSION_NAME
 from physgate.evaluation.tiers.store import pool_dir
 from physgate.evaluation.tiers.task import id_digest

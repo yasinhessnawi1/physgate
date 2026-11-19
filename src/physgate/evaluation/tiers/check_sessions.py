@@ -10,11 +10,15 @@ kept as ``unrecorded-<hex>``: its check raised before it took any answer.
 tool whose result was not an error, read from the tool call in the stream. Its model and binary
 are the ones the stream names as it starts; when it was written is the time the stream gives
 that write's result. A whole read of the tasks file it was given, where the stream holds one,
-is kept too, so the version it was given can be held to it by content. Where a tool call names
-the answer file after that write (a shell command reading or changing it, an edit), what the
-check read at its end cannot be told from the stream alone, and the session says so. Where a
-session named its answer file but never wrote it by its file-write tool, whether it answered
-cannot be told, and the session is refused.
+is kept too, so the version it was given can be held to it by content. Where any tool call but a
+read follows that write, what the check read at its end cannot be told from the stream alone
+(a shell command or a write elsewhere can reach the file under any spelling), and the session
+says so. Where a session named its answer file but never wrote it by its file-write tool,
+whether it answered cannot be told, and the session is refused.
+
+A check made since records keep it says in its session's record what it made of the answer
+(``answer_taken``: ``true`` once every gate passed, else why not) and the digest of the answer
+file as it read it (``answer_sha256``), so the answer is never taken from the stream alone.
 
 Nothing here opens a tier: the stream is read as bytes and JSON, and what it holds is returned
 to the import alone (:func:`.checks.import_check`), which prints counts and digests only.
@@ -50,6 +54,8 @@ _READING = frozenset({"Read", "Glob", "Grep", "LS"})
 #: The tools that write a file and say so: one whose call was refused changed nothing.
 _FILE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
 _CUT_OFF = "tokens_not_in_binary_totals"
+#: A session record of the earlier kind, written before records said what the check made of it.
+_EARLIER = object()
 
 
 def _unclear(where: str, why: str) -> CheckError:
@@ -77,10 +83,22 @@ class KeptAnswer:
     #: The tasks file as the session read it whole, parsed; ``None`` where the stream holds no
     #: whole read of it.
     tasks_read: object | None
-    #: A tool call named the answer file after its last write.
+    #: A tool call other than a read followed the answer's last write: whatever it was, it may
+    #: have changed the file, so the stream alone does not say what the check read at its end.
     touched_after: bool
     #: The session's spend, as the check printed it from the record.
     spent: dict[str, Any]
+    #: Whether the session's record says it ended as a session ends, not on its cap, an error or
+    #: a stop (``end`` is ``ended``).
+    ended: bool = False
+    #: What the check made of its answer, where the session's record says (a check made since
+    #: records kept it): ``True`` once every gate passed, ``False`` where it says anything else;
+    #: ``None`` where the record is of the earlier kind and says nothing.
+    taken: bool | None = None
+    #: The digest of the answer file as the check read it, where the record says; and the digest
+    #: of the answer as the stream shows it written.
+    answer_sha256: str | None = None
+    written_sha256: str = ""
 
 
 def _read(path: Path, most: int) -> bytes | None:
@@ -244,19 +262,23 @@ def read_kept(directory: Path) -> KeptAnswer:
     spent = _spent(record)
     stream_sha256 = hashlib.sha256(stream).hexdigest()
     took = record.get("held_out_seen") is False
+    nothing = KeptAnswer(where, stream_sha256, None, took, "", "", "", None, False, spent)
     if landed is None:
         if named:
             raise _unclear(where, "named its answer file but never wrote it by its file-write tool")
-        return KeptAnswer(where, stream_sha256, None, took, "", "", "", None, False, spent)
+        return nothing
     call = calls[landed]
-    answer = answers_of(str(_input(call)["content"]).encode())
+    written = str(_input(call)["content"]).encode()
+    answer = answers_of(written)
     if answer is None:
-        return KeptAnswer(where, stream_sha256, None, took, "", "", "", None, False, spent)
+        return nothing
+    outcome = record.get("answer_taken", _EARLIER)
+    recorded = record.get("answer_sha256")
     model, binary = start.get("model"), start.get("claude_code_version")
-    written = results[str(call.get("id"))][1]
+    written_at = results[str(call.get("id"))][1]
     if not isinstance(model, str) or not model or not isinstance(binary, str) or not binary:
         raise _unclear(where, "has a stream that does not name its model and binary")
-    if written is None:
+    if written_at is None:
         raise _unclear(where, "has a stream that does not say when its answer was written")
     return KeptAnswer(
         session_id=where,
@@ -265,10 +287,15 @@ def read_kept(directory: Path) -> KeptAnswer:
         took=took,
         model=model,
         claude_version=binary,
-        written_at=written,
+        written_at=written_at,
         tasks_read=tasks_read,
-        touched_after=any(at > landed for at in named),
+        # Not proven untouched by what a call names: any call but a read after the write counts.
+        touched_after=any(c.get("name") not in _READING for c in calls[landed + 1 :]),
         spent=spent,
+        ended=record.get("end") == "ended",
+        taken=None if outcome is _EARLIER else outcome is True,
+        answer_sha256=recorded if isinstance(recorded, str) else None,
+        written_sha256=hashlib.sha256(written).hexdigest(),
     )
 
 

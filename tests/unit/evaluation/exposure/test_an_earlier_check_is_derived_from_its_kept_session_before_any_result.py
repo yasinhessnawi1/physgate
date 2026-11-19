@@ -7,8 +7,12 @@ the binary, the time and the spend are the session's own. The record names the s
 stream's digest, and how the session is tied to the version: by its whole read of the tasks it
 was given, held to what the version's held-out tier gives a check now, or else by its answer's
 keys alone, the digests of the version's held-out task ids. The line the check printed, given,
-must agree with it exactly; where a tool call named the answer file after its last write, it
-must be given.
+must agree with it exactly. It must be given where the session's record is of the earlier kind
+(which says neither whether the check took the answer nor what the file held as it read it),
+where any call but a read followed the answer's write, and where the record's digest of the
+file is not the written answer's. A session whose record says it did not end as a session
+ends, or that the check did not take its answer, is passed over; nothing is taken while the
+store holds work a session left.
 
 No session, or more than one that answered, and nothing is recorded: a person must look. A
 session that ended without an answer, answered on another tier, or whose stream showed a canary
@@ -224,23 +228,100 @@ def test_a_whole_read_of_other_tasks_under_the_same_keys_is_not_this_version_s_c
 def test_a_write_that_was_refused_is_not_the_answer(
     tmp_path: Path, unchecked: StandInStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # After the answer landed, a second write of another answer, which the hook refused.
+    # After the answer landed, a second write of another answer, which the hook refused. A call
+    # follows the write, so the printed line is wanted, and the answer is the landed one.
     kept_session(unchecked.store, unchecked.version, refused_after=all_yes)
-    code, said, _ = _import(tmp_path, unchecked, capsys)
+    code, said, _ = _import(tmp_path, unchecked, capsys, line=printed([_first(unchecked)]))
     assert code == 0, said
     assert _read(unchecked).flagged == (_first(unchecked),), "a refused write was taken"
 
 
-def test_a_tool_call_on_the_answer_after_its_write_needs_the_printed_line(
+def test_any_call_but_a_read_after_the_write_needs_the_printed_line(
     tmp_path: Path, unchecked: StandInStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    after = [("Bash", {"command": "python3 -m json.tool answers.json", "description": "x"})]
+    # A shell call that does not name the answer file, the file as the check read it unchanged:
+    # what a call names proves nothing, so the stream alone is not taken.
+    after = [("Bash", {"command": "python3 tidy.py", "description": "x"})]
     kept_session(unchecked.store, unchecked.version, after=after)
     code, said, _ = _import(tmp_path, unchecked, capsys)
     assert (code, said.get("refused_because")) == (1, "check_answer_not_derivable")
     assert not os.path.lexists(_path(unchecked))
     code, said, _ = _import(tmp_path, unchecked, capsys, line=printed([_first(unchecked)]))
     assert code == 0, said
+
+
+def test_a_later_shell_call_that_rewrote_the_answer_is_taken_only_as_the_check_printed_it(
+    tmp_path: Path, unchecked: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The shell call rewrote the file, never naming it: the record's digest of the file as the
+    # check read it is not the stream's written answer.
+    after = [("Bash", {"command": "python3 tidy.py", "description": "x"})]
+    kept_session(unchecked.store, unchecked.version, after=after, read_back=all_yes)
+    code, said, _ = _import(tmp_path, unchecked, capsys)
+    assert (code, said.get("refused_because")) == (1, "check_answer_not_derivable")
+    code, said, _ = _import(tmp_path, unchecked, capsys, line=printed([]))
+    assert (code, said.get("refused_because")) == (1, "check_answer_disagrees")
+    assert not os.path.lexists(_path(unchecked))
+    code, said, _ = _import(tmp_path, unchecked, capsys, line=printed([_first(unchecked)]))
+    assert code == 0, said
+
+
+def test_a_rewrite_seen_only_by_the_record_s_digest_needs_the_printed_line(
+    tmp_path: Path, unchecked: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # No call follows the write in the stream, yet the file the check read is another.
+    kept_session(unchecked.store, unchecked.version, read_back=all_yes)
+    code, said, _ = _import(tmp_path, unchecked, capsys)
+    assert (code, said.get("refused_because")) == (1, "check_answer_not_derivable")
+
+
+def test_an_earlier_kind_of_session_record_is_taken_only_with_the_printed_line(
+    tmp_path: Path, unchecked: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    kept_session(unchecked.store, unchecked.version, kind="earlier")
+    code, said, _ = _import(tmp_path, unchecked, capsys)
+    assert (code, said.get("refused_because")) == (1, "check_answer_unconfirmed")
+    code, said, _ = _import(tmp_path, unchecked, capsys, line=printed([]))
+    assert (code, said.get("refused_because")) == (1, "check_answer_disagrees")
+    assert not os.path.lexists(_path(unchecked))
+    code, said, _ = _import(tmp_path, unchecked, capsys, line=printed([_first(unchecked)]))
+    assert code == 0, said
+
+
+@pytest.mark.parametrize(
+    ("kind", "record"),
+    [
+        ("since", {"answer_taken": "role_root_changed"}),
+        ("since", {"answer_taken": "held_out_seen"}),
+        ("since", {"end": "cap"}),
+        ("earlier", {"end": "watch_failed"}),
+    ],
+    ids=["the root changed", "a refusal of the check's", "ended on its cap", "an earlier one cut"],
+)
+def test_a_session_whose_answer_the_check_did_not_take_is_passed_over(
+    tmp_path: Path,
+    unchecked: StandInStore,
+    capsys: pytest.CaptureFixture[str],
+    kind: str,
+    record: dict[str, Any],
+) -> None:
+    kept_session(unchecked.store, unchecked.version, kind=kind, record=record)
+    code, said, _ = _import(tmp_path, unchecked, capsys, line=printed([_first(unchecked)]))
+    assert (code, said.get("refused_because")) == (1, "check_session_missing"), "taken anyway"
+    assert not os.path.lexists(_path(unchecked))
+
+
+def test_no_kept_session_is_taken_while_the_store_holds_work_a_session_left(
+    tmp_path: Path, unchecked: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from physgate.evaluation.tiers.store import role_root
+
+    kept_session(unchecked.store, unchecked.version)
+    left = role_root(unchecked.store, "control") / "check.working"
+    left.write_text(json.dumps({"work": "w", "changed": ["x"], "session": "ended"}))
+    code, said, _ = _import(tmp_path, unchecked, capsys)
+    assert (code, said.get("refused_because")) == (1, "work_left"), "taken beside work left"
+    assert not os.path.lexists(_path(unchecked))
 
 
 def test_a_read_of_the_answer_after_its_write_changes_nothing(

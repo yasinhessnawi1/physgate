@@ -53,6 +53,7 @@ def _check(flagged: list[str], tasks: int = 3, role: str = "control") -> CheckRe
         tasks=tasks,
         all_yes=tasks - len(flagged),
         flagged=[id_digest(task) for task in flagged],
+        answer_sha256="a" * 64,
     )
 
 

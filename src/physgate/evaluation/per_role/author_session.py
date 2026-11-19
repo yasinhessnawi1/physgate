@@ -1123,14 +1123,48 @@ def _held_for_a_person(record: Path, work: Path, changed: Sequence[str], session
         )
 
 
+def read_answer_file(
+    path: Path, keys: Sequence[str]
+) -> tuple[dict[str, Answer] | None, str | None]:
+    """The check's answers and the digest of the answer file's bytes as they were read.
+
+    The answers are ``None`` unless they are booleans for exactly ``keys``; the digest is
+    ``None`` where no plain answer file of a bounded size was there to read.
+    """
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_ANSWERS_BYTES:
+        return None, None
+    data = path.read_bytes()
+    found = answers_of(data)
+    digest = hashlib.sha256(data).hexdigest()
+    if found is None or sorted(found) != sorted(keys):
+        return None, digest
+    return {key: Answer(**answer) for key, answer in found.items()}, digest
+
+
 def read_answers(path: Path, keys: Sequence[str]) -> dict[str, Answer] | None:
     """The check's answers, or ``None`` unless they are booleans for exactly ``keys``."""
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_ANSWERS_BYTES:
-        return None
-    found = answers_of(path.read_bytes())
-    if found is None or sorted(found) != sorted(keys):
-        return None
-    return {key: Answer(**answer) for key, answer in found.items()}
+    return read_answer_file(path, keys)[0]
+
+
+def _outcome(
+    refused: AuthoringError | None,
+    raised: BaseException | None,
+    changed: Sequence[str],
+    answers: object,
+) -> bool | str:
+    """What the check made of its session's answer: ``True`` only once every gate passed.
+
+    Else why not, in one word: the check's own refusal, the root that changed, how the session
+    ended, or ``no_answer``. Kept in the session's record, so its answer is never read later as
+    one the check took when it did not.
+    """
+    if refused is not None:
+        return str(refused.context.get("refused_because", "refused"))
+    if changed:
+        return _why(sorted({c.split(":")[0].split("/")[0] for c in changed}))
+    if raised is not None:
+        return _ending(raised)
+    return True if answers is not None else "no_answer"
 
 
 def _checked(
@@ -1142,10 +1176,18 @@ def _checked(
     files: dict[str, bytes],
     canaries: Sequence[str],
     cap: int,
-) -> tuple[dict[str, Any], dict[str, Answer] | None]:
-    """The check's session, its record and its answers, while the work root is held."""
+) -> tuple[dict[str, Any], dict[str, Answer] | None, str | None]:
+    """The check's session, its record, its answers and the answer file's digest.
+
+    While the work root is held. The session's kept record says what the check made of its
+    answer (``answer_taken``: ``True`` once every gate passed, else why not) and the digest of
+    the answer file as the check read it (``answer_sha256``), so an answer is never read later
+    from the stream alone.
+    """
     root = role_root(store, role)
     record: dict[str, Any] | None = None
+    answers: dict[str, Answer] | None = None
+    answer_sha256: str | None = None
     working = _working(root, CHECK_EVIDENCE, work)
     before = _looked_at(root, work)
     changed: list[str] = []
@@ -1158,7 +1200,9 @@ def _checked(
             )
             _require_unseen(ran, canaries, "its answer is not taken")
             _require_none_came(store, canaries, "its answer is not taken")
-            answers = read_answers(work / "worktree" / "answers.json", list(tasks))
+            answers, answer_sha256 = read_answer_file(
+                work / "worktree" / "answers.json", list(tasks)
+            )
         except AuthoringError as exc:
             refused = raised = exc
             raise
@@ -1188,10 +1232,17 @@ def _checked(
                 )
     finally:
         # The work holds the held-out tasks it was given: it never stays outside the root.
-        _closed(_keep_evidence(work, record, check_evidence(store, role)))
+        kept = None
+        if record is not None:
+            kept = {
+                **record,
+                "answer_taken": _outcome(refused, raised, changed, answers),
+                "answer_sha256": answer_sha256,
+            }
+        _closed(_keep_evidence(work, kept, check_evidence(store, role)))
         if not changed:
             working.unlink()
-    return ran, answers
+    return ran, answers, answer_sha256
 
 
 def blind_check(
@@ -1294,7 +1345,6 @@ def blind_check(
     _require_nothing_left(store)
     manifest = read_version(version_dir(store, role, version))
     _require_unchecked(store, role, version, manifest)
-    _require_before_results(store, role, version)
     canaries = store_canaries(store)
     _require_looking(canaries, setup)
     tasks = bundle(tier)
@@ -1303,7 +1353,11 @@ def blind_check(
     # baseline trial holds it: neither is made beside the other's living session.
     try:
         with holding_work_root(store, role):
-            record, answers = _checked(store, role, setup, work, tasks, files, canaries, cap)
+            # Under the hold, so no trial of the role is made beside the look: before any result.
+            _require_before_results(store, role, version)
+            record, answers, answer_sha256 = _checked(
+                store, role, setup, work, tasks, files, canaries, cap
+            )
     except WorkRootHeld as exc:
         msg = (
             "another session's place in the role's work root is held (a baseline trial's or "
@@ -1342,6 +1396,7 @@ def blind_check(
                 "commit": commit,
                 "clean": clean,
             },
+            answer_sha256=answer_sha256,
             kept={
                 "session_id": session_id,
                 "stream_sha256": stream_digest(
@@ -1417,12 +1472,10 @@ def _require_unchecked(store: Path, role: Role, version: str, manifest: TierSet)
 
 __all__ = [
     "MOST_CAP",
-    "QUESTIONS",
     "AuthoringPlan",
     "AuthorProgress",
     "author",
     "blind_check",
-    "bundle",
     "read_answers",
     "stage",
 ]

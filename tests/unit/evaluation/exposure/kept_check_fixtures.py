@@ -11,6 +11,7 @@ from the fixture version's own held-out tier, in the row's temporary directory.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -80,6 +81,8 @@ def kept_session(
     refused_after: Answers | None = None,
     after: Sequence[tuple[str, dict[str, Any]]] = (),
     record: Mapping[str, Any] | None = None,
+    kind: str = "since",
+    read_back: Answers | None = None,
 ) -> Path:
     """A kept check session on ``version``, as the check leaves one; its directory.
 
@@ -89,7 +92,10 @@ def kept_session(
     ``tool`` (its file-write tool, the result not an error), ``shell`` (a shell command) or
     ``none``. ``refused_after``: an answer whose write was refused after the one that landed.
     ``after``: tool calls made after the answer was written, by name and input. ``record``:
-    fields of its record in place of an ended session's.
+    fields of its record in place of an ended session's. ``kind``: ``since`` (the record says
+    what the check made of the answer and the digest of the file as it read it) or ``earlier``
+    (a record of the kind written before, which says neither). ``read_back``: what the file held
+    as the check read it, where a later call rewrote it; the written answer by default.
     """
     shown = dict(given(store, version) if tasks is None else tasks)
     keys = sorted(shown)
@@ -160,8 +166,14 @@ def kept_session(
         "held_out_seen": False,
         "evidence_dropped": [],
         "tokens_not_in_binary_totals": 0,
-        **(record or {}),
     }
+    if kind == "since":
+        held = content if read_back is None else json.dumps(read_back(keys))
+        kept |= {
+            "answer_taken": True,
+            "answer_sha256": hashlib.sha256(held.encode()).hexdigest(),
+        }
+    kept |= dict(record or {})
     (here / "record.json").write_text(json.dumps(kept, sort_keys=True, indent=1))
     return here
 

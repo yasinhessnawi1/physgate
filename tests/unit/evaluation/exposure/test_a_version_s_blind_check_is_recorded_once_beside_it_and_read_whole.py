@@ -8,9 +8,9 @@ version's check by its counts alone. A measured run on a version with no check r
 a held-out tier nobody checked is not scored.
 
 The record is written whole: its bytes go to a temporary name beneath the role's withheld root and
-are linked into place, so a crash leaves no record or a whole one, and a record that came in the
-meantime is never replaced. A record that cannot be read is refused in words that name the file
-and say what a person does about it.
+are renamed into place under the writers' lock, so a crash leaves no record or a whole one, and a
+record that came in the meantime is never replaced. A record that cannot be read is refused in
+words that name the file and say what a person does about it.
 """
 
 from __future__ import annotations
@@ -227,16 +227,17 @@ def test_the_record_is_written_whole_and_leaves_no_temporary_name(
 def test_a_write_that_fails_before_the_record_is_in_place_leaves_none(
     unchecked: StandInStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A crash after the bytes are written and before they are linked into place: no record, not
-    # an empty one, and the store is not stopped by what was left.
+    # A crash after the bytes are written and before they are put in place: no record, not an
+    # empty one, and the store is not stopped by what was left.
     checks = __import__(CHECKS, fromlist=["os"])
 
     def crashed(*_: Any, **__: Any) -> None:  # noqa: ANN401
         raise OSError(5, "Input/output error")
 
-    monkeypatch.setattr(checks.os, "link", crashed)
+    monkeypatch.setattr(checks.os, "rename", crashed)
     with pytest.raises(api(f"{CHECKS}.CheckError")) as refused:
         record_check(unchecked.store, unchecked.version, [])
+    monkeypatch.undo()
     assert _reason(refused.value) == "check_record_unwritten"
     assert not os.path.lexists(_path(unchecked)), "a cut write left a record"
     assert _stray_names(unchecked) == [], "a cut write left its temporary name"
@@ -246,16 +247,37 @@ def test_a_write_that_fails_before_the_record_is_in_place_leaves_none(
 def test_a_record_that_came_while_another_was_written_is_never_replaced(
     made: StandInStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The record is there, unseen by the first look: the link into place still refuses.
+    # The record is there, unseen by the writer's first look; the look under the lock still
+    # finds it, and the record is not replaced.
     before = _path(made).read_bytes()
     checks = __import__(CHECKS, fromlist=["os"])
-    monkeypatch.setattr(checks.os.path, "lexists", lambda _: False)
+    real = os.path.lexists
+    looks: list[str] = []
+
+    def first_look_misses(path: Any) -> bool:  # noqa: ANN401
+        looks.append(str(path))
+        return False if len(looks) == 1 else real(path)
+
+    monkeypatch.setattr(checks.os.path, "lexists", first_look_misses)
     with pytest.raises(api(f"{CHECKS}.CheckError")) as refused:
         record_check(made.store, made.version, [])
+    monkeypatch.undo()
     assert _reason(refused.value) == "check_recorded", "a record was replaced"
     assert _path(made).read_bytes() == before
-    monkeypatch.undo()
     assert _stray_names(made) == []
+
+
+def test_the_harness_puts_a_record_in_place_without_a_second_name(
+    unchecked: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checks = __import__(CHECKS, fromlist=["os"])
+
+    def linked(*_: Any, **__: Any) -> None:  # noqa: ANN401
+        pytest.fail("the record was put in place by a second name")
+
+    monkeypatch.setattr(checks.os, "link", linked)
+    record_check(unchecked.store, unchecked.version, [])
+    assert _path(unchecked).stat().st_nlink == 1
 
 
 @pytest.mark.parametrize("how", ["not a record", "a flagged task taken out"])
