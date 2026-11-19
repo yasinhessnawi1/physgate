@@ -316,13 +316,17 @@ def test_a_counted_cut_response_alone_makes_a_wholly_read_line_a_lower_bound(
         for a, u in TokenAccount.from_events(resumed).by_attribution().items()
     }
     manifest = read_manifest(run)
-    line = price_events(
-        manifest.config,
-        manifest.manifest_id,
-        resumed,
-        load_price_sheet("2026-10-16"),
-        calls=calls,
-    )
+    try:
+        line: object = price_events(
+            manifest.config,
+            manifest.manifest_id,
+            resumed,
+            load_price_sheet("2026-10-16"),
+            calls=calls,
+        )
+    except ValueError as exc:  # the line's own check, refusing what the pricing made of it
+        line = exc
+    assert isinstance(line, CostLine), f"{RULE}: the line was refused: {line!r}"
     assert line.reconciliation is not None and not line.reconciliation.unread
     assert not line.reconciliation.ttl_unread
     assert line.lower_bound, f"{RULE}: a counted cut response left the cost exact"
