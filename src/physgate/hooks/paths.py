@@ -3,9 +3,10 @@
 This hook covers the tools that name a file: Write, Edit and NotebookEdit, and
 Read for the held-out tier, which nothing may read before measurement
 (ARCH-141), for an evaluation corpus that carries its own answers, which no
-reviewer may read, and for the session's own hook state directory, which the hooks
-alone read. Shell commands are a separate check, and a sentinel behind both
-catches what either misses.
+reviewer may read, for the session's own hook state directory, which the hooks
+alone read, and for the checkout the orchestrator runs from, whose curated library a
+session is given in its own worktree or not at all. Shell commands are a separate
+check, and a sentinel behind both catches what either misses.
 
 **What is protected is data, not code.** The session configuration lists
 protected roots with the reason an agent is given, the experiment rule, and the
@@ -74,6 +75,7 @@ from typing import TYPE_CHECKING
 from physgate.hooks.reasons import (
     ANSWER_KEY_REASON,
     CLAUDE_TEMP_REASON,
+    HARNESS_REASON,
     HELD_OUT_REASON,
     HOME_CLAUDE_REASON,
     HOOK_STATE_REASON,
@@ -437,6 +439,10 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
         # directory of its interpreter, named exactly), exactly as spelt, is read.
         # Claude Code's directory in the session's scratch home is read by none either: what
         # is there is not the session's, and the OS layer denies the shell's reads alike.
+        # Nor the checkout the orchestrator runs from: the curated library in it holds every
+        # role's skill and standards, and a session is given its own in its worktree, or, in an
+        # arm that leaves the skill out, not given it; nothing a session is given to read lies
+        # there. The OS layer denies the shell's reads there, and a file tool runs outside it.
         for root in config.protected_roots:
             if (
                 root.reads == "denied"
@@ -451,6 +457,7 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
                         CLAUDE_TEMP_REASON,
                         SESSION_TEMPS_REASON,
                         HOME_CLAUDE_REASON,
+                        HARNESS_REASON,
                     )
                 )
                 and _reaches(absolute, root.path, chain)
@@ -533,9 +540,11 @@ def read_refused(path: str, config: ConfigView) -> bool:
     """
     # The run's session directories are kept from a session for what the other sessions keep
     # there; the session's own files there (its settings, its home's git configuration) are read
-    # by no other session, so their kept bytes need no seal.
+    # by no other session, so their kept bytes need no seal. Nor does the harness checkout's: it
+    # is kept from a session for what its library would teach, not as a secret, and the sentinel
+    # needs its trusted bytes to put a changed file there back.
     return any(
-        _rules(spelling, config, writing=False) not in (None, SESSIONS_REASON)
+        _rules(spelling, config, writing=False) not in (None, SESSIONS_REASON, HARNESS_REASON)
         for spelling in dict.fromkeys((path, os.path.realpath(path)))
     )
 

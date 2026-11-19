@@ -24,7 +24,12 @@ from hook_helpers import bash, event
 from physgate.hooks import paths
 from physgate.hooks import shell_paths as sp
 from physgate.hooks.config import HookInput, SessionConfig
-from physgate.hooks.reasons import GATE_REASON, OUTSIDE_REVIEW_REASON, REVIEW_MATERIAL_REASON
+from physgate.hooks.reasons import (
+    GATE_REASON,
+    HARNESS_REASON,
+    OUTSIDE_REVIEW_REASON,
+    REVIEW_MATERIAL_REASON,
+)
 from physgate.hooks.settings import InstallRequest, build_config
 from physgate.hooks.settings import current_installation as installation
 
@@ -122,7 +127,9 @@ def test_a_reviewer_cannot_leave_its_allowance_through_a_link_and_dot_dot(root: 
         root / "harness" / "corpora" / "set" / "a01.json"
     ).resolve()
     told = _tool(_reviewer(root), "Read", "alias/../set/a01.json", worktree)
-    assert OUTSIDE_REVIEW_REASON in told
+    # The resolved spelling is judged: it lies in the harness checkout, refused to every read
+    # before the allowance is asked, and outside the allowance besides.
+    assert HARNESS_REASON in told
 
 
 def test_a_role_cannot_read_a_rubric_through_a_link_and_dot_dot(root: Path) -> None:
@@ -214,7 +221,7 @@ def test_the_allowance_never_widens_by_case(root: Path) -> None:
 @pytest.mark.parametrize(
     "command",
     [
-        "d=$(printf view); cat ../harness/kno''wledge/re${d}ers/control/rubric.md",
+        "d=$(printf harness); cat ../${d}/kno''wledge/re${e}viewers/control/rubric.md",
         "d=$(printf harness); cd ../${d}/kno''wledge/reviewers/control && cat rubric.md",
         "python3 -c \"import os; print(open(os.path.join('..', 'harness', 'kno' + 'wledge', "
         "'re' + 'viewers', 'control', 'rubric.md')).read())\"",
@@ -255,6 +262,12 @@ def test_a_physical_cd_cannot_move_the_judged_directory_away_from_the_real_one(
 
 def test_a_withheld_tree_named_by_its_bare_name_is_refused(root: Path) -> None:
     """From inside the library, the tree is a plain word, which the shell layer must not skip."""
-    library = root / "harness" / "knowledge"
+    library = root / "target" / "knowledge"
+    (library / "reviewers" / "control").mkdir(parents=True)
+    (library / "reviewers" / "control" / "rubric.md").write_text("# rubric\n")
     told = _shell(_role(root), "ls reviewers", library)
     assert REVIEW_MATERIAL_REASON in told
+    # From inside the harness's own library, the command is refused before any word is: every
+    # read there is the checkout's.
+    told = _shell(_role(root), "ls reviewers", root / "harness" / "knowledge")
+    assert HARNESS_REASON in told
