@@ -249,6 +249,8 @@ class StandInArm:
     #: Called with the session's place and the harness's directory once the session has
     #: ended and before the arm writes its own files: what a session could have left.
     left: Callable[[Path, Path], None] | None = None
+    #: Per call: the tokens of responses cut short that the binary's totals left out.
+    cut_off: dict[int, int] = field(default_factory=dict)
 
     def __call__(
         self, task: Task, setup: RawSetup, work: Path, *, cap: int, harness: Path | None = None
@@ -293,6 +295,7 @@ class StandInArm:
             "left_running": [],
             "wall_clock_s": 12.0,
             "tokens": 400,
+            "tokens_not_in_binary_totals": self.cut_off.get(n, 0),
             "cap": cap,
             "answered_by": [model],
             "held_out_seen": held_out_seen(stream, setup.held_out_canaries),

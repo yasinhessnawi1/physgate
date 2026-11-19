@@ -9,13 +9,20 @@ what it streamed before the break is in nobody's figure.
 
 The raw arm (the baseline) and the inject runner summed every line. A cut response the totals
 leave out was then counted against the raw arm's cap, which is the harness run's counted total,
-and in the inject runner's reviewer tokens. Here both count as the account does, and say what
-they left out.
+and in the inject runner's reviewer tokens. Here both record what the account counts, and say
+what they left out. The raw arm's cap is the exception, on purpose: its watch reads the stream
+while the session runs, when there is no result to say how the totals count a cut response, so
+it counts every streamed line, a cut one included, with or without a result. A watch that left
+the cut response out until the result came would let the session run past its cap.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -36,6 +43,7 @@ from physgate.evaluation.per_role.arms.raw import stream_total
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.events import TokensUsed
 from physgate.orchestrator.exceptions import ReviewUnavailableError
+from physgate.orchestrator.processes import started_at
 from physgate.orchestrator.protocols import Artefact, MessageUsage, ReviewResult, Usage
 
 MODEL = "claude-sonnet-5"
@@ -115,20 +123,51 @@ RULE = "a cut response is counted as the run's account counts it"
 # --- the raw arm: its cap and its record -------------------------------------------------------
 
 
+#: The watch's rule: it fails closed, so it counts every line the stream holds, a cut one too.
+WATCH_RULE = "the cap's watch counts every streamed line, a cut response included"
+
+
 @pytest.mark.parametrize(
-    ("model_usage", "expected"),
+    "model_usage",
     [
-        pytest.param(LEFT_OUT, COMPLETE.total(), id="totals leaving it out"),
-        pytest.param(COUNTED, COMPLETE.total() + CUT.total(), id="totals counting it"),
-        pytest.param(None, COMPLETE.total(), id="no result yet"),
+        pytest.param(LEFT_OUT, id="totals leaving it out"),
+        pytest.param(COUNTED, id="totals counting it"),
+        # While the session runs there is no result, and nothing yet says how the totals will
+        # count the cut response: the watch counts it, or the cap fails open mid-session.
+        pytest.param(None, id="no result yet"),
     ],
 )
-def test_the_raw_arm_s_watch_counts_against_its_cap_what_the_account_counts(
-    tmp_path: Path, model_usage: dict[str, Any] | None, expected: int
+def test_the_raw_arm_s_watch_counts_every_streamed_line_against_its_cap(
+    tmp_path: Path, model_usage: dict[str, Any] | None
 ) -> None:
     stream = tmp_path / "stdout.jsonl"
     stream.write_text(_stream(model_usage))
-    assert stream_total(stream) == expected, RULE
+    assert stream_total(stream) == COMPLETE.total() + CUT.total(), WATCH_RULE
+
+
+def test_a_cut_response_mid_session_trips_a_cap_between_the_complete_one_and_both(
+    tmp_path: Path,
+) -> None:
+    stream = tmp_path / "stdout.jsonl"
+    stream.write_text(_stream(None))
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(120)"], start_new_session=True
+    )
+    try:
+        started = started_at(process.pid)
+        assert started is not None
+        cap = COMPLETE.total() + CUT.total() // 2
+        watch = raw.BudgetWatch(stream, cap, process, started)
+        watch.start()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=8.0)
+        watch.stop()
+        assert watch.end == "budget_exhausted", f"{WATCH_RULE}: the session ran on past its cap"
+        assert watch.exhausted_at == COMPLETE.total() + CUT.total(), WATCH_RULE
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, 9)
+            process.wait()
 
 
 def _raw_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str) -> dict[str, Any]:
