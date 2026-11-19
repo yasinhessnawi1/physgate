@@ -283,6 +283,21 @@ def test_the_account_counts_the_cut_response_the_totals_count_and_lists_it(tmp_p
     assert account.abandoned() == {}
 
 
+def test_the_operator_s_token_reader_lists_the_counted_cut_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import physgate.ui.readers as readers
+
+    path = _logged(tmp_path, _settled())
+    monkeypatch.setattr(readers, "run_dir_of", lambda context, params: path.parent)
+    monkeypatch.setattr(readers, "_file", lambda context, run_dir, *parts: run_dir.joinpath(*parts))
+    served = json.loads(readers.tokens(None, {}).body)  # type: ignore[arg-type]
+    assert served.get("cut_short_in_binary_totals") == {
+        "reviewer:rev-1": _usage(CUT_START).model_dump(mode="json")
+    }, RULE
+    assert served["not_in_binary_totals_billing_unknown"] == {}
+
+
 # --- every caller: a role session, a leftover, the plan call, a review, the loop -------------
 
 

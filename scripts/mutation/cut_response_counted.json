@@ -185,6 +185,7 @@
   "old": "            \"cut_short_in_binary_totals\": dumped(account.cut_in_binary_totals()),\n",
   "new": "            \"cut_short_in_binary_totals\": dumped(account.abandoned()),\n",
   "tests": [
+   "tests/unit/orchestrator/test_a_cut_response_the_binary_s_totals_count_is_counted_and_listed.py",
    "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py",
    "knowledge"
   ]

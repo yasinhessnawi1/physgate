@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -27,6 +28,7 @@ from observe_rig import fake_run, target_repo
 
 from physgate.evaluation.inject.corpus import load_corpus
 from physgate.evaluation.inject.runner import RESULTS_NAME, REVIEWS_DIRNAME, run_instrument
+from physgate.evaluation.observe.calls import CacheWrites, RecordedCall
 from physgate.evaluation.observe.cost import CostLine, load_price_sheet, price_events
 from physgate.evaluation.observe.manifest import read_manifest, read_run_events
 from physgate.evaluation.per_role.arms import raw
@@ -281,3 +283,46 @@ def test_the_cost_line_counts_and_lists_a_cut_response_the_totals_count(tmp_path
     refused = {**line.model_dump(), "lower_bound": False}
     with pytest.raises(ValueError, match="lower bound"):
         CostLine.model_validate(refused)
+
+
+def test_a_counted_cut_response_alone_makes_a_wholly_read_line_a_lower_bound(
+    tmp_path: Path,
+) -> None:
+    # Every call's result read, its writes' cache known: the line is exact but for the cut.
+    run = fake_run(tmp_path, "run-a", target_repo(tmp_path))
+    events = read_run_events(run)
+    who = next(a for a in TokenAccount.from_events(events).by_attribution() if a.startswith("s"))
+    last = events[-1]
+    resumed = [
+        *events,
+        TokensUsed(
+            seq=last.seq + 1,
+            ts=last.ts,
+            run_id=last.run_id,
+            gate_mode=last.gate_mode,
+            attribution=who,
+            message_id="msg_02",
+            usage=CUT,
+            abandoned=True,
+            in_binary_totals=True,
+        ),
+    ]
+    calls = {
+        a: RecordedCall(
+            session_id=a.split(":", 1)[1],
+            cache_writes=CacheWrites(five_minute=u.cache_creation_input_tokens, one_hour=0),
+            binary_usd=Decimal("0.01"),
+        )
+        for a, u in TokenAccount.from_events(resumed).by_attribution().items()
+    }
+    manifest = read_manifest(run)
+    line = price_events(
+        manifest.config,
+        manifest.manifest_id,
+        resumed,
+        load_price_sheet("2026-10-16"),
+        calls=calls,
+    )
+    assert line.reconciliation is not None and not line.reconciliation.unread
+    assert not line.reconciliation.ttl_unread
+    assert line.lower_bound, f"{RULE}: a counted cut response left the cost exact"
