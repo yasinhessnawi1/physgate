@@ -21,6 +21,7 @@ import contextlib
 import json
 import socket
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -31,6 +32,8 @@ from scripted_endpoint import FakeMessagesApi, Script
 
 #: How many of the answer's events arrive before the connection breaks.
 EVENTS_BEFORE_THE_BREAK = 3
+#: How long the connection stays open after them.
+PAUSE_BEFORE_THE_BREAK_S = 1.5
 
 
 @dataclass
@@ -131,6 +134,9 @@ def serving_cut(
                 self.end_headers()
                 self.wfile.write(head)
                 self.wfile.flush()
+                # Long enough for the binary to read and write out what arrived, as a
+                # response that streamed for a while before the network broke.
+                time.sleep(PAUSE_BEFORE_THE_BREAK_S)
                 self._break()
                 return
             if body.get("stream") is not True:
