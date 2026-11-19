@@ -66,6 +66,7 @@ from physgate.orchestrator.git import (
     commit_all,
     common_dir,
     git,
+    git_bytes,
     init_repo,
     promisor,
     shallow,
@@ -1814,10 +1815,23 @@ def require_no_skill_file(repo: Path, commit: str, skills: Mapping[Path, bytes])
 
 
 def _working_trees(repo: Path) -> list[Path]:
-    """Every working tree of the target's store: its own and each linked one, as git lists them."""
-    listed = git(repo, *NO_TRANSPORT, "worktree", "list", "--porcelain", "-z")
-    field = "worktree "
-    return [Path(item[len(field) :]) for item in listed.split("\0") if item.startswith(field)]
+    """Every working tree of the target's store: its own and each linked one, as git lists them.
+
+    Read as bytes and each path turned by :func:`os.fsdecode`: a worktree record is a file of the
+    target's own, so a path in it need not be UTF-8, and it is walked as the bytes it names.
+    """
+    listed = git_bytes(repo, *NO_TRANSPORT, "worktree", "list", "--porcelain", "-z")
+    field = b"worktree "
+    return [
+        Path(os.fsdecode(item[len(field) :]))
+        for item in listed.split(b"\0")
+        if item.startswith(field)
+    ]
+
+
+def _shown(name: Path | str) -> str:
+    """``name`` as a refusal names it: its bytes, with any that are no UTF-8 escaped."""
+    return os.fsencode(name).decode("utf-8", errors="backslashreplace")
 
 
 def _entries(directory: str, root: Path, relative: str) -> list[os.DirEntry[str]]:
@@ -1833,8 +1847,8 @@ def _entries(directory: str, root: Path, relative: str) -> list[os.DirEntry[str]
         raise DecompositionError(
             UNREADABLE_WORKING_TREE,
             where="a working tree",
-            worktree=str(root),
-            path=relative or ".",
+            worktree=_shown(root),
+            path=_shown(relative or "."),
             error=type(exc).__name__,
         ) from None
 
@@ -1874,8 +1888,8 @@ def _require_no_skill_in_working_trees(repo: Path) -> None:
                         raise DecompositionError(
                             SKILL_IN_WORKING_TREE,
                             where="a working tree",
-                            worktree=str(root),
-                            path=f"{where}/{held.name}",
+                            worktree=_shown(root),
+                            path=_shown(f"{where}/{held.name}"),
                         )
 
 
@@ -1887,7 +1901,10 @@ def _refuse_a_link(entry: os.DirEntry[str], root: Path, relative: str) -> None:
     """
     if entry.is_symlink():
         raise DecompositionError(
-            LINK_IN_WORKING_TREE, where="a working tree", worktree=str(root), path=relative
+            LINK_IN_WORKING_TREE,
+            where="a working tree",
+            worktree=_shown(root),
+            path=_shown(relative),
         )
 
 

@@ -18,6 +18,7 @@ bytes are the same under both, and ``skills: on`` puts into the target what it a
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -723,6 +724,44 @@ def test_under_skills_off_a_skill_file_in_a_linked_worktree_of_the_target_is_ref
     refused = _refused_for(tmp_path, repo, WORKING_RULE)
     _in_working_tree(refused, "knowledge/elsewhere/skill.md")
     assert Path(refused.context.get("worktree", "")).resolve() == other.resolve(), refused.context
+
+
+#: A path git records for a linked worktree, in bytes that are no UTF-8.
+NOT_UTF8 = b"\xff\xfe"
+
+
+@pytest.mark.parametrize("there", [False, True], ids=["directory gone", "holding a skill file"])
+def test_under_skills_off_a_worktree_record_naming_a_path_of_no_utf8_is_judged(
+    tmp_path: Path, there: bool
+) -> None:
+    # The record is the target's own file, so any bytes can be there. Its directory gone, the
+    # walk passes it over and the run starts; there and holding a skill file, it is refused.
+    rule = "a worktree record of a path in no UTF-8 is walked like any other"
+    repo = target_repo(tmp_path)
+    _git(repo, "worktree", "add", "-q", "-b", "other", str(tmp_path / "other"))
+    odd = Path(os.fsdecode(bytes(tmp_path) + b"/" + NOT_UTF8))
+    if there:
+        try:
+            odd.mkdir()
+        except OSError as exc:  # a file system that takes only UTF-8 names (macOS)
+            pytest.skip(f"this file system refuses the name: {exc}")
+        pointer = b"gitdir: " + bytes(repo) + b"/.git/worktrees/other\n"
+        (odd / ".git").write_bytes(pointer)
+        _untracked(odd)
+    (repo / ".git" / "worktrees" / "other" / "gitdir").write_bytes(bytes(odd) + b"/.git\n")
+    try:
+        run_dir, _, _ = _start(tmp_path, "off", repo)
+    except DecompositionError as exc:
+        if not there:
+            raise AssertionError(f"{rule}: {exc} {exc.context}") from None
+        assert REFUSAL in str(exc), f"the refusal does not say why: {exc}"
+        assert exc.context.get("where") == "a working tree", exc.context
+        assert exc.context.get("path") == "knowledge/elsewhere/skill.md", exc.context
+        return
+    except Exception as exc:  # noqa: BLE001 - anything but the arm's refusal fails the rule
+        raise AssertionError(f"{rule}, and the check raised {type(exc).__name__}: {exc}") from None
+    assert not there, f"under skills: off {rule}, and the run started"
+    assert _decomposed(run_dir)["subtasks"] == len(ROLES)
 
 
 def test_under_skills_off_a_working_tree_with_standards_files_only_starts(tmp_path: Path) -> None:
