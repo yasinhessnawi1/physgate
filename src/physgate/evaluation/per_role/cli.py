@@ -26,14 +26,16 @@ of flagged tasks only; it leaves the same as the version's check record beside t
 credential from the environment variable its auth mode names, refuse where the OS layer is
 absent, and call a model unless ``--endpoint`` names a scripted one.
 
-``physgate per-role record-check --role control --store S --version V --from F --model M
---implementer-model I --claude-version X --checked YYYY-MM-DD --commit C`` is for a version
-whose check ran before checks kept their record: it takes the one JSON line that check printed
-(the file ``F``) in as the version's check record, once, after holding it to the version (an
-answer, for as many tasks as the held-out tier holds, each flagged digest the digest of exactly
-one of its tasks). What the line does not record (the model, the binary, the day, the commit)
-is what the person importing it states, and the record says it was imported. It prints counts
-and the record's digest only, and calls no model.
+``physgate per-role record-check --role control --store S --version V --implementer-model I
+[--from F]`` is for a version whose check ran before checks kept their record: it derives the
+version's check record from the check's session as the store keeps it (its stream, beneath the
+role's withheld root), once, before anything has measured, seen or run on the version. The
+answer is what the stream shows the session wrote to its answer file; the flagged tasks are
+computed again from it and the version's held-out tier; the model, the binary, the time and the
+spend are the session's own. ``F``, the file holding what that check printed (its last line is
+the answer), must agree with it exactly where it is given. Only the implementers' model is
+stated by the person importing, and the record says it was imported. It prints counts and the
+record's digest only, and calls no model.
 
 ``physgate per-role report --design D --trials T [--out O] [--store S]`` writes the per-role
 table of the trial records in ``T`` (one JSON object per line) under the registered design
@@ -76,21 +78,17 @@ def add_parser(subparsers: Any) -> None:
     val.set_defaults(func=_validate)
     rec = commands.add_parser(
         "record-check",
-        help="take an earlier blind check's printed answer in as its version's check record, once",
+        help="derive an earlier blind check's record from its kept session, once",
     )
     rec.add_argument("--role", choices=("control",), required=True)
     rec.add_argument("--store", type=Path, required=True)
     rec.add_argument("--version", required=True)
-    # The one JSON line the earlier check printed, in a file of its own.
-    rec.add_argument("--from", dest="printed", type=Path, required=True)
-    # What the earlier check ran under and when, as the person importing it states them: its
-    # printed line records none of them.
-    rec.add_argument("--model", required=True)
+    # The one JSON line the earlier check printed, in a file of its own: held to what the kept
+    # session shows, never taken in its place.
+    rec.add_argument("--from", dest="printed", type=Path)
+    # The implementers' model, which the kept session's own model is held apart from: the one
+    # thing its session does not record.
     rec.add_argument("--implementer-model", required=True)
-    rec.add_argument("--claude-version", required=True)
-    rec.add_argument("--checked", required=True, help="the day it ran, YYYY-MM-DD")
-    rec.add_argument("--commit", required=True, help="the harness commit it ran from")
-    rec.add_argument("--endpoint", choices=("default", "given"), default="default")
     rec.set_defaults(func=_record_check)
     for name, func, text in (
         ("author", _author, "run one authoring session and split its tasks into tiers"),
@@ -190,15 +188,20 @@ def _report(args: argparse.Namespace) -> int:
         render,
     )
     from physgate.evaluation.tiers.checks import CheckRecord, read_check
+    from physgate.evaluation.tiers.manifest import read_version
+    from physgate.evaluation.tiers.store import version_dir
 
     try:
         design = parse_design(args.design.read_bytes())
         records = parse_trials(args.trials.read_text(encoding="utf-8").splitlines())
         checks: dict[str, CheckRecord] = {}
         if args.store is not None:
+            store = args.store.resolve()
             for suite in design.suites:
                 if suite.tier == "held_out" and suite.version is not None:
-                    found = read_check(args.store.resolve(), suite.role, suite.version)
+                    # Held to the version's manifest: its held-out tier's digest and count.
+                    manifest = read_version(version_dir(store, suite.role, suite.version))
+                    found = read_check(store, suite.role, suite.version, manifest=manifest)
                     if found is not None:
                         checks[suite.version] = found
         text = render(design, records, checks=checks)
@@ -410,39 +413,24 @@ def _checkout() -> tuple[str | None, bool | None]:
 
 
 def _record_check(args: argparse.Namespace) -> int:
-    """Take an earlier check's printed answer in as its version's record; counts only."""
-    from pydantic import ValidationError
-
+    """Derive an earlier check's record from its kept session, once; counts and a digest only."""
     from physgate.evaluation.per_role.exceptions import PerRoleError
-    from physgate.evaluation.tiers.checks import CheckPins, counts, import_check
+    from physgate.evaluation.tiers.checks import MOST_PRINTED_BYTES, counts, import_check
 
     store = args.store.resolve()
+    printed: bytes | None = None
     try:
-        pins = CheckPins(
-            model=args.model,
-            implementer_model=args.implementer_model,
-            claude_version=args.claude_version,
-            effort=EFFORT,
-            max_output_tokens=MAX_OUTPUT_TOKENS,
-            endpoint=args.endpoint,
-            commit=args.commit,
-            clean=None,
-        )
-    except ValidationError:
-        said = {"refused_because": "pins_invalid", "error": "a pin is not one (the commit: 40 hex)"}
-        print(json.dumps(said, sort_keys=True))
-        return 1
-    if args.model == args.implementer_model:
-        said = {
-            "refused_because": "checked_on_the_implementers_model",
-            "error": "a blind check runs on another model than the implementers'",
-        }
-        print(json.dumps(said, sort_keys=True))
-        return 1
-    try:
-        printed = args.printed.read_bytes()
+        if args.printed is not None:
+            # The check's answer is the last line it printed; anything before it is not.
+            with args.printed.open("rb") as handle:
+                lines = handle.read(MOST_PRINTED_BYTES + 1).strip().splitlines()
+            printed = lines[-1].strip() if lines else b""
         record = import_check(
-            store, args.role, args.version, printed.strip(), pins=pins, checked=args.checked
+            store,
+            args.role,
+            args.version,
+            implementer_model=args.implementer_model,
+            printed=printed,
         )
     except OSError as exc:
         said = {"refused_because": "check_answer_unreadable", "error": str(exc.strerror)}
@@ -457,6 +445,8 @@ def _record_check(args: argparse.Namespace) -> int:
         "recorded": True,
         "version": args.version,
         **counts(record),
+        "kept_session": record.kept.session_id,
+        "bound_by": record.kept.bound_by,
         "record": record.sha256,
     }
     print(json.dumps(done, sort_keys=True))

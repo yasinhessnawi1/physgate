@@ -17,11 +17,14 @@ yet, and is refused in words.
 intervals are of the tasks the version's check record did not flag
 (:mod:`physgate.evaluation.tiers.checks`): a version with no record is refused
 (``held_out_unchecked``), and a held-out vector that left out other tasks, or names another
-record, is refused (``left_out_differs``). What was left out (how many, which by digest, and the
-record's digest) is carried beside the figures, in the result and in every trend line
-(``held_out_left_out``), and said in words in the held-out rate, both gaps' words and the
-notes, so whatever shows a figure shows it. The visible and validation tiers are counted whole.
-Two lines of one version that left out different tasks are refused as the trend is read.
+record, is refused (``left_out_differs``). How many were left out, the check record's digest and
+its source (``check`` or ``imported``) are carried beside the figures, in the result and in
+every trend line (``held_out_left_out``), and said in words in the held-out rate, both gaps'
+words and the notes, so whatever shows a figure shows it; which tasks were left out is said in
+the withheld vector alone, since a task's id may be guessed and its digest then tells which was
+flagged. The visible and validation tiers are counted whole. Two lines of one version that name
+different check records are refused as the trend is read. A trend line written before lines
+carried what was left out is not one of this writer's, and the trend is refused as read.
 
 **The trend.** A role has one trend. One writer (:func:`append_gap_line`, ``--append``) adds
 one line per run set, stamped with its ISO week, its version, the visible runs' manifest ids, the
@@ -58,7 +61,7 @@ from physgate.evaluation.gaps.vector import (
     Sha256,
     read_vector,
 )
-from physgate.evaluation.tiers.checks import LeftOut
+from physgate.evaluation.tiers.checks import LeftOut, LeftOutSaid
 
 Week = Annotated[str, StringConstraints(pattern=r"^[0-9]{4}-W[0-9]{2}$")]
 Count = Annotated[int, Field(ge=0)]
@@ -138,8 +141,10 @@ class _TrendRecord(_Frozen):
     measurements: Annotated[int, Field(ge=1)]
     floor: Name
     numbers: GapNumbers
-    #: The held-out tasks the version's check flagged, left out of every figure of the line.
-    held_out_left_out: LeftOut
+    #: As the line is written: how many held-out tasks the version's check flagged and its
+    #: figures left out, with the check record's digest and its source; never which. A line
+    #: written before lines carried it is no line of this writer's.
+    held_out_left_out: LeftOutSaid
 
 
 class GapLine(_Frozen):
@@ -154,8 +159,9 @@ class GapLine(_Frozen):
     floor: Name
     #: ``None`` when a vector the line names has no measurement line in the register.
     numbers: GapNumbers | None
-    #: The held-out tasks the version's check flagged, left out of the line's figures.
-    held_out_left_out: LeftOut
+    #: How many held-out tasks the version's check flagged and the line's figures left out,
+    #: with the check record's digest and its source; never which.
+    held_out_left_out: LeftOutSaid
     #: Why the numbers are withheld, in words; ``None`` when they are given.
     unverified: Name | None = None
     #: In words, when the line's version is marked exposed as the register reads now, or when
@@ -184,8 +190,9 @@ class Measured(_Frozen):
     notes: tuple[Name, ...]
     harness_commits: tuple[Sha1, ...]
     accounts: tuple[Name, ...]
-    #: The held-out tasks the version's check flagged, left out of every figure above.
-    held_out_left_out: LeftOut
+    #: How many held-out tasks the version's check flagged and every figure above left out,
+    #: with the check record's digest and its source; never which: a task's id may be guessed.
+    held_out_left_out: LeftOutSaid
 
 
 def _refuse(reason: str, msg: str) -> GapsError:
@@ -196,13 +203,16 @@ def _pct(fraction: float) -> str:
     return f"{100.0 * fraction:.1f}"
 
 
-def left_out_words(left: LeftOut) -> str:
+def left_out_words(left: LeftOutSaid) -> str:
     """What every held-out figure says beside it of the tasks its version's check left out."""
     tasks = "task" if left.count == 1 else "tasks"
-    return f"{left.count} held-out {tasks} left out as the blind check flagged"
+    came = "its check's own record" if left.source == "check" else "a record imported from it"
+    return f"{left.count} held-out {tasks} left out as the blind check flagged ({came})"
 
 
-def _count(per_task: Sequence[tuple[int, int, int, int]], left: LeftOut | None = None) -> TierCount:
+def _count(
+    per_task: Sequence[tuple[int, int, int, int]], left: LeftOutSaid | None = None
+) -> TierCount:
     passed = sum(t[0] for t in per_task)
     n = sum(t[1] for t in per_task)
     low, high = wilson(passed, n)
@@ -222,7 +232,7 @@ def _gap(
     b: Sequence[tuple[int, int, int, int]],
     design: GapsDesign,
     label: str,
-    left: LeftOut,
+    left: LeftOutSaid,
     floor: str | None = None,
 ) -> Gap:
     # Sorted, so the interval is the counts', not the order a vector was shuffled into.
@@ -247,7 +257,7 @@ def _gap(
     return Gap(gap=value, interval=(low, high), words=words, label=floor)
 
 
-def _note(tier: str, count: TierCount, left: LeftOut | None = None) -> str:
+def _note(tier: str, count: TierCount, left: LeftOutSaid | None = None) -> str:
     said = tier.replace("_", " ")
     beside = "" if left is None else f"; {left_out_words(left)}"
     if count.tasks == 1:
@@ -312,7 +322,7 @@ def measure(
         GapsError: the design, the visible runs, a vector or the register refuses them.
         ExposureError: the register cannot be read whole.
     """
-    from physgate.evaluation.tiers.checks import left_out
+    from physgate.evaluation.tiers.checks import left_out, said
     from physgate.evaluation.tiers.exposure import measurements, versions
     from physgate.evaluation.tiers.measure import RAW_ARM, census, checked
 
@@ -333,6 +343,7 @@ def measure(
     # A vector is verified by a gaps measurement alone; every measurement line is a look.
     counted = {line.key: line.version for line in looks if line.measured == "gaps"}
     vectors = {"held_out": _vector(held_out, "held_out", design, counted, seen.drift_sha256, left)}
+    shown_left = said(left)
     if validation is not None:
         vectors["validation"] = _vector(
             validation, "validation", design, counted, seen.drift_sha256, None
@@ -347,10 +358,10 @@ def measure(
     numbers = GapNumbers(
         visible=_count(visible),
         validation=_count(tiers["validation"]) if "validation" in tiers else None,
-        held_out=_count(tiers["held_out"], left),
-        reward_hacking=_gap(visible, tiers["held_out"], design, "gap", left),
+        held_out=_count(tiers["held_out"], shown_left),
+        reward_hacking=_gap(visible, tiers["held_out"], design, "gap", shown_left),
         optimiser_overfit=(
-            _gap(tiers["validation"], tiers["held_out"], design, "overfit", left, FLOOR)
+            _gap(tiers["validation"], tiers["held_out"], design, "overfit", shown_left, FLOOR)
             if "validation" in tiers
             else None
         ),
@@ -372,11 +383,11 @@ def measure(
         keys={tier: key for tier, (_, key) in vectors.items()},  # type: ignore[misc]
         measurements=sum(1 for line in looks if line.version == design.version),
         notes=tuple(
-            _note(tier, count, left if tier == "held_out" else None) for tier, count in shown
+            _note(tier, count, shown_left if tier == "held_out" else None) for tier, count in shown
         ),
         harness_commits=tuple(sorted(commits)),
         accounts=tuple(sorted(accounts)),
-        held_out_left_out=left,
+        held_out_left_out=shown_left,
     )
 
 
@@ -493,8 +504,9 @@ def _admit(record: _TrendRecord, seen: Sequence[_TrendRecord], number: int) -> N
         ):
             msg = f"line {number} of the trend counts a run set or a vector again"
             raise _refuse("run_set_repeated", msg)
-        if earlier.version == record.version and earlier.held_out_left_out != (
-            record.held_out_left_out
+        # One left-out set is one check record: the two are compared by the record's digest.
+        if earlier.version == record.version and (
+            earlier.held_out_left_out.check_sha256 != record.held_out_left_out.check_sha256
         ):
             msg = (
                 f"line {number} of the trend left out other held-out tasks than an earlier line on "

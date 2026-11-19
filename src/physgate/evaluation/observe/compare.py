@@ -25,9 +25,9 @@ not name them did not withhold what lies there from its sessions. And when
 they were measured on different tier versions: the evaluation's record beside each run,
 ``evaluation/tiers.json``, names the version and each tier's digest; absent from both, nothing
 is held; present in one only, differing, or not a record, the comparison is refused. Two
-records of one version that left out different held-out tasks (what the version's blind check
-flagged, ``held_out_left_out``), or of which one left out none, are refused in words of their
-own: their held-out counts are not of one tier.
+records of one version that left out what different check records flagged (compared by the
+record's digest, ``held_out_left_out``), or of which one left out nothing, are refused in words
+of their own: their held-out counts are not of one tier.
 
 What an ablation changes on purpose is reported beside the numbers, never
 refused: the gate mode and every other flag, the run's kind, the OS layer, the
@@ -301,6 +301,12 @@ def _at(config: RunConfig, path: str) -> Any:  # noqa: ANN401 - each field's own
     return value
 
 
+def _check_of(tiers: TiersRecord) -> str | None:
+    """The digest of the check record whose flagged tasks a run's tiers record left out."""
+    left = tiers.held_out_left_out
+    return None if left is None else left.check_sha256
+
+
 def _tiers(run_dir: Path) -> TiersRecord | None:
     """The tier version recorded beside the run, ``evaluation/tiers.json``; ``None`` if none.
 
@@ -418,12 +424,14 @@ def compare(baseline: Path, candidate: Path) -> SideBySide:
         ours is not None
         and others is not None
         and (ours.role, ours.version) == (others.role, others.version)
-        and ours.held_out_left_out != others.held_out_left_out
+        # One left-out set is one check record: the two are compared by the record's digest.
+        and _check_of(ours) != _check_of(others)
     ):
         msg = (
-            "the runs were measured on one tier version but left out different held-out tasks, "
-            "or one left out what its version's check flagged and the other did not: their "
-            "held-out counts are not of one tier, so they are no comparison"
+            "the runs were measured on one tier version but left out what different check records "
+            "flagged (compared by the record's digest), or one left out what its version's check "
+            "flagged and the other did not: their held-out counts are not of one tier, so they are "
+            "no comparison"
         )
         raise CompareRefusedError(msg, drifted=f"{TIERS_RECORD.as_posix()}:held_out_left_out")
     if ours != others:

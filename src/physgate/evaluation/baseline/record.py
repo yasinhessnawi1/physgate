@@ -38,7 +38,7 @@ from pydantic import Field, StringConstraints, model_validator
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.base import Identifier, _Frozen
-from physgate.evaluation.tiers.checks import LeftOut
+from physgate.evaluation.tiers.checks import LeftOutSaid
 from physgate.evaluation.tiers.manifest import TierSet
 from physgate.evaluation.tiers.task import Role, Sha256, canonical_json
 
@@ -64,9 +64,11 @@ class BaselineRecordError(PerRoleError):
 class TiersRecord(_Frozen):
     """The tier version a run ran on, and each tier's digest as its manifest names it.
 
-    And the held-out tasks its version's blind check flagged, which the round left out of its
-    held-out count and did not run: two records on one version that left out different tasks
-    are no comparison. Left out of the bytes of a record written before there was any.
+    And how many held-out tasks its version's blind check flagged, which the round left out of
+    its held-out count and did not run, with the check record's digest and its source; never
+    which, since a run's directory may be published. Two records on one version that name
+    different check records are no comparison. Left out of the bytes of a record written before
+    there was any.
     """
 
     format: Literal[1]
@@ -75,7 +77,7 @@ class TiersRecord(_Frozen):
     visible: Sha256
     validation: Sha256
     held_out: Sha256
-    held_out_left_out: LeftOut | None = Field(default=None, exclude_if=lambda v: v is None)
+    held_out_left_out: LeftOutSaid | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class ExternalSetRecord(_Frozen):
@@ -143,10 +145,10 @@ class BaselineRecord(_Frozen):
         return self
 
 
-def tiers_record(manifest: TierSet, left: LeftOut | None = None) -> TiersRecord:
+def tiers_record(manifest: TierSet, left: LeftOutSaid | None = None) -> TiersRecord:
     """The tiers record of the version ``manifest`` names, from the manifest's own digests.
 
-    ``left``: the held-out tasks its check flagged, which the round left out.
+    ``left``: how many held-out tasks its check flagged, which the round left out.
     """
     return TiersRecord(
         format=1,

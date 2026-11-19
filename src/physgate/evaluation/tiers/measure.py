@@ -12,12 +12,14 @@ from before any of them is counted:
   those two roots were named); of those two, a task's
   runs share one target commit, while tasks may start from different ones;
 - the records are the runs, one each, by task and trial, all of the harness arm, none
-  excluded; and every task was run the same number of times;
+  excluded; every task of the tier that is not left out has runs (``tier_not_covered``: a
+  figure of a tier is of all of it, never of a part chosen by which runs were made); and every
+  task was run the same number of times;
 - of the held-out tier, the version has a check record (:mod:`physgate.evaluation.tiers.checks`):
   one with none is refused (``held_out_unchecked``), since a held-out tier nobody checked is not
   scored; each task it flags is exactly one task of the tier, and is left out, its runs and
   records with it, of every count; what was left out is returned with the counts, and the
-  vector carries it. The visible and validation tiers are counted whole.
+  withheld vector carries it, by digest. The visible and validation tiers are counted whole.
 
 It reads only the tier it is given. **The vector writer** (:func:`write_vector`) is the
 harness's own step for a protected tier: given the tier's records and run set, both beneath the
@@ -272,6 +274,15 @@ def census(
     if not pairs:
         msg = f"the run set holds no run of a task of the {tier} tier that is counted"
         raise _refuse("nothing_counted", msg)
+    unrun = set(by_brief.values()) - leaving - set(numbered)
+    if unrun:
+        # A tier's figure is of every task of it but those its check left out, never of a part
+        # chosen by which runs were made.
+        msg = (
+            f"{len(unrun)} task(s) of the {tier} tier that are not left out have no run in the "
+            "run set: a tier's figure covers every task of it but those its check left out"
+        )
+        raise _refuse("tier_not_covered", msg)
     # A left-out task's records are left out with its runs, never counted as another's.
     records = [r for r in records if not (r.arm == arm and r.task in leaving)]
     recorded: Counter[tuple[str, int]] = Counter()

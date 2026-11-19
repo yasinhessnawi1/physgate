@@ -79,8 +79,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, RootModel, ValidationError
-
 from physgate.evaluation.per_role.arms.raw import WATCH_FAILURES, RawSetup, run_session
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.firmware.sandbox import open_directory
@@ -93,7 +91,20 @@ from physgate.evaluation.tiers.authoring import (
     require_author_model,
 )
 from physgate.evaluation.tiers.canaries import names_a_list, store_canaries
-from physgate.evaluation.tiers.checks import CheckError, make_check, read_check, write_check
+from physgate.evaluation.tiers.check_tasks import (
+    MAX_ANSWERS_BYTES,
+    QUESTIONS,
+    Answer,
+    answers_of,
+    bundle,
+)
+from physgate.evaluation.tiers.checks import (
+    CheckError,
+    make_check,
+    read_check,
+    stream_digest,
+    write_check,
+)
 from physgate.evaluation.tiers.manifest import VERSION_NAME, TierSet, read_version
 from physgate.evaluation.tiers.store import (
     AUTHOR_EVIDENCE,
@@ -117,7 +128,7 @@ from physgate.evaluation.tiers.store import (
     work_root,
     write_version,
 )
-from physgate.evaluation.tiers.task import Role, canonical_json, fold_id, id_digest, load_task
+from physgate.evaluation.tiers.task import Role, canonical_json, fold_id
 from physgate.hooks.withheld import survey
 
 _READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
@@ -1006,8 +1017,6 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
 
 # ----------------------------------------------------------------------- the blind check
 
-QUESTIONS = ("states_every_requirement", "unambiguous", "answerable_as_asked")
-
 CHECK_BRIEF = """\
 You are checking engineering design tasks before they are used. The file tasks.json in
 the directory you work in holds them, each under a key. For each task read its brief, its
@@ -1024,22 +1033,6 @@ Write the file answers.json in the directory you work in, and nothing else:
 with every key of tasks.json once. Write no explanation in it or anywhere else. There are
 {count} tasks.
 """
-
-
-class _Answer(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    states_every_requirement: bool
-    unambiguous: bool
-    answerable_as_asked: bool
-
-
-class _Answers(RootModel[dict[str, _Answer]]):
-    model_config = ConfigDict(strict=True)
-
-
-#: The largest answer file read: three booleans for each of a few dozen tasks.
-MAX_ANSWERS_BYTES = 64 * 1024
 
 
 def _looked_at(root: Path, own: Path) -> dict[str, str]:
@@ -1130,33 +1123,14 @@ def _held_for_a_person(record: Path, work: Path, changed: Sequence[str], session
         )
 
 
-def bundle(tier: Path) -> dict[str, dict[str, Any]]:
-    """The tier's tasks as the check reads them: by id digest, without references or canary.
-
-    Raises:
-        PerRoleError: a task in the tier does not load.
-    """
-    found: dict[str, dict[str, Any]] = {}
-    for entry in sorted(p for p in tier.iterdir() if p.is_dir()):
-        task = load_task(entry).task
-        found[id_digest(task.id)] = {
-            "brief": task.brief,
-            "inputs": [m.model_dump(mode="json") for m in task.inputs],
-            "answer": task.answer.model_dump(mode="json"),
-            "specs": [s.model_dump(mode="json") for s in task.specs],
-        }
-    return found
-
-
-def read_answers(path: Path, keys: Sequence[str]) -> dict[str, _Answer] | None:
+def read_answers(path: Path, keys: Sequence[str]) -> dict[str, Answer] | None:
     """The check's answers, or ``None`` unless they are booleans for exactly ``keys``."""
     if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_ANSWERS_BYTES:
         return None
-    try:
-        answers = _Answers.model_validate_json(path.read_bytes()).root
-    except ValidationError:
+    found = answers_of(path.read_bytes())
+    if found is None or sorted(found) != sorted(keys):
         return None
-    return answers if sorted(answers) == sorted(keys) else None
+    return {key: Answer(**answer) for key, answer in found.items()}
 
 
 def _checked(
@@ -1168,7 +1142,7 @@ def _checked(
     files: dict[str, bytes],
     canaries: Sequence[str],
     cap: int,
-) -> tuple[dict[str, Any], dict[str, _Answer] | None]:
+) -> tuple[dict[str, Any], dict[str, Answer] | None]:
     """The check's session, its record and its answers, while the work root is held."""
     root = role_root(store, role)
     record: dict[str, Any] | None = None
@@ -1277,7 +1251,9 @@ def blind_check(
             (its answer not taken, ``refused_because`` says why) its stream showed one, the
             root's canaries changed while it ran, or the role's root changed
             (``version_changed``, ``role_root_changed``); the version has a check record, or
-            its record cannot be read; or its answer cannot be recorded.
+            its record cannot be read; the register holds a measurement or an exposure of the
+            version, or a run or a raw record names it (what a check leaves out is chosen before
+            any result exists); or its answer cannot be recorded.
         TierSetError: the version is not what its manifest says.
         PerRoleError: a task in the tier does not load.
     """
@@ -1318,6 +1294,7 @@ def blind_check(
     _require_nothing_left(store)
     manifest = read_version(version_dir(store, role, version))
     _require_unchecked(store, role, version, manifest)
+    _require_before_results(store, role, version)
     canaries = store_canaries(store)
     _require_looking(canaries, setup)
     tasks = bundle(tier)
@@ -1346,6 +1323,7 @@ def blind_check(
     if answers is None:
         return {"tasks": len(tasks), "answered": False, "session": _spent(record)}
     flagged = sorted(key for key, a in answers.items() if not all(getattr(a, q) for q in QUESTIONS))
+    session_id = str(record["session_id"])
     try:
         kept = make_check(
             role=role,
@@ -1363,6 +1341,13 @@ def blind_check(
                 "endpoint": "default" if setup.base_url is None else "given",
                 "commit": commit,
                 "clean": clean,
+            },
+            kept={
+                "session_id": session_id,
+                "stream_sha256": stream_digest(
+                    check_evidence(store, role) / session_id / "stdout.jsonl"
+                ),
+                "bound_by": "ran",
             },
             session=_spent(record),
             tasks=len(tasks),
@@ -1383,6 +1368,27 @@ def blind_check(
         "version": version,
         "record": kept.sha256,
     }
+
+
+def _require_before_results(store: Path, role: Role, version: str) -> None:
+    """Refuse a check of a version once anything has measured, seen or run on it.
+
+    What a check flags is left out of every held-out figure, so it is chosen before any result
+    of the version exists, never after (:func:`.tiers.exposure.results_refusal`).
+
+    Raises:
+        AuthoringError: the register holds a measurement or an exposure of the version, a run
+            or a raw record names it, or the run roots cannot be read whole; its own reason.
+    """
+    from physgate.evaluation.tiers.exposure import results_refusal
+
+    try:
+        refusal = results_refusal(store, role, version)
+    except PerRoleError as exc:
+        reason = exc.context.get("refused_because", "register_unreadable")
+        raise AuthoringError(str(exc), refused_because=reason) from None
+    if refusal is not None:
+        raise AuthoringError(refusal[1], refused_because=refusal[0])
 
 
 def _require_unchecked(store: Path, role: Role, version: str, manifest: TierSet) -> None:
@@ -1411,6 +1417,7 @@ def _require_unchecked(store: Path, role: Role, version: str, manifest: TierSet)
 
 __all__ = [
     "MOST_CAP",
+    "QUESTIONS",
     "AuthoringPlan",
     "AuthorProgress",
     "author",

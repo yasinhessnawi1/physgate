@@ -64,7 +64,7 @@ directory.
 **What the blind check flagged is left out.** A round on a version is refused unless the
 version's blind check is recorded (:mod:`.tiers.checks`): a held-out tier nobody checked is not
 scored. A harness trial of a held-out task the record flags is not run, and the held-out count
-leaves it out; the tiers record says how many and which, by digest, with the record's digest.
+leaves it out; the tiers record says how many, with the check record's digest and its source.
 The visible and validation tiers are run whole.
 
 **An external task set** (a published benchmark's tasks, ARCH-143) is a source of its own, given
@@ -129,7 +129,7 @@ from physgate.evaluation.per_role.report import TrialRecord
 from physgate.evaluation.tiers.authoring import AuthoringError
 from physgate.evaluation.tiers.base import _Frozen
 from physgate.evaluation.tiers.canaries import store_canaries
-from physgate.evaluation.tiers.checks import CheckRecord, LeftOut, left_out
+from physgate.evaluation.tiers.checks import CheckRecord, LeftOut, left_out, said
 from physgate.evaluation.tiers.heldout import tier_digest
 from physgate.evaluation.tiers.manifest import TierSet, read_version
 from physgate.evaluation.tiers.store import (
@@ -783,7 +783,7 @@ def run_baseline(
         None
         if isinstance(source, ExternalSetRecord)
         # The record the plan held each flagged digest to one held-out task with.
-        else tiers_record(source, left_out(_check_of(store, role, source)))
+        else tiers_record(source, said(left_out(_check_of(store, role, source))))
     )
     baseline = BaselineRecord(
         format=1,

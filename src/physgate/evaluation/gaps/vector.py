@@ -93,7 +93,13 @@ class GapVector(_Frozen):
 
     @model_validator(mode="after")
     def _says_what_it_left_out(self) -> GapVector:
-        if self.format >= VECTOR_FORMAT and (self.left_out is None) != (self.tier != "held_out"):
+        # Whatever its form: a vector that carries what it left out is a held-out vector of a
+        # form that leaves out, and one of that form says it whenever it is a held-out one.
+        carries = self.left_out is not None
+        if carries and (self.tier != "held_out" or self.format < VECTOR_FORMAT):
+            msg = "only a held-out vector of a form that leaves tasks out says what it left out"
+            raise ValueError(msg)
+        if self.format >= VECTOR_FORMAT and carries != (self.tier == "held_out"):
             msg = "a held-out vector says what it left out, and a validation vector leaves none"
             raise ValueError(msg)
         return self

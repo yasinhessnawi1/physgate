@@ -9,46 +9,54 @@ in the role's root beside the version, never inside it, since a version is never
     <store>/<role>/<version>.check.json
 
 **What it holds.** The version's id; the held-out tier's digest and task count as the version's
-manifest names them; where the answer came from (``check``: written by the check itself as it
-ended; ``imported``: an earlier check's printed answer, taken in once by ``physgate per-role
-record-check``, whose pins and time are what the person importing it stated); the checking
-model and its pins; when it ran; the session's spend; the counts; and the flagged tasks by the
-digest of their ids alone (:func:`.task.id_digest`), never an id, a brief or an answer. And
-``sha256``, the digest of the record's canonical JSON with that field left out: a record whose
-bytes were changed by hand without it no longer names itself, and is refused.
+manifest names them; where the answer came from (``source``: ``check``, written by the check
+itself as it ended; ``imported``, derived afterwards from the check's kept session by
+``physgate per-role record-check``); the checking model and its pins; the kept session it came
+from (its id, its stream's digest, and how it is tied to the version); when it ran; the
+session's spend; the counts; and the flagged tasks by the digest of their ids alone
+(:func:`.task.id_digest`), never an id, a brief or an answer. And ``sha256``, the digest of the
+record's canonical JSON with that field left out: a record whose bytes were changed by hand
+without it no longer names itself, and is refused.
 
-**Written once.** The record is made as a new file and never replaced (:func:`write_check`); a
-check on a version that has one is refused before its session starts, since running a check
-again until it passes is what the record is there to stop.
+**Written once, whole.** The record is written to a temporary file beneath the role's withheld
+root, synced, then linked into place under its own name, which fails if a record is there: one
+is never replaced (:func:`write_check`), and a crash leaves either no record or a whole one,
+never an empty one. A check on a version that has one is refused before its session starts,
+since running a check again until it passes is what the record is there to stop.
+
+**Before any result.** A check, or an import, of a version is refused once the version has a
+measurement or an exposure in the register, or any run or raw record names it
+(:func:`physgate.evaluation.tiers.exposure.results_refusal`): what is left out is chosen before
+any result exists, and never after, even if a record was removed.
 
 **Read whole, or refused** (:func:`read_check`): a link, anything but a plain file of its own,
 a file larger than any record, one that is not a record, one whose digest is not its own, or
 one that names another version, role, tier digest or task count than the version's manifest is
-refused, with ``refused_because`` naming which. A record that is not there is ``None``: the
-version has not been checked.
+refused, with ``refused_because`` naming which and, for a record that cannot be read, what a
+person does about it. A record that is not there is ``None``: the version has not been checked.
 
 **The rule it carries** (:func:`left_out`). Every held-out count, pass rate, gap and interval of
-the version leaves out the tasks the record flags, and carries beside it how many it left out,
-which (by digest) and the record's digest. Every reader that opens the held-out tier holds each
-flagged digest to exactly one of its tasks, so a record that names a task the tier does not
-hold is refused there. A version with no record is not scored at all: a held-out tier nobody
-checked is no measurement. The visible and validation tiers are not touched: the check reads
-the held-out tier alone. Were a validation tier ever checked, its answer would be a record of
-its own under a name of its own, read by the same readers the same way; none is made, and
-nothing reads one.
+the version leaves out the tasks the record flags. The flagged tasks' digests stay in the record
+and in the withheld vectors; whatever a person reads or a commit carries (the report, ``gaps``'
+output, a trend line, a run's tiers record) says only how many were left out, the record's
+digest and its source (:func:`said`), since a task's id may be guessed and its digest then
+tells which task was flagged. A version with no record is not scored at all: a held-out tier
+nobody checked is no measurement. The visible and validation tiers are not touched: the check
+reads the held-out tier alone.
 
 **A stated limit:** whoever can write the role's root can remove the record. A removed record
-reads as none, so the version is refused as unchecked rather than scored whole, and a check
-could then be made again; every check's session is kept under the role's withheld root
-(``withheld/check/``), where a person sees how many ran.
+reads as none, so the version is refused as unchecked rather than scored whole; a check or an
+import could then be made again only while nothing has measured, seen or run on the version.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import re
+import secrets
 import stat
 from collections import Counter
 from collections.abc import Mapping
@@ -60,7 +68,7 @@ from pydantic import Field, StringConstraints, ValidationError, model_validator
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.base import _Frozen
 from physgate.evaluation.tiers.manifest import TierSet, read_version
-from physgate.evaluation.tiers.store import role_root, version_dir
+from physgate.evaluation.tiers.store import role_root, version_dir, withheld_root
 from physgate.evaluation.tiers.task import (
     Role,
     Sha256,
@@ -82,11 +90,14 @@ FORMAT = 1
 Sha1 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 Name = Annotated[str, StringConstraints(min_length=1, max_length=200)]
 Short = Annotated[str, StringConstraints(min_length=1, max_length=64)]
-#: When a check ran: a UTC time to the second, or (an imported answer's) a date.
+SessionId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9-]{1,64}$")]
+#: When a check ran: a UTC time to the second, or (a record written before times were kept) a
+#: date.
 Checked = Annotated[
     str, StringConstraints(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)?$")
 ]
 Count = Annotated[int, Field(ge=0)]
+Source = Literal["check", "imported"]
 
 
 class CheckError(PerRoleError):
@@ -104,7 +115,7 @@ def _sorted_unique(digests: tuple[str, ...], what: str) -> None:
 
 
 class CheckPins(_Frozen):
-    """What the check's session ran under: its model, the binary and how it was asked."""
+    """What a check's session ran under, as the check itself was given it."""
 
     model: Name
     #: The implementers' model, which the checking model was held apart from.
@@ -118,6 +129,33 @@ class CheckPins(_Frozen):
     #: The harness checkout the check ran from, and whether it was clean; ``None`` if unknown.
     commit: Sha1 | None
     clean: bool | None
+
+
+class ImportedPins(_Frozen):
+    """What an imported check's session ran under, as its kept stream names it."""
+
+    #: The model and the binary's version the session's stream names as it started.
+    model: Name
+    claude_version: Short
+    #: The implementers' model, as the person importing states it: the session's model is held
+    #: apart from it. The one thing in an imported record that its session does not record.
+    implementer_model: Name
+
+
+class KeptSession(_Frozen):
+    """The check's session as the role's withheld root keeps it, and how it is the version's.
+
+    ``bound_by``: ``ran``, the check itself ran it on the version; ``tasks_read``, its stream
+    holds its whole read of the tasks it was given, and those are exactly what the version's
+    held-out tier gives a check now; ``answer_keys``, only its answer ties it: the answer's keys
+    are exactly the digests of the version's held-out task ids, so it is an answer on a tier with
+    those ids (any version whose held-out tier has the same ids would match it as well).
+    """
+
+    session_id: SessionId
+    #: The digest of the session's kept stream; ``None`` where the check kept none.
+    stream_sha256: Sha256 | None
+    bound_by: Literal["ran", "tasks_read", "answer_keys"]
 
 
 class CheckSpend(_Frozen):
@@ -140,9 +178,10 @@ class _CheckBody(_Frozen):
     tier: Literal["held_out"]
     #: The held-out tier's digest, as the version's manifest names it.
     tier_sha256: Sha256
-    source: Literal["check", "imported"]
+    source: Source
     checked: Checked
-    pins: CheckPins
+    pins: CheckPins | ImportedPins
+    kept: KeptSession
     session: CheckSpend
     tasks: Annotated[int, Field(ge=1)]
     all_yes: Count
@@ -153,6 +192,13 @@ class _CheckBody(_Frozen):
         _sorted_unique(self.flagged, "the flagged tasks")
         if self.all_yes + len(self.flagged) != self.tasks:
             msg = "the tasks with all three answers yes and those flagged are not every task"
+            raise ValueError(msg)
+        ran = self.source == "check"
+        if ran != isinstance(self.pins, CheckPins) or ran != (self.kept.bound_by == "ran"):
+            msg = (
+                "a check's own record carries the pins it was given and the session it ran; an "
+                "imported one, what its kept session records and how that session is the version's"
+            )
             raise ValueError(msg)
         return self
 
@@ -172,15 +218,18 @@ class CheckRecord(_CheckBody):
 
 
 class LeftOut(_Frozen):
-    """What every held-out figure of a version carries beside it: the tasks left out of it.
+    """What a held-out vector of a version carries: the tasks left out of it, by digest.
 
-    ``count`` tasks, named by ``digests``, which the version's check record (``check_sha256``)
-    flagged. ``count`` is 0 when the check flagged none; it is said all the same.
+    ``count`` tasks, named by ``digests``, which the version's check record (``check_sha256``,
+    whose answer came from ``source``) flagged. ``count`` is 0 when the check flagged none; it is
+    said all the same. Kept beneath the role's withheld root only: what a person reads carries
+    :class:`LeftOutSaid` instead.
     """
 
     count: Count
     digests: tuple[TaskDigest, ...]
     check_sha256: Sha256
+    source: Source
 
     @model_validator(mode="after")
     def _counts_its_digests(self) -> LeftOut:
@@ -189,6 +238,19 @@ class LeftOut(_Frozen):
             msg = "the count left out is not the number of tasks named"
             raise ValueError(msg)
         return self
+
+
+class LeftOutSaid(_Frozen):
+    """What every held-out figure a person reads carries beside it: how many were left out.
+
+    The count, the check record's digest and where its answer came from; never which tasks: a
+    task's id may be guessed, and its digest would then say which held-out task was flagged.
+    Two figures left out the same tasks exactly when they name the same record.
+    """
+
+    count: Count
+    check_sha256: Sha256
+    source: Source
 
 
 def record_digest(fields: Mapping[str, Any]) -> str:
@@ -217,12 +279,33 @@ def make_check(**fields: Any) -> CheckRecord:  # noqa: ANN401
 
 def left_out(record: CheckRecord) -> LeftOut:
     """What the version's held-out figures leave out, as ``record`` flags it."""
-    return LeftOut(count=len(record.flagged), digests=record.flagged, check_sha256=record.sha256)
+    return LeftOut(
+        count=len(record.flagged),
+        digests=record.flagged,
+        check_sha256=record.sha256,
+        source=record.source,
+    )
+
+
+def said(left: LeftOut) -> LeftOutSaid:
+    """What of ``left`` a person may read: the count, the record's digest and its source."""
+    return LeftOutSaid(count=left.count, check_sha256=left.check_sha256, source=left.source)
 
 
 def check_path(store: Path, role: Role, version: str) -> Path:
     """Where the version's check record lies: in the role's root, beside the version."""
     return role_root(store, role) / f"{version}{CHECK_SUFFIX}"
+
+
+def _unreadable(path: Path, why: str, reason: str = "check_record_unreadable") -> CheckError:
+    """A refusal of the record at ``path`` that says what a person does about it."""
+    msg = (
+        f"the check record {path} {why}. The harness never replaces or removes a check record. "
+        "A person who has looked at it may delete it by hand: a deliberate act, after which the "
+        "version reads as unchecked, and a new check or import of it is refused once the "
+        "register holds a measurement or an exposure of it or any run names it"
+    )
+    return _refuse(reason, msg)
 
 
 def _record_at(path: Path) -> CheckRecord | None:
@@ -231,36 +314,38 @@ def _record_at(path: Path) -> CheckRecord | None:
     Raises:
         CheckError: it is a link, not a plain file of its own, larger than any record, or not a
             record (``check_record_unreadable``), or its digest is not its own
-            (``check_record_changed``).
+            (``check_record_changed``); the words name the file and what a person does.
     """
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
         return None
     except OSError as exc:
-        msg = f"the check record cannot be opened as a plain file: {exc.strerror}"
-        raise _refuse("check_record_unreadable", msg) from None
+        raise _unreadable(path, f"cannot be opened as a plain file ({exc.strerror})") from None
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-            raise _refuse("check_record_unreadable", "the check record is not a file of its own")
+            raise _unreadable(path, "is not a file of its own")
         with os.fdopen(os.dup(fd), "rb") as handle:
             raw = handle.read(MOST_CHECK_BYTES + 1)
     finally:
         os.close(fd)
     if len(raw) > MOST_CHECK_BYTES:
-        raise _refuse("check_record_unreadable", "the check record is larger than any record is")
+        raise _unreadable(path, "is larger than any record is")
     try:
         shape = json.loads(raw)
     except ValueError:
-        raise _refuse("check_record_unreadable", "the check record is not a record") from None
+        raise _unreadable(path, "is not a record") from None
     if isinstance(shape, dict) and shape.get("sha256") != record_digest(shape):
-        msg = "the check record's bytes are not the ones its digest names: it was changed"
-        raise _refuse("check_record_changed", msg)
+        raise _unreadable(
+            path,
+            "holds bytes other than the ones its digest names: it was changed",
+            "check_record_changed",
+        )
     try:
         return CheckRecord.model_validate_json(raw)
     except ValidationError:
-        raise _refuse("check_record_unreadable", "the check record is not a record") from None
+        raise _unreadable(path, "is not a record") from None
 
 
 def read_check(
@@ -319,8 +404,22 @@ def check_in_place(path: Path) -> bool:
     )
 
 
+def _recorded(record: CheckRecord) -> CheckError:
+    msg = (
+        f"the version {record.version[:8]} has a check record already; a version is checked "
+        "once, and its record is never replaced"
+    )
+    return _refuse("check_recorded", msg)
+
+
 def write_check(store: Path, role: Role, record: CheckRecord) -> None:
-    """Write ``record`` beside its version as a new file; one already there is never replaced.
+    """Write ``record`` beside its version, whole and once; one already there is never replaced.
+
+    The bytes go to a new temporary file beneath the role's withheld root (where nothing judges
+    a stray entry, and the same volume as the role's root), which is synced and then linked
+    into place under the record's name: the link fails if a record is there, so none is ever
+    replaced, and a crash leaves no record or a whole one, never an empty or a cut one. The
+    temporary name is removed whatever happens.
 
     Raises:
         CheckError: it is another role's (``check_record_not_the_version``), or the version has
@@ -334,21 +433,59 @@ def write_check(store: Path, role: Role, record: CheckRecord) -> None:
     if record.role != role:
         raise _refuse("check_record_not_the_version", "the check record is another role's")
     path = check_path(store, role, record.version)
+    if os.path.lexists(path):
+        raise _recorded(record)
     data = canonical_json(record.model_dump(mode="json"))
+    temporary = withheld_root(store, role) / f".{record.version}.check.{secrets.token_hex(8)}"
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    except FileExistsError:
-        msg = (
-            f"the version {record.version[:8]} has a check record already; a version is checked "
-            "once, and its record is never replaced"
-        )
-        raise _refuse("check_recorded", msg) from None
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     except OSError as exc:
         msg = f"the check record cannot be written: {exc.strerror}"
         raise _refuse("check_record_unwritten", msg) from None
     try:
-        os.write(fd, data)
+        try:
+            view = memoryview(data)
+            while view:
+                view = view[os.write(fd, view) :]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        try:
+            os.link(temporary, path, follow_symlinks=False)
+        except FileExistsError:
+            raise _recorded(record) from None
+        _sync_directory(path.parent)
+    except OSError as exc:
+        msg = f"the check record cannot be written: {exc.strerror}"
+        raise _refuse("check_record_unwritten", msg) from None
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temporary)
+
+
+def _sync_directory(directory: Path) -> None:
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
         os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def stream_digest(path: Path) -> str | None:
+    """The digest of a kept session's stream at ``path``, a plain file of its own; else ``None``."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            return None
+        digest = hashlib.sha256()
+        with os.fdopen(os.dup(fd), "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(block)
+        return digest.hexdigest()
     finally:
         os.close(fd)
 
@@ -361,19 +498,6 @@ def counts(record: CheckRecord) -> dict[str, Any]:
         "flagged": len(record.flagged),
         "source": record.source,
     }
-
-
-class _Printed(_Frozen):
-    """The blind check's answer as the command printed it: counts, digests and the spend."""
-
-    tasks: Annotated[int, Field(ge=1)]
-    answered: Literal[True]
-    all_yes: Count
-    flagged: tuple[TaskDigest, ...]
-    session: CheckSpend
-    #: Printed by a check that recorded its answer itself; an earlier check printed neither.
-    version: Sha256 | None = None
-    record: Sha256 | None = None
 
 
 def _held_out_digests(store: Path, role: Role, version: str) -> Counter[str]:
@@ -394,81 +518,159 @@ def _held_out_digests(store: Path, role: Role, version: str) -> Counter[str]:
     return found
 
 
+def _given_to_the_check(store: Path, role: Role, version: str) -> object:
+    """The tasks a blind check of the version is given now, as its tasks file holds them.
+
+    Raises:
+        CheckError: a task of the tier does not load; only the tier is said.
+    """
+    from physgate.evaluation.tiers.check_tasks import bundle
+
+    try:
+        return json.loads(json.dumps(bundle(version_dir(store, role, version) / "held_out")))
+    except (OSError, PerRoleError):
+        raise _refuse("tier_unreadable", "a task of the held-out tier cannot be read") from None
+
+
+def _printed_agrees(printed: bytes, derived: Mapping[str, Any], version: str) -> bool:
+    """Whether the line the check printed is exactly what its kept session derives."""
+    if len(printed) > MOST_PRINTED_BYTES:
+        return False
+    try:
+        shape = json.loads(printed)
+    except ValueError:
+        return False
+    if not isinstance(shape, dict):
+        return False
+    if "version" in shape and shape.pop("version") != version:
+        return False
+    return bool(shape == dict(derived))
+
+
 def import_check(
     store: Path,
     role: Role,
     version: str,
-    printed: bytes,
     *,
-    pins: CheckPins,
-    checked: str,
+    implementer_model: str,
+    printed: bytes | None = None,
 ) -> CheckRecord:
-    """Take an earlier check's printed answer in as the version's check record, once.
+    """Derive the version's check record from the check's kept session, and write it, once.
 
-    For a version whose check ran before checks kept their record, and whose answer exists
-    only as the line the command printed. The version is read as every reader reads it
-    (:func:`.manifest.read_version`). The printed answer names no version, so it is held to
-    this one by what it says: an answer (``answered``), for as many tasks as the version's
-    held-out tier holds, whose counts add up, and each of whose flagged digests is the digest
-    of exactly one task of that tier. Where it names a version (a later check's line), that
-    version is this one. ``pins`` and ``checked`` are what the person importing it states; the
-    record says it was imported.
+    For a version whose check ran before checks kept their record. Nothing is taken from a
+    person but the implementers' model: the answer is what the kept session's stream shows it
+    wrote to its answer file (:mod:`.check_sessions`), the flagged tasks are computed again
+    from it and the version's held-out tier, and the pins, the time and the spend are what the
+    session recorded. The import is refused:
+
+    - once anything has measured, seen or run on the version (``results_refusal``), or the
+      version has a record (``check_recorded``);
+    - when no kept session answered on the version (``check_session_missing``), or more than one
+      did (``check_sessions_several``: a person must look); a session that ended without an
+      answer, or answered on another tier, is passed over;
+    - when a kept session cannot be read whole, or named its answer file by a tool other than
+      its file-write tool without one write that landed (``check_session_unclear``);
+    - when the session's whole read of its tasks file is not what the version's held-out tier
+      gives a check now (``check_session_not_the_version``);
+    - when its model is the implementers' (``checked_on_the_implementers_model``);
+    - when ``printed`` (the line the check printed) is given and is not exactly what the
+      session derives (``check_answer_disagrees``), or is not given where a tool call named the
+      answer file after its last write, so what the check read at its end needs it
+      (``check_answer_not_derivable``).
 
     Raises:
-        CheckError: the answer is not one, is not this version's, or the version has a record
-            already; the reason is counted, and no task is named.
+        CheckError: as above; the reason is counted, and no task is named.
         TierSetError: the version is not what its manifest says.
+        ExposureError: the register or the run roots cannot be read whole.
     """
+    from physgate.evaluation.tiers.check_sessions import kept_answers
+    from physgate.evaluation.tiers.check_tasks import QUESTIONS
+    from physgate.evaluation.tiers.exposure import results_refusal
+
     manifest = read_version(version_dir(store, role, version))
-    if len(printed) > MOST_PRINTED_BYTES:
-        raise _refuse("check_answer_unreadable", "the printed answer is larger than any is")
-    try:
-        shape = json.loads(printed)
-    except ValueError:
-        raise _refuse(
-            "check_answer_unreadable", "the printed answer is not one line of JSON"
-        ) from None
-    if isinstance(shape, dict) and shape.get("answered") is False:
-        msg = "the check gave no answer (answered: false), so there is nothing to record"
-        raise _refuse("check_gave_no_answer", msg)
-    try:
-        answer = _Printed.model_validate_json(printed)
-    except ValidationError:
-        msg = "the printed answer is not the blind check's: counts, flagged digests and the spend"
-        raise _refuse("check_answer_unreadable", msg) from None
-    if answer.version is not None and answer.version != version:
-        raise _refuse("check_answer_not_the_version", "the printed answer names another version")
-    if answer.tasks != manifest.held_out.count or answer.all_yes + len(answer.flagged) != (
-        answer.tasks
-    ):
-        msg = (
-            f"the printed answer counts {answer.tasks} task(s), {answer.all_yes} all yes and "
-            f"{len(answer.flagged)} flagged; the version's held-out tier holds "
-            f"{manifest.held_out.count}"
-        )
-        raise _refuse("check_answer_not_the_version", msg)
-    if len(set(answer.flagged)) != len(answer.flagged):
-        raise _refuse("check_answer_not_the_version", "the printed answer flags a task twice")
+    refusal = results_refusal(store, role, version)
+    if refusal is not None:
+        raise _refuse(*refusal)
+    if read_check(store, role, version, manifest=manifest) is not None:
+        raise _refuse("check_recorded", "the version has a check record already")
     held = _held_out_digests(store, role, version)
-    if any(held[digest] != 1 for digest in answer.flagged):
-        unmatched = sum(1 for digest in answer.flagged if held[digest] != 1)
+    if any(n != 1 for n in held.values()) or sum(held.values()) != manifest.held_out.count:
+        msg = "the held-out tier's tasks are not each one id digest of the manifest's count"
+        raise _refuse("tier_unreadable", msg)
+    answered = [
+        kept
+        for kept in kept_answers(store, role)
+        if kept.answer is not None and set(kept.answer) == set(held) and kept.took
+    ]
+    if not answered:
         msg = (
-            f"{unmatched} flagged digest(s) of the printed answer are not each the digest of "
-            "exactly one task of the version's held-out tier"
+            f"no kept session of the role's blind check answered on the version {version[:8]}: "
+            "its answer is not in the store, so nothing is recorded"
         )
-        raise _refuse("check_answer_not_the_version", msg)
+        raise _refuse("check_session_missing", msg)
+    if len(answered) > 1:
+        msg = (
+            f"{len(answered)} kept sessions of the role's blind check answered on the version "
+            f"{version[:8]} ({', '.join(k.session_id for k in answered)}): which answer the check "
+            "gave cannot be told from the store, so nothing is recorded; a person must look"
+        )
+        raise _refuse("check_sessions_several", msg)
+    (kept,) = answered
+    assert kept.answer is not None  # noqa: S101 - chosen above
+    if kept.model.strip() == implementer_model.strip():
+        msg = "the kept session ran on the implementers' model; a blind check runs on another"
+        raise _refuse("checked_on_the_implementers_model", msg)
+    bound_by: Literal["tasks_read", "answer_keys"] = "answer_keys"
+    if kept.tasks_read is not None:
+        if kept.tasks_read != _given_to_the_check(store, role, version):
+            msg = (
+                "the tasks the kept session read are not the ones the version's held-out tier "
+                "gives a check: it is not this version's check"
+            )
+            raise _refuse("check_session_not_the_version", msg)
+        bound_by = "tasks_read"
+    flagged = sorted(k for k, a in kept.answer.items() if not all(a[q] for q in QUESTIONS))
+    derived = {
+        "tasks": len(held),
+        "answered": True,
+        "all_yes": len(held) - len(flagged),
+        "flagged": flagged,
+        "session": kept.spent,
+    }
+    if printed is not None and not _printed_agrees(printed, derived, version):
+        msg = (
+            "the line given as the check's printed answer is not exactly what its kept session "
+            "shows it answered: nothing is recorded"
+        )
+        raise _refuse("check_answer_disagrees", msg)
+    if printed is None and kept.touched_after:
+        msg = (
+            "after the kept session last wrote its answer file, a tool call named that file "
+            "again, so what the check read at its end cannot be told from the stream alone; "
+            "give the line the check printed (--from), which must agree with it exactly"
+        )
+        raise _refuse("check_answer_not_derivable", msg)
     record = make_check(
         role=role,
         version=version,
         tier="held_out",
         tier_sha256=manifest.held_out.sha256,
         source="imported",
-        checked=checked,
-        pins=pins.model_dump(mode="json"),
-        session=answer.session.model_dump(mode="json"),
-        tasks=answer.tasks,
-        all_yes=answer.all_yes,
-        flagged=list(answer.flagged),
+        checked=kept.written_at,
+        pins={
+            "model": kept.model,
+            "claude_version": kept.claude_version,
+            "implementer_model": implementer_model,
+        },
+        kept={
+            "session_id": kept.session_id,
+            "stream_sha256": kept.stream_sha256,
+            "bound_by": bound_by,
+        },
+        session=kept.spent,
+        tasks=len(held),
+        all_yes=len(held) - len(flagged),
+        flagged=flagged,
     )
     write_check(store, role, record)
     return record
@@ -481,7 +683,10 @@ __all__ = [
     "CheckPins",
     "CheckRecord",
     "CheckSpend",
+    "ImportedPins",
+    "KeptSession",
     "LeftOut",
+    "LeftOutSaid",
     "check_in_place",
     "check_path",
     "counts",
@@ -490,5 +695,7 @@ __all__ = [
     "make_check",
     "read_check",
     "record_digest",
+    "said",
+    "stream_digest",
     "write_check",
 ]

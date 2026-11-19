@@ -1112,6 +1112,82 @@ def _scan_refusal(
     return None
 
 
+def _names_version(value: object, digests: frozenset[str]) -> bool:
+    return isinstance(value, list) and any(isinstance(d, str) and d in digests for d in value)
+
+
+def results_refusal(store: Path, role: Role, version: str) -> tuple[str, str] | None:
+    """Why the version's blind check may no longer be made or imported; ``None`` if it may.
+
+    What a check flags is left out of every held-out figure of its version, so the check is
+    made, or an earlier one imported, before any result of the version exists: never once the
+    register holds a measurement of it (``version_measured``) or an exposure
+    (``version_exposed``, as freshly scanned), or a run under the role's run roots or a raw
+    record beneath them or the withheld root's baseline records names its held-out or validation
+    tier (``version_has_runs``: a run withholds every version it was made beside, so one that
+    names it was made after it was written). A run root that is not there or not read whole
+    leaves a run on it unruled out (``run_roots_unread``). Only a digest's prefix is said.
+
+    Raises:
+        ExposureError: the register, the run roots or a run they hold cannot be read whole.
+    """
+    known = versions(store, role)
+    manifest = known.get(version)
+    if manifest is None:
+        return "version_unknown", f"the role has no version {version[:_PREFIX]}"
+    said = version[:_PREFIX]
+    for line in register_lines(store, role):
+        if line.version == version and line.kind == "measurement":
+            return "version_measured", (
+                f"the register holds a measurement of the version {said}: what its check leaves "
+                "out would be chosen after a result of it exists"
+            )
+    if version in exposed_versions(store, role):
+        return "version_exposed", (
+            f"the version {said} is marked exposed as the register reads now: it is no "
+            "measurement, and its check is not made after it was seen"
+        )
+    walk = _Walk(runs=[], records=[])
+    for root in run_roots(store, role):
+        _walk(root, walk, required=True)
+    _walk(withheld_root(store, role) / BASELINE_RECORDS, walk, required=False)
+    if walk.missing or walk.unread:
+        return "run_roots_unread", (
+            "a run root of the role is not there or not read whole, so a run on the version "
+            f"{said} cannot be ruled out"
+        )
+    digests = frozenset({manifest.held_out.sha256, manifest.validation.sha256})
+    for run in sorted(set(walk.runs)):
+        try:
+            named = load_run_config(run / RUN_RECORD).held_out_sha256
+        except Exception as exc:  # noqa: BLE001 - a run that cannot be read cannot be ruled out
+            msg = f"a run under the run roots cannot be read: {type(exc).__name__}"
+            raise _refuse("register_unreadable", msg) from exc
+        if _names_version(list(named), digests):
+            return "version_has_runs", (
+                f"a run under the role's run roots names the version {said}: its check is made "
+                "before any run on it, never after"
+            )
+    for path in sorted(set(walk.records)):
+        fd = _dir_fd(path.parent)
+        data = None
+        if fd is not None:
+            try:
+                data = _read_at(fd, path.name, MOST_RECORD_BYTES)
+            finally:
+                os.close(fd)
+        try:
+            record = json.loads(data) if data is not None else {}
+        except ValueError as exc:
+            raise _refuse("register_unreadable", "a raw record cannot be read") from exc
+        if isinstance(record, dict) and _names_version(record.get("held_out_sha256"), digests):
+            return "version_has_runs", (
+                f"a raw record names the version {said}: its check is made before any trial on "
+                "it, never after"
+            )
+    return None
+
+
 def _check_refusal(store: Path, role: Role, version: str) -> tuple[str, str] | None:
     """Why a measured run on ``version`` may not be made for want of its blind check; or ``None``.
 

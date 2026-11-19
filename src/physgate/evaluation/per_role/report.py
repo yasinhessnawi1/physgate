@@ -42,8 +42,8 @@ is unchecked by it. The report says both, every time.
 version is held to that version's check record (:mod:`physgate.evaluation.tiers.checks`): a
 version with none is refused, since a held-out tier nobody checked is not scored; the tasks the
 check flagged, found by the digest of their ids, are left out of the suite's every figure and
-of the gap, and the count and digests left out are printed beside them. A held-out suite that
-names no version is not held to any check.
+of the gap, and how many were left out, the check record's digest and its source are printed
+beside them, never which. A held-out suite that names no version is not held to any check.
 
 **A published number is shown beside ours, never against it,** and only with a record of
 its split, protocol and scorer and of how they differ from ours, next to our own raw arm
@@ -68,7 +68,7 @@ from physgate.evaluation.gaps.stats import (
 )
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.base import Identifier, _Frozen
-from physgate.evaluation.tiers.checks import CheckRecord, LeftOut, left_out
+from physgate.evaluation.tiers.checks import CheckRecord, LeftOutSaid, left_out, said
 from physgate.evaluation.tiers.task import Role, Sha256, TaskId, Tier, id_digest
 
 Arm = Literal["harness", "observe", "raw"]
@@ -625,17 +625,21 @@ def _firmware_notes(suite: Suite, records: Sequence[TrialRecord]) -> list[str]:
     ]
 
 
-def _left_words(left: LeftOut) -> str:
-    """What a held-out suite's figures say beside them of the tasks its check left out."""
-    named = ", ".join(f"`{d}`" for d in left.digests) or "none"
+def _left_words(left: LeftOutSaid) -> str:
+    """What a held-out suite's figures say beside them of the tasks its check left out.
+
+    How many, the check record's digest and where its answer came from; never which tasks: a
+    task's id may be guessed, and its digest would then say which was flagged.
+    """
+    came = "the check's own record" if left.source == "check" else "a record imported from it"
     return (
         f"Held-out tasks left out as the version's blind check flagged: {left.count} "
-        f"({named}; check record `{left.check_sha256[:16]}`)."
+        f"(check record `{left.check_sha256}`, {came})."
     )
 
 
 def _suite(
-    design: Design, suite: Suite, records: Sequence[TrialRecord], left: LeftOut | None = None
+    design: Design, suite: Suite, records: Sequence[TrialRecord], left: LeftOutSaid | None = None
 ) -> list[str]:
     lines = [
         f"### {suite.label}",
@@ -661,7 +665,7 @@ def _gaps(
     design: Design,
     role: Role,
     by_suite: Mapping[str, list[TrialRecord]],
-    left: Mapping[str, LeftOut] | None = None,
+    left: Mapping[str, LeftOutSaid] | None = None,
 ) -> list[str]:
     own = [s for s in design.suites if s.role == role]
     visible = [s for s in own if s.tier == "visible"]
@@ -737,7 +741,7 @@ def leave_out(
     design: Design,
     records: Sequence[TrialRecord],
     checks: Mapping[str, CheckRecord] | None = None,
-) -> tuple[Design, list[TrialRecord], dict[str, LeftOut]]:
+) -> tuple[Design, list[TrialRecord], dict[str, LeftOutSaid]]:
     """The design and records with what each held-out suite's version's check flagged left out.
 
     A held-out suite that names a version is held to that version's check record in
@@ -751,7 +755,7 @@ def leave_out(
         ReportError: a held-out suite's version has no check record, or the record is another
             role's, another tier's or leaves no task; nothing is named but by digest.
     """
-    left: dict[str, LeftOut] = {}
+    left: dict[str, LeftOutSaid] = {}
     suites: list[Suite] = []
     dropped: set[tuple[str, str]] = set()
     for suite in design.suites:
@@ -784,7 +788,7 @@ def leave_out(
             raise ReportError(msg, suite=suite.name, refused_because="nothing_counted")
         suites.append(suite.model_copy(update={"tasks": kept}))
         dropped |= {(suite.name, task) for task in suite.tasks if id_digest(task) in flagged}
-        left[suite.name] = left_out(record)
+        left[suite.name] = said(left_out(record))
     kept_records = [r for r in records if (r.suite, r.task) not in dropped]
     return design.model_copy(update={"suites": tuple(suites)}), kept_records, left
 
