@@ -50,8 +50,9 @@ def _run(tmp: Path, gate_mode: str, verdicts: list[str], reviewers: str = "off")
     loop = outcome_of(rig.open)
     assert not isinstance(loop, Exception), f"the run is refused at its configuration: {loop}"
     loop.start(plan("s1"))
-    step = loop.run()
+    step = outcome_of(loop.run)
     loop.close()
+    assert not isinstance(step, Exception), f"the run did not end: {step!r}"
     return rig, step
 
 
