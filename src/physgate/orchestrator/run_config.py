@@ -321,13 +321,13 @@ BEFORE_THE_SWITCH: dict[str, str | bool] = {
 #: recorded before the switch existed.
 BUILT: dict[str, tuple[str, ...]] = {
     "reviewers": ("paired",),
-    "skills": ("on",),
+    "skills": ("on", "off"),
     "hooks": ("on", "off"),
 }
 
 #: The values a run takes only as an ablation run, by the flag's name: each removes a component
 #: of the harness, so the product never sets one and no reportable number is measured under one.
-ABLATION_ONLY: dict[str, tuple[str, ...]] = {"hooks": ("off",)}
+ABLATION_ONLY: dict[str, tuple[str, ...]] = {"skills": ("off",), "hooks": ("off",)}
 
 
 class RunConfig(_Frozen):

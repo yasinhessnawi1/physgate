@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import NamedTuple
 
+from physgate.flags import Skills
 from physgate.knowledge.exceptions import RoleNameError
 
 #: A role name becomes a directory name under the knowledge root, so it is held
@@ -103,3 +105,44 @@ def required_reading(
     """
     everything = {*always_loaded(role, root=root), Path(module_spec), *interfaces}
     return tuple(sorted(everything))
+
+
+class SessionReading(NamedTuple):
+    """What a role session is given of the curated content, under the run's skills switch."""
+
+    #: What it must read in full before any other tool (ARCH-020).
+    required: tuple[Path, ...]
+    #: What is measured against the token ceiling (ARCH-023).
+    always_loaded: tuple[Path, ...]
+    #: What it may not read at all, by any route.
+    withheld: tuple[Path, ...]
+
+
+def session_reading(
+    role: str,
+    module_spec: Path,
+    *,
+    skills: Skills,
+    interfaces: tuple[Path, ...] = (),
+    root: Path = DEFAULT_ROOT,
+) -> SessionReading:
+    """What a session of ``role`` reads, is measured on, and is withheld, under ``skills``.
+
+    ``on`` is the two sets above and nothing withheld. ``off``, an ablation run's arm, takes
+    the role's skill file out of both sets and withholds it; the standards files and the rest
+    of the required reading stay, so the reading rule and the ceiling still hold the session,
+    to the smaller set. The cross role has no skill file, so ``off`` changes nothing for it.
+
+    Raises:
+        RoleNameError: ``role`` is not a safe directory name.
+    """
+    required = required_reading(role, module_spec, interfaces=interfaces, root=root)
+    loaded = always_loaded(role, root=root)
+    if skills == "on" or role == CROSS:
+        return SessionReading(required=required, always_loaded=loaded, withheld=())
+    skill = _role_dir(role, root) / SKILL_NAME
+    return SessionReading(
+        required=tuple(path for path in required if path != skill),
+        always_loaded=tuple(path for path in loaded if path != skill),
+        withheld=(skill,),
+    )

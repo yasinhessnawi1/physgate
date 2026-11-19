@@ -260,9 +260,10 @@ SKILLS = Flag(
             "acts; every run recorded before the switch existed reads as this"
         ),
         "off": (
-            "an ablation run's arm: the role's skill file is withheld from every role session "
-            "and leaves what it must read, and the standards files stay; refused at the run's "
-            "configuration until the arm is built"
+            "an ablation run's arm: the role's skill file leaves what every role session must "
+            "read and its always-loaded set, and is withheld from it, refused to every read as "
+            "the run's recorded configuration is; the standards files stay, and the session is "
+            "still held to reading them before it acts; only an ablation run takes it"
         ),
     },
     architecture="ARCH-140",
