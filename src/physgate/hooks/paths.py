@@ -35,7 +35,13 @@ either of which protects:
 
 An existing file with more than one link is refused as well. A hard link gives
 a protected file a second name anywhere on the volume, and nothing in the name
-being written says so.
+being written says so. To a read, such a file is refused in the session's
+worktree: a link there to a file the session may not read (the harness's skill
+file, a held-out scenario) would pass every root test, since the inode test
+compares directories, and a session's commands write the worktree on every
+layer. A worktree's own files have one name each. Outside the worktree a session
+reads files with a second name for reasons of their own (an interpreter's
+packages hard-linked from a package cache), and those are not refused.
 
 **A root may carry its own exceptions** — paths beneath it that this root does
 not protect after all. This exists for exactly one real case: `knowledge/` is
@@ -106,6 +112,10 @@ FROZEN_CRITERIA = (
 HARD_LINKED = (
     "the file has more than one name on disk, so writing it could change a protected file "
     "through its other name"
+)
+HARD_LINKED_READ = (
+    "the file has more than one name on disk, and it lies in the session's worktree, where a "
+    "command could have given a file the session may not read that second name"
 )
 REFUSED = "{path} is protected: {reason}. The {tool} call is refused."
 RELATIVE_TO_UNKNOWN = (
@@ -532,6 +542,8 @@ def protection(
         reason = _rules(spelling, config, writing=writing, shell=shell)
         if reason is not None:
             return reason
+    if not writing and _hard_linked(physical) and _within(physical, config.worktree):
+        return HARD_LINKED_READ
     if config.profile == "reviewer" and not writing:
         if not all(any(_within(s, root) for root in config.read_roots) for s in spellings):
             return OUTSIDE_REVIEW_REASON
