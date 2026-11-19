@@ -304,24 +304,64 @@ def test_a_run_place_inside_the_checkout_is_refused_at_install(tmp_path: Path, f
         )
 
 
-def test_a_command_s_read_of_the_checkout_is_left_to_the_os_layer(
+def _shell_decision(config: Any, cwd: str, command: str) -> Any:  # noqa: ANN401
+    from physgate.hooks import shell_paths  # noqa: PLC0415
+
+    call = event(cwd=cwd, tool_name="Bash", tool_input={"command": command})
+    return shell_paths.pre_tool_use(HookInput.model_validate(call), config)
+
+
+def _layered(tmp: Path, harness: Path, *, layer: bool) -> Any:  # noqa: ANN401
+    # Where the layer runs the dispatcher names the session's own temporary directory for it;
+    # where it does not, a temporary directory of the session's own all the same.
+    temp = str(tmp / "pg-1")
+    fields = {"os_layer_temp_dir": temp} if layer else {"temp_dir": temp}
+    return build_config(_request(tmp, harness_root=str(harness), **fields), current_installation())
+
+
+def test_without_the_os_layer_a_command_s_read_of_the_checkout_is_refused(tmp_path: Path) -> None:
+    # Nothing else stands behind the hooks there: a run recorded with the layer absent, or a
+    # platform without one, has the parser and the sentinel only.
+    harness = _harness(tmp_path)
+    config = _layered(tmp_path, harness, layer=False)
+    cwd = str(tmp_path / "worktree")
+    for command in (
+        f"cat {harness}/knowledge/control/skill.md",
+        f"grep -r . {harness}/knowledge/control",
+        f"cd {harness}/knowledge && cat control/standards.md",
+    ):
+        decision = _shell_decision(config, cwd, command)
+        assert not decision.allow, f"without the OS layer a command reads the checkout: {command}"
+        assert HARNESS_REASON in decision.reason
+
+
+def test_inside_the_os_layer_a_command_s_read_of_the_checkout_is_left_to_the_layer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # A session's search path names the binary's directory first, which may lie in the checkout
     # (the pinned binary installed from its lockfile does): a command that expands it names the
-    # checkout without reading anything there, and must still run. The OS layer denies the
-    # command's reads in the checkout; the hooks refuse only its writes there.
-    from physgate.hooks import shell_paths  # noqa: PLC0415
-
+    # checkout without reading anything there, and must still run. Inside the layer, which denies
+    # the command's reads in the checkout, the hooks leave a read to it, as before; they refuse
+    # every write there.
     harness = _harness(tmp_path)
     binary_dir = harness / "tests" / "rig" / "node_modules" / ".bin"
     binary_dir.mkdir(parents=True)
     monkeypatch.setenv("PATH", f"{binary_dir}:/usr/bin:/bin")
-    config = build_config(_request(tmp_path, harness_root=str(harness)), current_installation())
+    config = _layered(tmp_path, harness, layer=True)
     cwd = str(tmp_path / "worktree")
-    for command in ("echo $PATH > modules/path.txt", f"cat {harness}/README.md"):
-        call = event(cwd=cwd, tool_name="Bash", tool_input={"command": command})
-        decision = shell_paths.pre_tool_use(HookInput.model_validate(call), config)
-        assert decision.allow, f"a command reading the checkout is refused by the hooks: {command}"
-    call = event(cwd=cwd, tool_name="Bash", tool_input={"command": f"echo x > {harness}/README.md"})
-    assert not shell_paths.pre_tool_use(HookInput.model_validate(call), config).allow
+    for command in ("echo $PATH > modules/path.txt", f"cat {harness}/knowledge/control/skill.md"):
+        decision = _shell_decision(config, cwd, command)
+        assert decision.allow, (
+            f"inside the layer a command naming the checkout is refused: {command}"
+        )
+    assert not _shell_decision(config, cwd, f"echo x > {harness}/README.md").allow
+
+
+@pytest.mark.parametrize("layer", [False, True], ids=["without the layer", "inside the layer"])
+def test_the_file_tools_are_refused_the_checkout_with_or_without_the_layer(
+    tmp_path: Path, layer: bool
+) -> None:
+    harness = _harness(tmp_path)
+    config = _layered(tmp_path, harness, layer=layer)
+    target = str(harness / "knowledge/control/skill.md")
+    assert protection(target, str(tmp_path / "worktree"), config, writing=False) == HARNESS_REASON
