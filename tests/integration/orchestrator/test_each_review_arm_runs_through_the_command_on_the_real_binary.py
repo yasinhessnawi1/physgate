@@ -11,7 +11,9 @@ the run beside this file's neighbour (the reviewed, rejected, repaired and accep
   role's own files, and its review line names that rubric's kind and digest.
 
 The evaluation's requirements for an ablation run (the OS layer, a reviewed plan, an enforced
-network) are other rows' to hold, so this row lets the command past them and keeps the rest.
+network) and its clean checkout are other rows' to hold, so this row lets the command past them
+and keeps the rest: the harness is measured as its own commit, clean, at both commands alike (the
+pinned binary's rig leaves files in the checkout on one pin).
 """
 
 from __future__ import annotations
@@ -40,6 +42,7 @@ from physgate.orchestrator import cli
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.cli import Registrations
 from physgate.orchestrator.events import ReviewRan, read_events
+from physgate.orchestrator.run_config import HarnessState, harness_state
 from physgate.reviewers.claude import claude_reviewers
 from physgate.reviewers.packet import RECORD_NAME, WORKTREE_NAME
 from physgate.reviewers.rubric import NOT_IN_REVIEW, generalist_of, load_rubric
@@ -59,6 +62,9 @@ def _drive(tmp_path: Path, install: Path, monkeypatch: pytest.MonkeyPatch, value
     library, _ = _library(tmp_path / "lib")
     monkeypatch.setattr("physgate.orchestrator.cli._library_root", lambda: library)
     monkeypatch.setattr(cli, "refusals", lambda *_a: [])
+    measured = harness_state(cli._harness_root())
+    clean = HarnessState(commit=measured.commit, clean=True, uncommitted_sha256=None)
+    monkeypatch.setattr(cli, "harness_state", lambda _root: clean)
     repo = target_repo(tmp_path)
     seed_knowledge(repo)
     run_dir = tmp_path / "run"

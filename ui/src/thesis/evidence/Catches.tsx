@@ -78,9 +78,9 @@ function KindCount({ count }: { readonly count: KindCatches }) {
             </thead>
             <tbody>
               {count.rows.map((row) => (
-                <tr key={`${row.gateMode}/${row.name}`} data-check={row.name}>
+                <tr key={`${row.gateMode}/${row.arms}/${row.name}`} data-check={row.name}>
                   <th scope="row">{checkName(row)}</th>
-                  <td>{row.gateMode}</td>
+                  <td>{row.arms ? `${row.gateMode} (${row.arms})` : row.gateMode}</td>
                   {counts(row).map((shown, i) => (
                     <td key={HEADS[i] ?? i} className="pg-num">
                       {shown}

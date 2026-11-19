@@ -513,7 +513,13 @@ export interface CatchRow {
   readonly noReview: number;
   readonly artefactsCaught: number;
   readonly caughtAfterReviewerPassed: number;
+  /** The ablation arms of the runs the row counts, as ``reviewers: off``; empty for a full
+   * harness, whose row names none. */
+  readonly arms: string;
 }
+
+/** The arms a row names when its runs dropped a component; a full harness's row names none. */
+const CATCH_ARMS = ["reviewers", "skills", "hooks"];
 
 const CATCH_ROW = [
   "gate_mode",
@@ -529,7 +535,10 @@ const CATCH_ROW = [
 ];
 
 function catchRow(value: unknown): CatchRow {
-  const r = exact(value, "a catch count", CATCH_ROW);
+  const r = exact(value, "a catch count", CATCH_ROW, CATCH_ARMS);
+  const arms = CATCH_ARMS.filter((key) => Object.hasOwn(r, key))
+    .map((key) => `${key}: ${text(r[key], "an ablation arm")}`)
+    .join(", ");
   return {
     gateMode: text(r.gate_mode, "a gate mode"),
     check: r.check === null ? null : count(r.check, "a check's number"),
@@ -541,6 +550,7 @@ function catchRow(value: unknown): CatchRow {
     noReview: count(r.no_review, "a count"),
     artefactsCaught: count(r.artefacts_caught, "a count of artefacts caught"),
     caughtAfterReviewerPassed: count(r.caught_after_reviewer_passed, "a count"),
+    arms,
   };
 }
 
