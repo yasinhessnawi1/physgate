@@ -302,3 +302,26 @@ def test_a_run_place_inside_the_checkout_is_refused_at_install(tmp_path: Path, f
             _request(tmp_path, harness_root=str(harness), **{field: value}, **extra),
             current_installation(),
         )
+
+
+def test_a_command_s_read_of_the_checkout_is_left_to_the_os_layer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A session's search path names the binary's directory first, which may lie in the checkout
+    # (the pinned binary installed from its lockfile does): a command that expands it names the
+    # checkout without reading anything there, and must still run. The OS layer denies the
+    # command's reads in the checkout; the hooks refuse only its writes there.
+    from physgate.hooks import shell_paths  # noqa: PLC0415
+
+    harness = _harness(tmp_path)
+    binary_dir = harness / "tests" / "rig" / "node_modules" / ".bin"
+    binary_dir.mkdir(parents=True)
+    monkeypatch.setenv("PATH", f"{binary_dir}:/usr/bin:/bin")
+    config = build_config(_request(tmp_path, harness_root=str(harness)), current_installation())
+    cwd = str(tmp_path / "worktree")
+    for command in ("echo $PATH > modules/path.txt", f"cat {harness}/README.md"):
+        call = event(cwd=cwd, tool_name="Bash", tool_input={"command": command})
+        decision = shell_paths.pre_tool_use(HookInput.model_validate(call), config)
+        assert decision.allow, f"a command reading the checkout is refused by the hooks: {command}"
+    call = event(cwd=cwd, tool_name="Bash", tool_input={"command": f"echo x > {harness}/README.md"})
+    assert not shell_paths.pre_tool_use(HookInput.model_validate(call), config).allow

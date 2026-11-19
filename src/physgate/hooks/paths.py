@@ -5,7 +5,8 @@ Read for the held-out tier, which nothing may read before measurement
 (ARCH-141), for an evaluation corpus that carries its own answers, which no
 reviewer may read, for the session's own hook state directory, which the hooks
 alone read, and for the checkout the orchestrator runs from, whose curated library a
-session is given in its own worktree or not at all. Shell commands are a separate
+session is given in its own worktree or not at all (a shell command's read there is
+the OS layer's to deny). Shell commands are a separate
 check, and a sentinel behind both catches what either misses.
 
 **What is protected is data, not code.** The session configuration lists
@@ -439,10 +440,14 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
         # directory of its interpreter, named exactly), exactly as spelt, is read.
         # Claude Code's directory in the session's scratch home is read by none either: what
         # is there is not the session's, and the OS layer denies the shell's reads alike.
-        # Nor the checkout the orchestrator runs from: the curated library in it holds every
-        # role's skill and standards, and a session is given its own in its worktree, or, in an
-        # arm that leaves the skill out, not given it; nothing a session is given to read lies
-        # there. The OS layer denies the shell's reads there, and a file tool runs outside it.
+        # Nor, to a file tool, the checkout the orchestrator runs from: the curated library in
+        # it holds every role's skill and standards, and a session is given its own in its
+        # worktree, or, in an arm that leaves the skill out, not given it; nothing a session is
+        # given to read lies there. A file tool runs in the binary's own process, outside the
+        # OS layer, so this refusal is the only one it meets. A shell command's word is left to
+        # the OS layer, which denies the command's reads there: a session's search path names
+        # the binary's directory, which may lie in the checkout, so a word that expands it
+        # (``echo $PATH``) names the checkout without reading it.
         # The checkout is asked last: a root of its own nested in it (a withheld record, the
         # sentinel's place apart) answers with its own reason, which says the sentinel keeps
         # no byte of it, and is never read as the checkout's, whose bytes the sentinel keeps.
@@ -460,8 +465,8 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
                         CLAUDE_TEMP_REASON,
                         SESSION_TEMPS_REASON,
                         HOME_CLAUDE_REASON,
-                        HARNESS_REASON,
                     )
+                    or (root.reason == HARNESS_REASON and not shell)
                 )
                 and _reaches(absolute, root.path, chain)
                 and not any(

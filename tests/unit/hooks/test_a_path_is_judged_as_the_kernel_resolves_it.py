@@ -221,7 +221,7 @@ def test_the_allowance_never_widens_by_case(root: Path) -> None:
 @pytest.mark.parametrize(
     "command",
     [
-        "d=$(printf harness); cat ../${d}/kno''wledge/re${e}viewers/control/rubric.md",
+        "d=$(printf view); cat ../harness/kno''wledge/re${d}ers/control/rubric.md",
         "d=$(printf harness); cd ../${d}/kno''wledge/reviewers/control && cat rubric.md",
         "python3 -c \"import os; print(open(os.path.join('..', 'harness', 'kno' + 'wledge', "
         "'re' + 'viewers', 'control', 'rubric.md')).read())\"",
@@ -262,12 +262,6 @@ def test_a_physical_cd_cannot_move_the_judged_directory_away_from_the_real_one(
 
 def test_a_withheld_tree_named_by_its_bare_name_is_refused(root: Path) -> None:
     """From inside the library, the tree is a plain word, which the shell layer must not skip."""
-    library = root / "target" / "knowledge"
-    (library / "reviewers" / "control").mkdir(parents=True)
-    (library / "reviewers" / "control" / "rubric.md").write_text("# rubric\n")
+    library = root / "harness" / "knowledge"
     told = _shell(_role(root), "ls reviewers", library)
     assert REVIEW_MATERIAL_REASON in told
-    # From inside the harness's own library, the command is refused before any word is: every
-    # read there is the checkout's.
-    told = _shell(_role(root), "ls reviewers", root / "harness" / "knowledge")
-    assert HARNESS_REASON in told

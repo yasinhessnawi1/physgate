@@ -173,11 +173,10 @@ def test_a_rubric_read_by_a_path_built_at_run_time_shows_its_canary(tmp_path: Pa
 
     canary = "c0ffee" * 5 + "ab"
     rubric = tmp_path / RUBRIC
-    # No word names the checkout either: a read the checkout's rule could see is refused.
     command = (
-        "d=$(printf harness); cat "
-        + str(tmp_path)
-        + "/${d}/knowledge/re${e}viewers/control/rubric.md"
+        "d=$(printf view); cat "
+        + str(tmp_path / "harness" / "knowledge")
+        + "/re${d}ers/control/rubric.md"
     )
 
     def plant(_: Path) -> None:
