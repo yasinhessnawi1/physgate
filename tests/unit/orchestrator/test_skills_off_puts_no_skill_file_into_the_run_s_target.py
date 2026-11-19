@@ -306,6 +306,128 @@ def test_under_skills_off_a_target_whose_store_holds_the_library_s_skill_bytes_i
     _nothing_written(tmp_path, repo)
 
 
+#: Skill content of no version the library holds: what an earlier run, or a person, could have
+#: left in the target. Its bytes match no blob id the check could compute in advance.
+OTHER_BYTES = "an older version of a role's skill, of no bytes the library holds now\n"
+OTHER_NAME = f"knowledge/{ROLES[0]}/skill.md"
+
+
+def _write_other(repo: Path, name: str = OTHER_NAME) -> None:
+    (repo / name).parent.mkdir(parents=True, exist_ok=True)
+    (repo / name).write_text(OTHER_BYTES)
+
+
+def _refusal(root: Path, repo: Path) -> DecompositionError:
+    with pytest.raises(DecompositionError) as caught:
+        _start(root, "off", repo)
+    assert REFUSAL in str(caught.value), f"the refusal does not say why: {caught.value}"
+    return caught.value
+
+
+def _nowhere_at_the_start(repo: Path) -> None:
+    """The start commit's own history holds no skill file: only another route reaches one."""
+    assert _skill_files_in(repo) == []
+    history = _git(repo, "log", "--format=%H", "master", "--", ":(icase)knowledge/*/skill.md")
+    assert history.strip() == "", "the row's start commit already reaches a skill file"
+
+
+def test_under_skills_off_a_skill_file_of_other_bytes_on_a_side_branch_is_refused(
+    tmp_path: Path,
+) -> None:
+    repo = target_repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "elsewhere")
+    _write_other(repo)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "another branch's content")
+    _git(repo, "checkout", "-q", "master")
+    _nowhere_at_the_start(repo)
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "refs", refused.context
+    _nothing_written(tmp_path, repo)
+
+
+def test_under_skills_off_a_skill_file_under_another_ref_namespace_is_refused(
+    tmp_path: Path,
+) -> None:
+    # As an earlier run's own branches would be, under a namespace no branch listing shows.
+    repo = target_repo(tmp_path)
+    _write_other(repo, "Knowledge/Other/SKILL.md")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "an earlier run's content")
+    _git(repo, "update-ref", "refs/runs/earlier/subtask", "HEAD")
+    _git(repo, "reset", "-q", "--hard", "HEAD~1")
+    _git(repo, "reflog", "expire", "--expire=now", "--all")
+    _nowhere_at_the_start(repo)
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "refs", refused.context
+
+
+def test_under_skills_off_a_skill_file_only_in_the_reflog_is_refused(tmp_path: Path) -> None:
+    repo = target_repo(tmp_path)
+    _write_other(repo)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "committed, then taken back")
+    _git(repo, "reset", "-q", "--hard", "HEAD~1")
+    _nowhere_at_the_start(repo)
+    assert "taken back" in _git(repo, "log", "-g", "--format=%s", "master")
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "refs", refused.context
+
+
+@pytest.mark.parametrize("older", [False, True], ids=["the latest stash", "an older stash"])
+def test_under_skills_off_a_skill_file_in_a_stash_is_refused(tmp_path: Path, older: bool) -> None:
+    repo = target_repo(tmp_path)
+    _write_other(repo)
+    _git(repo, "add", "-A")
+    _git(repo, "stash", "push", "-q", "-m", "a skill file put aside")
+    if older:
+        # Another stash on top: the skill's is then in the stash's reflog only.
+        (repo / "README.md").write_text("target, changed\n")
+        _git(repo, "stash", "push", "-q", "-m", "something else")
+    _nowhere_at_the_start(repo)
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "refs", refused.context
+
+
+def test_under_skills_off_skill_content_in_an_object_no_ref_reaches_is_refused(
+    tmp_path: Path,
+) -> None:
+    # A loose object nothing names: its path is gone, so only its presence can be judged.
+    repo = target_repo(tmp_path)
+    _git(repo, "hash-object", "-w", "--stdin", stdin=OTHER_BYTES)
+    _nowhere_at_the_start(repo)
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "unreachable objects", refused.context
+    _nothing_written(tmp_path, repo)
+
+
+def test_under_skills_off_a_dropped_stash_holding_a_skill_file_is_refused(tmp_path: Path) -> None:
+    repo = target_repo(tmp_path)
+    _write_other(repo)
+    _git(repo, "add", "-A")
+    _git(repo, "stash", "push", "-q", "-m", "put aside")
+    _git(repo, "stash", "drop", "-q")
+    _nowhere_at_the_start(repo)
+    refused = _refusal(tmp_path, repo)
+    assert refused.context.get("where") == "unreachable objects", refused.context
+
+
+def test_under_skills_off_a_fresh_clone_of_a_target_with_history_starts(tmp_path: Path) -> None:
+    # A target with branches, a stash and a history of its own, none of it a skill file, cloned
+    # without sharing its object files: nothing is refused.
+    source = target_repo(tmp_path / "source")
+    (source / "modules" / "note.md").write_text("a note\n")
+    _git(source, "add", "-A")
+    _git(source, "commit", "-q", "-m", "a second commit")
+    _git(source, "branch", "side", "HEAD~1")
+    _git(tmp_path, "clone", "-q", "--no-local", str(source), str(tmp_path / "target"))
+    repo = tmp_path / "target"
+    (repo / "README.md").write_text("target, changed\n")
+    _git(repo, "stash", "push", "-q", "-m", "an ordinary stash")
+    run_dir, _, _ = _start(tmp_path, "off", repo)
+    assert _decomposed(run_dir)["subtasks"] == len(ROLES)
+
+
 def test_under_skills_on_a_target_holding_the_library_s_own_bytes_starts_as_it_always_did(
     tmp_path: Path,
 ) -> None:
