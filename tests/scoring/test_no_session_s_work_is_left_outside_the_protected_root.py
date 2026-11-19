@@ -145,15 +145,23 @@ def test_a_check_whose_cleanup_failed_stops_the_next_check(
 def test_checks_whose_work_was_secured_follow_one_another(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Control: the record of work is cleared once the work is secured, so the next check is not
-    # refused for work left. A version is checked once, so the second check of it is refused for
-    # that alone, which is judged after the work left: a record of work still standing would be
-    # the refusal named instead.
+    # Control: the record of work is cleared once the work is secured, so the next check runs.
+    # A version is checked once, so the next check is of a second version of the same role: a
+    # record of work still standing would refuse it.
     _, version = _held_tier(tmp_path, monkeypatch)
+    monkeypatch.setattr(author_session, "run_session", FakeSession(_tasks(24), session_id="s-2"))
+    plan = _plan(tmp_path, seed=6)
+    second = author(
+        plan,
+        dataclasses.replace(
+            _setup(tmp_path / "private"), held_out_canaries=root_canaries(plan.root)
+        ),
+    )
+    assert second.get("version") not in (None, version), second
     fake, out = _check(tmp_path, monkeypatch, "check", version)
     assert len(fake.calls) == 1 and out.get("answered"), out
-    fake, out = _check(tmp_path, monkeypatch, "check-2", version)
-    assert fake.calls == [] and out.get("refused_because") == "check_recorded", out
+    fake, out = _check(tmp_path, monkeypatch, "check-2", str(second["version"]))
+    assert len(fake.calls) == 1 and out.get("answered"), out
     root = _plan(tmp_path).root
     left = [p.name for p in root.iterdir() if p.is_file() and not p.name.endswith(".check.json")]
     assert left == [], "a record was left in the root"

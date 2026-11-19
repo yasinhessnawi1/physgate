@@ -2,8 +2,9 @@
 
 A round on a version whose check is not recorded is refused before any session: a held-out tier
 nobody checked is not scored. A harness trial of a held-out task the check flagged is not run;
-the round's held-out count leaves it out, and its tiers record says how many and which, by
-digest, with the check record's digest. The visible and validation trials are run whole.
+the round's held-out count leaves it out, and its tiers record says how many, with the check
+record's digest and its source: never which, since a run's directory may be published and a task's
+id may be guessed. The visible and validation trials are run whole.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from baseline_fixtures import (
 from physgate.evaluation.baseline.record import TIERS_RECORD, BaselineRecord
 from physgate.evaluation.baseline.runner import BaselineError, RunSet, run_baseline
 from physgate.evaluation.observe.cost import load_price_sheet
+from physgate.evaluation.tiers.checks import read_check
 from physgate.evaluation.tiers.task import Task, id_digest
 
 _slept: list[float] = []
@@ -80,9 +82,15 @@ def test_a_flagged_held_out_task_is_not_run_and_the_round_says_what_it_left_out(
     assert record.counts["held_out"].trials == 2, "a flagged task was counted"
     assert record.counts["visible"].trials == 1 and record.counts["validation"].trials == 1
     tiers = json.loads((out / TIERS_RECORD).read_text())
-    left = tiers["held_out_left_out"]
-    assert left["count"] == 1 and left["digests"] == [id_digest(flagged.id)]
+    check = read_check(made.store, "control", made.version)
+    assert check is not None
+    assert tiers["held_out_left_out"] == {
+        "count": 1,
+        "check_sha256": check.sha256,
+        "source": "check",
+    }, "the tiers record does not say how many were left out, or says which"
     assert record.tiers is not None and record.tiers.held_out_left_out is not None
     assert record.tiers.held_out_left_out.count == 1
     for task in made.tasks["held_out"]:
-        assert task.id not in (out / TIERS_RECORD).read_text()
+        text = (out / TIERS_RECORD).read_text() + (out / "baseline.json").read_text()
+        assert task.id not in text and id_digest(task.id) not in text, "a held-out task is named"

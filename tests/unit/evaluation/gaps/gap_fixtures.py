@@ -39,6 +39,7 @@ __all__ = [
     "api",
     "config",
     "design",
+    "flagged",
     "measured",
     "record",
     "record_check",
@@ -129,19 +130,21 @@ def measured(
     tier: str,
     where: Path,
     *,
-    tasks: int = 2,
+    tasks: int | None = None,
     trials: int = 2,
     outcome: Callable[[int, int], bool] | None = None,
     **changes: Any,  # noqa: ANN401
 ) -> Measured:
-    """``tasks`` of ``tier``, each run ``trials`` times, and the records of those runs.
+    """The first ``tasks`` of ``tier`` (all of it by default), each run ``trials`` times.
 
-    Protected records and run sets lie beneath the role's withheld root; visible ones in
-    ``where``.
+    And the records of those runs. A tier's figure is of every task of it but those its
+    version's check left out, so a run set of fewer is refused as it is counted; a held-out
+    task the check flagged is run all the same, and left out as it is counted. Protected records
+    and run sets lie beneath the role's withheld root; visible ones in ``where``.
     """
     passes = PASSES[tier] if outcome is None else outcome
     changes.setdefault("held_out_sha256", _as_run(made))
-    chosen = made.tasks[tier][:tasks]
+    chosen = made.tasks[tier][:tasks] if tasks is not None else made.tasks[tier]
     entries: list[tuple[Path, int]] = []
     records = []
     for i, task in enumerate(chosen):
@@ -162,6 +165,14 @@ def measured(
     )
 
 
+def flagged(made: StandInStore) -> int:
+    """How many held-out tasks ``made``'s version's check record flags; 0 without a record."""
+    from physgate.evaluation.tiers.checks import read_check
+
+    record = read_check(made.store, "control", made.version)
+    return 0 if record is None else len(record.flagged)
+
+
 def design(made: StandInStore, visible: Measured, **changes: Any) -> dict[str, Any]:  # noqa: ANN401
     """The gaps design for the control role's harness arm on ``made``'s version."""
     body: dict[str, Any] = {
@@ -174,8 +185,9 @@ def design(made: StandInStore, visible: Measured, **changes: Any) -> dict[str, A
         "arm": "harness",
         "trials": 2,
         "visible": [t.id for t in visible.tasks],
-        "held_out_tasks": 2,
-        "validation_tasks": 2,
+        # Every task of a protected tier but those the version's check left out.
+        "held_out_tasks": len(made.tasks["held_out"]) - flagged(made),
+        "validation_tasks": len(made.tasks["validation"]),
     }
     body.update(changes)
     return body

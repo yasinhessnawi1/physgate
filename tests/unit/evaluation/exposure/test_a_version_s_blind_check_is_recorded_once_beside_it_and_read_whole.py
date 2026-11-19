@@ -7,9 +7,10 @@ lies out of place in the role's root, so nothing starts on the store. ``tiers st
 version's check by its counts alone. A measured run on a version with no check record is refused:
 a held-out tier nobody checked is not scored.
 
-An earlier check's printed answer is taken in by ``physgate per-role record-check``, once, after it
-is held to the version: an answer, for as many tasks as the held-out tier holds, each flagged
-digest the digest of exactly one of its tasks. It prints counts and the record's digest only.
+The record is written whole: its bytes go to a temporary name beneath the role's withheld root and
+are linked into place, so a crash leaves no record or a whole one, and a record that came in the
+meantime is never replaced. A record that cannot be read is refused in words that name the file
+and say what a person does about it.
 """
 
 from __future__ import annotations
@@ -197,124 +198,74 @@ def test_a_measured_run_on_a_version_whose_record_was_changed_is_refused(
     assert said is not None and "(check_record_changed)" in said
 
 
-# -------------------------------------------------------------- the import of an earlier check
+# -------------------------------------------------------------- written whole, once
 
 
-def _printed(made: StandInStore, **changes: Any) -> dict[str, Any]:  # noqa: ANN401
-    """What an earlier blind check printed of ``made``'s version: task 0 flagged."""
-    body: dict[str, Any] = {
-        "all_yes": 7,
-        "answered": True,
-        "flagged": [id_digest(made.tasks["held_out"][0].id)],
-        "session": {"cap": 500000, "end": "ended", "tokens": 150878, "wall_clock_s": 165.2},
-        "tasks": 8,
-    }
-    body.update(changes)
-    return body
+def _stray_names(made: StandInStore) -> list[str]:
+    """Every name the write may have left beside the record or beneath the withheld root."""
+    from physgate.evaluation.tiers.store import withheld_root
+
+    return sorted(
+        p.name
+        for place in (role_root(made.store, "control"), withheld_root(made.store, "control"))
+        for p in place.iterdir()
+        if ".check." in p.name and not p.name.endswith(".check.json")
+    )
 
 
-def _import(
-    tmp_path: Path,
-    made: StandInStore,
-    printed: dict[str, Any] | str,
-    capsys: pytest.CaptureFixture[str],
-    **flags: str,
-) -> tuple[int, dict[str, Any], str]:
-    source = tmp_path / "check.json"
-    source.write_text(printed if isinstance(printed, str) else json.dumps(printed) + "\n")
-    given = {
-        "--model": "claude-sonnet-5",
-        "--implementer-model": "claude-opus-5-5",
-        "--claude-version": "2.1.301",
-        "--checked": "2026-11-19",
-        "--commit": "2" * 40,
-        **flags,
-    }
-    args = ["per-role", "record-check", "--role", "control", "--store", str(made.store)]
-    args += ["--version", made.version, "--from", str(source)]
-    for flag, value in given.items():
-        args += [flag, value]
-    try:
-        code = main(args)
-    except SystemExit:
-        pytest.fail("per-role has no record-check command taking these arguments")
-    out = capsys.readouterr().out
-    return code, json.loads(out.strip().splitlines()[-1]), out
-
-
-def test_an_earlier_check_s_answer_is_imported_once_and_prints_counts_alone(
-    tmp_path: Path, unchecked: StandInStore, capsys: pytest.CaptureFixture[str]
+def test_the_record_is_written_whole_and_leaves_no_temporary_name(
+    unchecked: StandInStore,
 ) -> None:
-    code, said, out = _import(tmp_path, unchecked, _printed(unchecked), capsys)
-    assert code == 0, said
-    assert {k: said[k] for k in ("tasks", "all_yes", "flagged", "source")} == {
-        "tasks": 8,
-        "all_yes": 7,
-        "flagged": 1,
-        "source": "imported",
-    }
-    assert id_digest(unchecked.tasks["held_out"][0].id) not in out, "a flagged digest is printed"
-    record = _read(unchecked)
-    assert record.source == "imported" and record.pins.model == "claude-sonnet-5"
-    assert record.checked == "2026-11-19" and said["record"] == record.sha256
-    assert record.flagged == (id_digest(unchecked.tasks["held_out"][0].id),)
+    record = record_check(unchecked.store, unchecked.version, [])
+    path = _path(unchecked)
+    assert path.stat().st_nlink == 1, "the record has a second name"
+    assert _stray_names(unchecked) == [], "the write left a temporary name"
+    assert _read(unchecked) == record
     assert leftovers(unchecked.store)["work_left"] == 0
-    again, said, _ = _import(tmp_path, unchecked, _printed(unchecked), capsys)
-    assert (again, said.get("refused_because")) == (1, "check_recorded"), "imported twice"
 
 
-@pytest.mark.parametrize(
-    ("case", "reason"),
-    [
-        ("no answer", "check_gave_no_answer"),
-        ("another count", "check_answer_not_the_version"),
-        ("counts that do not add up", "check_answer_not_the_version"),
-        ("a visible task flagged", "check_answer_not_the_version"),
-        ("a digest of no task", "check_answer_not_the_version"),
-        ("another version named", "check_answer_not_the_version"),
-        ("not one line of JSON", "check_answer_unreadable"),
-        ("the implementers' model", "checked_on_the_implementers_model"),
-    ],
-)
-def test_an_answer_that_is_not_this_version_s_check_is_refused_and_nothing_recorded(
-    tmp_path: Path,
-    unchecked: StandInStore,
-    capsys: pytest.CaptureFixture[str],
-    case: str,
-    reason: str,
+def test_a_write_that_fails_before_the_record_is_in_place_leaves_none(
+    unchecked: StandInStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    flags: dict[str, str] = {}
-    printed: dict[str, Any] | str = _printed(unchecked)
-    if case == "no answer":
-        printed = {"answered": False, "session": {}, "tasks": 8}
-    elif case == "another count":
-        printed = _printed(unchecked, tasks=9, all_yes=8)
-    elif case == "counts that do not add up":
-        printed = _printed(unchecked, all_yes=6)
-    elif case == "a visible task flagged":
-        printed = _printed(unchecked, flagged=[id_digest(unchecked.tasks["visible"][0].id)])
-    elif case == "a digest of no task":
-        printed = _printed(unchecked, flagged=["0" * 16])
-    elif case == "another version named":
-        printed = _printed(unchecked, version="d" * 64)
-    elif case == "not one line of JSON":
-        printed = "the check printed this"
-    else:
-        flags["--model"] = "claude-opus-5-5"
-    code, said, out = _import(tmp_path, unchecked, printed, capsys, **flags)
-    assert (code, said.get("refused_because")) == (1, reason), "an answer not the version's"
-    assert not _path(unchecked).exists(), "a refused answer was recorded"
-    for task in unchecked.tasks["held_out"]:
-        assert task.id not in out
+    # A crash after the bytes are written and before they are linked into place: no record, not
+    # an empty one, and the store is not stopped by what was left.
+    checks = __import__(CHECKS, fromlist=["os"])
+
+    def crashed(*_: Any, **__: Any) -> None:  # noqa: ANN401
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(checks.os, "link", crashed)
+    with pytest.raises(api(f"{CHECKS}.CheckError")) as refused:
+        record_check(unchecked.store, unchecked.version, [])
+    assert _reason(refused.value) == "check_record_unwritten"
+    assert not os.path.lexists(_path(unchecked)), "a cut write left a record"
+    assert _stray_names(unchecked) == [], "a cut write left its temporary name"
+    assert _read(unchecked) is None and leftovers(unchecked.store)["work_left"] == 0
 
 
-def test_the_import_refuses_on_the_command_line_inside_a_harness_session(
-    tmp_path: Path,
-    unchecked: StandInStore,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
+def test_a_record_that_came_while_another_was_written_is_never_replaced(
+    made: StandInStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("CLAUDE_CODE_TMPDIR", "1")
-    code, said, _ = _import(tmp_path, unchecked, _printed(unchecked), capsys)
-    assert (code, said.get("refused_because")) == (1, "inside_a_session")
-    assert not os.path.lexists(_path(unchecked))
+    # The record is there, unseen by the first look: the link into place still refuses.
+    before = _path(made).read_bytes()
+    checks = __import__(CHECKS, fromlist=["os"])
+    monkeypatch.setattr(checks.os.path, "lexists", lambda _: False)
+    with pytest.raises(api(f"{CHECKS}.CheckError")) as refused:
+        record_check(made.store, made.version, [])
+    assert _reason(refused.value) == "check_recorded", "a record was replaced"
+    assert _path(made).read_bytes() == before
+    monkeypatch.undo()
+    assert _stray_names(made) == []
+
+
+@pytest.mark.parametrize("how", ["not a record", "a flagged task taken out"])
+def test_a_record_that_cannot_be_read_says_which_file_and_what_a_person_does(
+    made: StandInStore, how: str
+) -> None:
+    _edit(made, how)
+    with pytest.raises(api(f"{CHECKS}.CheckError")) as refused:
+        _read(made)
+    words = str(refused.value)
+    assert str(_path(made)) in words, "the refusal does not name the file"
+    assert "delete it by hand" in words and "deliberate act" in words, words
+    assert "refused once the register holds a measurement" in words, words

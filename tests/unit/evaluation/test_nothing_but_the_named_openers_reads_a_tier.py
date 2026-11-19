@@ -61,16 +61,19 @@ NAMED: dict[str, str] = {
     # The isolation probe.
     "physgate.evaluation.tiers.probe:probe_version": "the probe: the held-out tier, read once",
     "physgate.evaluation.tiers.probe:_tasks": "the probe: the held-out tasks it scores",
-    # The blind check's record, imported once from an earlier check's printed answer.
+    # The blind check's record, derived once from an earlier check's kept session.
     "physgate.evaluation.tiers.checks:import_check": "the version an imported answer is held to",
     "physgate.evaluation.tiers.checks:_held_out_digests": "each held-out id's digest, counted",
+    "physgate.evaluation.tiers.checks:_given_to_the_check": "the tasks a check of it is given",
+    # The tasks the blind check is given, by digest, without references or canary.
+    "physgate.evaluation.tiers.check_tasks:bundle": "the tasks given to the blind check",
     # The author session and the blind check.
     "physgate.evaluation.per_role.author_session:author": "the author's protected tiers' places",
     "physgate.evaluation.per_role.author_session:blind_check": "the blind check of a version",
-    "physgate.evaluation.per_role.author_session:bundle": "the tasks given to the blind check",
     "physgate.evaluation.per_role.author_session:_require_none_came": "canaries after a session",
     "physgate.evaluation.per_role.cli:_author": "the canaries an author session is held to",
     "physgate.evaluation.per_role.cli:_blind_check": "the canaries a blind check is held to",
+    "physgate.evaluation.per_role.cli:_report": "the version a held-out suite's check is bound to",
     # The validator, and the references held to the scorer before any arm runs.
     "physgate.evaluation.per_role.validate:_examine": "the validator: counts and digests only",
     "physgate.evaluation.per_role.validate:refusal_reasons": "the validator's refusals, counted",

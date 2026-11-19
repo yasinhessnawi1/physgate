@@ -192,6 +192,8 @@ def test_a_vector_written_under_the_earlier_rule_is_refused_in_words(
     # The vector as the writer wrote it before the rule changed, counted as the writer counts.
     body = json.loads(written.read_bytes())
     body |= {"format": 1, "drift_sha256": _earlier_rule(_config(visible))}
+    # A vector of that form left nothing out, and says nothing of it.
+    body.pop("left_out")
     raw = canonical_json(body)
     key = hashlib.sha256(raw).hexdigest()
     earlier = written.parent / f"{key}.json"

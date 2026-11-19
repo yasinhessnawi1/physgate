@@ -297,3 +297,86 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
     )
     assert not (store / "through_link.json").exists()
     assert not work.exists()
+
+
+def test_a_check_s_kept_session_on_the_real_binary_gives_back_the_record_the_check_made(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    """The import reads what the pinned binary's stream holds, and derives the check's own answer.
+
+    The check records its answer; the record is then deleted by hand, as a person may, and the
+    import derives it again from the session the check kept: the same flagged tasks, counts and
+    spend, the same kept stream, bound by the session's whole read of its tasks file.
+    """
+    from physgate.evaluation.tiers.checks import check_path, import_check, read_check
+
+    store = tmp_path / "private" / "store"
+    root = store / "control"
+    root.mkdir(parents=True)
+    prepared = _prepared(tmp_path / "prepared")
+    manifest, _ = write_version(
+        root,
+        sorted(prepared.iterdir()),
+        role="control",
+        seed=3,
+        model="claude-sonnet-5",
+        runtime="2.1.301",
+        provenance=canonical_json({"sessions": []}),
+    )
+    tier = root / manifest.version / "held_out"
+    canaries = tuple(
+        c
+        for name in ("validation", "held_out")
+        for c in json.loads((root / manifest.version / name / "canaries.json").read_text())
+    )
+    keys = sorted(bundle(tier))
+    answers = {k: dict.fromkeys(QUESTIONS, True) for k in keys}
+    answers[keys[2]]["unambiguous"] = False
+    work = work_root(store, "control") / "check"
+    held = tuple(str(p) for p in check_roots(store, "control", work))
+    steps = [
+        tool("Read", file_path=str(work / "worktree" / "tasks.json")),
+        tool(
+            "Write", file_path=str(work / "worktree" / "answers.json"), content=json.dumps(answers)
+        ),
+        text("done"),
+    ]
+    with serving(Script(main=steps)) as (_, url):
+        out = blind_check(
+            store,
+            "control",
+            manifest.version,
+            dataclasses.replace(
+                _setup(install_bin, url, root), held_out=held, held_out_canaries=canaries
+            ),
+            work,
+            implementer_model="claude-opus-5-5",
+            cap=10**9,
+        )
+    assert out["answered"] and out["flagged"] == [keys[2]]
+    made = read_check(store, "control", manifest.version)
+    assert made is not None and made.source == "check"
+    check_path(store, "control", manifest.version).unlink()
+    line = {k: out[k] for k in ("tasks", "answered", "all_yes", "flagged", "session")}
+    record = import_check(
+        store,
+        "control",
+        manifest.version,
+        implementer_model="claude-opus-5-5",
+        printed=json.dumps(line).encode(),
+    )
+    assert (record.source, record.kept.bound_by) == ("imported", "tasks_read")
+    assert (record.tasks, record.all_yes, record.flagged) == (
+        made.tasks,
+        made.all_yes,
+        made.flagged,
+    )
+    assert record.session == made.session, "the spend is not the check's own"
+    assert (record.kept.session_id, record.kept.stream_sha256) == (
+        made.kept.session_id,
+        made.kept.stream_sha256,
+    ), "the import did not read the session the check kept"
+    assert (
+        record.pins.model == "claude-sonnet-5"
+        and record.pins.claude_version == made.pins.claude_version
+    )

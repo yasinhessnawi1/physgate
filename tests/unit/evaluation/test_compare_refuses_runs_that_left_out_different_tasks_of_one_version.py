@@ -1,10 +1,11 @@
 """``compare`` refuses two runs on one tier version whose held-out counts left out different tasks.
 
-The tiers record beside a run (``evaluation/tiers.json``) names, for a round on a version, what
-its version's blind check flagged and the round left out of its held-out count. Two records of one
-version that left out different tasks, or of which one left out what the check flagged and the
-other left out nothing, are not counts of one tier: the comparison is refused, in words of its
-own and naming the field. Two that left out the same are compared.
+The tiers record beside a run (``evaluation/tiers.json``) says, for a round on a version, how many
+held-out tasks its version's blind check flagged and the round left out, the check record's digest
+and its source, never which tasks. One left-out set is one record: two records of one version that
+name different check records, or of which one left out what a check flagged and the other names
+none, are not counts of one tier, and the comparison is refused, in words of its own and naming
+the field. Two that name the same record are compared.
 """
 
 from __future__ import annotations
@@ -24,8 +25,8 @@ RECORD = Path("evaluation") / "tiers.json"
 FIELD = "evaluation/tiers.json:held_out_left_out"
 
 
-def _left(*digests: str, check: str = "c" * 64) -> dict[str, Any]:
-    return {"count": len(digests), "digests": list(digests), "check_sha256": check}
+def _left(count: int = 1, check: str = "c" * 64, source: str = "check") -> dict[str, Any]:
+    return {"count": count, "check_sha256": check, "source": source}
 
 
 def _tiers(left: dict[str, Any] | None) -> bytes:
@@ -54,12 +55,12 @@ def _write(run_dir: Path, data: bytes) -> None:
 @pytest.mark.parametrize(
     ("mine", "theirs"),
     [
-        (_left("a" * 16), _left("b" * 16)),
-        (_left("a" * 16), _left()),
-        (_left("a" * 16), None),
-        (_left("a" * 16), _left("a" * 16, check="d" * 64)),
+        (_left(), _left(check="d" * 64)),
+        (_left(), _left(0, check="d" * 64)),
+        (_left(), None),
+        (_left(), _left(check="d" * 64, source="imported")),
     ],
-    ids=["another task", "none left out", "one record before there was any", "another record"],
+    ids=["another record", "none left out", "one record before there was any", "imported"],
 )
 def test_runs_on_one_version_that_left_out_different_tasks_are_not_compared(
     tmp_path: Path, mine: dict[str, Any], theirs: dict[str, Any] | None
@@ -72,15 +73,22 @@ def test_runs_on_one_version_that_left_out_different_tasks_are_not_compared(
         with pytest.raises(CompareRefusedError) as refused:
             compare(one, other)
         assert refused.value.context.get("drifted") == FIELD, "different left-out sets compared"
-        assert "left out different held-out tasks" in str(refused.value)
+        assert "left out what different check records flagged" in str(refused.value)
 
 
 def test_runs_on_one_version_that_left_out_the_same_tasks_are_compared(tmp_path: Path) -> None:
     repo = target_repo(tmp_path)
     baseline, candidate = fake_run(tmp_path, "base", repo), fake_run(tmp_path, "cand", repo)
-    _write(baseline, _tiers(_left("a" * 16)))
-    _write(candidate, _tiers(_left("a" * 16)))
+    _write(baseline, _tiers(_left()))
+    _write(candidate, _tiers(_left()))
     compare(baseline, candidate)
+
+
+def test_a_tiers_record_that_names_which_tasks_were_left_out_is_not_one() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        _tiers({**_left(), "digests": ["a" * 16]})
 
 
 def test_a_record_written_before_any_was_left_out_keeps_its_bytes() -> None:

@@ -181,6 +181,7 @@ def record_check(store: Path, version: str, flagged: Sequence[str], **changes: A
         "source": "check",
         "checked": "2026-11-19T20:49:00Z",
         "pins": CHECK_PINS,
+        "kept": {"session_id": "s-1", "stream_sha256": None, "bound_by": "ran"},
         "session": {"end": "ended", "tokens": 1000, "cap": 500000, "wall_clock_s": 1.5},
         "tasks": tasks,
         "all_yes": tasks - len(flagged),
