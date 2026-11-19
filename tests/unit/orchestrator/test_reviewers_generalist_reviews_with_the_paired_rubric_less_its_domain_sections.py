@@ -173,7 +173,8 @@ def test_replay_refuses_a_review_line_of_another_arm_s_rubric(
     tmp_path: Path, value: str, kind: str | None
 ) -> None:
     log = _with_kind(tmp_path / "run", value, kind)
-    assert refusal(tmp_path, log), f"replay took a {kind} review under reviewers: {value}"
+    said = refusal(tmp_path, log)
+    assert f"rubric under reviewers: {value}" in said, f"replay took a {kind} review: {said!r}"
 
 
 def test_replay_takes_each_arm_s_own_rubric(tmp_path: Path) -> None:

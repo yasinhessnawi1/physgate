@@ -173,7 +173,8 @@ def test_replay_refuses_a_review_that_ran_under_off(tmp_path: Path) -> None:
     log = _lines(tmp_path / "off")
     at = next(i for i, line in enumerate(log) if line["kind"] == "review_skipped")
     log[at] = _review_line(log[at], tmp_path / "paired")
-    assert refusal(tmp_path, log), "replay took a review that ran under reviewers: off"
+    said = refusal(tmp_path, log)
+    assert "a review under reviewers: off" in said, f"replay took a review under off: {said!r}"
 
 
 def test_replay_refuses_a_review_unavailable_under_off(tmp_path: Path) -> None:
@@ -189,8 +190,11 @@ def test_replay_refuses_a_review_unavailable_under_off(tmp_path: Path) -> None:
         "cause": "infrastructure",
         "detail": "the reviewer's session ended early",
         "retry": False,
+        "session_id": None,
+        "reviewer_model": None,
     }
-    assert refusal(tmp_path, log), "replay took an unavailable review under reviewers: off"
+    said = refusal(tmp_path, log)
+    assert "a review under reviewers: off" in said, f"replay took an unavailable one: {said!r}"
 
 
 def test_replay_refuses_a_skipped_review_under_paired(tmp_path: Path) -> None:
@@ -200,7 +204,8 @@ def test_replay_refuses_a_skipped_review_under_paired(tmp_path: Path) -> None:
     envelope = {k: log[at][k] for k in ("seq", "ts", "run_id", "gate_mode")}
     log[at] = {**envelope, "kind": "review_skipped", "subtask_id": "s1", "attempt": 1}
     log[at]["reason"] = "reviewers=off"
-    assert refusal(tmp_path, log), "replay took a skipped review in a run that reviews"
+    said = refusal(tmp_path, log)
+    assert "a skipped review in a run that reviews" in said, f"replay took it: {said!r}"
 
 
 def test_replay_refuses_a_second_skipped_review(tmp_path: Path) -> None:
@@ -208,7 +213,8 @@ def test_replay_refuses_a_second_skipped_review(tmp_path: Path) -> None:
     log = _lines(tmp_path)
     at = next(i for i, line in enumerate(log) if line["kind"] == "review_skipped")
     log.insert(at + 1, dict(log[at]))
-    assert refusal(tmp_path, log), "replay took two skipped reviews of one attempt"
+    said = refusal(tmp_path, log)
+    assert "a skipped review cannot come" in said, f"replay took two: {said!r}"
 
 
 def test_replay_refuses_a_skipped_review_after_a_gate_that_refused(tmp_path: Path) -> None:
