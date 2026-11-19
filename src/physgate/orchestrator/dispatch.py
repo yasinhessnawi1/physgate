@@ -1745,9 +1745,9 @@ class ClaudeDispatcher:
         # touching the module, until the plan names each interface's consumers).
         # loader.py names them relative to the worktree being dispatched to, never
         # the orchestrator's own checkout — that is where this session's Read
-        # tool actually operates. Under the run's skills: off the skill file leaves both
-        # and is withheld, as the run's own records are; it stays in the worktree, so the
-        # specification commit and the reviewer's packet are what they are under on.
+        # tool actually operates. Under the run's skills: off the skill file leaves both, and
+        # nothing else changes: decomposition put no skill file into the run's target, so no
+        # worktree holds one, and nothing is withheld in its place.
         contracts = self._contracts(request)
         given = loader.session_reading(
             request.assigned_role,
@@ -1755,7 +1755,6 @@ class ClaudeDispatcher:
             skills=self._config.skills,
             interfaces=tuple(Path(path) for path in contracts),
         )
-        protect += [arg for path in given.withheld for arg in ("--withheld", str(worktree / path))]
         reading_paths, always_loaded_paths = given.required, given.always_loaded
         reading_args = [
             arg for path in reading_paths for arg in ("--reading", str(worktree / path))

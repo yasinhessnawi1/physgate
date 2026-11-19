@@ -117,8 +117,11 @@ class SessionReading(NamedTuple):
     required: tuple[Path, ...]
     #: What is measured against the token ceiling (ARCH-023).
     always_loaded: tuple[Path, ...]
-    #: What it may not read at all, by any route.
-    withheld: tuple[Path, ...]
+
+
+def is_skill_file(relative: Path, *, root: Path = DEFAULT_ROOT) -> bool:
+    """Whether ``relative`` names a role's skill file: ``<root>/<role>/skill.md``."""
+    return relative.parent.parent == root and relative.name == SKILL_NAME
 
 
 def session_reading(
@@ -129,23 +132,22 @@ def session_reading(
     interfaces: tuple[Path, ...] = (),
     root: Path = DEFAULT_ROOT,
 ) -> SessionReading:
-    """What a session of ``role`` reads, is measured on, and is withheld, under ``skills``.
+    """What a session of ``role`` reads and is measured on, under ``skills``.
 
-    ``on`` is the two sets above and nothing withheld. ``off``, an ablation run's arm, takes
-    the role's skill file out of both sets and withholds it; the standards files and the rest
-    of the required reading stay, so the reading rule and the ceiling still hold the session,
-    to the smaller set. The cross role has no skill file, so ``off`` changes nothing for it.
+    ``on`` is the two sets above. ``off``, an ablation run's arm, takes the role's skill file
+    out of both; the standards files and the rest of the required reading stay, so the reading
+    rule and the ceiling still hold the session, to the smaller set. Nothing is withheld in its
+    place: under ``off`` decomposition puts no skill file into the run's target, so no worktree
+    of the run holds one. The cross role has no skill file, so ``off`` changes nothing for it.
 
     Raises:
         RoleNameError: ``role`` is not a safe directory name.
     """
     required = required_reading(role, module_spec, interfaces=interfaces, root=root)
     loaded = always_loaded(role, root=root)
-    if skills == "on" or role == CROSS:
-        return SessionReading(required=required, always_loaded=loaded, withheld=())
-    skill = _role_dir(role, root) / SKILL_NAME
+    if skills == "on":
+        return SessionReading(required=required, always_loaded=loaded)
     return SessionReading(
-        required=tuple(path for path in required if path != skill),
-        always_loaded=tuple(path for path in loaded if path != skill),
-        withheld=(skill,),
+        required=tuple(path for path in required if not is_skill_file(path, root=root)),
+        always_loaded=tuple(path for path in loaded if not is_skill_file(path, root=root)),
     )

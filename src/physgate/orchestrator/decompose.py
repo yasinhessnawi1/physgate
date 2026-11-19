@@ -36,7 +36,8 @@ from physgate.gate.catalogue import KINDS, QUALIFIERS, QUANTITIES, RELATIONS, sh
 from physgate.gate.units import UnitRefusedError
 from physgate.gate.units import parse as read_by_registry
 from physgate.hooks.settings import WEB_TOOLS, protected_in_a_worktree
-from physgate.knowledge.library import LibraryError, put_into, read_library
+from physgate.knowledge import loader
+from physgate.knowledge.library import LibraryError, put_into, read_library, skill_files
 from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end, writes_lost
@@ -1600,6 +1601,59 @@ def _require_library_fits(repo: Path, commit: str, curated: Mapping[Path, bytes]
                 raise DecompositionError(msg, path=name)
 
 
+#: Why a ``skills: off`` run refuses its target: a session's shell reads files, and both a commit
+#: the run branch descends from and an object in the store are files a command can open.
+SKILL_IN_TARGET = (
+    "under skills: off the target may hold no skill file, and it already holds one a session "
+    "of the run could read"
+)
+
+
+def require_no_skill_file(repo: Path, commit: str, skills: Mapping[Path, bytes]) -> None:
+    """Refuse, under ``skills: off``, a target that already holds a skill file in a session's reach.
+
+    Two places, both read from git through the clean object store: the history of ``commit``,
+    where the run branch starts, for any role's skill file by name, in any letter case, at any
+    commit (every worktree of the run checks out a descendant, and the store holds them all);
+    and the whole object store, on any branch or none, for the bytes of ``skills``, the library's
+    own skill files, as an earlier run of the same target leaves them. Nothing is written.
+
+    Raises:
+        DecompositionError: either place holds one.
+        GitError: git could not read the target.
+    """
+    pattern = (loader.DEFAULT_ROOT / "*" / loader.SKILL_NAME).as_posix()
+    found = git(
+        repo,
+        "rev-list",
+        "--full-history",
+        "-1",
+        commit,
+        "--",
+        f":(icase){pattern}",
+        objects_only=True,
+    ).strip()
+    if found:
+        raise DecompositionError(SKILL_IN_TARGET, where="history", commit=found)
+    if not skills:
+        return
+    object_format = git(repo, "rev-parse", "--show-object-format", objects_only=True).strip()
+    named = {_blob_id(data, object_format): relative for relative, data in sorted(skills.items())}
+    listed = git(
+        repo,
+        "cat-file",
+        "--batch-check",
+        stdin="".join(f"{oid}\n" for oid in named),
+        objects_only=True,
+    )
+    for line in listed.splitlines():
+        oid, _, kind = line.partition(" ")
+        if kind != "missing" and oid in named:
+            raise DecompositionError(
+                SKILL_IN_TARGET, where="object store", path=named[oid].as_posix()
+            )
+
+
 #: The sentence integration's specification states the run's gate mode in, one per mode. The
 #: checks are the gate's: with them off there is no system-scope result to read, by design.
 #: Observing blocks no merge, but completion is a declaration, not work: a failed
@@ -2102,6 +2156,11 @@ def require_startable(
             raise PlanRefusedError(msg, node=node.id[:64], reason=str(exc)) from None
     try:
         curated = read_library(library, (one.entry.assigned_role for one in planned))
+        if config.skills == "off":
+            # The ablation arm: no skill file goes into the target, and none may be there already.
+            left_out = skill_files(curated)
+            require_no_skill_file(target_repo, config.target_head, left_out)
+            curated = {path: data for path, data in curated.items() if path not in left_out}
         # The series writer goes with the library: a role's scripts import it from
         # .physgate/lib, and the run branch holds the very bytes the harness ships.
         curated.update(series_library())
