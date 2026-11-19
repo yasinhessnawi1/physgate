@@ -12,11 +12,19 @@ import json
 import subprocess
 import uuid
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from scripted_endpoint import DUMMY_KEY, DUMMY_OAUTH_TOKEN, Recorded, Script, serving
+from scripted_endpoint import (
+    DUMMY_KEY,
+    DUMMY_OAUTH_TOKEN,
+    FakeMessagesApi,
+    Recorded,
+    Script,
+    serving,
+)
 
 from physgate.lines import split_lines
 from physgate.orchestrator.budget import SessionEnd, classify_session_end, writes_lost
@@ -142,12 +150,14 @@ def run_session(  # noqa: PLR0913 - one session, with everything it is given
     on_request: Callable[[str, str, int], dict[str, Any] | None] | None = None,
     prepare: Callable[[Path], None] | None = None,
     permission_mode: str = "bypassPermissions",
+    serve: Callable[[Script], AbstractContextManager[tuple[FakeMessagesApi, str]]] = serving,
 ) -> Ended:
     """Run one session in ``work`` on the scripted ``steps`` and return how it ended.
 
     ``env`` is added to, or replaces, what the pin's sessions get; ``prepare`` is given the
     session's directory once its ``home``, ``config`` and ``cwd`` exist, before it starts.
-    ``permission_mode`` is every harness session's unless a row measures another.
+    ``permission_mode`` is every harness session's unless a row measures another. ``serve``
+    is the endpoint the session is pointed at: the scripted one unless a row needs another.
     """
     version = binary_version(binary)
     for name in ("home", "config", "cwd"):
@@ -158,7 +168,7 @@ def run_session(  # noqa: PLR0913 - one session, with everything it is given
     session_id = str(uuid.uuid4())
     if prepare is not None:
         prepare(work)
-    with serving(Script(main=steps)) as (api, url):
+    with serve(Script(main=steps)) as (api, url):
         api.on_request = on_request
         session_env = isolated_env(
             home=work / "home",
