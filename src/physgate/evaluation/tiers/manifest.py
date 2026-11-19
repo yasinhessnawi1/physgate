@@ -61,8 +61,26 @@ FORMAT = 1
 VERSION_NAME = re.compile(r"^[0-9a-f]{64}$")
 #: Everything a version directory holds: its manifest, its provenance record, its tiers.
 VERSION_HOLDS = frozenset({MANIFEST_NAME, PROVENANCE_NAME, *TIERS})
-#: The largest manifest or provenance record read.
-MOST_RECORD_BYTES = 1024 * 1024
+#: The largest manifest read or written. A manifest is about a kilobyte (counts, digests, a
+#: model string of at most 200 characters, a date), so a file many times that is no manifest.
+MOST_MANIFEST_BYTES = 1024 * 1024
+#: The most a round's provenance record is sized for, as the product of the two figures below.
+#: A record names each session of the round with a few hundred bytes of id, end and spend, and
+#: one path and sha256 (about 150 bytes) for every file of the session's kept stream: the
+#: runtime's transcript and its copy of each file the author writes or edits, the tool output
+#: it spills, the hooks' records. Those files come of the session's turns, and its turns of its
+#: tokens: at the most an author may be capped at (8 M) a session takes a few hundred turns.
+#: The first real round averaged about 100 KB a session over twelve. A session's note is sized
+#: at 1 MiB, ten times that, some 7,000 files; and a round at 32 sessions, where 12 cut one: 32
+#: sessions at the 8 M cap are 256 M tokens, about five times what that round spent.
+MOST_SESSION_NOTE_BYTES = 1024 * 1024
+MOST_ROUND_SESSIONS = 32
+#: The largest provenance record read or written: 32 MiB. The limit is there so that a store
+#: that is corrupt or was tampered with (a record grown to any size, a sparse file) is refused
+#: before it is held in memory; 32 MiB read once and hashed is no strain. The split refuses to
+#: write a larger one (:func:`record_refusal`), so the two can never disagree: a version is
+#: never written again, and one its own reader refused could never be read.
+MOST_PROVENANCE_BYTES = MOST_ROUND_SESSIONS * MOST_SESSION_NOTE_BYTES
 
 
 class TierSetError(PerRoleError):
@@ -171,15 +189,41 @@ def tier_record(path: Path, *, protected: bool) -> TierRecord:
     )
 
 
+def most_record_bytes(name: str) -> int:
+    """The most bytes the record ``name`` of a version may hold, read or written.
+
+    Looked up when asked, so the reader and the split hold a record to the same figure.
+    """
+    return MOST_PROVENANCE_BYTES if name == PROVENANCE_NAME else MOST_MANIFEST_BYTES
+
+
+def record_refusal(name: str, size: int) -> str | None:
+    """Why a record ``name`` of ``size`` bytes is no record of a version; ``None`` if it may be."""
+    most = most_record_bytes(name)
+    if size > most:
+        return f"{name} is {size} bytes, larger than any record of a version ({most})"
+    return None
+
+
 def _read_record(dir_fd: int, name: str) -> bytes:
+    most = most_record_bytes(name)
     fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    chunks: list[bytes] = []
+    got = 0
     try:
-        data = os.read(fd, MOST_RECORD_BYTES + 1)
+        # A read may return less than asked, so read to the end or to one byte past the limit.
+        while got <= most:
+            chunk = os.read(fd, most + 1 - got)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            got += len(chunk)
     finally:
         os.close(fd)
-    if len(data) > MOST_RECORD_BYTES:
-        msg = f"{name} is larger than any record of a version"
-        raise TierSetError(msg, refused_because="manifest_unreadable")
+    data = b"".join(chunks)
+    refusal = record_refusal(name, len(data))
+    if refusal is not None:
+        raise TierSetError(refusal, refused_because="manifest_unreadable")
     return data
 
 
