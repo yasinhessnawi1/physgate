@@ -25,7 +25,7 @@ from typing import Any, Literal, NoReturn
 from pydantic import ValidationError
 
 from physgate.contracts.pairs import ContractPair, recorded_pairs_problem
-from physgate.flags import replans
+from physgate.flags import Reviewers, replans
 from physgate.orchestrator.arbitration import (
     ClauseConflict,
     Held,
@@ -109,6 +109,7 @@ from physgate.orchestrator.events import (
     ProposalsChecked,
     Resumed,
     ReviewRan,
+    ReviewSkipped,
     ReviewUnavailable,
     RunStarted,
     SessionEnded,
@@ -199,6 +200,8 @@ class AttemptState:
     #: The journal head each ruling was made at, in the same order.
     ruled_at: list[int] = field(default_factory=list)
     review: ReviewRan | None = None
+    #: The review stage's line under ``reviewers: off``: no reviewer ran, and none was asked.
+    skipped: ReviewSkipped | None = None
     #: A review that was not a verdict: retried once for infrastructure, otherwise final.
     unavailable: list[ReviewUnavailable] = field(default_factory=list)
     rejected: AttemptRejected | None = None
@@ -231,7 +234,7 @@ class AttemptState:
         if order.index(cursor) < order.index("spawn"):
             self.session = None
             self.issued = None
-        self.changes = self.gate = self.review = None
+        self.changes = self.gate = self.review = self.skipped = None
         self.declaration = None
         self.disputes = []
         self.arbitrations = []
@@ -366,6 +369,13 @@ def why_not_merged(now: AttemptState) -> FollowUpWhy:
     return "no_verdict" if now.unavailable_final is not None else "for_a_person"
 
 
+def _review_outcome(attempt: AttemptState) -> Outcome | None:
+    """What the ledger records for an attempt's review: its verdict, ``skipped``, or nothing."""
+    if attempt.review is not None:
+        return attempt.review.result.verdict
+    return "skipped" if attempt.skipped is not None else None
+
+
 def _refuse(message: str) -> NoReturn:
     raise ValueError(message)
 
@@ -393,6 +403,9 @@ class RunState:
     def __init__(self) -> None:
         """An empty run: nothing started."""
         self.gate_mode: GateMode | None = None
+        #: Who reviews the role work, as the run's first line says: the paired specialists on a
+        #: log that names no other value, as every run before the switch was.
+        self.reviewers: Reviewers = "paired"
         #: The escalation backend the run's first line names; ``None`` on a log written
         #: before the escalation interface existed.
         self.escalation_backend: str | None = None
@@ -578,6 +591,7 @@ class RunState:
     def _record(self, event: Event) -> None:
         if isinstance(event, RunStarted):
             self.gate_mode = event.gate_mode
+            self.reviewers = event.reviewers or "paired"
             self.escalation_backend = event.escalation_backend
             self.acts = event.queue_decisions == "act"
             self.producer_waits.strict = event.producer_wait == "hold"
@@ -862,6 +876,8 @@ class RunState:
         elif isinstance(event, ReviewRan):
             done = now.cursor == "review" and now.review is None
             self._expect(done and now.unavailable_final is None, "a review line")
+            self._expect(self.reviewers != "off", "a review under reviewers: off")
+            self._require_arm_s_rubric(event)
             self._judged_earlier(sub, now, event)
             now.review = event
             sub.reviews.append(event)
@@ -871,11 +887,19 @@ class RunState:
         elif isinstance(event, ReviewUnavailable):
             open_ = now.cursor == "review" and now.review is None
             self._expect(open_ and now.unavailable_final is None, "an unavailable review")
+            self._expect(self.reviewers != "off", "a review under reviewers: off")
             retried = any(u.retry for u in now.unavailable)
             self._expect(not (event.retry and retried), "a second retry of a review")
             now.unavailable.append(event)
             if now.unavailable_final is not None:
                 self._ended(sub, now)
+        elif isinstance(event, ReviewSkipped):
+            # Under off, the one review line of an attempt the gate let reach review; under every
+            # other value, never: a run that reviews its role work never skips a review.
+            self._expect(self.reviewers == "off", "a skipped review in a run that reviews")
+            self._expect(now.cursor == "review" and now.skipped is None, "a skipped review")
+            now.skipped = event
+            self._ledger(sub.plan.subtask_id, review_result="skipped")
         elif isinstance(event, AttemptRejected):
             basis = self.rejection_basis(now)
             self._expect(now.cursor == "decide" and basis == event.finding.source, "a rejection")
@@ -941,9 +965,9 @@ class RunState:
                 sub.plan.subtask_id,
                 merge_commit=standing,
                 gate_result=_verdict(stands.gate),
-                review_result=stands.review.result.verdict if stands.review else None,
+                review_result=_review_outcome(stands),
                 follow_up_gate_result=_verdict(now.gate),
-                follow_up_review_result=now.review.result.verdict if now.review else None,
+                follow_up_review_result=_review_outcome(now),
             )
         elif isinstance(event, EscalationDecided):
             self._decided(sub, now, event)
@@ -2352,6 +2376,18 @@ class RunState:
             _refuse(f"stage {stage!r} cannot follow {now.cursor!r}")
         now.cursor = stage
 
+    def _require_arm_s_rubric(self, event: ReviewRan) -> None:
+        """A review line judged with the rubric the run's arm names: generalist under generalist.
+
+        Under ``paired`` a line that names no rubric reads as paired, as every line written
+        before rubrics were named did.
+        """
+        kind = event.result.rubric_kind
+        wanted = "generalist" if self.reviewers == "generalist" else "paired"
+        if (kind or "paired") != wanted:
+            named = kind or "unnamed"
+            _refuse(f"a review judged with a {named} rubric under reviewers: {self.reviewers}")
+
     def _gate_allows_review(self, now: AttemptState) -> bool:
         if isinstance(now.gate, GateSkipped):
             return True
@@ -2380,7 +2416,7 @@ class RunState:
     def _decided_from(self, now: AttemptState) -> Stage | None:
         """The last stage whose outcome the decision was taken on."""
         done: list[tuple[Stage, object]] = [
-            ("review", now.review),
+            ("review", now.review or now.skipped),
             ("gate", now.gate),
             ("implement", now.changes),
             ("verify_reading", now.session),
@@ -2394,6 +2430,9 @@ class RunState:
         must still be one the run's mode merges.
         """
         reviewed = now.review is not None and now.review.result.verdict == "pass"
+        # Under reviewers: off the skipped line stands where a pass would: the gate's result
+        # alone decides, and the gate condition below is the same for every value.
+        reviewed = reviewed or (now.skipped is not None and self.reviewers == "off")
         return (
             (reviewed or now.approved is not None)
             and now.merged is None
@@ -2729,12 +2768,15 @@ def recorded_ledger(events: Path, ledger: Path) -> list[TaskLine]:
     return held
 
 
-def require_mergeable(ledger_path: Path, subtask_id: str, gate_mode: GateMode) -> TaskLine:
+def require_mergeable(
+    ledger_path: Path, subtask_id: str, gate_mode: GateMode, reviewers: Reviewers
+) -> TaskLine:
     """The subtask's ledger line, read back from disk, if it permits a merge (ARCH-001).
 
     A merge needs a gate result and a review result on the ledger line. The review
     must have passed, or a person's approve bound to the attempt must have overridden its
-    verdict (ARCH-133). The gate result must be one the run's gate mode allows:
+    verdict (ARCH-133), or, under ``reviewers: off`` only, have been skipped. The gate result
+    must be one the run's gate mode allows, whatever the reviewers:
     a pass when the gate blocks, a pass or a logged failure when it observes, and
     ``skipped`` when it is off.
 
@@ -2752,8 +2794,10 @@ def require_mergeable(ledger_path: Path, subtask_id: str, gate_mode: GateMode) -
     if line is None or line.gate_result is None or (line.review_result is None and not approved):
         msg = "a merge needs a gate result and a review result on the ledger line"
         raise MergePreconditionError(msg, subtask=subtask_id)
-    reviewed = line.review_result == "pass" or (
-        line.person_decision == "approve" and line.review_result in ("fail", "blocked", None)
+    reviewed = (
+        line.review_result == "pass"
+        or (line.person_decision == "approve" and line.review_result in ("fail", "blocked", None))
+        or (reviewers == "off" and line.review_result == "skipped")
     )
     if not reviewed or line.gate_result not in allowed:
         msg = "the ledger line does not permit a merge"
