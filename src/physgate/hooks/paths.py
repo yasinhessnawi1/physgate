@@ -443,7 +443,10 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
         # role's skill and standards, and a session is given its own in its worktree, or, in an
         # arm that leaves the skill out, not given it; nothing a session is given to read lies
         # there. The OS layer denies the shell's reads there, and a file tool runs outside it.
-        for root in config.protected_roots:
+        # The checkout is asked last: a root of its own nested in it (a withheld record, the
+        # sentinel's place apart) answers with its own reason, which says the sentinel keeps
+        # no byte of it, and is never read as the checkout's, whose bytes the sentinel keeps.
+        for root in sorted(config.protected_roots, key=lambda r: r.reason == HARNESS_REASON):
             if (
                 root.reads == "denied"
                 and (
@@ -542,7 +545,11 @@ def read_refused(path: str, config: ConfigView) -> bool:
     # there; the session's own files there (its settings, its home's git configuration) are read
     # by no other session, so their kept bytes need no seal. Nor does the harness checkout's: it
     # is kept from a session for what its library would teach, not as a secret, and the sentinel
-    # needs its trusted bytes to put a changed file there back.
+    # needs its trusted bytes to put a changed file there back. This is the sentinel's question,
+    # not a session's: the session's read is refused all the same. It exempts only a path the
+    # checkout alone holds: :func:`_rules` asks the checkout after every other root, so one nested
+    # in it answers first with its own reason (and the installer refuses a run's withheld places
+    # inside the checkout besides).
     return any(
         _rules(spelling, config, writing=False) not in (None, SESSIONS_REASON, HARNESS_REASON)
         for spelling in dict.fromkeys((path, os.path.realpath(path)))
