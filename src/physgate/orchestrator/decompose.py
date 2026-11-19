@@ -1438,7 +1438,7 @@ def call(
     (workdir / "stdout.jsonl").write_bytes(written)
     stream_seal = seal(written)
     result, usage, answered = read_stream(stdout)
-    require_matching_totals(result, usage)
+    usage = require_matching_totals(result, usage)
     cause, detail, plan, model, turns = judge(
         result,
         exit_code=exit_code,

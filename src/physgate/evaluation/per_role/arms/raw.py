@@ -45,6 +45,7 @@ from typing import Any
 from physgate.evaluation.per_role.answer import MAX_ANSWER_BYTES
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.task import Task
+from physgate.orchestrator.accounting import settle
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.credentials import (
     Credential,
@@ -70,6 +71,7 @@ from physgate.orchestrator.dispatch import (
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.processes import kill_own, stop_tree
+from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.role_python import RolePython, session_bin
 from physgate.orchestrator.run_config import (
     Effort,
@@ -163,15 +165,35 @@ class RawSetup:
     withheld_whole: tuple[str, ...] = ()
 
 
+def spent(
+    # The binary's result object: an untyped boundary, only its totals are read.
+    result: Mapping[str, Any] | None,
+    usages: Iterable[MessageUsage],
+) -> tuple[int, int]:
+    """The tokens the run's account counts of these lines, and those of cut responses it omits.
+
+    Counted as the harness run's account counts its own (:func:`.accounting.settle`), so the
+    raw session is held to the cap in the same tokens the cap is a total of: a response the
+    binary cut short is counted where the binary's totals count it, and is the second figure
+    where they leave it out or there are no totals yet.
+    """
+    lines = settle(result, usages)
+    return (
+        sum(m.usage.total() for m in lines if m.counted),
+        sum(m.usage.total() for m in lines if not m.counted),
+    )
+
+
 def stream_total(stream: Path) -> int:
     """Every token the stream's messages were charged for so far, each message once.
 
     Read as every session file is (:func:`read_session_file`): a link, a pipe or a file with
-    another link at the stream's name raises, and the watch stops the session for it.
+    another link at the stream's name raises, and the watch stops the session for it. Counted
+    as the run's account counts (:func:`spent`).
     """
     text = read_session_file(stream).decode("utf-8", errors="replace")
-    _, usages, _ = read_stream(text)
-    return sum(m.usage.total() for m in usages)
+    result, usages, _ = read_stream(text)
+    return spent(result, usages)[0]
 
 
 #: A checkpoint the watch asks at each reading, given the tokens spent so far: a reason to
@@ -682,13 +704,16 @@ def _run(
         _clean(work, sdir, setup.credential.secret, (stdout, stderr))
     captured = read_captured(stdout)
     end = watch.end or ("wall_clock" if ended.timed_out else "ended")
+    tokens, cut_off = spent(captured.result, captured.usage)
     return {
         "session_id": session_id,
         "end": end,
         "exit_code": ended.exit_code,
         "left_running": list(ended.left_running),
         "wall_clock_s": seconds,
-        "tokens": sum(m.usage.total() for m in captured.usage),
+        "tokens": tokens,
+        # Responses cut short that the binary's totals leave out: in no count, billing unknown.
+        "tokens_not_in_binary_totals": cut_off,
         "cap": cap,
         "answered_by": sorted(captured.answered),
         "held_out_seen": held_out_seen(stdout, setup.held_out_canaries),

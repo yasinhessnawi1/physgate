@@ -245,8 +245,13 @@ class ResultRow(_Frozen):
     review_cause: ReviewCause | None
     #: ``None`` only for a review that never reached its model.
     reviewer_model: ModelString | None
-    #: Every token the artefact's review spent, a retried try included.
+    #: Every token the artefact's review spent, a retried try included, as the run's account
+    #: counts them: a response cut short is counted where the binary's totals count it.
     reviewer_tokens: Annotated[int, Field(ge=0)]
+    #: The tokens of responses cut short that the binary's totals leave out, which the account
+    #: counts in no figure and whose billing is unknown. Left out of a row with none, so such a
+    #: row keeps its bytes.
+    reviewer_tokens_not_in_binary_totals: int = Field(default=0, ge=0, exclude_if=lambda v: not v)
     review_seq: Annotated[int, Field(ge=0)]
     gate_seq: Annotated[int, Field(ge=0)]
     gate_verdict: Verdict
@@ -449,6 +454,8 @@ class _Reviewed:
     tokens: int
     tries: tuple[_Try, ...] = ()
     lane: int = 0
+    #: Tokens of cut responses the binary's totals leave out: in no count, billing unknown.
+    cut_off: int = 0
 
     @property
     def outcome(self) -> ReviewOutcome:
@@ -477,6 +484,7 @@ class _Reviewed:
             "cause": self.cause,
             "seq": self.line.seq,
             "tokens": self.tokens,
+            **({"tokens_not_in_binary_totals": self.cut_off} if self.cut_off else {}),
             "tries": [
                 {
                     "cause": t.cause,
@@ -576,7 +584,7 @@ def _reviewed(
     """
     guard = lock or threading.Lock()
     tries: list[_Try] = []
-    retries_done, tokens, waited = 0, 0, 0.0
+    retries_done, tokens, cut_off, waited = 0, 0, 0, 0.0
     while True:
         if pacer is not None:
             pacer.wait()
@@ -587,7 +595,8 @@ def _reviewed(
             ended = _utc()
             if pacer is not None:
                 pacer.ended(exc.cause)
-            tokens += sum(m.usage.total() for m in exc.usage)
+            tokens += sum(m.usage.total() for m in exc.usage if m.counted)
+            cut_off += sum(m.usage.total() for m in exc.usage if not m.counted)
             retry = exc.cause == "infrastructure" and retries_done < len(delays)
             with guard:
                 line = log.append(
@@ -606,7 +615,7 @@ def _reviewed(
                 )
             tries.append(_Try(exc.cause, waited, started, ended))
             if not retry:
-                return _Reviewed(line=line, tokens=tokens, tries=tuple(tries))
+                return _Reviewed(line=line, tokens=tokens, tries=tuple(tries), cut_off=cut_off)
             waited = delays[retries_done]
             retries_done += 1
             sleep(waited)
@@ -614,13 +623,14 @@ def _reviewed(
         ended = _utc()
         if pacer is not None:
             pacer.ended(None)
-        tokens += sum(m.usage.total() for m in result.usage)
+        tokens += sum(m.usage.total() for m in result.usage if m.counted)
+        cut_off += sum(m.usage.total() for m in result.usage if not m.counted)
         with guard:
             ran = log.append(
                 ReviewRan(**log.envelope(), subtask_id=subtask, attempt=1, result=result)
             )
         tries.append(_Try(None, waited, started, ended))
-        return _Reviewed(line=ran, tokens=tokens, tries=tuple(tries))
+        return _Reviewed(line=ran, tokens=tokens, tries=tuple(tries), cut_off=cut_off)
 
 
 def _write_state(path: Path, record: dict[str, object]) -> None:
@@ -725,7 +735,9 @@ def _review_all(
                 with shared.lock:
                     errors.append(exc)
                 return
-            done = _Reviewed(line=done.line, tokens=done.tokens, tries=done.tries, lane=k)
+            done = _Reviewed(
+                line=done.line, tokens=done.tokens, tries=done.tries, lane=k, cut_off=done.cut_off
+            )
             _write_state(run_dir / REVIEWS_DIRNAME / f"{subtask}.json", done.record(subtask))
             with shared.lock:
                 reviews[subtask] = done
@@ -906,6 +918,7 @@ def run_instrument(
             review_cause=reviews[rid].cause,
             reviewer_model=reviews[rid].model,
             reviewer_tokens=reviews[rid].tokens,
+            reviewer_tokens_not_in_binary_totals=reviews[rid].cut_off,
             review_seq=reviews[rid].line.seq,
             gate_seq=gated[rid].seq,
             gate_verdict=gated[rid].result.verdict,

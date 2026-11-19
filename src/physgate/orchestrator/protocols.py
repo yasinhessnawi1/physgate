@@ -95,18 +95,30 @@ class MessageUsage(_Frozen):
     #: of every other line, so each keeps its bytes.
     compaction: bool = Field(default=False, exclude_if=lambda v: not v)
     #: A response the binary cut short and closed itself (its stream failed, stalled or ended
-    #: early), with no final usage and no assistant message: the usage it started with, which
-    #: is not in the binary's per-model totals where the session then ended in an API error.
-    #: Recorded so it is seen, kept out of the sums held to those totals, its billing unknown
-    #: (``accounting``). Left out of every other line.
+    #: early), with no final usage and no assistant message: the usage it started with.
+    #: Recorded so it is seen; whether the binary's per-model totals count it is
+    #: ``in_binary_totals`` (``accounting``). Left out of every other line.
     abandoned: bool = Field(default=False, exclude_if=lambda v: not v)
+    #: A response cut short whose starting usage the binary's per-model totals count, as they
+    #: did on every pin at the scripted endpoint: counted in every sum held to those totals.
+    #: Without it a cut response is in none of them, its billing unknown, as a real run's API
+    #: error had it. Set only by the totals check (``accounting``); left out of every other line.
+    in_binary_totals: bool = Field(default=False, exclude_if=lambda v: not v)
 
     @model_validator(mode="after")
     def _one_kind_of_line(self) -> MessageUsage:
         if self.compaction and self.abandoned:
             msg = "a compaction's call is no response of the stream, so none is cut short"
             raise ValueError(msg)
+        if self.in_binary_totals and not self.abandoned:
+            msg = "only a response cut short is marked as counted in the binary's totals"
+            raise ValueError(msg)
         return self
+
+    @property
+    def counted(self) -> bool:
+        """Whether the account counts this line: every line but a cut response the totals omit."""
+        return not self.abandoned or self.in_binary_totals
 
 
 #: A session's captured stream of events, or a written account of a revision.

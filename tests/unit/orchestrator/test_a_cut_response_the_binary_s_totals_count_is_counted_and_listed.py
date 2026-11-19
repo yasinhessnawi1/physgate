@@ -124,7 +124,7 @@ def _refusal(result: dict[str, Any] | None, usages: tuple[MessageUsage, ...]) ->
     return None
 
 
-def _counted(line: MessageUsage) -> bool:
+def _counted(line: MessageUsage | TokensUsed) -> bool:
     """Whether the line is marked as one the binary's totals count, cut short or not."""
     return bool(getattr(line, "in_binary_totals", False))
 
@@ -373,6 +373,52 @@ def test_the_loop_records_the_counted_cut_line_and_counts_it(tmp_path: Path) -> 
     assert [(e.attribution, e.message_id) for e in marked] == [("session:sess-1", "msg_02")], RULE
     account = TokenAccount.from_events(events)
     assert account.cut_in_binary_totals() == {"session:sess-1": _usage(CUT_START)}
-    assert account.by_attribution()["session:sess-1"].total() == sum(
-        u.usage.total() for u in lines
+    assert account.by_attribution()["session:sess-1"].total() == sum(u.usage.total() for u in lines)
+
+
+#: A stand-in role session: its hooks run, and it writes the retried stream as its own, answered
+#: by the run's model. The stand-in module's prelude is prepended.
+PRINTS_THE_STREAM = r"""
+import json, os, shlex, subprocess, sys
+
+argv = sys.argv[1:]
+if argv == ["--version"]:
+    print("2.1.272 (Claude Code)")
+    sys.exit(0)
+settings = json.load(open(argv[argv.index("--settings") + 1]))
+session_id = argv[argv.index("--session-id") + 1]
+
+
+def hook(event):
+    command = settings["hooks"][event][0]["hooks"][0]["command"]
+    body = json.dumps({"session_id": session_id, "cwd": os.getcwd(), "hook_event_name": event})
+    subprocess.run(shlex.split(command), input=body.encode(), capture_output=True, check=False)
+
+
+hook("SessionStart")
+hook("SessionEnd")
+sys.stdout.write(STREAM.replace(ANSWERING, MODEL_NAME))
+sys.stdout.flush()
+sys.exit(0)
+"""
+
+
+def test_the_dispatcher_reports_a_role_session_s_counted_cut_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git import (
+        SESSION,
+        Session,
     )
+
+    session = Session(tmp_path, "plain", pause=0.0, wall_clock_s=60.0)
+    written = session.binary.read_text()
+    stand_in = f"STREAM = {retried_stream()!r}\nANSWERING = {MODEL!r}\n" + PRINTS_THE_STREAM
+    session.binary.write_text(written[: written.index(SESSION)] + stand_in)
+    dispatcher = session.dispatcher(monkeypatch)
+    try:
+        report = dispatcher.run(session.request(), session.spawned)
+    except AccountingError as exc:
+        pytest.fail(f"{RULE}: the role session was refused with {exc.context}")
+    assert report.end.outcome == "completed"
+    assert [u.message_id for u in report.usage if _counted(u)] == ["msg_02"], RULE

@@ -31,6 +31,7 @@ from physgate.evaluation.observe.cost import CostLine, load_price_sheet, price_e
 from physgate.evaluation.observe.manifest import read_manifest, read_run_events
 from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.per_role.arms.raw import stream_total
+from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.events import TokensUsed
 from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.protocols import Artefact, MessageUsage, ReviewResult, Usage
@@ -165,7 +166,7 @@ def test_the_raw_arm_records_a_cut_response_the_totals_count_among_its_tokens(
 
 @dataclass
 class _CutReviewer:
-    """Every first try is cut off at an API error; every retry is a pass."""
+    """Every first try is cut off at an API error; every retry is a pass with the same lines."""
 
     lines: tuple[MessageUsage, ...]
     model: str = "claude-opus-5-5"
@@ -186,7 +187,7 @@ class _CutReviewer:
             finding="every item is met",
             reviewer_model=self.model,
             session_id=f"s{len(self.seen)}",
-            usage=(MessageUsage(message_id="msg_09", usage=COMPLETE),),
+            usage=self.lines,
         )
 
 
@@ -215,12 +216,12 @@ def test_each_review_s_row_counts_the_tokens_the_account_counts(tmp_path: Path) 
     assert rows
     for row in rows:
         assert row["reviewer_tokens"] == 2 * COMPLETE.total(), RULE
-        assert row.get("reviewer_tokens_not_in_binary_totals") == CUT.total()
+        assert row.get("reviewer_tokens_not_in_binary_totals") == 2 * CUT.total()
         review = json.loads(
             (tmp_path / "run" / REVIEWS_DIRNAME / f"{row['review_id']}.json").read_text()
         )
         assert review["tokens"] == 2 * COMPLETE.total()
-        assert review.get("tokens_not_in_binary_totals") == CUT.total()
+        assert review.get("tokens_not_in_binary_totals") == 2 * CUT.total()
 
 
 def test_each_review_s_row_counts_a_cut_response_the_totals_count(tmp_path: Path) -> None:
@@ -230,7 +231,7 @@ def test_each_review_s_row_counts_a_cut_response_the_totals_count(tmp_path: Path
     )
     rows = _instrument(tmp_path, lines)
     for row in rows:
-        assert row["reviewer_tokens"] == 2 * COMPLETE.total() + CUT.total()
+        assert row["reviewer_tokens"] == 2 * (COMPLETE.total() + CUT.total())
         # A row with nothing left out keeps its bytes.
         assert "reviewer_tokens_not_in_binary_totals" not in row
 
@@ -242,7 +243,8 @@ def test_the_cost_line_counts_and_lists_a_cut_response_the_totals_count(tmp_path
     run = fake_run(tmp_path, "run-a", target_repo(tmp_path))
     events = read_run_events(run)
     last = events[-1]
-    who = "reviewer:rev-cut"
+    before = TokenAccount.from_events(events).by_attribution()
+    who = next(a for a in before if a.startswith("session:"))
     added = [
         TokensUsed(
             seq=last.seq + n,
@@ -273,6 +275,9 @@ def test_the_cost_line_counts_and_lists_a_cut_response_the_totals_count(tmp_path
     assert line.lower_bound, f"{RULE}: the cost is not marked a lower bound"
     assert line.cut_short_in_binary_totals == {who: CUT}, RULE
     assert line.not_in_binary_totals_billing_unknown == {}
-    refused = {**line.model_dump(mode="json"), "lower_bound": False}
+    # Priced as the totals count it: every line, the cut one included.
+    priced = sum(r.tokens.total() for r in line.rows)
+    assert priced == sum(u.total() for u in before.values()) + COMPLETE.total() + CUT.total()
+    refused = {**line.model_dump(), "lower_bound": False}
     with pytest.raises(ValueError, match="lower bound"):
         CostLine.model_validate(refused)

@@ -2204,7 +2204,7 @@ class ClaudeDispatcher:
         held_out_seen = self.held_out_seen(stdout)
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
-        require_matching_totals(result, usage)
+        usage = require_matching_totals(result, usage)
         # An API error the stream names as the account's usage limit is that limit, its own cause.
         streamed = read_stream_file(stdout)
         end, usage_limit = session_end(
@@ -2544,7 +2544,7 @@ class ClaudeDispatcher:
             why = captured.tampered
             if why is None:
                 try:
-                    require_matching_totals(captured.result, usage)
+                    usage = require_matching_totals(captured.result, usage)
                 except AccountingError as exc:
                     why = f"{exc}: {exc.context}"
             tampered = tampered or why

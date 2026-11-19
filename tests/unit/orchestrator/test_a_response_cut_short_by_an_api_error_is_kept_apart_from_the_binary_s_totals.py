@@ -13,7 +13,9 @@ own, became a refused run.
 Now the cut response is a line of its own, marked abandoned: in the record, never in a sum held
 to the binary's totals (whether the API billed it is unknown), and the session's end is read as
 the API error it was. Every completed response is still held to the totals exactly, and a cut
-response in a session that did not end in an API error is still refused. The stream below is
+response the totals leave out of a session that did not end in an API error is still refused.
+(Totals that count the cut response too, as the binaries' were measured to at the scripted
+endpoint, count it: the neighbouring module's rows.) The stream below is
 built by hand from that description, in the shapes the pinned binary writes; it is no copy of a
 run's transcript. The cut response's ``message_stop`` line has the shape read from a real
 2.1.301 run's stream: beside ``event``, at the outer level, ``api_message_id`` and
