@@ -234,14 +234,16 @@ REVIEWERS = Flag(
         ),
         "generalist": (
             "an ablation run's arm: each role's work is reviewed on the same reviewer pin with "
-            "its paired rubric less the domain sections and without the role's library files; "
-            "refused at the run's configuration until the arm is built"
+            "its paired rubric less the domain sections and without the role's library files, "
+            "and each review line names that rubric's kind and digest; only an ablation run "
+            "takes it"
         ),
         "off": (
             "an ablation run's arm: no role reviewer is invoked, each attempt the gate lets "
             "reach review records that its review was skipped and merges on the gate's result "
-            "alone, and every role still names a pinned reviewer; refused at the run's "
-            "configuration until the arm is built"
+            "alone, and every role still names a pinned reviewer; the gate's order is "
+            "unchanged, so an attempt the gate refuses under gate_mode on never merges; only an "
+            "ablation run takes it"
         ),
     },
     architecture="ARCH-140",

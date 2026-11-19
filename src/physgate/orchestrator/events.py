@@ -549,6 +549,19 @@ class ReviewUnavailable(_Event):
         return self
 
 
+class ReviewSkipped(_Event):
+    """The review stage invoked no reviewer, because the run's reviewers are ``off``.
+
+    An ablation run's arm, not a result: no verdict exists, so none is written, and the attempt
+    merges on the gate's result alone. Written once per attempt the gate lets reach review.
+    """
+
+    kind: Literal["review_skipped"] = "review_skipped"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    reason: Literal["reviewers=off"]
+
+
 class TokensUsed(_Event):
     """One model message's usage, attributed to the one thing that spent it.
 
@@ -1933,6 +1946,7 @@ Event = Annotated[
     | IntegrationEscalated
     | ReviewRan
     | ReviewUnavailable
+    | ReviewSkipped
     | TokensUsed
     | SessionEnded
     | InfraRetryScheduled

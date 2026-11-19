@@ -148,7 +148,7 @@ def test_a_forged_ledger_line_is_refused_at_merge(
 ) -> None:
     path = _forge(tmp_path / "ledger.jsonl", **fields)
     with pytest.raises(MergePreconditionError):
-        require_mergeable(path, "s1", mode)  # type: ignore[arg-type]
+        require_mergeable(path, "s1", mode, "paired")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -156,7 +156,7 @@ def test_a_forged_ledger_line_is_refused_at_merge(
 )
 def test_a_line_the_mode_allows_is_mergeable(tmp_path: Path, mode: str, gate_result: str) -> None:
     path = _forge(tmp_path / "ledger.jsonl", gate_result=gate_result, review_result="pass")
-    assert require_mergeable(path, "s1", mode).id == "s1"  # type: ignore[arg-type]
+    assert require_mergeable(path, "s1", mode, "paired").id == "s1"  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("mode", ["on", "observe"])

@@ -75,7 +75,7 @@ def test_an_approve_on_review_unavailable_puts_the_attempt_back_at_its_merge(
     now = loop.state.subtasks["s1"].attempts[-1]
     assert now.approved is not None and loop.state.mergeable(now)
     assert _replayed(loop) == ["active", "attempt", "1", "merge"]
-    line = require_mergeable(loop.ledger.path, "s1", "on")
+    line = require_mergeable(loop.ledger.path, "s1", "on", "paired")
     assert (line.person_decision, line.queue_item, line.review_result) == (
         "approve",
         "run-1-s1",
@@ -532,9 +532,9 @@ def test_a_confirmed_indicator_on_any_earlier_attempt_makes_approve_record_only(
 def test_a_ledger_line_a_person_approved_permits_the_merge_and_no_other(tmp_path: Path) -> None:
     loop = _escalated(tmp_path, "review_exhausted")
     with pytest.raises(MergePreconditionError):
-        require_mergeable(loop.ledger.path, "s1", "on")
+        require_mergeable(loop.ledger.path, "s1", "on", "paired")
     _decide(loop, "approve", note=None)
-    line = require_mergeable(loop.ledger.path, "s1", "on")
+    line = require_mergeable(loop.ledger.path, "s1", "on", "paired")
     assert (line.review_result, line.person_decision) == ("fail", "approve")
 
 
