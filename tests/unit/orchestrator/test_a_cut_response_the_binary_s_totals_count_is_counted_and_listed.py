@@ -223,6 +223,18 @@ def test_a_line_counted_by_the_totals_is_a_cut_response_and_no_compaction() -> N
         )
 
 
+def test_a_result_with_no_totals_leaves_every_line_as_it_was_settled() -> None:
+    # A resumed invocation killed before its result: the lines an earlier result settled keep
+    # their marks, and a cut response read from a stream with no result is not counted.
+    settled = _settled()
+    assert require_matching_totals(None, settled) == settled
+    text = retried_stream().rsplit("\n", 2)[0] + "\n"  # the result event gone
+    result, usages, _ = decompose.read_stream(text)
+    assert result is None
+    (cut,) = [u for u in require_matching_totals(result, usages) if u.abandoned]
+    assert not _counted(cut)
+
+
 # --- the account -----------------------------------------------------------------
 
 

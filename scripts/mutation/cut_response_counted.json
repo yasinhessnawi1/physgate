@@ -2,8 +2,20 @@
  {
   "name": "settle_never_counts_a_cut_response",
   "file": "src/physgate/orchestrator/accounting.py",
-  "old": "    counted = isinstance(per_model, dict) and bool(per_model) and every == _charged(per_model)\n",
+  "old": "    counted = every == _charged(per_model)\n",
   "new": "    counted = False\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_cut_response_the_binary_s_totals_count_is_counted_and_listed.py",
+   "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
+   "tests/unit/evaluation/test_a_cut_response_is_counted_by_every_reader_as_the_binary_s_totals_count_it.py",
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py"
+  ]
+ },
+ {
+  "name": "settle_counts_every_cut_response_it_has_totals_for",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    counted = every == _charged(per_model)\n",
+  "new": "    counted = True\n",
   "tests": [
    "tests/unit/orchestrator/test_a_cut_response_the_binary_s_totals_count_is_counted_and_listed.py",
    "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
@@ -14,8 +26,20 @@
  {
   "name": "settle_counts_a_cut_response_without_totals",
   "file": "src/physgate/orchestrator/accounting.py",
-  "old": "    counted = isinstance(per_model, dict) and bool(per_model) and every == _charged(per_model)\n",
-  "new": "    counted = not isinstance(per_model, dict) or every == _charged(per_model)\n",
+  "old": "    if not any(m.abandoned for m in usages) or not isinstance(per_model, dict) or not per_model:\n        return usages\n",
+  "new": "    if not any(m.abandoned for m in usages) or not isinstance(per_model, dict) or not per_model:\n        return tuple(m.model_copy(update={\"in_binary_totals\": m.abandoned}) for m in usages)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_cut_response_the_binary_s_totals_count_is_counted_and_listed.py",
+   "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
+   "tests/unit/evaluation/test_a_cut_response_is_counted_by_every_reader_as_the_binary_s_totals_count_it.py",
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py"
+  ]
+ },
+ {
+  "name": "settle_forgets_an_earlier_mark_without_totals",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    if not any(m.abandoned for m in usages) or not isinstance(per_model, dict) or not per_model:\n        return usages\n",
+  "new": "    if not any(m.abandoned for m in usages) or not isinstance(per_model, dict) or not per_model:\n        return tuple(m.model_copy(update={\"in_binary_totals\": False}) for m in usages)\n",
   "tests": [
    "tests/unit/orchestrator/test_a_cut_response_the_binary_s_totals_count_is_counted_and_listed.py",
    "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",

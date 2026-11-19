@@ -94,19 +94,21 @@ def settle(
     """The lines, each cut response marked as counted or not by the binary's totals.
 
     The totals count a session's cut responses where they equal every line, the cut ones
-    included, field by field: each is then marked ``in_binary_totals``. Anywhere else (totals
-    of another figure, or none) no cut response is so marked. All or none: totals that count
-    some of a session's cut responses and not others were never seen, and are left for the
-    check to refuse. Nothing is raised here and no other line is changed.
+    included, field by field: each is then marked ``in_binary_totals``. Where they are of
+    another figure, none is so marked. All or none: totals that count some of a session's cut
+    responses and not others were never seen, and are left for the check to refuse. A result
+    with no totals settles nothing, and the lines are returned as given: a line read from a
+    stream is then not counted, and one an earlier invocation's totals settled keeps its mark.
+    Nothing is raised here and no other line is changed.
     """
     usages = tuple(usages)
-    if not any(m.abandoned for m in usages):
-        return usages
     per_model = (result or {}).get("modelUsage")
+    if not any(m.abandoned for m in usages) or not isinstance(per_model, dict) or not per_model:
+        return usages
     every = _ZERO
     for message in usages:
         every = _plus(every, message.usage)
-    counted = isinstance(per_model, dict) and bool(per_model) and every == _charged(per_model)
+    counted = every == _charged(per_model)
     return tuple(
         m.model_copy(update={"in_binary_totals": counted})
         if m.abandoned and m.in_binary_totals != counted
