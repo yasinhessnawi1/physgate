@@ -794,7 +794,14 @@ SOLUTION_SENTENCE = (
 #: nothing but its prompt, so the form is given here in the words the review holds it to, with
 #: the kinds of bundle plans have written as one criterion named in general terms. Splitting a
 #: bundle leaves each part to be traced on its own, so the sentence asks for each criterion's
-#: trace as well; a goal, which is not a requirement, is kept out of the criteria.
+#: trace as well; a goal, which is not a requirement, is kept out of the criteria. A criterion is
+#: written only against what the run can measure: a plan once asked firmware for timing "measured
+#: on the board" in a run with no board, so no session could ever meet it. The plan is written
+#: before a person says which parts they have, so no board is taken as connected unless the
+#: brief says so, and behaviour on the target is checked in a simulator the run's environment
+#: has, named in the criterion; no simulator is named here, since the prompt does not know which
+#: is installed. A plan that gave a module no value for its timeouts, limits or fault rules left
+#: that module nothing it could build to, so each is stated, as a value or the node carrying it.
 CRITERION_FORM_SENTENCE = (
     'Write each acceptance criterion as one statement of one thing, in the form "The <module> '
     'shall <verb> <what>, <threshold with its unit and tolerance>, verified by <method>.", '
@@ -804,7 +811,11 @@ CRITERION_FORM_SENTENCE = (
     "holds several figures or conditions (a value and its agreement with another quantity, a "
     "value and a rule for the rest of the module, two margins, a figure and a setting) becomes "
     "one criterion for each, so that each is met or unmet on its own. A goal is written with "
-    '"should", outside the acceptance criteria.'
+    '"should", outside the acceptance criteria. Write each criterion against an instrument the '
+    "run's environment has: no board is connected unless the brief says so, so behaviour on the "
+    "target is otherwise checked in a simulator of its processor that the run's environment has, "
+    "named in the criterion. Each module's specification states, with a value or the node that "
+    "will carry it, every limit, timeout and fault behaviour the module must implement."
 )
 
 

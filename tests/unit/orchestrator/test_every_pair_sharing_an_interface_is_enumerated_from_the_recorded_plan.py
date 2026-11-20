@@ -72,16 +72,19 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 #: before which: bb54c67db294... and ea34d6962014...; and since 18.11.2026 the paragraph saying
 #: how one acceptance criterion is written, before which: 7a17a3f1ead9... and e71b13d25dc6...;
 #: and since the same day the sentence saying which quantities go on an interface node, before
-#: which: 4f6211c3a74e... and 0923e7e6198b.... Before the sentence on names with
+#: which: 4f6211c3a74e... and 0923e7e6198b...; and since 20.11.2026 the sentence saying a
+#: criterion is written against an instrument the run's environment has and that each
+#: specification states its limits, timeouts and fault behaviour, before which:
+#: 98ecf178fc9f... and 8fe35572c9e9.... Before the sentence on names with
 #: added words, at 470b3f34: 44f7ed176029...
 #: and eefbf4fe50d6...; before the widening: 08a7e77a7464... and b26536a34818...; before
 #: those two sentences: f56406956965... and 1a3802deb6f1..., in this order.
 INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "98ecf178fc9f2b584cee7d449b202a04dc62ec0689b6c13f56d995c2a70a150d"
+        "3e4373e4b48b04d6707c72d6e9b95dadf32bf28bad3f062b16ae671c3639eb2f"
     ),
-    BOTH: "8fe35572c9e94b6d03ac413fcb7e0f1dba842f7a26b083af6f8a0f9d711f837f",
+    BOTH: "75398732494ada516ea67ab6497436f8d7e0162e4f1db815ab3db1dcb8ae9e76",
 }
 
 
