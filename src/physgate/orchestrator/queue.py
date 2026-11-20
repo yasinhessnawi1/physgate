@@ -1355,11 +1355,13 @@ def sign_off_item(
     ts: str,
     consequence: ItemConsequence | None,
     reject: SignOffReject = "reopen",
+    again: bool = False,
 ) -> QueueItem:
     """The item a module whose role owes a person's sign-off is listed on, raised by code.
 
     ``module`` is the subtask that planned it; ``merged`` the subtask and attempt whose merge
-    raised the item, the module's own (``own``) or one that changed the values it binds.
+    raised the item, the module's own (``own``) or one that changed the values it binds; with
+    ``again``, the merge after which the values were found moved with no item raised on them.
     ``values`` is every bound value with its node, then their digest, as code renders them; the
     approve binds them through the line's digest (ARCH-133). In a run that records decisions only
     the item has no consequence, and says that a decision on it signs nothing. In one that acts,
@@ -1371,9 +1373,9 @@ def sign_off_item(
     if not trajectories:
         msg = "a sign-off item links the module's merged work"
         raise QueueError(msg, item=item_id)
-    again = f" again (round {round_})" if round_ > 1 else ""
+    later = f" again (round {round_})" if round_ > 1 else ""
     owed = (
-        f"Module {module} of the {role} role owes a person's sign-off on its {signs}{again} "
+        f"Module {module} of the {role} role owes a person's sign-off on its {signs}{later} "
         "before it can be declared complete."
     )
     decide = (
@@ -1385,12 +1387,17 @@ def sign_off_item(
         "with this item open, and a decision here is recorded and signs nothing."
     )
     subtask, attempt = merged
-    why = (
-        f"The module merged its subtask {subtask} at attempt {attempt}."
-        if own
-        else f"Subtask {subtask} merged at attempt {attempt} and changed values this sign-off "
-        "binds."
-    )
+    if again:
+        why = (
+            "The values this sign-off binds, as the design-state graph gives them, moved with no "
+            f"item raised on them; found after subtask {subtask} merged at attempt {attempt}."
+        )
+    elif own:
+        why = f"The module merged its subtask {subtask} at attempt {attempt}."
+    else:
+        why = (
+            f"Subtask {subtask} merged at attempt {attempt} and changed values this sign-off binds."
+        )
     return QueueItem(
         item_id=item_id,
         ts=ts,

@@ -59,6 +59,7 @@ from physgate.orchestrator.events import (
     ArbitrationDecided,
     AttemptRejected,
     AttemptReturned,
+    BoundValue,
     CompletionDeclared,
     ContractItemRaised,
     ContractPairsPlanned,
@@ -117,6 +118,7 @@ from physgate.orchestrator.events import (
     SessionEnded,
     SessionSpawned,
     SignOffFixEnded,
+    SignOffRaisedAgain,
     SignOffsRaised,
     Stage,
     StageEntered,
@@ -577,7 +579,9 @@ class RunState:
         #: one is owed; and each sign-off item's line and its place in it.
         self.sign_off_due: tuple[str, int] | None = None
         self.sign_off_after: tuple[str, int] | None = None
-        self.sign_off_lines: dict[str, tuple[SignOffsRaised, RaisedItem]] = {}
+        #: The clean merge whose sign-off lines may still follow: its line, and any raised again.
+        self.sign_off_tail: tuple[str, int] | None = None
+        self.sign_off_lines: dict[str, tuple[SignOffsRaised | SignOffRaisedAgain, RaisedItem]] = {}
         #: The integration step's line that no follow-up is owed, where it wrote one.
         self.no_follow_up: NoFollowUpOwed | None = None
 
@@ -742,7 +746,10 @@ class RunState:
             return
         if self.sign_off_due is not None and not isinstance(event, Resumed | Incident):
             _refuse("nothing comes between a clean merge and the line of the sign-offs it raised")
-        self.sign_off_after = None
+        if isinstance(event, SignOffRaisedAgain):
+            self._raised_again(event)
+            return
+        self.sign_off_after = self.sign_off_tail = None
         if isinstance(event, ContractRuled):
             self._ruled(event)
             return
@@ -1008,7 +1015,7 @@ class RunState:
                 self.merged_by[sub.plan.module_dir] = sub.plan.subtask_id
                 if self.sign_off_rules is not None:
                     merge = (sub.plan.subtask_id, now.number)
-                    self.sign_off_after = merge
+                    self.sign_off_after = self.sign_off_tail = merge
                     if any(
                         self.sign_off_owed(module, sub.plan.subtask_id)
                         for module in self.owing_sign_off()
@@ -2056,6 +2063,10 @@ class RunState:
         bound = {value.node_id for value in earlier[-1].bound} if earlier else set()
         return bool(bound & set(sub.attempts[-1].applied))
 
+    def revisions_given(self, bound: Iterable[BoundValue]) -> bool:
+        """Whether the log gives each bound node at its revision, as a sign-off line binds it."""
+        return all(self._bound_revision(value.node_id, value.revision) for value in bound)
+
     def _bound_revision(self, node_id: str, revision: int) -> bool:
         """A bound node's revision is the log's: its last recorded write, or the opening's."""
         written = self.written.get(node_id)
@@ -2094,18 +2105,60 @@ class RunState:
         if missing:
             _refuse(f"a merge that owed a sign-off item raised none for {', '.join(missing)}")
         for item in event.raised:
-            earlier = self.sign_offs_of(item.module)
-            if earlier and self.undecided(earlier[-1].item_id):
-                self.superseded[earlier[-1].item_id] = item.item_id
-            self.sign_off_lines[item.item_id] = (event, item)
-            self.sign_offs[item.item_id] = RaisedSignOff(
-                item_id=item.item_id,
-                module=item.module,
-                values_sha256=item.values_sha256,
-                # What its reject does, as the loop listed it: from the record as it stands here.
-                reject=sign_off_reject(self, item.module),
-            )
+            self._take_sign_off(event, item)
         self.sign_off_due = self.sign_off_after = None
+
+    def _take_sign_off(self, event: SignOffsRaised | SignOffRaisedAgain, item: RaisedItem) -> None:
+        """Record a raised item: it supersedes the module's earlier one if none closed it."""
+        earlier = self.sign_offs_of(item.module)
+        if earlier and self.undecided(earlier[-1].item_id):
+            self.superseded[earlier[-1].item_id] = item.item_id
+        self.sign_off_lines[item.item_id] = (event, item)
+        self.sign_offs[item.item_id] = RaisedSignOff(
+            item_id=item.item_id,
+            module=item.module,
+            values_sha256=item.values_sha256,
+            # What its reject does, as the loop listed it: from the record as it stands here.
+            reject=sign_off_reject(self, item.module),
+        )
+
+    def _raised_again(self, event: SignOffRaisedAgain) -> None:
+        """Take a sign-off raised again: on other values than its latest item, where the loop looks.
+
+        The loop reads what a module's sign-off binds from the graph, which replay cannot see,
+        straight after each clean merge and before each completion line. So the line comes there
+        and nowhere else: after the clean merge it names (its diff, its sign-off line, or another
+        line raised again), or where the module's completion line is owed, naming integration's
+        merge. It is about a module whose role owes a sign-off and that merged, binds each node
+        at the revision the log gives, takes the module's next id, and binds other nodes,
+        revisions or values than the module's latest item: on the same ones nothing moved. It
+        can only add an item a person must decide, so it never completes or signs anything.
+        """
+        item, merge = event.raised, (event.subtask_id, event.attempt)
+        if item.module not in self.owing_sign_off():
+            _refuse("a sign-off raised again for a module whose role owes none, or not merged")
+        if event.found == "merge" and merge != self.sign_off_tail:
+            _refuse("a sign-off raised again at a merge follows that clean merge, before any line")
+        if event.found == "completion":
+            integration = self.completion_subtask
+            last = self.subtasks[integration].attempts[-1].number if integration else None
+            owed = self.next_step() == Step(kind="complete", subtask_id=item.module)
+            if not owed or merge != (integration, last):
+                _refuse(
+                    "a sign-off raised again before a completion comes where that module's "
+                    "completion line is owed, naming integration's merge"
+                )
+        if not self.revisions_given(item.bound):
+            _refuse("a sign-off item binds a node at a revision the log does not give")
+        if item.item_id != self._sign_off_id(event.run_id, item.module):
+            _refuse(f"a sign-off item with another id than {item.module!r}'s next")
+        earlier = self.sign_offs_of(item.module)
+        if earlier and (earlier[-1].bound, earlier[-1].values_sha256) == (
+            item.bound,
+            item.values_sha256,
+        ):
+            _refuse("a sign-off raised again on the values its latest item shows")
+        self._take_sign_off(event, item)
 
     def _sign_off_id(self, run_id: str, module: str) -> str:
         try:

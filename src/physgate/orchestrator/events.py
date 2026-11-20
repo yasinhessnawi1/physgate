@@ -1681,6 +1681,26 @@ class SignOffsRaised(_Event):
         return self
 
 
+class SignOffRaisedAgain(_Event):
+    """A module's sign-off raised again on values the graph gives and no sign-off line raised.
+
+    Written where the loop reads what the module's sign-off binds from the graph and finds other
+    nodes or revisions than its latest item bound, with no line on the record raising them: a
+    raise lost across a halt, which clears what owed it, or one the log alone cannot owe.
+    ``found`` says where, and so why: ``merge``, straight after the clean merge of ``subtask_id``
+    at ``attempt``, beside that merge's own sign-off line; ``completion``, where the module's
+    completion line was owed, after integration's merge ``subtask_id`` at ``attempt``, and
+    instead of that line. The module's earlier item stops counting (an undecided one is
+    superseded), and the module is complete only once a person signs this one.
+    """
+
+    kind: Literal["sign_off_raised_again"] = "sign_off_raised_again"
+    found: Literal["merge", "completion"]
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    raised: RaisedItem
+
+
 class ModuleCompleted(_Event):
     """A module of the plan recorded complete, which merged alone never says (ARCH-051).
 
@@ -2083,6 +2103,7 @@ Event = Annotated[
     | ContractRuled
     | ContractItemRaised
     | SignOffsRaised
+    | SignOffRaisedAgain
     | ModuleCompleted
     | EnvironmentRecorded
     | InstallChecked

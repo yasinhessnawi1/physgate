@@ -124,6 +124,7 @@ from physgate.orchestrator.events import (
     SessionFinding,
     SessionSpawned,
     SignOffFixEnded,
+    SignOffRaisedAgain,
     SignOffsRaised,
     Stage,
     StageEntered,
@@ -3538,9 +3539,9 @@ class Loop:
         merged, attempt = due
         latest = self._latest_nodes()
         cross = owners_of("cross_nodes")
-        listed = {item.item_id for item in self.queue.items()}
         wrote = set(self.state.subtasks[merged].attempts[-1].applied)
         raised: list[RaisedItem] = []
+        again: list[RaisedItem] = []
         for module in self.state.owing_sign_off():
             bound = bound_set(self.state, module, latest, cross)
             digest = values_sha256(bound)
@@ -3553,33 +3554,81 @@ class Loop:
             own = self.state.sign_off_owed(module, merged)
             if same and not own:
                 continue
+            # ``own`` holds where this merge wrote a node the latest item binds, a node that left
+            # the set through it included; otherwise a write explains it where it is bound now.
             if not own and not wrote & {b.node_id for b in bound}:
-                # The values moved, and no write of this merge moved them: a journal line the
-                # record does not account for, which no person is asked to sign.
-                detail = (
-                    f"the values module {module}'s sign-off binds changed at the merge of "
-                    f"{merged} attempt {attempt}, which wrote none of them"
-                )
-                self._incident(None, "foreign_journal_line", detail)
-                return
-            round_ = len(earlier) + 1
-            item_id = sign_off_item_id(self.config.run_id, module, round_)
-            if item_id not in listed:
-                self.queue.add(
-                    self._sign_off_item_for(
-                        module, item_id, bound, digest, round_=round_, merged=due,
-                        ts=self.log.events[-1].ts,
-                    )
-                )  # fmt: skip
-            raised.append(
-                RaisedItem(item_id=item_id, module=module, values_sha256=digest, bound=line)
-            )
+                # The values moved, and no write of this merge moved them: a raise lost before
+                # this merge, raised again on what the graph gives, or a rewritten journal.
+                where = f"at the merge of {merged} attempt {attempt}"
+                if not self._raisable_again(module, earlier, line, where):
+                    return
+                again.append(self._listed_sign_off(module, bound, digest, line, due, again=True))
+                continue
+            raised.append(self._listed_sign_off(module, bound, digest, line, due))
         if raised:
             self._emit(
                 SignOffsRaised(
                     **self._env(), subtask_id=merged, attempt=attempt, raised=tuple(raised)
                 )
             )
+        for item in again:
+            self._emit(
+                SignOffRaisedAgain(
+                    **self._env(), found="merge", subtask_id=merged, attempt=attempt, raised=item
+                )
+            )
+
+    def _listed_sign_off(
+        self,
+        module: str,
+        bound: tuple[Bound, ...],
+        digest: str,
+        line: tuple[BoundValue, ...],
+        merged: tuple[str, int],
+        *,
+        again: bool = False,
+    ) -> RaisedItem:
+        """The module's next sign-off item, listed once before its line; what its line holds.
+
+        A process killed between the listing and the line lists none twice.
+        """
+        round_ = len(self.state.sign_offs_of(module)) + 1
+        item_id = sign_off_item_id(self.config.run_id, module, round_)
+        if item_id not in {item.item_id for item in self.queue.items()}:
+            self.queue.add(
+                self._sign_off_item_for(
+                    module, item_id, bound, digest, round_=round_, merged=merged,
+                    ts=self.log.events[-1].ts, again=again,
+                )
+            )  # fmt: skip
+        return RaisedItem(item_id=item_id, module=module, values_sha256=digest, bound=line)
+
+    def _raisable_again(
+        self, module: str, earlier: list[RaisedItem], line: tuple[BoundValue, ...], where: str
+    ) -> bool:
+        """Whether values the graph moved for ``module``'s sign-off can be raised again; or halt.
+
+        They can where the graph binds other nodes or revisions than the module's latest item, each
+        at the revision the log gives: a write the record holds, whose raise was lost. The item's
+        own nodes at its own revisions with other values were rewritten in the journal, which no
+        merge did and no person is asked to sign: the run halts.
+        """
+        if earlier and earlier[-1].bound == line:
+            detail = (
+                f"the values module {module}'s sign-off binds changed {where}, with no write on "
+                f"the record: its latest item {earlier[-1].item_id}'s nodes, at the revisions it "
+                "bound, were rewritten in the journal"
+            )
+            self._incident(None, "foreign_journal_line", detail)
+            return False
+        if not self.state.revisions_given(line):
+            detail = (
+                f"what module {module}'s sign-off binds, as the graph gives it {where}, holds a "
+                "node at a revision the record does not give"
+            )
+            self._incident(None, "foreign_journal_line", detail)
+            return False
+        return True
 
     def _raise_owed_at_start(self) -> None:
         """The sign-off line a clean merge may owe, asked of the graph where the log ends at it.
@@ -3633,26 +3682,37 @@ class Loop:
 
         Before its completion line, for a module whose role owes a sign-off: the nodes, their
         revisions and the values' digest, as the graph at the run's recorded head gives them. The
-        log alone cannot see a cross node newly constraining the module's, so a raise missed there
-        would leave an approve of older values counting; a difference halts the run instead, and
-        no completion is written over it.
+        log alone cannot see a cross node newly constraining the module's, and a halt clears what
+        owes a merge's raise, so a raise lost there would leave an approve of older values
+        counting. Where they differ, no completion is written: the sign-off is raised again on what
+        the graph gives, the line saying it was found here, and the run goes on with the module's
+        sign-off owed; or, where the journal was rewritten (:meth:`_raisable_again`), it halts.
         """
         if module not in self.state.owing_sign_off():
             return True
         earlier = self.state.sign_offs_of(module)
         bound = bound_set(self.state, module, self._latest_nodes(), owners_of("cross_nodes"))
+        digest = values_sha256(bound)
         line = tuple(BoundValue(node_id=b.node_id, revision=b.revision) for b in bound)
-        if earlier and (earlier[-1].bound, earlier[-1].values_sha256) == (
-            line,
-            values_sha256(bound),
-        ):
+        if earlier and (earlier[-1].bound, earlier[-1].values_sha256) == (line, digest):
             return True
-        latest = earlier[-1].item_id if earlier else "none"
-        detail = (
-            f"what module {module}'s sign-off binds, as the graph gives it, is not what its latest "
-            f"item {latest} bound"
+        if not self._raisable_again(module, earlier, line, "before its completion line"):
+            return False
+        integration = self.state.completion_subtask
+        if integration is None:
+            msg = "a completion step in a run with no subtask that declares one"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        merged = (integration, self.state.subtasks[integration].attempts[-1].number)
+        item = self._listed_sign_off(module, bound, digest, line, merged, again=True)
+        self._emit(
+            SignOffRaisedAgain(
+                **self._env(),
+                found="completion",
+                subtask_id=merged[0],
+                attempt=merged[1],
+                raised=item,
+            )
         )
-        self._incident(None, "foreign_journal_line", detail)
         return False
 
     def _module_sessions(self, module: str, before: int | None = None) -> list[SessionEnded]:
@@ -3680,12 +3740,14 @@ class Loop:
         ts: str,
         before: int | None = None,
         reject: SignOffReject | None = None,
+        again: bool = False,
     ) -> QueueItem:
         """The item a module's sign-off is listed on, from the record and the graph.
 
         The one builder, so the item a decision is taken on is held to it whole. Its links are the
         streams of every attempt merged in the module's directory before its line. ``reject`` is
         what its reject does as the record gave it at the raise; by default, as it gives it now.
+        ``again``: raised again on values no sign-off line raised (:class:`SignOffRaisedAgain`).
         """
         rules = self.state.sign_off_rules
         sub = self.state.subtasks[module]
@@ -3715,6 +3777,7 @@ class Loop:
             ts=ts,
             consequence=sign_off_consequence(said) if self._acts() else None,
             reject=said,
+            again=again,
         )
 
     def _sign_off_bound(self, item_id: str) -> tuple[Bound, ...] | None:
@@ -3793,6 +3856,7 @@ class Loop:
             ts=item.ts,
             before=line.seq,
             reject=self.state.sign_offs[item.item_id].reject,
+            again=isinstance(line, SignOffRaisedAgain),
         )
 
     def _signed_sessions(self, item: QueueItem) -> list[SessionEnded]:

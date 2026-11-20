@@ -7,7 +7,8 @@ called, the module stays not complete, and the run ends escalated, naming every 
 Integration's issued state lists each owed sign-off, and the change check refuses a declaration
 that names such a module, in either mode, by name, so integration's next attempt can leave it out.
 Before every completion line the loop builds what the module's sign-off binds again from the graph
-and holds it to the module's latest item: values that moved with no item raised halt the run.
+and holds it to the module's latest item: values rewritten in the journal halt the run (a raise
+lost before it is raised again there, tested beside the raise's own rows).
 Replay holds each of these from the log alone.
 """
 
@@ -339,31 +340,6 @@ def test_a_process_killed_before_a_new_bound_node_s_raise_writes_it_on_resume(
     assert "sign_off" in {name for name, _ in _open(state)}
     assert CONTROL not in completions(events)
     assert step.kind == "wait"
-
-
-def test_a_raise_lost_for_a_new_bound_node_halts_the_run_before_the_stale_approve_counts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # The gate is off, so no follow-up reopens the control module after the closing pass.
-    rig, graph = journal_rig(tmp_path, gate_mode="off")
-    _closing_writes_a_new_bound(graph)
-    rig.dispatcher.during[3] = approving(tmp_path)
-    loop = journal_start(rig, closing=True)
-    _dies_before_the_closing_line(monkeypatch, loop)
-    with pytest.raises(KilledError):
-        loop.run()
-    loop.close()
-    # A process that does not ask the graph on resume, as one written before the backstop.
-    monkeypatch.setattr(Loop, "_raise_owed_at_start", lambda self: None)
-    events, step = resume(rig)
-    assert not [e for e in lines(events) if e.subtask_id == CLOSING]
-    # The first item's approve still counts by the log alone; the graph says otherwise, and the
-    # next clean merge, integration's, finds the values moved with no write of its own: halted.
-    assert step.kind == "halted"
-    (incident,) = [e for e in events if isinstance(e, Incident)]
-    assert incident.cause == "foreign_journal_line"
-    assert f"module {CONTROL}'s sign-off binds changed at the merge of {INTEG}" in incident.detail
-    assert completions(events) == []
 
 
 def _open(state: Any) -> tuple[tuple[str, str], ...]:  # noqa: ANN401
