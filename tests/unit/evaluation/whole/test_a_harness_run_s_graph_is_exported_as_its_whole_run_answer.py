@@ -615,9 +615,11 @@ def test_the_record_beside_the_answer_names_each_sign_off_owed_and_the_answer_s_
     assert written["taken_from"]["update_rate"] == ["firmware.loop_timing"]
     assert written["left_out"] == list(record.left_out)
     assert written["sign_offs_owed"] == ["c1"]
-    assert "c1" in written["sign_off"] or "sign_offs_owed" in written["sign_off"]
-    assert "no person" in written["sign_off"].lower()
-    assert "raw agent" in written["sign_off"]
+    said = written["sign_off"]
+    assert isinstance(said, str), said
+    assert "sign_offs_owed" in said
+    assert "no person" in said.lower()
+    assert "raw agent" in said
 
 
 def test_the_record_of_a_run_that_owes_no_sign_off_says_none_is_owed(tmp_path: Path) -> None:
