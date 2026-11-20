@@ -121,9 +121,16 @@ def _src() -> str:
     return json.dumps((environment() / "avrsim" / "src").as_uri())
 
 
-def _program(setup: str, seconds: float = 0.001, **more: Any) -> dict[str, Any]:
+#: The handler every vector of PROGRAM jumps to, unless a row gives its own words.
+HANDLER = "[...asm.inc(20), ...asm.reti()]"
+
+
+def _program(
+    setup: str, seconds: float = 0.001, handler: str = HANDLER, **more: Any
+) -> dict[str, Any]:
+    program = PROGRAM.replace(HANDLER, handler)
     found = _node(
-        PROGRAM % {"src": _src(), "setup": setup, "seconds": seconds, "more": json.dumps(more)}
+        program % {"src": _src(), "setup": setup, "seconds": seconds, "more": json.dumps(more)}
     )
     assert isinstance(found, dict)
     return found
@@ -651,3 +658,18 @@ def test_a_compare_flag_already_set_is_taken_once_its_enable_is_written() -> Non
         """
     )
     assert found == {"flagged": [0x08, False], "enabled": True}
+
+
+def test_an_interrupt_under_way_when_the_main_program_stalls_runs_to_its_reti() -> None:
+    # Timer0's overflow at clk/1024 (every 262,144 cycles) runs a handler of some 760 cycles.
+    # The main program stalls with interrupts off from cycle 262,400, inside the first handler:
+    # that handler still finishes in its usual time, and the later ones run as before.
+    handler = "[0xe010 | ((250 & 0xf0) << 4) | (250 & 0x0f), 0x951a, 0xf7f1, ...asm.reti()]"
+    found = _program(
+        "store(0x6e, 0x01); store(0x45, 0x05);",
+        seconds=0.05,
+        handler=handler,
+        stalls=[{"start_s": 262_400 / 16e6, "end_s": 0.02, "interrupts": False}],
+    )
+    isr = found["vectors"]["TIMER0_OVF"]
+    assert isr["count"] == 3 and isr["min"] == isr["max"] < 1000, isr

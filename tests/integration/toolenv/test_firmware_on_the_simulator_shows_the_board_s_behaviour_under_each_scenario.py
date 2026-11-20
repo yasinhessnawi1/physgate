@@ -440,3 +440,20 @@ def test_an_encoder_s_count_is_the_integral_of_its_rate_profile(
     summary, _ = simulate(env, elf, scenario(duration_s=0.2, encoders=encoders), tmp_path)
     assert summary["encoders"]["counts"]["left"] == 239
     assert summary["encoders"]["edges"]["left"] == 239
+
+
+def test_a_short_stall_with_interrupts_off_only_delays_what_was_due(
+    bench: tuple[Path, Path], tmp_path: Path
+) -> None:
+    env, elf = bench
+    # 5 ms, well inside the watchdog's 64 ms: nothing runs, and afterwards the firmware goes on.
+    summary, _ = simulate(
+        env, elf, scenario(stalls=[{"start_s": 0.3, "end_s": 0.305, "interrupts": False}]), tmp_path
+    )
+    assert summary["resets"] == [{"cycle": 0, "cause": "power_on"}]
+    update = summary["probes"]["update"]
+    assert update["entries"] >= 99
+    assert update["period_cycles"]["max"] >= _cycle(0.005)
+    assert _lines(summary)[-1] == f"G:{GYRO_Y} X:{round(1000 / 0.061)} A:0 L:0 R:0"
+    assert summary["motors"]["left"]["last"] == COMMAND
+    assert 0 < summary["stack"]["max_depth_bytes"] < 2560
