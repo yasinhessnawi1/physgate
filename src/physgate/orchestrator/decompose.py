@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import uuid
 from collections import Counter
@@ -36,7 +37,8 @@ from physgate.gate.catalogue import KINDS, QUALIFIERS, QUANTITIES, RELATIONS, sh
 from physgate.gate.units import UnitRefusedError
 from physgate.gate.units import parse as read_by_registry
 from physgate.hooks.settings import WEB_TOOLS, protected_in_a_worktree
-from physgate.knowledge.library import LibraryError, put_into, read_library
+from physgate.knowledge import loader
+from physgate.knowledge.library import LibraryError, put_into, read_library, skill_files
 from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end, writes_lost
@@ -59,7 +61,17 @@ from physgate.orchestrator.exceptions import (
     RunConfigError,
     RunStateError,
 )
-from physgate.orchestrator.git import commit_all, common_dir, git, init_repo
+from physgate.orchestrator.git import (
+    NO_TRANSPORT,
+    commit_all,
+    common_dir,
+    git,
+    git_bytes,
+    init_repo,
+    promisor,
+    shallow,
+    unreachable_from,
+)
 from physgate.orchestrator.invocation import (
     TRAFFIC_ALLOWED_VERSIONS,
     claude_binary,
@@ -1600,6 +1612,302 @@ def _require_library_fits(repo: Path, commit: str, curated: Mapping[Path, bytes]
                 raise DecompositionError(msg, path=name)
 
 
+#: Why a ``skills: off`` run refuses its target: a session's shell reads files, and both a commit
+#: the run branch descends from and an object in the store are files a command can open.
+SKILL_IN_TARGET = (
+    "under skills: off the target may hold no skill file, and it already holds one a session "
+    "of the run could read"
+)
+#: Why it refuses a store holding what no ref, reflog or stash reaches: such an object has no path
+#: left to judge it by, and a skill file of any version, an earlier run's among them, is one.
+UNREACHABLE_IN_TARGET = (
+    "under skills: off the target's store may hold no object that no ref, reflog or stash "
+    "reaches, since its content cannot be told from a skill file a session could read; an off "
+    "run starts from a fresh clone of the target made without sharing its object files (git "
+    "clone --no-local), and a target an earlier run used holds such objects once a merge of "
+    "that run was aborted"
+)
+#: Why it refuses a ref that names a file's content itself: that content has no path either.
+NAMELESS_IN_TARGET = (
+    "under skills: off no ref of the target may name a file's content directly, since it has no "
+    "path to judge it by and cannot be told from a skill file a session could read; delete the "
+    "ref, or start from a fresh clone of the target that leaves it out (git clone --no-local "
+    "--no-tags)"
+)
+#: Why it refuses a ref that names a tree directly: a tree has no path of its own, so a file in it
+#: cannot be judged by where it sits (a role's directory, tagged, holds skill.md at its root).
+TREE_IN_TARGET = (
+    "under skills: off no ref of the target may name a tree directly, since a tree has no path "
+    "of its own to judge its files by and any of them could be a skill file a session could "
+    "read; delete the ref, or start from a fresh clone of the target that leaves it out (git "
+    "clone --no-local --no-tags)"
+)
+#: Why it refuses a working tree of the target holding a skill file: a session's shell can read
+#: the target's working directories, whatever git tracks or ignores in them.
+SKILL_IN_WORKING_TREE = (
+    "under skills: off no working tree of the target may hold a skill file, tracked, untracked "
+    "or ignored, and one holds a file a session of the run could read; remove it, or start from "
+    "a fresh clone of the target"
+)
+#: Why it refuses a link where a skill file or its directory goes: it could name one anywhere.
+LINK_IN_WORKING_TREE = (
+    "under skills: off no working tree of the target may hold a link where a skill file or its "
+    "directory goes, since it could name a skill file anywhere; remove it, or start from a fresh "
+    "clone of the target"
+)
+#: Why it refuses a working tree it cannot list: what it holds cannot be judged.
+UNREADABLE_WORKING_TREE = (
+    "under skills: off every working tree of the target must be judged, and one could not be listed"
+)
+#: Why it refuses a target that is not a complete repository with a working tree: what it lacks
+#: cannot be judged, and what it lacks a partial clone fetches the moment it is read.
+BARE_TARGET = (
+    "under skills: off the target must be a complete repository with a working tree, and it is "
+    "a bare repository; start from a fresh clone of it (git clone --no-local)"
+)
+SHALLOW_TARGET = (
+    "under skills: off the target must be a complete repository, and it is a shallow clone, "
+    "whose missing history cannot be judged; start from a fresh full clone of it (git clone "
+    "--no-local, with no --depth)"
+)
+PARTIAL_TARGET = (
+    "under skills: off the target must be a complete repository, and it is a partial clone, "
+    "whose missing objects cannot be judged and would be fetched to be read; start from a fresh "
+    "full clone of it (git clone --no-local, with no --filter)"
+)
+
+
+def _require_complete(repo: Path) -> None:
+    """Refuse, under ``skills: off``, a target the check cannot judge whole, before it reads one.
+
+    Bare (no working tree), shallow (commits missing) or partial (objects missing, fetched from
+    a remote on reading). The first is asked of git in the target, with every transport refused;
+    the last two are read from the git directory's files, with no git command run in it, so
+    nothing is fetched to decide.
+
+    Raises:
+        DecompositionError: the target is one of the three.
+        GitError: git could not read the target.
+    """
+    bare = git(repo, *NO_TRANSPORT, "rev-parse", "--is-bare-repository").strip()
+    if bare == "true":
+        raise DecompositionError(BARE_TARGET, where="a bare repository")
+    if shallow(repo):
+        raise DecompositionError(SHALLOW_TARGET, where="a shallow clone")
+    if promisor(repo):
+        raise DecompositionError(PARTIAL_TARGET, where="a partial clone")
+
+
+def _tips(repo: Path, commit: str) -> list[str]:
+    """Every object the target names: its refs' own objects, its reflogs', its worktrees' heads.
+
+    ``rev-list --all --reflog --objects --no-walk`` with every tree and blob below a commit
+    left out names each ref, reflog entry (a tag's included) and worktree ``HEAD`` by the object
+    it records, not by the commit it peels to. A ref that names the root tree of a commit it
+    also names is left out with that commit's trees, and is judged with that commit.
+    """
+    walked = git(
+        repo, *NO_TRANSPORT, "rev-list", "--all", "--reflog", "--objects", "--no-walk=unsorted",
+        "--filter=tree:0",
+    )  # fmt: skip
+    named = [line.split(maxsplit=1)[0] for line in walked.splitlines() if line.strip()]
+    return list(dict.fromkeys([commit, *named]))
+
+
+def require_no_skill_file(repo: Path, commit: str, skills: Mapping[Path, bytes]) -> None:
+    """Refuse, under ``skills: off``, a target that already holds a skill file in a session's reach.
+
+    Every worktree of the run shares the target's object store, and a session's shell can open
+    any file of it, so the whole store is judged, nothing written, no transport allowed:
+
+    - whole: a bare, shallow or partial target is refused first, since what it lacks cannot be
+      judged (and a partial clone would fetch it on reading);
+    - by path: every commit reachable from ``commit``, from every ref (every branch, tag, other
+      namespace, the stash, every worktree's ``HEAD``) and from every reflog entry (older stashes
+      included), for any role's skill file, ``knowledge/*/skill.md`` in any letter case, of any
+      bytes, added, changed or removed at any commit;
+    - by presence: any tree or blob a ref, a tag or a reflog entry names directly, and any object
+      none of the above reaches (a dropped stash, a file staged and never committed, a loose
+      object nothing names, what an aborted merge left behind), whatever it holds, since no path
+      is left to judge it by (a ref to the root tree of a commit another ref names is judged
+      with that commit);
+    - by content: the bytes of ``skills``, the library's own skill files, anywhere in the store,
+      under any path;
+    - in every working tree of the store, the target's own and each linked one: any file at
+      ``knowledge/*/skill.md`` in any letter case, tracked, untracked or ignored, and any link
+      where it or its directories go (:func:`_require_no_skill_in_working_trees`).
+
+    The tips are named by the target itself, a tag by its own object; the history and the
+    objects are read through clean object stores, which hold none of the target's refs, so the
+    tips are handed to them on standard input or as a store's own refs, never as arguments.
+
+    Not judged: skill content under another path, in bytes the library does not hold now (a
+    renamed copy, ``skill.md.bak`` among them, in the store or a working tree); a submodule's
+    own store, which is another repository; a file put into a working tree of the target after
+    this check ran.
+
+    Raises:
+        DecompositionError: one of the rules finds one.
+        GitError: git could not read the target, or its store's connectivity.
+    """
+    _require_complete(repo)
+    tips = _tips(repo, commit)
+    object_format = git(
+        repo, *NO_TRANSPORT, "rev-parse", "--show-object-format", objects_only=True
+    ).strip()
+    # Each tip as what it peels to: a commit's history, a tree's paths, or a blob with neither.
+    peeled = git(
+        repo, *NO_TRANSPORT, "cat-file", "--batch-check=%(objecttype) %(objectname)",
+        stdin="".join(f"{tip}^{{}}\n" for tip in tips), objects_only=True,
+    )  # fmt: skip
+    kinds: dict[str, list[str]] = {}
+    for line in peeled.splitlines():
+        kind, _, oid = line.partition(" ")
+        kinds.setdefault(kind, []).append(oid)
+    pattern = f":(icase){(loader.DEFAULT_ROOT / '*' / loader.SKILL_NAME).as_posix()}"
+    found = git(
+        repo,
+        *NO_TRANSPORT,
+        "rev-list",
+        "--full-history",
+        "-1",
+        "--stdin",
+        "--",
+        pattern,
+        stdin="".join(f"{oid}\n" for oid in dict.fromkeys(kinds.get("commit", []))),
+        objects_only=True,
+    ).strip()
+    if found:
+        raise DecompositionError(SKILL_IN_TARGET, where="refs", commit=found)
+    if kinds.get("tree"):
+        # A tree has no path of its own: any file in it, at any depth, could be a skill file.
+        raise DecompositionError(TREE_IN_TARGET, where="a tree a ref names", first=kinds["tree"][0])
+    if kinds.get("blob"):
+        raise DecompositionError(
+            NAMELESS_IN_TARGET, where="a blob a ref names", first=kinds["blob"][0]
+        )
+    unreachable = unreachable_from(repo, tips)
+    if unreachable:
+        kind, oid = unreachable[0]
+        raise DecompositionError(
+            UNREACHABLE_IN_TARGET,
+            where="unreachable objects",
+            count=str(len(unreachable)),
+            first=f"{kind} {oid}",
+        )
+    if skills:
+        by_id = {_blob_id(data, object_format): rel for rel, data in sorted(skills.items())}
+        listed = git(
+            repo,
+            *NO_TRANSPORT,
+            "cat-file",
+            "--batch-check",
+            stdin="".join(f"{oid}\n" for oid in by_id),
+            objects_only=True,
+        )
+        for line in listed.splitlines():
+            oid, _, kind = line.partition(" ")
+            if kind != "missing" and oid in by_id:
+                raise DecompositionError(
+                    SKILL_IN_TARGET, where="object store", path=by_id[oid].as_posix()
+                )
+    _require_no_skill_in_working_trees(repo)
+
+
+def _working_trees(repo: Path) -> list[Path]:
+    """Every working tree of the target's store: its own and each linked one, as git lists them.
+
+    Read as bytes and each path turned by :func:`os.fsdecode`: a worktree record is a file of the
+    target's own, so a path in it need not be UTF-8, and it is walked as the bytes it names.
+    """
+    listed = git_bytes(repo, *NO_TRANSPORT, "worktree", "list", "--porcelain", "-z")
+    field = b"worktree "
+    return [
+        Path(os.fsdecode(item[len(field) :]))
+        for item in listed.split(b"\0")
+        if item.startswith(field)
+    ]
+
+
+def _shown(name: Path | str) -> str:
+    """``name`` as a refusal names it: its bytes, with any that are no UTF-8 escaped."""
+    return os.fsencode(name).decode("utf-8", errors="backslashreplace")
+
+
+def _entries(directory: str, root: Path, relative: str) -> list[os.DirEntry[str]]:
+    """What ``directory`` holds, sorted by name, no link followed; a refusal if it cannot be read.
+
+    Raises:
+        DecompositionError: the directory could not be listed.
+    """
+    try:
+        with os.scandir(directory) as found:
+            return sorted(found, key=lambda entry: entry.name)
+    except OSError as exc:
+        raise DecompositionError(
+            UNREADABLE_WORKING_TREE,
+            where="a working tree",
+            worktree=_shown(root),
+            path=_shown(relative or "."),
+            error=type(exc).__name__,
+        ) from None
+
+
+def _require_no_skill_in_working_trees(repo: Path) -> None:
+    """Refuse a working tree of the target holding ``knowledge/*/skill.md``, in any letter case.
+
+    Each working tree of the store (:func:`_working_trees`) is listed from the file system, so
+    nothing git tracks, ignores or leaves untracked changes what is found; only the two levels
+    the pattern names are listed (``<root>/knowledge/*/``), so ``.git`` is never entered. No link
+    is followed: a link at ``knowledge``, at ``knowledge/<x>`` or at a skill file's own path is
+    refused, since it could name a skill file anywhere. A working tree whose directory is gone
+    holds nothing and is passed over.
+
+    Raises:
+        DecompositionError: a skill file or such a link in a working tree, or a working tree
+            that could not be listed.
+    """
+    top, leaf = loader.DEFAULT_ROOT.as_posix().casefold(), loader.SKILL_NAME.casefold()
+    for root in _working_trees(repo):
+        if not os.path.lexists(root):
+            continue
+        for knowledge in _entries(str(root), root, ""):
+            if knowledge.name.casefold() != top:
+                continue
+            _refuse_a_link(knowledge, root, knowledge.name)
+            if not knowledge.is_dir(follow_symlinks=False):
+                continue
+            for role in _entries(knowledge.path, root, knowledge.name):
+                where = f"{knowledge.name}/{role.name}"
+                _refuse_a_link(role, root, where)
+                if not role.is_dir(follow_symlinks=False):
+                    continue
+                for held in _entries(role.path, root, where):
+                    if held.name.casefold() == leaf:
+                        _refuse_a_link(held, root, f"{where}/{held.name}")
+                        raise DecompositionError(
+                            SKILL_IN_WORKING_TREE,
+                            where="a working tree",
+                            worktree=_shown(root),
+                            path=_shown(f"{where}/{held.name}"),
+                        )
+
+
+def _refuse_a_link(entry: os.DirEntry[str], root: Path, relative: str) -> None:
+    """Refuse ``entry`` if it is a link, at a path where a skill file or its directory goes.
+
+    Raises:
+        DecompositionError: it is a link.
+    """
+    if entry.is_symlink():
+        raise DecompositionError(
+            LINK_IN_WORKING_TREE,
+            where="a working tree",
+            worktree=_shown(root),
+            path=_shown(relative),
+        )
+
+
 #: The sentence integration's specification states the run's gate mode in, one per mode. The
 #: checks are the gate's: with them off there is no system-scope result to read, by design.
 #: Observing blocks no merge, but completion is a declaration, not work: a failed
@@ -2102,6 +2410,11 @@ def require_startable(
             raise PlanRefusedError(msg, node=node.id[:64], reason=str(exc)) from None
     try:
         curated = read_library(library, (one.entry.assigned_role for one in planned))
+        if config.skills == "off":
+            # The ablation arm: no skill file goes into the target, and none may be there already.
+            left_out = skill_files(curated)
+            require_no_skill_file(target_repo, config.target_head, left_out)
+            curated = {path: data for path, data in curated.items() if path not in left_out}
         # The series writer goes with the library: a role's scripts import it from
         # .physgate/lib, and the run branch holds the very bytes the harness ships.
         curated.update(series_library())

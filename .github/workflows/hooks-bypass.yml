@@ -184,6 +184,7 @@ jobs:
           tests/integration/hooks/test_each_pin_s_sessions_run_under_that_pin_s_own_environment.py
           tests/integration/hooks/test_no_shell_startup_file_runs_outside_the_sandbox.py
           tests/integration/hooks/test_hooks_off_leaves_the_os_layer_s_denials_as_they_are_through_the_real_binary.py
+          tests/integration/hooks/test_a_second_name_for_a_file_a_session_may_not_read_through_the_real_tool_path.py
 
       - name: No session writes a tier register inside the OS layer, on the real binary
         # The layer must run here: the variable turns the row's skip into a failure, and the

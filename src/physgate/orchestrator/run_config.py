@@ -321,7 +321,7 @@ BEFORE_THE_SWITCH: dict[str, str | bool] = {
 #: recorded before the switch existed.
 BUILT: dict[str, tuple[str, ...]] = {
     "reviewers": ("paired", "generalist", "off"),
-    "skills": ("on",),
+    "skills": ("on", "off"),
     "hooks": ("on", "off"),
 }
 
@@ -329,6 +329,7 @@ BUILT: dict[str, tuple[str, ...]] = {
 #: of the harness, so the product never sets one and no reportable number is measured under one.
 ABLATION_ONLY: dict[str, tuple[str, ...]] = {
     "reviewers": ("generalist", "off"),
+    "skills": ("off",),
     "hooks": ("off",),
 }
 

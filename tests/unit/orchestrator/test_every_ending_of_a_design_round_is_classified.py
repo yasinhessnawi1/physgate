@@ -289,7 +289,7 @@ def _startable(monkeypatch: pytest.MonkeyPatch, failing: str) -> Any:  # noqa: A
     class Planned:
         interface_nodes: tuple[Any, ...] = ()
 
-    config = type("C", (), {"target_head": "h"})()
+    config = type("C", (), {"target_head": "h", "skills": "on"})()
     return outcome_of(
         lambda: decompose.require_startable(
             Planned(),  # type: ignore[arg-type]
@@ -348,7 +348,7 @@ def test_a_node_id_that_is_no_node_id_is_the_plan_s_refusal(
     class Planned:
         interface_nodes = (Node(),)
 
-    config = type("C", (), {"target_head": "h"})()
+    config = type("C", (), {"target_head": "h", "skills": "on"})()
     found = outcome_of(
         lambda: decompose.require_startable(
             Planned(),  # type: ignore[arg-type]
