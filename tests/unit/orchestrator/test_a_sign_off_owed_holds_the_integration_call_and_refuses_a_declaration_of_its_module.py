@@ -65,6 +65,7 @@ from physgate.orchestrator.replay import Step, replay
 from physgate.orchestrator.waiting import printed_step
 
 SECOND = sign_off_item_id("run-1", CONTROL, 2)
+THIRD = sign_off_item_id("run-1", CONTROL, 3)
 #: A cross node sizing's closing pass writes that newly constrains the control module's node.
 LOAD = "sizing.load"
 
@@ -387,7 +388,8 @@ def test_a_held_approve_confirmed_after_a_later_item_superseded_it_records_only(
         False,
         "held_os_layer_off",
     )
-    assert replay(events).superseded == {FIRST: SECOND}
+    # The closing pass's raise supersedes the first item, and the follow-up's merge the second.
+    assert replay(events).superseded == {FIRST: SECOND, SECOND: THIRD}
     # The operator confirms it: what it signed is no longer the module's, so it records only.
     resumed = rig.open()
     _layer(resumed, present=False)
@@ -402,7 +404,7 @@ def test_a_held_approve_confirmed_after_a_later_item_superseded_it_records_only(
     assert state.signed == []
     assert FIRST in state.confirmed
     assert step.kind == "wait"
-    assert state.undecided(SECOND)
+    assert state.undecided(THIRD)
 
 
 def test_a_run_halted_at_a_merge_s_sign_off_line_is_not_asked_again_by_the_next_process(

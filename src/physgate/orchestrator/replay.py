@@ -98,6 +98,7 @@ from physgate.orchestrator.events import (
     Merged,
     ModuleCompleted,
     NodeFilesRepaired,
+    NoFollowUpOwed,
     OsLayerChecked,
     PartsGateRan,
     PartsRaisedAgain,
@@ -566,6 +567,8 @@ class RunState:
         self.sign_off_due: tuple[str, int] | None = None
         self.sign_off_after: tuple[str, int] | None = None
         self.sign_off_lines: dict[str, tuple[SignOffsRaised, RaisedItem]] = {}
+        #: The integration step's line that no follow-up is owed, where it wrote one.
+        self.no_follow_up: NoFollowUpOwed | None = None
 
     # -- following the log -------------------------------------------------------
 
@@ -838,6 +841,9 @@ class RunState:
             _refuse("nothing is dispatched or completed while a pair's contract result is owed")
         if isinstance(event, TokensUsed | EnvironmentRecorded):
             return  # attributed or recorded, never a transition
+        if isinstance(event, NoFollowUpOwed):
+            self._no_follow_up(event)
+            return
         if isinstance(event, IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated):
             self._integrate(event)
             return
@@ -1980,6 +1986,37 @@ class RunState:
                 return True
         return False
 
+    def follow_ups_decided(self) -> bool:
+        """Whether the record says which follow-ups the integration call is owed: each, or none.
+
+        The integration step reads them from the journal: it writes each one owed, or, where a
+        sign-off waits and none is, the line that none is (:meth:`no_follow_up_due`).
+        """
+        written = any(sub.followed_up is not None for sub in self.subtasks.values())
+        return written or self.no_follow_up is not None
+
+    def no_follow_up_due(self) -> bool:
+        """Whether the integration step, finding no follow-up owed, writes the line that says so.
+
+        Before the call, in a run that acts, while a sign-off item is undecided and the record
+        says nothing of the follow-ups: the sign-off's wait comes after them, since they can
+        change the values it binds, and replay learns that none is owed only from this line.
+        """
+        return self.integration is None and self._sign_off_waits() and not self.follow_ups_decided()
+
+    def _no_follow_up(self, event: NoFollowUpOwed) -> None:
+        """Take the line that no follow-up is owed: once, where the integration step decides them.
+
+        That is where the next step is the integration call's, the record says nothing of the
+        follow-ups yet, and a sign-off waits; anywhere else no step writes it.
+        """
+        if not self.no_follow_up_due() or self.next_step() != Step(kind="integrate"):
+            _refuse(
+                "a line that no follow-up is owed comes once, at the integration step, while a "
+                "sign-off item is undecided and before any follow-up"
+            )
+        self.no_follow_up = event
+
     def sign_off_owed(self, module: str, merged: str) -> bool:
         """Whether the clean merge of ``merged`` owes ``module`` a sign-off item, as the log says.
 
@@ -2288,6 +2325,8 @@ class RunState:
             _refuse("a follow-up comes before the integration call, under a gate that runs")
         if sub is not None and sub.followed_up is not None:
             _refuse("a module is followed up once")
+        if self.no_follow_up is not None:
+            _refuse("no follow-up comes after the line that none is owed")
         directory = self.subtasks[closing].plan.module_dir
         if (
             sub is None
@@ -2766,8 +2805,10 @@ class RunState:
             return Step(kind="wait", subtask_id=held)
         ran = self.integration
         if ran is None:
-            # A person's decision still to come on a failed contract's item, or on a sign-off owed.
-            waits = self._contract_item_open() or self._sign_off_waits()
+            # A person's decision still to come on a failed contract's item, or on a sign-off owed
+            # once the follow-ups, which can change what it binds, are decided by the step.
+            signs = self._sign_off_waits() and self.follow_ups_decided()
+            waits = self._contract_item_open() or signs
             return Step(kind="wait") if waits else Step(kind="integrate")
         blocked = (
             isinstance(ran, IntegrationGateRan)

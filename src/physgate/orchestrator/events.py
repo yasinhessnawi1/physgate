@@ -1054,6 +1054,19 @@ class FollowUpEnded(_Event):
     why: FollowUpWhy
 
 
+class NoFollowUpOwed(_Event):
+    """No follow-up is owed before the integration call, as the journal says where it is read.
+
+    Written by the integration step of a run that acts, where it decides the follow-ups sizing's
+    closing pass owes (ARCH-051) and finds none, while a person's sign-off is undecided
+    (ARCH-130). Follow-ups can change the values a sign-off binds, so the person is asked once
+    they are decided; replay cannot read the journal, and this line is how it knows they are.
+    Every other run writes none, and keeps its lines.
+    """
+
+    kind: Literal["no_follow_up_owed"] = "no_follow_up_owed"
+
+
 class DispatchHeld(_Event):
     """A subtask's dispatch is held: a subtask it reads from waits on a person, unmerged.
 
@@ -2028,6 +2041,7 @@ Event = Annotated[
     | SubtaskReopened
     | AttemptReturned
     | FollowUpEnded
+    | NoFollowUpOwed
     | DispatchHeld
     | DispatchReleased
     | FindingsRecorded

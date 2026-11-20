@@ -284,42 +284,44 @@ def test_a_closing_pass_that_moves_a_bound_value_raises_again_and_the_signature_
     events = read_events(tmp_path / "events.jsonl")
     second, third = (sign_off_item_id("run-1", CONTROL, n) for n in (2, 3))
     # The closing pass changed the plant's mass, which constrains the control loop: a second
-    # item, and the integration call waits for a decision on it.
+    # item. The follow-up it owes the control module merges on the values it left: a third, which
+    # supersedes the second, and the integration call waits for a decision on it.
     assert [(e.subtask_id, [i.item_id for i in e.raised]) for e in lines(events)] == [
         (CONTROL, [FIRST]),
         (CLOSING, [second]),
+        (CONTROL, [third]),
     ]
     assert step.kind == "wait"
     state = replay(events)
     assert state.signed == [FIRST]
+    assert state.superseded == {second: third}
     # The approve was of the first values, and the module's latest item shows others.
-    assert state.sign_offs[FIRST].values_sha256 != state.sign_offs[second].values_sha256
-    assert f"queue item {second} shows" in dict(open_preconditions(state, CONTROL))["sign_off"]
-    # The person signs the second; the follow-up the closing pass owed the control module merges
-    # again on the same values: a third item, which the second's approve already signs.
-    decide(tmp_path, "approve", "the margins hold with the new mass", item_id=second)
+    assert state.sign_offs[FIRST].values_sha256 != state.sign_offs[third].values_sha256
+    assert state.sign_offs[second].values_sha256 == state.sign_offs[third].values_sha256
+    assert f"queue item {third} shows" in dict(open_preconditions(state, CONTROL))["sign_off"]
+    # The person signs the values the call is made on, once.
+    decide(tmp_path, "approve", "the margins hold with the new mass", item_id=third)
     again = rig.open()
     layer(again)
     assert again.resume().kind == "done"
     again.close()
     events = read_events(tmp_path / "events.jsonl")
-    assert [(e.subtask_id, [i.item_id for i in e.raised]) for e in lines(events)][2:] == [
-        (CONTROL, [third])
-    ]
+    assert len(lines(events)) == 3
     state = replay(events)
-    assert state.signed == [FIRST, second]
-    assert state.sign_offs[second].values_sha256 == state.sign_offs[third].values_sha256
+    assert state.signed == [FIRST, third]
     assert completions(events) == [CONTROL, ELECTRICAL]
 
 
 def test_a_later_item_supersedes_the_module_s_item_no_decision_closed(tmp_path: Path) -> None:
     events, _ = driven(tmp_path, closing=True, graph_writes={CLOSING: [[plant(mass=0.41)]]})
-    second = sign_off_item_id("run-1", CONTROL, 2)
+    second, third = (sign_off_item_id("run-1", CONTROL, n) for n in (2, 3))
     state = replay(events)
-    assert state.superseded == {FIRST: second}
-    # What it showed is no longer the module's: it holds no wait, and the second does.
+    # The closing pass's raise supersedes the first, and the follow-up's merge the second.
+    assert state.superseded == {FIRST: second, second: third}
+    # What each showed is no longer the module's: it holds no wait, and the latest does.
     assert not state.undecided(FIRST)
-    assert state.undecided(second)
+    assert not state.undecided(second)
+    assert state.undecided(third)
     assert state.next_step().kind == "wait"
 
 

@@ -7,7 +7,7 @@ loop test uses.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -19,6 +19,13 @@ from physgate.orchestrator import record
 from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.events import Event, OsLayerChecked, read_events
 from physgate.orchestrator.loop import Loop
+from physgate.orchestrator.queue import (
+    PersonDecision,
+    ShownItem,
+    read_queue,
+    record_decision,
+    statuses_now,
+)
 from physgate.orchestrator.record import DecompositionSummary, PlanEntry
 from physgate.orchestrator.run_config import ModelStrings
 from physgate.oslayer.probe import Present
@@ -251,3 +258,57 @@ def before_the_sign_off_rule(monkeypatch: pytest.MonkeyPatch) -> None:
     hold its completion to that alone; what a sign-off does is tested with the rule in force.
     """
     monkeypatch.setattr(record, "SIGN_OFF_RULES", None)
+
+
+def sign_every_open_item(run_dir: Path, note: str | None = None) -> list[str]:
+    """A person approves every sign-off item no decision was recorded on; their ids, in order.
+
+    Each bound to the line the listing gives, as a person decides it from the listing.
+    """
+    view = read_queue(run_dir)
+    signed = []
+    for item in view.open_items():
+        if item.source != "sign_off":
+            continue
+        shown = ShownItem(
+            item_sha256=view.digests[item.item_id],
+            trajectories=statuses_now(run_dir, item.item_id),
+        )
+        record_decision(
+            run_dir,
+            item.item_id,
+            person=PersonDecision(verb="approve", note=note),
+            resolved_by="yasin",
+            shown=shown,
+        )
+        signed.append(item.item_id)
+    return signed
+
+
+def signing(drive: Callable[[], str], run_dir: Path) -> str:
+    """How the run ends when a person signs every sign-off item each time it waits on one.
+
+    ``drive`` runs a fresh process to the step it ends at. A wait with no sign-off item open is
+    another wait, and ends it as it is.
+    """
+    step = drive()
+    while step == "wait" and sign_every_open_item(run_dir):
+        step = drive()
+    return step
+
+
+@pytest.fixture
+def a_person_signing_at_every_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A person who approves every open sign-off item each time the loop may take a decision.
+
+    For tests of another path through a run that acts and plans a control module, which must go
+    on past the sign-off's wait in one process: the approves are on the record, and each is taken
+    where any decision is.
+    """
+    take = Loop._take_decisions  # noqa: SLF001 - wrapped, never replaced
+
+    def signed_first(self: Loop) -> bool:
+        sign_every_open_item(self.run_dir)
+        return take(self)
+
+    monkeypatch.setattr(Loop, "_take_decisions", signed_first)

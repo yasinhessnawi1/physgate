@@ -101,6 +101,7 @@ from physgate.orchestrator.events import (
     Merged,
     ModuleCompleted,
     NodeFilesRepaired,
+    NoFollowUpOwed,
     OsLayerChecked,
     OwedEdge,
     PartsGateRan,
@@ -3304,6 +3305,8 @@ class Loop:
             mode = self.config.gate_mode
             order = self.state.integrated()
             not_merged = tuple(s for s in order if self.state.subtasks[s].status != "done")
+            if (mode == "off" or not_merged or not order) and self._no_follow_up_owed():
+                return  # a skipped call is owed none; a sign-off's wait comes before the skip
             if mode == "off" or not_merged or not order:
                 reason: Literal["gate_mode=off", "not_all_merged", "nothing_planned"] = (
                     "gate_mode=off"
@@ -3323,7 +3326,7 @@ class Loop:
             if self._gate is None:
                 msg = f"the integration call cannot pass: gate mode is {mode!r} and no gate"
                 raise GateNotRegisteredError(msg, gate_mode=mode)
-            if not self._follow_ups(write=True):
+            if not self._follow_ups(write=True) or self._no_follow_up_owed():
                 return
             head = self._expected_run_head()
             if head is None:
@@ -3894,6 +3897,18 @@ class Loop:
         edges = followed.owed or ()
         return follow_up_order(lines, change_sets, closing, edges, followed.attempt - 1)
 
+    def _no_follow_up_owed(self) -> bool:
+        """Write the line that no follow-up is owed where it is due; whether it was written.
+
+        At the integration step, once it found none owed, in a run that acts while a sign-off
+        item is undecided and the record says nothing of the follow-ups: the person is then
+        asked after them, on the values the call is made on (ARCH-130).
+        """
+        if not self.state.no_follow_up_due():
+            return False
+        self._emit(NoFollowUpOwed(**self._env()))
+        return True
+
     def _follow_ups(self, *, write: bool) -> bool:
         """The follow-ups on the record are what the journal owed where the first was written.
 
@@ -3901,10 +3916,19 @@ class Loop:
         plan order, each reopening its domain module at its next attempt, by code (ARCH-051), and
         whether the call may run now is returned. A process killed between two of them left a
         plan-order prefix, and the rest follows; once any of their attempts began, none does.
-        Otherwise, whether what is recorded holds. A difference halts the run.
+        Otherwise, whether what is recorded holds. A difference halts the run. The line that no
+        follow-up is owed is held the same way, to what the journal owed where it was written:
+        after it, none is written.
         """
         self._follow_ups_checked = True
         events = self.log.events
+        none = self.state.no_follow_up
+        if none is not None:
+            if self._owed(events[: none.seq]):
+                detail = "the journal owed a follow-up where the record says no follow-up is owed"
+                self._incident(None, "foreign_journal_line", detail)
+                return False
+            return True
         taken = [e for e in events if isinstance(e, SubtaskReopened) and e.cause is not None]
         if not taken and not write:
             return True
