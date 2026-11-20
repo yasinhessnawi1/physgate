@@ -400,7 +400,9 @@ def test_a_resume_after_a_halt_before_a_raise_only_the_graph_owes_writes_it_and_
     resumed = _after(events, Resumed)
     assert halt.seq < resumed.seq
     assert (resumed.subtask_id, resumed.attempt, resumed.point) == (CLOSING, 1, "diff")
-    (line,) = [e for e in lines(events) if e.subtask_id == CLOSING]
+    closing = [e for e in lines(events) if e.subtask_id == CLOSING]
+    assert len(closing) == 1, "the closing pass's merge wrote no sign-off line of its own"
+    line = closing[0]
     assert line.seq > resumed.seq
     assert [i.item_id for i in line.raised] == [SECOND]
     assert LOAD in {v.node_id for v in line.raised[0].bound}
@@ -433,7 +435,9 @@ def test_a_resume_after_a_halt_before_a_raise_the_log_owes_writes_it_and_goes_on
     events, step = _resumed(rig)
     resumed = _after(events, Resumed)
     assert (resumed.subtask_id, resumed.attempt, resumed.point) == (CONTROL, 1, "diff")
-    (line,) = [e for e in lines(events) if e.subtask_id == CONTROL]
+    own = [e for e in lines(events) if e.subtask_id == CONTROL]
+    assert len(own) == 1, "the control module's merge wrote no sign-off line of its own"
+    line = own[0]
     assert line.seq > resumed.seq
     assert [i.item_id for i in line.raised] == [FIRST]
     assert [i.item_id for i in read_queue(tmp_path).items].count(FIRST) == 1
