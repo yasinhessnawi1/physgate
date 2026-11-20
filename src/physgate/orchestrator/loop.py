@@ -497,10 +497,27 @@ def _account(told: list[str]) -> str:
     )
 
 
-def _follow_up_end(now: AttemptState | None) -> str:
-    """How a module's follow-up ended, in the record's structured fields; ``now`` is its attempt."""
+def _follow_up_end(now: AttemptState | None, sub: SubtaskState) -> str:
+    """How a module's follow-up ended, in the record's structured fields; ``now`` is its attempt.
+
+    With none written, why none was owed, as the closing pass's candidates rule it out: the module
+    merged on its fix; its one fix after a rejected sign-off ended unmerged, so its earlier merge
+    stands; it is at the last attempt number; or its order no read shows whole.
+    """
     if now is None:
-        return "none owed (merged on its fix, or its order no read shows whole)"
+        last = sub.attempts[-1] if sub.attempts else None
+        if any(attempt.fix for attempt in sub.attempts):
+            return "none owed: it merged on its fix"
+        if sub.sign_off_fixed is not None and last is not None and last.merged is None:
+            return (
+                "none owed: its one fix after a rejected sign-off ended without a merge, and its "
+                "earlier merge stands"
+            )
+        if last is not None and last.number >= ATTEMPT_LIMIT:
+            return (
+                "none owed: it is at the last attempt number, with no attempt left to reopen it at"
+            )
+        return "none owed: its order is longer than its reviewer can read whole"
     if now.merged is not None:
         return f"its follow-up merged at attempt {now.number}"
     said = [f"its follow-up ended {why_not_merged(now)}"]  # one of its enum's words, by code
@@ -4038,7 +4055,7 @@ class Loop:
             who = render.held(
                 subtask_id, SUBTASK_PATTERN, PLANNED_ID_MAX_LENGTH, render.REFUSED_SUBTASK
             )
-            told.append(f"{who} (owed {named}): {_follow_up_end(now)}")
+            told.append(f"{who} (owed {named}): {_follow_up_end(now, sub)}")
         return _account(told)
 
     def _follow_up_order(self, followed: SubtaskReopened) -> PersonOrder:

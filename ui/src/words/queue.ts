@@ -543,6 +543,14 @@ const SIGN_OFF_NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
   superseded:
     "Recorded only: a later sign-off item on the module replaced this one, so the values it " +
     "showed are no longer the module's.",
+  // The item said why a reject records only: its one fix was ordered already, it had no attempt
+  // left, or it was not merged then or the integration call was made.
+  record_only_source:
+    "Recorded only: as the item said, no fix could be ordered for the module, so it stays not " +
+    "complete and its sign-off owed.",
+  order_too_long:
+    "Recorded only: with your note, the fix's order would be longer than its reviewer can read " +
+    "whole, so no fix was ordered; the module stays not complete and its sign-off owed.",
 };
 
 /**

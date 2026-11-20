@@ -728,3 +728,56 @@ def test_the_decision_sequence_names_the_line_that_no_follow_up_is_owed() -> Non
     # The control module's item, then the electrical module's merge, then the integration step
     # finding no follow-up owed while the item waits: where the run's log ends.
     assert steps[-5:] == ["sign_offs_raised", "gate", "review", "merged", "no_follow_up_owed"]
+
+
+# --- what the integration item tells of a module the closing pass reached and did not reopen ---
+
+
+def _told(run_dir: Path) -> str:
+    """The integration item's words: what it tells of the modules sizing's closing pass reached."""
+    (found,) = [i for i in read_queue(run_dir).items if i.source == "gate_escalation"]
+    return found.decision_required
+
+
+def test_the_integration_item_says_a_module_at_the_last_attempt_number_was_owed_no_follow_up(
+    tmp_path: Path,
+) -> None:
+    # Merged at its third attempt, rejected, fixed at its fourth, the last: the closing pass then
+    # reaches it, and the integration call fails, so the item tells what came of its edges.
+    gate = FakeGate(verdicts=["pass", "fail", "fail"], integration_verdict="fail")
+    rig, graph = journal_rig(tmp_path, gate=gate)
+    _closing_moves_the_plant(graph)
+    rig.dispatcher.during[5] = rejecting(tmp_path)
+    drive(rig, closing=True)
+    decide(tmp_path, "approve", NOTE, item_id=THIRD)
+    resume(rig)
+    said = _told(tmp_path)
+    assert f'"{CONTROL}" (owed' in said, said
+    assert "none owed: it is at the last attempt number, with no attempt left to reopen it at" in (
+        said
+    )
+    assert "merged on its fix" not in said
+
+
+def test_the_integration_item_says_a_module_whose_sign_off_fix_ended_was_owed_no_follow_up(
+    tmp_path: Path,
+) -> None:
+    # The person rejects the control module's first item before the closing pass; its fix is
+    # rejected by the gate and ends; the closing pass then reaches its standing merge.
+    gate = FakeGate(verdicts=["pass", "pass", "pass", "fail"], integration_verdict="fail")
+    rig, graph = journal_rig(tmp_path, gate=gate)
+    _closing_moves_the_plant(graph)
+    rig.dispatcher.during[3] = rejecting(tmp_path)
+    events, step = drive(rig, closing=True)
+    assert [e.subtask_id for e in events if isinstance(e, SignOffFixEnded)] == [CONTROL]
+    # The closing pass moved what the standing merge's sign-off binds: the person is asked again,
+    # signs, and the call is made on those values.
+    assert step.kind == "wait"
+    decide(tmp_path, "approve", NOTE, item_id=SECOND)
+    resume(rig)
+    said = _told(tmp_path)
+    assert f'"{CONTROL}" (owed' in said, said
+    assert (
+        "none owed: its one fix after a rejected sign-off ended without a merge, and its earlier "
+        "merge stands"
+    ) in said

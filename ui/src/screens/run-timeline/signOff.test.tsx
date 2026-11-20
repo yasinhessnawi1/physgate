@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import { runEvent } from "../../api/events";
-import { rowsOf } from "../common/rows";
+import { notMergedWords, rowsOf } from "../common/rows";
 import { supersededOutcome, supersededWords, takenWords } from "../../words/queue";
 
 const MODELS = { roleModels: {}, decompositionModel: "claude-sonnet-5", reviewerModels: {} };
@@ -62,6 +62,20 @@ describe("what a decision on a sign-off item did is said in its own words", () =
     expect(takenWords(taken({ whyNot: "superseded" }), "contract")).toContain("a choice on");
   });
 
+  it("a reject the item said records only, or whose order is too long, says the sign-off stays owed", () => {
+    const said = takenWords(taken({ whyNot: "record_only_source" }), "sign_off");
+    const long = takenWords(taken({ whyNot: "order_too_long" }), "sign_off");
+    expect(said).toBe(
+      "Recorded only: as the item said, no fix could be ordered for the module, so it stays not " +
+        "complete and its sign-off owed.",
+    );
+    expect(long).toContain("no fix was ordered; the module stays not complete");
+    for (const words of [said, long]) {
+      expect(words).not.toMatch(/record_only_source|order_too_long|\(/);
+      expect(words).not.toContain("subtask ended rejected");
+    }
+  });
+
   it("an open sign-off item a later one replaced says so, not that a choice reopened a module", () => {
     expect(supersededWords("r-SIGNOFF-c1-r2", "sign_off")).toContain(
       "A later sign-off item on the module, r-SIGNOFF-c1-r2, replaced this one",
@@ -70,6 +84,19 @@ describe("what a decision on a sign-off item did is said in its own words", () =
       "a later sign-off item on the module, r-SIGNOFF-c1-r2, replaced this one",
     );
     expect(supersededWords("r-contract-1")).toContain("A choice on r-contract-1 reopened");
+  });
+});
+
+describe("how a one-attempt follow-up or fix ended is said in words, never as its field", () => {
+  it("each reason the record gives reads as a phrase, every underscore gone", () => {
+    const said = ["rejected", "blocked", "no_verdict", "for_a_person"].map(notMergedWords);
+    expect(said).toEqual([
+      "the gate or its review rejected it",
+      "its review was blocked",
+      "its review reached no verdict",
+      "it was set aside for a person",
+    ]);
+    expect(notMergedWords("a_new_reason")).toBe("a new reason");
   });
 });
 
@@ -115,7 +142,9 @@ describe("each line a sign-off writes is a timeline row", () => {
       "No follow-up is owed before the integration call; the run waits for a person's sign-off",
     );
     expect(said).toContain(
-      "Subtask 1's fix after a rejected sign-off ended without a merge (rejected), and is not retried",
+      "Subtask 1's one fix after a rejected sign-off ended without a merge (the gate or its review " +
+        "rejected it), and is not retried: its earlier merge stands, its sign-off stays owed, and " +
+        "nothing left in this run can give it",
     );
     expect(said).toContain(
       "Subtask 1's sign-off was asked for again (r-SIGNOFF-c1-r2): the values it binds had moved with " +
