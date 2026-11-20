@@ -563,7 +563,7 @@ def test_the_gyroscope_s_turn_on_runs_from_its_power_up_write_whatever_rate_is_s
         const settled = [17, 18, 19].map((n) => [status(k(n)), y(k(n))]);
         // Power-down inside the turn-on ends it; a power-up begins a new one of 80 ms.
         write(0x11, [0x00], 1); write(0x11, [0x58], 1.01); write(0x11, [0x40], 1.05);
-        const again = [status(1.089), status(1.0905), y(1.0905 + 2 / 104)];
+        const again = [y(1.06), status(1.089), status(1.0905), y(1.0905 + 2 / 104)];
         out({ early, settled, again, before: sensor.counts.read_before_any_sample });
         """,
         rate="1.0",
@@ -572,8 +572,9 @@ def test_the_gyroscope_s_turn_on_runs_from_its_power_up_write_whatever_rate_is_s
     assert found["early"] == [[0, -32768]] * 4
     assert found["settled"] == [[2, -32768], [2, -32768], [2, y]]
     # From 1.01 s (power-up) to 1.09 s; at 104 Hz from 1.05 s the first sample is at 1.05 + 5 /
-    # 104 = 1.0981 s, so at 1.0905 s none yet; two to discard follow it.
-    assert found["again"] == [0, 0, -32768]
+    # 104 = 1.0981 s, so at 1.0905 s none yet; two to discard follow it. Read before that first
+    # sample (at 1.06 s), the outputs hold the last sample read.
+    assert found["again"] == [y, 0, 0, -32768]
     # Each high byte read before the first sample is counted: four reads of three axes.
     assert found["before"] == {"gyro": 12, "accel": 0}
 

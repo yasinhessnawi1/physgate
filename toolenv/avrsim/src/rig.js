@@ -1029,9 +1029,7 @@ export class Rig {
     const timeline = this.offTimeline;
     for (let i = 0; i < timeline.length; i += 1) {
       const [from, off] = timeline[i];
-      if (from >= end) break;
-      const next = i + 1 < timeline.length ? timeline[i + 1][0] : null;
-      const until = next !== null && next < end ? next : null;
+      const until = i + 1 < timeline.length ? timeline[i + 1][0] : null;
       if (!off || (until !== null && until <= cycle)) continue;
       const start = Math.max(from, cycle);
       if ((until ?? end) - start < this.hold) continue;

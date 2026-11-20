@@ -192,8 +192,8 @@ export class LSM6DS33 {
     this.registers.fill(0);
     this.registers[LSM6.WHO_AM_I] = WHO_AM_I_VALUE;
     for (const [address, value] of Object.entries(RESET_VALUES)) this.registers[address] = value;
-    // `held`: what the outputs hold, null before any sample; `onUntil`: the gyroscope's turn-on
-    // end while it lasts.
+    // `held`: what the outputs hold, null before any sample; `onUntil`: the end of the
+    // gyroscope's turn-on from its last power-down.
     const sensor = () => ({ odr: 0, code: 0, t0: t, read: 0, first: 1, valid: 1, held: null,
       latch: [null, null, null], cache: null, onUntil: null }); // prettier-ignore
     this.gyro = sensor();
@@ -259,10 +259,7 @@ export class LSM6DS33 {
     sensor.latch = [null, null, null];
     sensor.cache = null;
     this.settleAgain(which === 'gyro' ? 'accel' : 'gyro', t);
-    if (!odr) {
-      sensor.onUntil = null;
-      return;
-    }
+    if (!odr) return;
     if (which === 'gyro' && fromPowerDown) sensor.onUntil = t + GYRO_TURN_ON_S;
     // `first`: the first sample the part takes, none before the turn-on's end; `valid`: the first
     // one that is not discarded.
