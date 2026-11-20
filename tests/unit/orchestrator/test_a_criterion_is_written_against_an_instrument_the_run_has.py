@@ -7,11 +7,13 @@ person says which parts they have, so the prompt takes no board as connected unl
 so. Without a board, behaviour on the target is checked in a simulator only where the run's
 environment provides one: the prompt promises none, since a run environment may give firmware a
 compiler and no simulator, and it names no product, since it does not know which is installed.
-Otherwise a criterion is written against what can be measured (that the code compiles without
-warnings, its size, and a check of its logic with the tools the environment provides), and the
-specification says behaviour on the target is not measured in this run. It names no instrument the
-run's environment may lack (a static analyser, a host compiler for tests): a criterion written
-against one could not be evaluated and would block the module. The same plan gave firmware no
+Otherwise a criterion is written against what can be measured (that the code compiles without a
+warning in the module's own files, its size, and a check of its logic with the tools the
+environment provides), and the specification says behaviour on the target is not measured in this
+run. It names no instrument the run's environment may lack (a static analyser, a host compiler for
+tests): a criterion written against one could not be evaluated and would block the module. Nor
+does it ask for a build with no warning at all, which the board's own core and libraries print on
+every build. The same plan gave firmware no
 value for its command timeout, its sensor-fault rule, its reset state, its limits or its bus
 timeout, so firmware could only end blocked; the prompt asks each specification to state every
 limit, timeout and fault behaviour its module must implement, with a value. A module's own limit
@@ -46,9 +48,10 @@ INSTRUMENT = (
     "Write each criterion only against what the run's environment can measure. No board is "
     "connected unless the brief says so; without one, behaviour on the target is checked in a "
     "simulator only where the run's environment provides one, and otherwise the criterion is "
-    "written against what can be measured (that the code compiles without warnings, its size, and "
-    "a check of its logic with the tools the environment provides) and the specification states "
-    "that behaviour on the target is not measured in this run."
+    "written against what can be measured (that the code compiles without a warning in the "
+    "module's own files, its size, and a check of its logic with the tools the environment "
+    "provides) and the specification states that behaviour on the target is not measured in this "
+    "run."
 )
 STATED = (
     "Each module's specification states, with a value, every limit, timeout and fault behaviour "

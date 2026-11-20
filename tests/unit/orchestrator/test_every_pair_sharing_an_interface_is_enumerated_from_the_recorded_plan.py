@@ -86,9 +86,9 @@ INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c3296
 #: bbf7b8f3427d... and f0cefb5fb842....
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "1fd3caa37588ee3e50f6192aa4bc6ec9267c1b29dab6676d9e1279d2f0241bbd"
+        "215bb9b264993bafcfb04f5cfe0ef155130892c8834ff2088d6226e4db4d67ec"
     ),
-    BOTH: "d646076b090b57c9dc436f92ba6d95091e5187d08b47b9d5b4a189d5bbb548ac",
+    BOTH: "ec4de60564d1bc0c41b16c0107af3caa6aefdd8f11a87b1d199a3cb3f543cb9b",
 }
 
 

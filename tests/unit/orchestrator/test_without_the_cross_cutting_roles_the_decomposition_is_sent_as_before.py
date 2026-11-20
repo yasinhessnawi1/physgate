@@ -84,14 +84,14 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: Before a criterion's measurable checks named no instrument the environment may lack:
 #: db3460bb33af..., 54927b0efe85... and 7cefa8af5171....
 PROMPT_SHA256 = {
-    ("control", "firmware"): "ccb2befddeb4cb077b3d322941a0deac66346cbdef0766992c695523bd4792e3",
-    ("electrical",): "fdd9e6c2b35f56e51377f72581d9001eeabd946146235bdbb4c5f9cce0582e69",
+    ("control", "firmware"): "0855254a33127995ced0fb1e81ab4474895a4ab5d553888cf6349e3d04a49e3d",
+    ("electrical",): "0a3dc6ded3ef651ceed802c9a415b787402edd70ff855a9c006eb1bd93354072",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "336d43c94f1f43080cc66fc05bc7cad2fc4861329dba6a449e5f54bc9acacde4",
+    ): "6733365870b192d21e3c5fae4e55df1b956296ab2f421fa1991a05db097a4c35",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -140,9 +140,9 @@ PROMPT = (
     "run's environment can measure. No board is connected unless the brief says so; without "
     "one, behaviour on the target is checked in a simulator only where the run's environment "
     "provides one, and otherwise the criterion is written against what can be measured (that "
-    "the code compiles without warnings, its size, and a check of its logic with the tools the "
-    "environment provides) and the specification states that behaviour on the target is not "
-    "measured in this run. Each "
+    "the code compiles without a warning in the module's own files, its size, and a check of "
+    "its logic with the tools the environment provides) and the specification states that "
+    "behaviour on the target is not measured in this run. Each "
     "module's specification states, with a value, every limit, timeout and fault behaviour the "
     "module must implement, and names the interface node that carries one only where both sides "
     "must agree on its value.\n\n"

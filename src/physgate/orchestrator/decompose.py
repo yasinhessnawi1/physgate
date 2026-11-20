@@ -808,9 +808,10 @@ SOLUTION_SENTENCE = (
 #: before a person says which parts they have, so no board is taken as connected unless the
 #: brief says so. A run environment may give firmware a compiler and no simulator, so the prompt
 #: promises none: a simulator is used only where the environment provides one, and otherwise a
-#: criterion is held to what can be measured (the build without warnings, its size, a check of
-#: its logic with the environment's own tools), with behaviour on the target said to be
-#: unmeasured. No static analyser or host compiler is named, as the environment may have none.
+#: criterion is held to what can be measured (the build with no warning in the module's own
+#: files, as the board's core and libraries print their own; its size; a check of its logic with
+#: the environment's own tools), with behaviour on the target said to be unmeasured. No static
+#: analyser or host compiler is named, as the environment may have none.
 #: No product is named here, since the prompt does not know which is installed. A plan that
 #: gave a module no value for its timeouts, limits or fault rules left that module nothing it
 #: could build to, so each is stated with a value in the module's specification; an interface
@@ -829,9 +830,9 @@ CRITERION_FORM_SENTENCE = (
     "run's environment can measure. No board is connected unless the brief says so; without "
     "one, behaviour on the target is checked in a simulator only where the run's environment "
     "provides one, and otherwise the criterion is written against what can be measured (that "
-    "the code compiles without warnings, its size, and a check of its logic with the tools the "
-    "environment provides) and the specification states that behaviour on the target is not "
-    "measured in this run. Each "
+    "the code compiles without a warning in the module's own files, its size, and a check of "
+    "its logic with the tools the environment provides) and the specification states that "
+    "behaviour on the target is not measured in this run. Each "
     "module's specification states, with a value, every limit, timeout and fault behaviour the "
     "module must implement, and names the interface node that carries one only where both sides "
     "must agree on its value."
