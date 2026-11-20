@@ -17,6 +17,8 @@ integration alone, ``_alone``); each session's stream path is cut to the run's o
 run that records decisions, none is taken on the sign-off item: ``records_a_sign_off_owed`` and
 ``records_a_sign_off_owed_alone`` end escalated with only the sign-off open, and
 ``records_a_sign_off_owed_and_a_failed_call`` with the system-scope call failed as well;
+``records_a_sign_off_owed_and_a_call_failed_under_observe`` with it failed under ``observe``, so
+integration ran and merged declaring nothing;
 ``records_a_sign_off_owed_and_integration_escalated`` with the call passed and integration's own
 subtask escalated, every one of its attempts declaring the control module and refused. In a run
 that acts, ``acts_waiting_on_a_sign_off`` waits for the person before the integration call,
@@ -579,12 +581,20 @@ def test_a_run_that_acts_is_exported_once_a_person_signed(tmp_path: Path) -> Non
     assert record.sign_offs_owed == ()
 
 
+@pytest.mark.parametrize(
+    "recorded",
+    [
+        # The system-scope call failed under ``on``: integration's subtask never ran.
+        "records_a_sign_off_owed_and_a_failed_call",
+        # It failed under ``observe``: integration ran and merged, declaring nothing.
+        "records_a_sign_off_owed_and_a_call_failed_under_observe",
+    ],
+)
 def test_a_module_whose_sign_off_is_owed_with_another_precondition_open_is_unfinished(
-    tmp_path: Path,
+    tmp_path: Path, recorded: str
 ) -> None:
     # The run records decisions, and the system-scope call failed: the control module's
     # sign-off is owed, and so is a passing call. It did not end only for want of a signature.
-    recorded = "records_a_sign_off_owed_and_a_failed_call"
     run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
     record, out = _export(run, tmp_path)
     assert record.status == "unfinished"

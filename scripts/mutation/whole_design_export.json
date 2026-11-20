@@ -17,7 +17,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -38,7 +39,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -59,7 +61,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -80,7 +83,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -101,7 +105,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -122,7 +127,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -143,7 +149,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -164,7 +171,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -185,7 +193,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -206,7 +215,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -227,7 +237,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -248,7 +259,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -269,7 +281,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -290,7 +303,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -311,7 +325,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -332,7 +347,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -353,7 +369,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -374,7 +391,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -395,7 +413,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -416,7 +435,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -437,7 +457,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -458,7 +479,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -479,7 +501,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -500,7 +523,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -521,7 +545,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -542,7 +567,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -563,7 +589,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -584,7 +611,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -605,7 +633,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -626,7 +655,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -647,7 +677,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -668,7 +699,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -689,7 +721,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -710,7 +743,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   },
   {
@@ -731,7 +765,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl"
     ]
   }
 ]
