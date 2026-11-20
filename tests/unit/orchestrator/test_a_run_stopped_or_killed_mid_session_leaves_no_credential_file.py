@@ -57,7 +57,8 @@ NAMES = frozenset({LOGIN_FILE, KEY_FILE, KEY_HELPER})
 CREDENTIAL_VARIABLES = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
 DUMMY = "dummy-not-a-credential"
 #: What the fake starts in its own group as it stops (``writer``): it says its pid, then writes the
-#: login file again and again until it is killed.
+#: login file again and again until it is killed. The fake ends only once the writer has said its
+#: pid, so the writer is running when the stop meets it, however loaded the machine.
 WRITER = """#!/bin/sh
 echo $$ > "$WRITER_PID"
 while :; do
@@ -76,7 +77,7 @@ login() { printf '%s' '{"dummy": "not-a-credential"}' > "$CLAUDE_CONFIG_DIR/.cre
 case "$ON_TERM" in
   ignore) trap '' TERM ;;
   rewrite) trap 'login; exit 143' TERM ;;
-  writer) trap '"$WRITER" & exit 143' TERM ;;
+  writer) trap '"$WRITER" & while [ ! -s "$WRITER_PID" ]; do sleep 0.01; done; exit 143' TERM ;;
 esac
 login
 : > "$READY"
