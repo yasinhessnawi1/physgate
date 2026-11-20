@@ -266,9 +266,10 @@ def test_a_vector_that_left_out_other_tasks_than_the_record_flags_is_refused(
     tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     visible, held, valid = _measured_all(tmp_path, made)
-    # The record replaced by another that flags another task: the vector is not its count.
+    # The record replaced by hand by another that flags another task (the writer refuses once
+    # a result exists): the vector is not its count.
     api(f"{CHECKS}.check_path")(made.store, "control", made.version).unlink()
-    record_check(made.store, made.version, [made.tasks["held_out"][1].id])
+    record_check(made.store, made.version, [made.tasks["held_out"][1].id], by_hand=True)
     code, said, _ = _gaps(capsys, tmp_path, design(made, visible), visible, held, valid)
     assert (code, said.get("refused_because")) == (1, "left_out_differs")
 

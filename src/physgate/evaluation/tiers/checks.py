@@ -28,7 +28,10 @@ stop.
 **Before any result.** A check, or an import, of a version is refused once the version has a
 measurement or an exposure in the register, or any run or raw record names it
 (:func:`physgate.evaluation.tiers.exposure.results_refusal`): what is left out is chosen before
-any result exists, and never after, even if a record was removed.
+any result exists, and never after, even if a record was removed. Both hold the role's work
+root from their first look until the record is in place, so no baseline trial is made beside
+them, and the look is made again under the writers' lock, with the register held from its
+writers, just before the rename (:func:`write_check`).
 
 **Read whole, or refused** (:func:`read_check`): a link, anything but a plain file of its own,
 a file larger than any record, one that is not a record, one whose digest is not its own, or
@@ -430,17 +433,27 @@ def write_check(store: Path, role: Role, record: CheckRecord) -> None:
     is made (a hard link inside the protected root would trip every later session's
     tripwire). The temporary name is removed whatever happens.
 
+    Just before the rename, under the lock and with the register held from its writers, the
+    look for a result of the version is made again (``results_refusal``): what a check leaves
+    out is chosen before any result exists, and a result that came after the caller's own look
+    is not missed. A sync of the directory that fails after the rename leaves the record in
+    place, and says so.
+
     Raises:
         CheckError: it is another role's (``check_record_not_the_version``), or the version has
-            a record already (``check_recorded``), or it cannot be written
-            (``check_record_unwritten``).
-        ExposureError: asked for inside a harness session's environment.
+            a record already (``check_recorded``), or a result of it exists now (its own
+            reason, nothing written), or it cannot be written (``check_record_unwritten``), or
+            it is written but its directory's sync failed (``check_record_unsynced``).
+        ExposureError: asked for inside a harness session's environment, or the register or
+            the run roots cannot be read whole (nothing written).
     """
     from physgate.evaluation.tiers.exposure import _refuse_inside_a_session
 
     _refuse_inside_a_session()
     if record.role != role:
         raise _refuse("check_record_not_the_version", "the check record is another role's")
+    from physgate.evaluation.tiers.exposure import holding_register, results_refusal
+
     path = check_path(store, role, record.version)
     if os.path.lexists(path):
         raise _recorded(record)
@@ -467,8 +480,18 @@ def write_check(store: Path, role: Role, record: CheckRecord) -> None:
             # Under the lock no other writer makes a record: one there now is never replaced.
             if os.path.lexists(path):
                 raise _recorded(record)
-            os.rename(temporary, path)
-            _sync_directory(path.parent)
+            # The look for a result of the version, made again just before the record is put
+            # in place, with the register held from its writers until it is: no measurement or
+            # exposure line comes between this look and the rename.
+            with holding_register(store, role):
+                refusal = results_refusal(store, role, record.version)
+                if refusal is not None:
+                    raise _refuse(*refusal)
+                os.rename(temporary, path)
+            try:
+                _sync_directory(path.parent)
+            except OSError as exc:
+                raise _unsynced(path, exc) from None
         finally:
             os.close(lock)
     except OSError as exc:
@@ -477,6 +500,17 @@ def write_check(store: Path, role: Role, record: CheckRecord) -> None:
     finally:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(temporary)
+
+
+def _unsynced(path: Path, exc: OSError) -> CheckError:
+    """The record is in place, whole; the sync of its directory, after the rename, failed."""
+    msg = (
+        f"the check record is written: it is in place at {path}, whole, but the sync of its "
+        f"directory failed ({exc.strerror}), so a crash before the volume writes the directory "
+        "may lose it. It is not written again: read it back (it is read whole, as any record) "
+        "before anything relies on it"
+    )
+    return _refuse("check_record_unsynced", msg)
 
 
 def _sync_directory(directory: Path) -> None:
@@ -554,13 +588,21 @@ def _printed_agrees(printed: bytes, derived: Mapping[str, Any], version: str) ->
         return False
     try:
         shape = json.loads(printed)
-    except ValueError:
+    except (ValueError, RecursionError):
         return False
     if not isinstance(shape, dict):
         return False
     if "version" in shape and shape.pop("version") != version:
         return False
+    # A check made since prints the digest of the record it wrote; an import derives a record
+    # of its own, so that digest is not compared, only held to be one.
+    if "record" in shape and not _is_digest(shape.pop("record")):
+        return False
     return bool(shape == dict(derived))
+
+
+def _is_digest(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
 def import_check(
@@ -602,17 +644,54 @@ def import_check(
     stream showed no canary, and, where its record says what the check made of its answer, every
     gate passed (``answer_taken`` is ``true``).
 
+    The role's work root is held from before the first look until the record is in place, as a
+    check holds it (``session_lives``, ``work_root_unlockable``): no baseline trial is made
+    beside the import, and the look is made again as the record is written (:func:`write_check`).
+
     Raises:
         CheckError: as above; the reason is counted, and no task is named.
         TierSetError: the version is not what its manifest says.
         ExposureError: the register or the run roots cannot be read whole.
     """
+    from physgate.evaluation.tiers.store import (
+        WorkRootHeld,
+        WorkRootUnlockable,
+        holding_work_root,
+    )
+
+    manifest = read_version(version_dir(store, role, version))
+    try:
+        with holding_work_root(store, role):
+            return _import_check(
+                store, role, manifest, implementer_model=implementer_model, printed=printed
+            )
+    except WorkRootHeld as exc:
+        msg = (
+            "another session's place in the role's work root is held (a baseline trial's or a "
+            "check's): no import is made beside it"
+        )
+        if str(exc):
+            msg += f" ({exc})"
+        raise _refuse("session_lives", msg) from None
+    except WorkRootUnlockable as exc:
+        msg = f"the role's work root cannot be held on its volume (the lock call failed: {exc})"
+        raise _refuse("work_root_unlockable", msg) from None
+
+
+def _import_check(
+    store: Path,
+    role: Role,
+    manifest: TierSet,
+    *,
+    implementer_model: str,
+    printed: bytes | None,
+) -> CheckRecord:
     from physgate.evaluation.tiers.check_sessions import kept_answers
     from physgate.evaluation.tiers.check_tasks import QUESTIONS
     from physgate.evaluation.tiers.exposure import results_refusal
     from physgate.evaluation.tiers.store import leftovers
 
-    manifest = read_version(version_dir(store, role, version))
+    version = manifest.version
     refusal = results_refusal(store, role, version)
     if refusal is not None:
         raise _refuse(*refusal)

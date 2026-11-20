@@ -162,14 +162,23 @@ def stand_in_store(
     return StandInStore(store, manifest.version, tasks, canaries, held_out)
 
 
-def record_check(store: Path, version: str, flagged: Sequence[str], **changes: Any) -> Any:  # noqa: ANN401
+def record_check(
+    store: Path,
+    version: str,
+    flagged: Sequence[str],
+    *,
+    by_hand: bool = False,
+    **changes: Any,  # noqa: ANN401
+) -> Any:  # noqa: ANN401
     """Record the version's blind check as a check that answered does: ``flagged`` by id.
 
-    ``changes``: fields of the record given in place of the check's own. Returns the record.
+    ``changes``: fields of the record given in place of the check's own. ``by_hand``: its bytes
+    put in place as a person who can write the role's root could, past the writer and its look
+    for a result. Returns the record.
     """
-    from physgate.evaluation.tiers.checks import make_check, write_check
+    from physgate.evaluation.tiers.checks import check_path, make_check, write_check
     from physgate.evaluation.tiers.manifest import read_version
-    from physgate.evaluation.tiers.task import id_digest
+    from physgate.evaluation.tiers.task import canonical_json, id_digest
 
     manifest = read_version(store / "control" / version)
     tasks = manifest.held_out.count
@@ -190,7 +199,12 @@ def record_check(store: Path, version: str, flagged: Sequence[str], **changes: A
         **changes,
     }
     record = make_check(**fields)
-    write_check(store, "control", record)
+    if by_hand:
+        check_path(store, "control", version).write_bytes(
+            canonical_json(record.model_dump(mode="json"))
+        )
+    else:
+        write_check(store, "control", record)
     return record
 
 

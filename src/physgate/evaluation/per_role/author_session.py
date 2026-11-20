@@ -100,6 +100,7 @@ from physgate.evaluation.tiers.check_tasks import (
 )
 from physgate.evaluation.tiers.checks import (
     CheckError,
+    CheckRecord,
     make_check,
     read_check,
     stream_digest,
@@ -1358,6 +1359,23 @@ def blind_check(
             record, answers, answer_sha256 = _checked(
                 store, role, setup, work, tasks, files, canaries, cap
             )
+            # Still under the hold: the record is in place before a trial can be made beside it.
+            kept = (
+                None
+                if answers is None
+                else _record_answer(
+                    store,
+                    role,
+                    manifest,
+                    setup,
+                    record,
+                    answers,
+                    answer_sha256,
+                    implementer_model=implementer_model,
+                    commit=commit,
+                    clean=clean,
+                )
+            )
     except WorkRootHeld as exc:
         msg = (
             "another session's place in the role's work root is held (a baseline trial's or "
@@ -1374,14 +1392,47 @@ def blind_check(
         raise AuthoringError(
             msg, refused_because="work_root_unlockable", store=str(store)
         ) from None
-    if answers is None:
+    if answers is None or kept is None:
         return {"tasks": len(tasks), "answered": False, "session": _spent(record)}
+    return {
+        "tasks": len(tasks),
+        "answered": True,
+        "all_yes": kept.all_yes,
+        "flagged": list(kept.flagged),
+        "session": _spent(record),
+        "version": version,
+        "record": kept.sha256,
+    }
+
+
+def _record_answer(
+    store: Path,
+    role: Role,
+    manifest: TierSet,
+    setup: RawSetup,
+    record: dict[str, Any],
+    answers: dict[str, Answer],
+    answer_sha256: str | None,
+    *,
+    implementer_model: str,
+    commit: str | None,
+    clean: bool | None,
+) -> CheckRecord:
+    """The check's answer, recorded once beside its version: the record as written.
+
+    Called while the work root is held; the writer looks for a result of the version again
+    under its lock, just before the record is put in place (:func:`.tiers.checks.write_check`).
+
+    Raises:
+        AuthoringError: the record cannot be made or written, or a result of the version exists
+            now; its own reason. A record whose directory's sync failed is in place, and said so.
+    """
     flagged = sorted(key for key, a in answers.items() if not all(getattr(a, q) for q in QUESTIONS))
     session_id = str(record["session_id"])
     try:
         kept = make_check(
             role=role,
-            version=version,
+            version=manifest.version,
             tier="held_out",
             tier_sha256=manifest.held_out.sha256,
             source="check",
@@ -1405,24 +1456,19 @@ def blind_check(
                 "bound_by": "ran",
             },
             session=_spent(record),
-            tasks=len(tasks),
-            all_yes=len(tasks) - len(flagged),
+            tasks=len(answers),
+            all_yes=len(answers) - len(flagged),
             flagged=flagged,
         )
         write_check(store, role, kept)
     except PerRoleError as exc:
         reason = exc.context.get("refused_because", "check_record_unwritten")
+        if reason == "check_record_unsynced":
+            # The record is in place: the words say so, never that it was not recorded.
+            raise AuthoringError(str(exc), refused_because=reason) from None
         msg = f"the check's answer could not be recorded beside the version: {exc}"
         raise AuthoringError(msg, refused_because=reason) from None
-    return {
-        "tasks": len(tasks),
-        "answered": True,
-        "all_yes": len(tasks) - len(flagged),
-        "flagged": flagged,
-        "session": _spent(record),
-        "version": version,
-        "record": kept.sha256,
-    }
+    return kept
 
 
 def _require_before_results(store: Path, role: Role, version: str) -> None:

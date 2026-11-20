@@ -441,6 +441,11 @@ def _record_check(args: argparse.Namespace) -> int:
         reason = exc.context.get("refused_because", "refused")
         print(json.dumps({"refused_because": reason, "error": str(exc)}, sort_keys=True))
         return 1
+    except Exception as exc:  # noqa: BLE001 - every refusal ends in words, never a traceback
+        # Not one of the import's own: only its kind is said, since its words may hold anything.
+        said = {"refused_because": "import_failed", "error": type(exc).__name__}
+        print(json.dumps(said, sort_keys=True))
+        return 1
     done: dict[str, Any] = {
         "recorded": True,
         "version": args.version,

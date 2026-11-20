@@ -30,6 +30,7 @@ import hashlib
 import json
 import os
 import stat
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -126,15 +127,39 @@ def _read(path: Path, most: int) -> bytes | None:
     return data
 
 
+def _raw_lines(stream: bytes) -> Iterator[tuple[bytes, bool]]:
+    """The stream's lines that are not blank, each with whether it is the last such line.
+
+    Taken one at a time from the bytes read, so the stream is never held twice.
+    """
+    start, held = 0, None
+    while start <= len(stream):
+        end = stream.find(b"\n", start)
+        end = len(stream) if end < 0 else end
+        line = stream[start:end]
+        if line.strip():
+            if held is not None:
+                yield held, False
+            held = line
+        start = end + 1
+    if held is not None:
+        yield held, True
+
+
 def _lines(stream: bytes, where: str) -> list[dict[str, Any]]:
-    """The stream's lines as JSON objects; only a last line cut off as it ended is passed over."""
-    raw = [line for line in stream.split(b"\n") if line.strip()]
+    """The stream's lines as JSON objects; only a last line cut off as it ended is passed over.
+
+    A line nested deeper than the parser reads is no line of a stream: it is refused, as is any
+    other that is not one, the last too.
+    """
     found: list[dict[str, Any]] = []
-    for at, line in enumerate(raw):
+    for at, (line, last) in enumerate(_raw_lines(stream)):
         try:
             shape = json.loads(line)
+        except RecursionError:
+            raise _unclear(where, f"has a line {at} of its stream nested past any") from None
         except ValueError:
-            if at == len(raw) - 1:
+            if last:
                 break
             raise _unclear(where, f"has a line {at} of its stream that is not one") from None
         if isinstance(shape, dict):
@@ -177,7 +202,7 @@ def _whole_read(result: object) -> object | None:
         return None
     try:
         parsed: object = json.loads(file["content"])
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     return parsed
 
@@ -193,10 +218,14 @@ def _spent(record: dict[str, Any]) -> dict[str, Any]:
 def read_kept(directory: Path) -> KeptAnswer:
     """What the kept session in ``directory`` shows of its answer.
 
+    The stream is read whole into memory, up to :data:`MOST_STREAM_BYTES` (a larger one is
+    refused), and its lines are taken from those bytes one at a time.
+
     Raises:
         CheckError: its record or stream is not there or cannot be read whole, they are not one
-            session's, or it named its answer file without one write of it by its file-write
-            tool that landed (``check_session_unclear``).
+            session's, it holds what no stream holds (a line nested past what the parser reads,
+            an answer written as text no file holds), or it named its answer file without one
+            write of it by its file-write tool that landed (``check_session_unclear``).
     """
     where = directory.name
     record_bytes = _read(directory / RECORD, MOST_RECORD_BYTES)
@@ -205,7 +234,7 @@ def read_kept(directory: Path) -> KeptAnswer:
         raise _unclear(where, "holds no record or no stream")
     try:
         record = json.loads(record_bytes)
-    except ValueError:
+    except (ValueError, RecursionError):
         raise _unclear(where, "holds a record that is not one") from None
     if not isinstance(record, dict) or record.get("session_id") != where:
         raise _unclear(where, "holds a record of another session")
@@ -268,7 +297,12 @@ def read_kept(directory: Path) -> KeptAnswer:
             raise _unclear(where, "named its answer file but never wrote it by its file-write tool")
         return nothing
     call = calls[landed]
-    written = str(_input(call)["content"]).encode()
+    try:
+        written = str(_input(call)["content"]).encode()
+    except UnicodeEncodeError:
+        # A lone surrogate, escaped in the stream: no file holds such text, so what the
+        # session wrote cannot be told.
+        raise _unclear(where, "has an answer written as text no file holds") from None
     answer = answers_of(written)
     if answer is None:
         return nothing

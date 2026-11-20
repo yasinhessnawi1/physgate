@@ -48,6 +48,7 @@ refuses only a run on it (:func:`version_refusal`).
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -55,7 +56,7 @@ import os
 import stat
 import tempfile
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -505,6 +506,38 @@ def register_lines(store: Path, role: Role) -> list[Exposure | Authoring | Measu
     return found
 
 
+@contextlib.contextmanager
+def holding_register(store: Path, role: Role) -> Iterator[None]:
+    """The role's register held from its writers while the body runs, as every reader holds it.
+
+    A shared hold of the register's lock: readers go on, and no measurement or exposure line is
+    appended until the body ends. For a look at the register that must still hold as something
+    is put in place beside it. A role with no withheld root yet has no register to hold.
+
+    Raises:
+        ExposureError: the withheld root is a link, or the register's lock cannot be taken.
+    """
+    fd = _dir_fd(withheld_root(store, role))
+    if fd is None:
+        yield
+        return
+    try:
+        try:
+            lock = os.open(
+                REGISTER + LOCK_SUFFIX, os.O_RDONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=fd
+            )
+        except OSError as exc:
+            msg = f"the {REGISTER} lock cannot be taken: {exc}"
+            raise _refuse("register_unreadable", msg) from exc
+        try:
+            fcntl.flock(lock, fcntl.LOCK_SH)
+            yield
+        finally:
+            os.close(lock)
+    finally:
+        os.close(fd)
+
+
 def run_roots(store: Path, role: Role) -> list[Path]:
     """The directories beneath which the role's runs are made.
 
@@ -594,11 +627,19 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
                 walk.missing.append(root)
             continue
         except OSError as exc:
-            msg = f"{here} cannot be listed, so a run in it cannot be ruled out"
+            msg = (
+                f"{here}, beneath the run root {root}, cannot be listed, so a run in it cannot be "
+                "ruled out: a person makes it readable to this user again"
+            )
             raise _refuse("register_unreadable", msg) from exc
         walk.seen += len(listed)
         if walk.seen > MOST_ENTRIES:
-            msg = f"the run roots hold more than {MOST_ENTRIES} entries"
+            msg = (
+                f"the run roots hold more than {MOST_ENTRIES} entries, the bound passed in the "
+                f"run root {root}: a walk past it is refused rather than read in part. A person "
+                "looks at that root and moves out of it what is no run's (a run is never moved "
+                "out of the run roots to let a look pass)"
+            )
             raise _refuse("register_unreadable", msg)
         names = {e.name: e for e in listed}
         run = names.get(RUN_RECORD)
@@ -622,7 +663,10 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
                     places.append(where.relative_to(root).as_posix())
                 continue
             if depth + 1 > MOST_DEPTH:
-                msg = f"the run roots hold directories deeper than {MOST_DEPTH}"
+                msg = (
+                    f"the run root {root} holds directories deeper than {MOST_DEPTH}: a person "
+                    "looks at it and moves out of it what is no run's"
+                )
                 raise _refuse("register_unreadable", msg)
             stack.append((Path(entry.path), depth + 1))
     if places:
@@ -1152,10 +1196,7 @@ def results_refusal(store: Path, role: Role, version: str) -> tuple[str, str] | 
         _walk(root, walk, required=True)
     _walk(withheld_root(store, role) / BASELINE_RECORDS, walk, required=False)
     if walk.missing or walk.unread:
-        return "run_roots_unread", (
-            "a run root of the role is not there or not read whole, so a run on the version "
-            f"{said} cannot be ruled out"
-        )
+        return "run_roots_unread", _roots_unread_words(walk, said)
     digests = frozenset({manifest.held_out.sha256, manifest.validation.sha256})
     for run in sorted(set(walk.runs)):
         try:
@@ -1186,6 +1227,30 @@ def results_refusal(store: Path, role: Role, version: str) -> tuple[str, str] | 
                 "it, never after"
             )
     return None
+
+
+def _roots_unread_words(walk: _Walk, said: str) -> str:
+    """Which run roots a look could not read, and what a person does about each kind."""
+    parts = []
+    if walk.missing:
+        gone = ", ".join(str(root) for root in walk.missing)
+        parts.append(
+            f"the run root {gone} is not there: a person puts it back as it was, with the runs it "
+            "held (a root that is gone may have held a run on the version, so making an empty "
+            "one in its place is a person's deliberate act, after looking)"
+        )
+    if walk.unread:
+        unread = ", ".join(str(root) for root in walk.unread)
+        parts.append(
+            f"{unread} holds a link to a directory, which a look does not follow, "
+            "or a directory inside a run that looks like a run, which a look does not read: a "
+            "person replaces the link with the directory it names, or moves the inner run to a "
+            "place of its own beneath a run root"
+        )
+    return (
+        "; ".join(parts) + f". Until then a run on the version {said} cannot be ruled out, so "
+        "no check or import of it is made; the harness never drops a root from the run roots"
+    )
 
 
 def _check_refusal(store: Path, role: Role, version: str) -> tuple[str, str] | None:
