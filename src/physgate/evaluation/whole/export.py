@@ -8,8 +8,16 @@ left it: the canonical store's journal at its newest revision, read without open
 **Only a finished run.** The store cannot say, without being opened, which of its revisions a
 merge kept: a role's nodes are applied before its merge, so a merge that then fails leaves them
 in the journal. So the export asks the run's event log instead, read once and replayed: every
-module of the plan must have its completion line. A run short of that is ``unfinished`` and
-has no answer.
+module of the plan must have its completion line, or have ended for want of a person's sign-off
+alone in a run that records decisions. A run short of that is ``unfinished`` and has no answer.
+
+**A sign-off owed in a run that records decisions.** A module whose role owes a person's
+sign-off (ARCH-130) is complete only once a person signed its values, and such a run takes no
+decision: the module merged, every other precondition of its completion held, and the run ended
+escalated naming it. That module has ended, and its merges stand, so the run is exported and its
+record names each such module (``sign_offs_owed``). A run that acts is ``unfinished`` until a
+person has signed: there a decision could still close the sign-off, or a rejected one left it
+unsigned.
 
 **By name, never by guess.** Each field of the answer is the quantity of exactly that name in
 the graph, in whichever node holds it, copied as the graph holds it: its value and its unit,
@@ -56,9 +64,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 from physgate.evaluation.whole.answer import Controller, Parameters, WholeRun
+from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.events import parse_events
 from physgate.orchestrator.exceptions import OrchestratorError
-from physgate.orchestrator.replay import replay
+from physgate.orchestrator.replay import RunState, replay
 from physgate.state.exceptions import CorruptRecordError
 from physgate.state.store import journal_records_after
 
@@ -66,7 +75,8 @@ from physgate.state.store import journal_records_after
 STORE_DIRNAME = "store"
 EVENTS_NAME = "events.jsonl"
 
-#: How the export ended. ``unfinished``: the run did not record every module complete.
+#: How the export ended. ``unfinished``: the run did not record every module complete, nor end
+#: one for want of a person's sign-off alone in a run that records decisions.
 #: ``contract_lost``: the graph holds no structure whole, or lacks a setting. ``ambiguous``:
 #: two nodes disagree on a name that matters, or the graph holds two structures whole.
 Status = Literal["exported", "unfinished", "contract_lost", "ambiguous"]
@@ -91,7 +101,8 @@ class Export(BaseModel):
     (or ``parameters``), the required names the graph lacks; ``conflicts``, each name two nodes
     disagree on, with the nodes that hold it, whether or not it refused the answer;
     ``complete``, the structures the graph holds whole; ``left_out``, the names of the
-    answer's form the graph holds that the chosen structure does not read.
+    answer's form the graph holds that the chosen structure does not read; ``sign_offs_owed``,
+    in plan order, the modules a run that records decisions ended with their sign-off owed.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
@@ -104,6 +115,7 @@ class Export(BaseModel):
     missing: dict[str, tuple[str, ...]] = {}
     conflicts: dict[str, tuple[str, ...]] = {}
     left_out: tuple[str, ...] = ()
+    sign_offs_owed: tuple[str, ...] = ()
     sha256: str | None = None
 
 
@@ -179,8 +191,12 @@ def _measures(fields: dict[str, bool], found: dict[str, Any]) -> dict[str, dict[
     }
 
 
-def _finished(run_dir: Path) -> bool:
-    """Whether the run's event log records every module of its plan complete."""
+def _finished(run_dir: Path) -> tuple[bool, tuple[str, ...]]:
+    """Whether the run's event log records every module of its plan ended; those owing a sign-off.
+
+    A module has ended with its completion line, or, in a run that records decisions and has
+    ended (escalated), with its sign-off the one precondition of its completion open.
+    """
     path = run_dir / EVENTS_NAME
     try:
         fd = os.open(path, _READ_FLAGS)
@@ -195,7 +211,24 @@ def _finished(run_dir: Path) -> bool:
         msg = "the run's event log holds a line no run could have written"
         raise ExportError(msg, run=str(run_dir), reason=str(exc)) from exc
     modules = state.modules()
-    return bool(modules) and all(m in state.completed for m in modules)
+    owed = _sign_offs_owed(state, modules)
+    return bool(modules) and all(m in state.completed or m in owed for m in modules), owed
+
+
+def _sign_offs_owed(state: RunState, modules: list[str]) -> tuple[str, ...]:
+    """The modules a run that records decisions ended with only their sign-off owed, in order.
+
+    None in a run that acts, where a person's decision is what ends one, nor before the run has
+    ended: until then a merge may still be under way.
+    """
+    if state.acts or state.next_step().kind != "escalated":
+        return ()
+    return tuple(
+        m
+        for m in modules
+        if m not in state.completed
+        and [name for name, _ in open_preconditions(state, m)] == ["sign_off"]
+    )
 
 
 def _refusing(
@@ -230,22 +263,39 @@ def export_whole_run(run_dir: Path, out: Path) -> Export:
         msg = "the answer is never written inside the run it is exported from"
         raise ExportError(msg, run=str(run_dir), out=str(out))
     revision, nodes = _graph(run_dir)
-    if not _finished(run_dir):
+    finished, owed = _finished(run_dir)
+    if not finished:
         return Export(status="unfinished", revision=revision)
     found, conflicts = _found(nodes)
     lacking = {name: _lacking(fields, found) for name, fields in STRUCTURES.items()}
     complete = tuple(sorted(name for name, names in lacking.items() if not names))
     if _refusing(conflicts, found):
-        return Export(status="ambiguous", revision=revision, complete=complete, conflicts=conflicts)
+        return Export(
+            status="ambiguous",
+            revision=revision,
+            complete=complete,
+            conflicts=conflicts,
+            sign_offs_owed=owed,
+        )
     if len(complete) > 1:
-        return Export(status="ambiguous", revision=revision, complete=complete, conflicts=conflicts)
+        return Export(
+            status="ambiguous",
+            revision=revision,
+            complete=complete,
+            conflicts=conflicts,
+            sign_offs_owed=owed,
+        )
     settings = _lacking(PARAMETERS, found)
     if not complete:
         missing = dict(lacking)
         if settings:
             missing["parameters"] = settings
         return Export(
-            status="contract_lost", revision=revision, missing=missing, conflicts=conflicts
+            status="contract_lost",
+            revision=revision,
+            missing=missing,
+            conflicts=conflicts,
+            sign_offs_owed=owed,
         )
     structure = complete[0]
     if settings:
@@ -256,6 +306,7 @@ def export_whole_run(run_dir: Path, out: Path) -> Export:
             complete=complete,
             missing={"parameters": settings},
             conflicts=conflicts,
+            sign_offs_owed=owed,
         )
     read = set(STRUCTURES[structure]) | set(PARAMETERS)
     answer = {
@@ -275,6 +326,7 @@ def export_whole_run(run_dir: Path, out: Path) -> Export:
         taken_from={name: found[name][2] for name in sorted(read) if name in found},
         conflicts=conflicts,
         left_out=tuple(sorted(set(found) - read)),
+        sign_offs_owed=owed,
         sha256=hashlib.sha256(raw).hexdigest(),
     )
 

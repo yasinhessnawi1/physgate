@@ -10,6 +10,16 @@ The two event logs under ``recorded_runs`` were recorded from the loop over its 
 electrical modules and integration): in ``finished`` integration declared both modules complete
 and both completion lines were written; in ``unfinished`` it declared one, so the run ended with
 a module never recorded complete.
+
+The others were recorded from the loop over the same fakes with a control module, whose role
+owes a person's sign-off (sizing, control, electrical and integration; or the control module and
+integration alone, ``_alone``); each session's stream path is cut to the run's own ``/run``. In a
+run that records decisions, none is taken on the sign-off item: ``records_a_sign_off_owed`` and
+``records_a_sign_off_owed_alone`` end escalated with only the sign-off open, and
+``records_a_sign_off_owed_and_a_failed_call`` with the system-scope call failed as well. In a run
+that acts, ``acts_waiting_on_a_sign_off`` waits for the person before the integration call,
+``acts_signed`` is the same run once the person approved, and ``acts_rejected_a_sign_off_owed``
+ended escalated after the person rejected the item and then the fix's item.
 """
 
 from __future__ import annotations
@@ -517,6 +527,78 @@ def test_a_run_that_did_not_record_every_module_complete_is_no_answer(tmp_path: 
     record, out = _export(run, tmp_path)
     assert record.status == "unfinished"
     assert record.sha256 is None
+    assert not out.exists()
+
+
+def test_a_finished_run_names_no_sign_off_owed(tmp_path: Path) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    record, _ = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert record.sign_offs_owed == ()
+
+
+@pytest.mark.parametrize("recorded", ["records_a_sign_off_owed", "records_a_sign_off_owed_alone"])
+def test_a_run_that_records_decisions_ends_a_module_whose_sign_off_is_owed_and_is_exported(
+    tmp_path: Path, recorded: str
+) -> None:
+    # No decision is taken in such a run, so a control module that merged ends with its sign-off
+    # owed and the run ends escalated; every other precondition held. Its answer is exported,
+    # and the record names the module whose sign-off a person still owes.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
+    record, out = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert record.sign_offs_owed == ("c1",)
+    assert record.sha256 == hashlib.sha256(out.read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize(
+    "recorded",
+    [
+        # Waiting before the integration call for a person to decide.
+        "acts_waiting_on_a_sign_off",
+        # Ended escalated after the person's rejects: no one signed.
+        "acts_rejected_a_sign_off_owed",
+    ],
+)
+def test_a_run_that_acts_is_unfinished_while_a_sign_off_is_owed(
+    tmp_path: Path, recorded: str
+) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
+    assert record.sign_offs_owed == ()
+    assert not out.exists()
+
+
+def test_a_run_that_acts_is_exported_once_a_person_signed(tmp_path: Path) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="acts_signed")
+    record, _ = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert record.sign_offs_owed == ()
+
+
+def test_a_module_whose_sign_off_is_owed_with_another_precondition_open_is_unfinished(
+    tmp_path: Path,
+) -> None:
+    # The run records decisions, and the system-scope call failed: the control module's
+    # sign-off is owed, and so is a passing call. It did not end only for want of a signature.
+    recorded = "records_a_sign_off_owed_and_a_failed_call"
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
+    assert record.sign_offs_owed == ()
+    assert not out.exists()
+
+
+def test_a_run_that_records_decisions_and_has_not_ended_is_unfinished(tmp_path: Path) -> None:
+    # The control module's only open precondition is its sign-off, but integration's own
+    # attempt has not merged yet: the graph may hold a change no merge kept.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    lines = (_RECORDED / "records_a_sign_off_owed_alone.jsonl").read_bytes().splitlines(True)
+    call = next(n for n, line in enumerate(lines) if b'"kind":"integration_gate_ran"' in line)
+    (run / "events.jsonl").write_bytes(b"".join(lines[: call + 1]))
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
     assert not out.exists()
 
 
