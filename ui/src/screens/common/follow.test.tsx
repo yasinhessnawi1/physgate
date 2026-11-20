@@ -10,7 +10,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { FOLLOW_EVERY_MS, useFollowedLog } from "./follow";
+import { FIRST_READ_MS, FOLLOW_EVERY_MS, useFollowedLog } from "./follow";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -183,12 +183,70 @@ describe("the log is not followed when there is nothing to follow", () => {
     expect(host.textContent).toBe("0@20,1@20,2@20");
   });
 
-  it("stops asking once the run is no longer going", async () => {
+  it("reads once more when the run stops going, then never again", async () => {
     await mount(true);
     act(() => {
       root?.render(<Shown going={false} />);
     });
     await settle(FOLLOW_EVERY_MS * 4);
-    expect(asked).toEqual([from(0)]);
+    expect(asked).toEqual([from(0), from(2)]);
+  });
+
+  it("lines written after the last tick are shown once the run stops, without a reload", async () => {
+    const host = await mount(true);
+    log.push(line(3));
+    await settle(FOLLOW_EVERY_MS);
+    expect(host.textContent).toBe("0@20,1@20,2@20,3@20");
+    // The run writes its last lines between two ticks, and its status then reads it as ended.
+    log.push(line(4), line(5));
+    act(() => {
+      root?.render(<Shown going={false} />);
+    });
+    await settle();
+    expect(asked).toEqual([from(0), from(2), from(3)]);
+    expect(host.textContent).toBe("0@20,1@20,2@20,3@20,4@20,5@20");
+    await settle(FOLLOW_EVERY_MS * 4);
+    expect(asked).toHaveLength(3);
+  });
+});
+
+describe("a read is bounded and stopped with the page", () => {
+  it("a read still asked when the page leaves the run is stopped, not only dropped", async () => {
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((path: string, init?: RequestInit) => {
+        asked.push(path);
+        if (init?.signal) signals.push(init.signal);
+        return new Promise<Response>(() => undefined);
+      }),
+    );
+    await mount(true);
+    expect(signals).toHaveLength(1);
+    act(() => {
+      root?.unmount();
+    });
+    root = null;
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it("a first read the server never answers is a refusal in plain words", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((path: string, init?: RequestInit) => {
+        asked.push(path);
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("stopped", "AbortError"));
+          });
+        });
+      }),
+    );
+    const host = await mount(false);
+    expect(host.textContent).toBe("reading");
+    await settle(FIRST_READ_MS);
+    expect(host.textContent).toBe(
+      `refused: the server did not answer within ${String(FIRST_READ_MS / 1000)} s`,
+    );
   });
 });

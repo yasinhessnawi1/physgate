@@ -16,6 +16,9 @@ import { whileShown } from "./read";
 /** How often a going run's log is asked again while its page is shown, in milliseconds. */
 export const FOLLOW_EVERY_MS = 5_000;
 
+/** How long the first read of a log is waited for before the page says the server did not answer. */
+export const FIRST_READ_MS = 30_000;
+
 export interface FollowedRead {
   /** ``null`` while the first read is made. */
   readonly result: Result<readonly RunEvent[]> | null;
