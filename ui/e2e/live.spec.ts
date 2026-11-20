@@ -92,7 +92,10 @@ test("a running log is followed: a half-written line is never shown, and shown o
   await expect(timeline.locator(".pg-trow .pg-verdict-fail")).toHaveCount(1, { timeout: 30_000 });
   await expect(timeline.locator(".pg-no-verdict")).toHaveCount(0);
   const followed = await rowsOf(page);
-  expect(followed.length).toBeGreaterThan(before.length);
+  // The gate's result takes the place of the stage that had none: the rows change, never by
+  // a row shown twice.
+  expect(followed).not.toEqual(before);
+  expect(new Set(followed).size).toBe(followed.length);
   await axeClean(page);
   // Nothing acts here: no button opens a confirmation.
   await expect(page.getByRole("button", { name: /…$/ })).toHaveCount(0);
