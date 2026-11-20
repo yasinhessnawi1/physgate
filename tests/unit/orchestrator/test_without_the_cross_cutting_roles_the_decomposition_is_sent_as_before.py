@@ -81,15 +81,17 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
 #: Before the designer's node was said to be named by its module and a module's own limits to stay
 #: off the interface nodes: 5ad250714df6..., 5b92ffb708ee... and cd26dec56241....
+#: Before a criterion's measurable checks named no instrument the environment may lack:
+#: db3460bb33af..., 54927b0efe85... and 7cefa8af5171....
 PROMPT_SHA256 = {
-    ("control", "firmware"): "db3460bb33afd0920f90ede5ac0bebcb8effa3dc92e7233a89f3518627994110",
-    ("electrical",): "54927b0efe859bb9244c9089209fda823c24283f8e316225698604291efc36b8",
+    ("control", "firmware"): "ccb2befddeb4cb077b3d322941a0deac66346cbdef0766992c695523bd4792e3",
+    ("electrical",): "fdd9e6c2b35f56e51377f72581d9001eeabd946146235bdbb4c5f9cce0582e69",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "7cefa8af5171cd1a535830d8435475467a9f17a694768d796da32d5c3d2416d4",
+    ): "336d43c94f1f43080cc66fc05bc7cad2fc4861329dba6a449e5f54bc9acacde4",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -138,8 +140,9 @@ PROMPT = (
     "run's environment can measure. No board is connected unless the brief says so; without "
     "one, behaviour on the target is checked in a simulator only where the run's environment "
     "provides one, and otherwise the criterion is written against what can be measured (that "
-    "the code compiles, its size, static checks, tests of its logic on the host) and the "
-    "specification states that behaviour on the target is not measured in this run. Each "
+    "the code compiles without warnings, its size, and a check of its logic with the tools the "
+    "environment provides) and the specification states that behaviour on the target is not "
+    "measured in this run. Each "
     "module's specification states, with a value, every limit, timeout and fault behaviour the "
     "module must implement, and names the interface node that carries one only where both sides "
     "must agree on its value.\n\n"

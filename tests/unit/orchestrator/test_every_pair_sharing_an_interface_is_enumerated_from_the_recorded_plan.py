@@ -82,11 +82,13 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
 #: Before the designer's node was said to be named by its module and a module's own limits to stay
 #: off the interface nodes: 02021140dcf2... and f3717294a8ce....
+#: Before a criterion's measurable checks named no instrument the environment may lack:
+#: bbf7b8f3427d... and f0cefb5fb842....
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "bbf7b8f3427d2d9246844f99e4bf844af85459837cd276150f62b1b5a3f7ff8c"
+        "1fd3caa37588ee3e50f6192aa4bc6ec9267c1b29dab6676d9e1279d2f0241bbd"
     ),
-    BOTH: "f0cefb5fb842f41421179b9bcdd992db7542e518fe03940549cbe1af83f2dc71",
+    BOTH: "d646076b090b57c9dc436f92ba6d95091e5187d08b47b9d5b4a189d5bbb548ac",
 }
 
 

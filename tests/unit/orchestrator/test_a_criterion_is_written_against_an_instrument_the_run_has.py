@@ -7,18 +7,21 @@ person says which parts they have, so the prompt takes no board as connected unl
 so. Without a board, behaviour on the target is checked in a simulator only where the run's
 environment provides one: the prompt promises none, since a run environment may give firmware a
 compiler and no simulator, and it names no product, since it does not know which is installed.
-Otherwise a criterion is written against what can be measured (that the code compiles, its size,
-static checks, tests of its logic on the host), and the specification says behaviour on the target
-is not measured in this run. The same plan gave firmware no value for its command timeout, its
-sensor-fault rule, its reset state, its limits or its bus timeout, so firmware could only end
-blocked; the prompt asks each specification to state every limit, timeout and fault behaviour its
-module must implement, with a value. A module's own limit put on an interface node would be one
-no other module reads, against the interface paragraph's rule, so the sentence names an interface
-node for one only where both sides must agree on its value.
+Otherwise a criterion is written against what can be measured (that the code compiles without
+warnings, its size, and a check of its logic with the tools the environment provides), and the
+specification says behaviour on the target is not measured in this run. It names no instrument the
+run's environment may lack (a static analyser, a host compiler for tests): a criterion written
+against one could not be evaluated and would block the module. The same plan gave firmware no
+value for its command timeout, its sensor-fault rule, its reset state, its limits or its bus
+timeout, so firmware could only end blocked; the prompt asks each specification to state every
+limit, timeout and fault behaviour its module must implement, with a value. A module's own limit
+put on an interface node would be one no other module reads, against the interface paragraph's
+rule, so the sentence names an interface node for one only where both sides must agree on its
+value.
 
 Both sentences end the paragraph that says how one criterion is written, so a re-plan is told them
 too. The method of verification stays one of the four the review counts: a check in a simulator,
-a build or a host test is a test, so the paragraph still names no fifth method.
+a build or a check of the logic is a test, so the paragraph still names no fifth method.
 """
 
 from __future__ import annotations
@@ -43,9 +46,9 @@ INSTRUMENT = (
     "Write each criterion only against what the run's environment can measure. No board is "
     "connected unless the brief says so; without one, behaviour on the target is checked in a "
     "simulator only where the run's environment provides one, and otherwise the criterion is "
-    "written against what can be measured (that the code compiles, its size, static checks, tests "
-    "of its logic on the host) and the specification states that behaviour on the target is not "
-    "measured in this run."
+    "written against what can be measured (that the code compiles without warnings, its size, and "
+    "a check of its logic with the tools the environment provides) and the specification states "
+    "that behaviour on the target is not measured in this run."
 )
 STATED = (
     "Each module's specification states, with a value, every limit, timeout and fault behaviour "
@@ -54,8 +57,14 @@ STATED = (
 )
 #: Products the prompt does not know are installed, so it names none of them.
 NOT_NAMED = ("simavr", "avr-gcc", "platformio", "arduino-cli", "qemu", "renode")
-#: Words that would promise the run's environment has a simulator.
-PROMISED = ("a simulator of its processor that", "simulator the run's environment has")
+#: Words that would promise the run's environment has a simulator, a static analyser or a host
+#: compiler.
+PROMISED = (
+    "a simulator of its processor that",
+    "simulator the run's environment has",
+    "static checks",
+    "on the host",
+)
 
 
 @pytest.fixture(autouse=True)
