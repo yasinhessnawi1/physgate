@@ -68,7 +68,9 @@ for path in looked:
     seen = {}
     for name, call in (("stat", os.stat), ("lstat", os.lstat)):
         try:
-            seen[name] = call(path).st_ino
+            found_stat = call(path)
+            seen[name] = found_stat.st_ino
+            seen[name + " size"] = found_stat.st_size
         except OSError as exc:
             seen[name] = type(exc).__name__
     seen["access"] = os.access(path, os.F_OK)
@@ -321,8 +323,16 @@ def test_nothing_of_the_root_but_the_worktree_is_even_seen_to_be_there(rig: Path
     looked = _looked(rig)
     for what in ("own file", "worktree"):
         seen = _meta(found, looked[what])
-        assert seen["stat"] == os.stat(looked[what]).st_ino, (what, seen)
+        assert isinstance(seen["stat"], int) and isinstance(seen["lstat"], int), (what, seen)
         assert seen["access"] is True and seen["exists"] is True, (what, seen)
+        if sys.platform == "darwin":
+            # Seatbelt judges the real place: the very file and directory, as outside.
+            assert seen["stat"] == os.stat(looked[what]).st_ino, (what, seen)
+    # The worktree's own file as it is outside, on both platforms. Bubblewrap binds it, so its
+    # inode inside may differ; its size does not. (The worktree directory itself may be rebuilt
+    # inside from its entries at launch, so only its being there is held for it.)
+    own = looked["own file"]
+    assert _meta(found, own)["stat size"] == os.stat(own).st_size, found
     # Its own file's extended attribute is read as it is outside.
     assert _meta(found, looked["own file"])["xattr"] == "v", found
     hidden = [
