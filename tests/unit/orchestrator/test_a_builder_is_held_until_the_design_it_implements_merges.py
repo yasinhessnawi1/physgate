@@ -22,12 +22,15 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import loop_fakes
 import pytest
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeDispatcher, KilledError, Rig
+from orch_helpers import ticking_clock
 from test_a_blocked_review_is_a_review_that_goes_to_a_person import blocked_review
 from test_a_choice_on_a_failed_contract_reopens_the_other_module import of, requests_of
 from test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item import (
@@ -48,6 +51,11 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
     side,
 )
 from test_a_queue_decision_acts_at_a_boundary import NO_VERDICT, _layer, decide
+from test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset import (
+    NOON,
+    RESETS,
+    LimitDispatcher,
+)
 from test_design_pairs_are_read_from_the_plan_and_recorded_before_any_dispatch import balancer
 
 from physgate import roles
@@ -59,6 +67,7 @@ from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.record import DecompositionSummary
 from physgate.orchestrator.replay import replay
+from physgate.orchestrator.usage_limit import UsageLimit
 from physgate.oslayer.probe import Present
 from physgate.state.store import journal_records_after
 
@@ -108,11 +117,12 @@ def begin(loop: Loop, *, design: bool = True, pairs: tuple[DesignPair, ...] = (D
     loop.record.start(plan, decomposed=summary)
 
 
-def rigged(tmp_path: Path, *, acts: bool = True) -> Rig:
+def rigged(tmp_path: Path, *, acts: bool = True, dispatcher: FakeDispatcher | None = None) -> Rig:
+    sessions = tmp_path / "run" / "sessions"
     rig = rig_for(
         tmp_path,
         interfaces=(IFACE_DRIVE, IFACE_TILT),
-        dispatcher=FakeDispatcher(trajectories=tmp_path / "run" / "sessions"),
+        dispatcher=dispatcher or FakeDispatcher(trajectories=sessions),
     )
     rig.diff.writes.update(  # type: ignore[attr-defined]
         {
@@ -374,6 +384,245 @@ def test_a_run_that_records_only_holds_the_builder_and_goes_on_to_its_integratio
     (skipped,) = of(rows, "integration_gate_skipped")
     assert skipped["subtasks"] == [DRIVE, FW]
     assert step != "wait"
+    assert refusal(rows) is None
+
+
+# --- a chain of pairs: a builder whose designer is itself held for good is held for good -------
+
+#: A third module, which builds what fw designs on fw's own node: drive designs for fw, fw for it.
+THIRD = "third-7a8b9c"
+FW_LAW = "fw.law"
+CHAINED = (DESIGN, DesignPair(designer=FW, builder=THIRD, nodes=(FW_LAW,)))
+
+
+def chained(tmp_path: Path, *, acts: bool = True, dispatcher: FakeDispatcher | None = None) -> Rig:
+    """drive, fw, third and integration: drive designs for fw, and fw for third where paired."""
+    rig = rigged(tmp_path, acts=acts, dispatcher=dispatcher)
+    rig.diff.writes[THIRD] = [  # type: ignore[attr-defined]
+        node("third.main", "firmware", "iface.tilt", period=10)
+    ]
+    return rig
+
+
+def chain_run(
+    rig: Rig,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    resume: bool = False,
+    kill: Callable[[Any, list[Any]], bool] | None = None,
+    pairs: tuple[DesignPair, ...] = CHAINED,
+) -> str:
+    """The first process over the chained plan, or a fresh one taking it over.
+
+    ``pairs`` are the design pairs the opening records; with :data:`DESIGN` alone, third is a
+    module no pair holds.
+    """
+    loop = rig.open()
+    hooked(monkeypatch, loop, declared=(DRIVE, FW, THIRD), kill=kill)
+    if not resume:
+        plan = [entry(DRIVE, "control", "drive"), entry(FW, "firmware", "fw")]
+        plan += [entry(THIRD, "firmware", "third"), entry(INTEG, "integration", "integration")]
+        requirement = (
+            '{"requirement": "1", "contributing": [{"module": "drive", "criterion": "1"}]}'
+        )
+        summary = DecompositionSummary(
+            session_id="decomposition",
+            model="claude-sonnet-5",
+            num_turns=1,
+            subtasks=len(plan),
+            interface_nodes=("iface.tilt",),
+            spec_commit="e" * 40,
+            head_revision=journal_records_after(loop.run_dir.parent / "store", 0)[-1].rev,
+            interface_consumers=(InterfaceConsumers(interface="iface.tilt", consumers=("drive",)),),
+            system_requirements=(SystemRequirement.model_validate_json(requirement),),
+            contract_pairs=(P_TILT,),
+            design_pairs=pairs,
+        )
+        loop.record.start(plan, decomposed=summary)
+    if rig.config_overrides.get("queue_decisions") == "act":
+        _layer(loop)
+    try:
+        return (loop.resume() if resume else loop.run()).kind
+    except KilledError:
+        return "killed"
+    except Exception as exc:  # noqa: BLE001 - what escaped is the finding, asserted as a step
+        return f"raised {exc!r}"
+    finally:
+        loop.close()
+
+
+def test_a_designer_ended_unmerged_holds_the_builder_of_its_builder_for_good_naming_the_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = chained(tmp_path)
+    assert chain_run(rig, monkeypatch) == "wait"
+    rows = lines(rig)
+    item = drive_item(rows)
+    # While drive is with a person, fw waits on its item and third on fw, which has not merged.
+    assert [(h["subtask_id"], h["why"], h.get("item_id")) for h in of(rows, "builder_held")] == [
+        (FW, "escalated", item),
+        (THIRD, "not_merged", None),
+    ]
+    decide(rig.run_dir, "reject", "no attempt is left", item_id=item)
+    assert chain_run(rig, monkeypatch, resume=True) == "done"
+    rows = lines(rig)
+    holds = of(rows, "builder_held")
+    # drive ended unmerged: fw is held for good, and so is third, on a line naming the chain.
+    assert [(h["subtask_id"], h["why"], h.get("chain")) for h in holds] == [
+        (FW, "escalated", None),
+        (THIRD, "not_merged", None),
+        (FW, "ended_unmerged", None),
+        (THIRD, "designer_held", [FW, DRIVE]),
+    ]
+    assert (holds[3]["designer"], holds[3]["nodes"]) == (FW, [FW_LAW])
+    assert requests_of(rig, FW) == requests_of(rig, THIRD) == []
+    assert of(rows, "builder_released") == []
+    (skipped,) = of(rows, "integration_gate_skipped")
+    assert skipped["subtasks"] == [DRIVE, FW, THIRD]
+    assert rows.index(holds[3]) < rows.index(skipped)
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    held_third = [h for h in held_builders(state)["held"] if h["subtask_id"] == THIRD]
+    assert [h.get("chain") for h in held_third] == [(FW, DRIVE)]
+    assert refusal(rows) is None
+
+
+def test_a_run_that_records_only_holds_a_chain_for_good_and_goes_on_to_its_integration_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = chained(tmp_path, acts=False)
+    step = chain_run(rig, monkeypatch)
+    rows = lines(rig)
+    item = drive_item(rows)
+    holds = of(rows, "builder_held")
+    assert [(h["subtask_id"], h["why"], h.get("item_id"), h.get("chain")) for h in holds] == [
+        (FW, "escalated", item, None),
+        (THIRD, "designer_held", None, [FW, DRIVE]),
+    ]
+    assert requests_of(rig, FW) == requests_of(rig, THIRD) == []
+    (skipped,) = of(rows, "integration_gate_skipped")
+    assert skipped["subtasks"] == [DRIVE, FW, THIRD]
+    assert step != "wait"
+    assert not step.startswith("raised")
+    assert refusal(rows) is None
+
+
+def test_a_chain_is_let_go_link_by_link_as_each_designer_merges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = chained(tmp_path)
+    assert chain_run(rig, monkeypatch) == "wait"
+    decide(rig.run_dir, "approve", item_id=drive_item(lines(rig)))
+    assert chain_run(rig, monkeypatch, resume=True) == "done"
+    rows = lines(rig)
+    released = of(rows, "builder_released")
+    assert [(r["subtask_id"], r["designer"]) for r in released] == [(FW, DRIVE), (THIRD, FW)]
+    assert index_of(rows, "merged", subtask_id=FW) < rows.index(released[1])
+    assert rows.index(released[1]) < dispatched_at(rows, THIRD)
+    assert [r.subtask_id for r in rig.dispatcher.requests] == [DRIVE] * 3 + [FW, THIRD, INTEG]
+    assert refusal(rows) is None
+
+
+def test_a_hold_naming_another_chain_than_the_record_owes_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = chained(tmp_path, acts=False)
+    chain_run(rig, monkeypatch)
+    rows = lines(rig)
+    at = index_of(rows, "builder_held", subtask_id=THIRD)
+    for edit in ({"chain": [FW, "drive-000000"]}, {"chain": None, "why": "not_merged"}):
+        changed = {k: v for k, v in {**rows[at], **edit}.items() if v is not None}
+        assert "than the record owes" in str(refusal([*rows[:at], changed]))
+
+
+# --- the account's usage limit halts the run while a builder is held ----------------------------
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> list[datetime]:
+    """The instant every loop the rig opens next starts its clock at: noon in Oslo first."""
+    start = [NOON]
+    monkeypatch.setattr(loop_fakes, "ticking_clock", lambda: ticking_clock(start[0]))
+    return start
+
+
+def limited_on(call: int, tmp_path: Path) -> LimitDispatcher:
+    """A dispatcher whose session on ``call`` ends on the account's usage limit."""
+    return LimitDispatcher(
+        trajectories=tmp_path / "run" / "sessions",
+        infra={call: "usage_limit"},
+        limits={call: UsageLimit(resets=RESETS)},
+    )
+
+
+def test_a_usage_limit_halt_while_a_builder_is_held_resumes_to_the_same_hold_and_its_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: list[datetime]
+) -> None:
+    # drive goes to a person and fw is held; third, which no pair holds, runs and meets the limit.
+    rig = chained(tmp_path, dispatcher=limited_on(4, tmp_path))
+    assert chain_run(rig, monkeypatch, pairs=(DESIGN,)) == "halted"
+    rows = lines(rig)
+    item = drive_item(rows)
+    (halt,) = of(rows, "halted")
+    assert halt["reason"] == "usage_limit"
+    (held,) = of(rows, "builder_held")
+    assert (held["subtask_id"], held["why"], held["item_id"]) == (FW, "escalated", item)
+    assert rows.index(held) < dispatched_at(rows, THIRD) < rows.index(halt)
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    assert [(h.subtask_id, h.why) for h in open_holds(state)] == [(FW, "escalated")]
+    # A resume before the reset starts nothing; one after it finishes third and waits on drive.
+    clock[0] = NOON + timedelta(hours=1)
+    assert "LimitNotResetError" in chain_run(rig, monkeypatch, resume=True)
+    assert len(rig.dispatcher.requests) == 4
+    clock[0] = NOON + timedelta(hours=1, minutes=21)
+    assert chain_run(rig, monkeypatch, resume=True) == "wait"
+    rows = lines(rig)
+    assert len(of(rows, "builder_held")) == 1, "the hold stands: no second line"
+    assert [r.subtask_id for r in rig.dispatcher.requests] == [DRIVE] * 3 + [THIRD, THIRD]
+    assert of(rows, "merged", subtask_id=THIRD) != []
+    assert requests_of(rig, FW) == []
+    # A person approves drive: it merges, and only then is fw let go and dispatched.
+    decide(rig.run_dir, "approve", item_id=item)
+    assert chain_run(rig, monkeypatch, resume=True) == "done"
+    rows = lines(rig)
+    (released,) = of(rows, "builder_released")
+    merge = index_of(rows, "merged", subtask_id=DRIVE)
+    assert merge < rows.index(released) < dispatched_at(rows, FW)
+    assert refusal(rows) is None
+
+
+def test_a_usage_limit_halt_in_the_designer_s_fix_keeps_the_hold_until_the_fix_merges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: list[datetime]
+) -> None:
+    # drive's third review blocks; a reject orders its fix, whose session meets the limit.
+    rig = rigged(tmp_path, dispatcher=limited_on(4, tmp_path))
+    rig.reviewer.verdicts[:] = ["fail", "fail", "pass", "pass"]
+    rig.reviewer.results[3] = blocked_review()
+    assert first_run(rig, monkeypatch) == "wait"
+    item = drive_item(lines(rig))
+    decide(rig.run_dir, "reject", "fix the law", item_id=item)
+    assert resumed(rig, monkeypatch) == "halted"
+    rows = lines(rig)
+    assert [h["reason"] for h in of(rows, "halted")] == ["usage_limit"]
+    assert [(h["why"], h.get("item_id")) for h in of(rows, "builder_held")] == [("escalated", item)]
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    assert [(h.subtask_id, h.why) for h in open_holds(state)] == [(FW, "escalated")]
+    clock[0] = NOON + timedelta(hours=1, minutes=21)
+    assert resumed(rig, monkeypatch) == "done"
+    rows = lines(rig)
+    assert len(of(rows, "builder_held")) == 1
+    assert [(r.subtask_id, r.attempt, r.kind) for r in rig.dispatcher.requests] == [
+        (DRIVE, 1, "attempt"),
+        (DRIVE, 2, "attempt"),
+        (DRIVE, 3, "attempt"),
+        (DRIVE, 4, "fix"),
+        (DRIVE, 4, "fix"),
+        (FW, 1, "attempt"),
+        (INTEG, 1, "attempt"),
+    ]
+    (released,) = of(rows, "builder_released")
+    merge = index_of(rows, "merged", subtask_id=DRIVE)
+    assert rows[merge]["attempt"] == 4
+    assert merge < rows.index(released) < dispatched_at(rows, FW)
     assert refusal(rows) is None
 
 

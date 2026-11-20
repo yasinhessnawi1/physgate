@@ -1093,9 +1093,11 @@ class DispatchReleased(_Event):
 #: ``escalated``: the designer is with a person, its item undecided, named by the line.
 #: ``ended_unmerged``: the designer ended without a merge (rejected, removed, or a decision that
 #: acted on nothing): the builder stays held, since there is no design to build, and the run goes
-#: on without it. ``not_merged``: the designer has not merged yet for any other reason (it runs
-#: again after a person's decision, or waits for sizing's closing pass).
-BuilderHeldWhy = Literal["escalated", "ended_unmerged", "not_merged"]
+#: on without it. ``designer_held``: the designer is itself a builder held for good, so it will
+#: never merge either: the builder is held for good too, and the line names the chain.
+#: ``not_merged``: the designer has not merged yet for any other reason (it runs again after a
+#: person's decision, waits for sizing's closing pass, or is a builder still held).
+BuilderHeldWhy = Literal["escalated", "ended_unmerged", "designer_held", "not_merged"]
 
 
 class BuilderHeld(_Event):
@@ -1105,7 +1107,9 @@ class BuilderHeld(_Event):
     whose builder is ``subtask_id``, over the design's ``nodes``. Written when the builder's
     dispatch comes and its designer has not merged, and again whenever why changes; never a
     failure, and nothing of the builder runs while it is held. ``item_id`` is the designer's
-    undecided item, exactly when ``why`` is ``escalated``.
+    undecided item, exactly when ``why`` is ``escalated``. ``chain`` is exactly when ``why`` is
+    ``designer_held``: the designers in turn, from ``designer`` to the one that can no longer
+    merge (ended without a merge, or with a person in a run that records only), each once.
     """
 
     kind: Literal["builder_held"] = "builder_held"
@@ -1114,11 +1118,19 @@ class BuilderHeld(_Event):
     nodes: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
     why: BuilderHeldWhy
     item_id: NonEmptyStr | None = None
+    chain: Annotated[tuple[NonEmptyStr, ...], Field(min_length=2)] | None = None
 
     @model_validator(mode="after")
     def _item_when_escalated(self) -> BuilderHeld:
         if (self.why == "escalated") != (self.item_id is not None):
             msg = "a builder's hold names the designer's item exactly when the designer escalated"
+            raise ValueError(msg)
+        if (self.why == "designer_held") != (self.chain is not None):
+            msg = "a builder's hold names a chain exactly when its designer is itself held for good"
+            raise ValueError(msg)
+        chain = self.chain or (self.designer,)
+        if chain[0] != self.designer or len(set(chain)) != len(chain) or self.subtask_id in chain:
+            msg = "a hold's chain starts at its designer and names each subtask once, not its own"
             raise ValueError(msg)
         return self
 
@@ -1127,6 +1139,8 @@ class BuilderHeld(_Event):
         data: dict[str, Any] = handler(self)
         if self.item_id is None:
             data.pop("item_id", None)
+        if self.chain is None:
+            data.pop("chain", None)
         return data
 
 

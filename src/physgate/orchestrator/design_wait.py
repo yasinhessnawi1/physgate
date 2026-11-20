@@ -5,7 +5,9 @@ from the plan before any module runs. Every dispatch of a builder, its first or 
 is held while a designer it pairs with has not merged: while the designer is with a person (the
 line names the undecided item, so the hold pairs with something a person can act on), after it
 ended without a merge (the builder then has nothing to build, so it stays held, and is neither run
-nor failed), or while it has not merged for any other reason. The line says which, and a new line
+nor failed), while the designer is itself a builder held so for good (a chain of pairs: the line
+names the chain, and the builder is held for good as well), or while it has not merged for any
+other reason. The line says which, and a new line
 is written whenever that changes; the hold is let go once the designer merged, and the release
 line says so. An attempt under way is let finish: only the next dispatch is held.
 
@@ -49,12 +51,15 @@ class DesignWaits:
     open: dict[tuple[str, str], BuilderHeld] = field(default_factory=dict)
 
 
+#: Why a builder of a designer is held now: the reason, the item it waits on, the chain it names.
+Standing = tuple[BuilderHeldWhy, str | None, tuple[str, ...] | None]
+
+
 @dataclass(frozen=True)
 class _Owed:
     kind: Literal["hold", "release"]
     pair: DesignPair
-    why: BuilderHeldWhy | None = None
-    item_id: str | None = None
+    standing: Standing | None = None
 
 
 def _applies(state: RunState) -> bool:
@@ -66,18 +71,25 @@ def _designers(state: RunState, builder: str) -> list[DesignPair]:
     return [p for p in state.design_pairs or () if p.builder == builder]
 
 
-def standing(state: RunState, designer: str) -> tuple[BuilderHeldWhy, str | None] | None:
-    """Why a builder of ``designer`` is held now, and the item it waits on; ``None`` if merged."""
+def standing(state: RunState, designer: str) -> Standing | None:
+    """Why a builder of ``designer`` is held now; ``None`` once ``designer`` merged.
+
+    A designer that is itself a builder held for good never merges: its builder is held for good
+    too, on a line naming the chain from ``designer`` to the subtask that can no longer merge.
+    """
     sub = state.subtasks[designer]
     if sub.status == "done":
         return None
     if sub.status in ("rejected", "removed"):
-        return ("ended_unmerged", None)
+        return ("ended_unmerged", None, None)
     if sub.status == "escalated":
         item = waiting_item(state, designer)
         # A decision taken on its item that acted on nothing ends it there.
-        return ("escalated", item) if item is not None else ("ended_unmerged", None)
-    return ("not_merged", None)
+        return ("escalated", item, None) if item is not None else ("ended_unmerged", None, None)
+    beyond = _held_for_good_by(state, designer)
+    if beyond is not None:
+        return ("designer_held", None, (designer, *beyond))
+    return ("not_merged", None, None)
 
 
 def _owed(state: RunState, builder: str) -> _Owed | Literal["held"] | None:
@@ -94,8 +106,8 @@ def _owed(state: RunState, builder: str) -> _Owed | Literal["held"] | None:
             if held is not None:
                 return _Owed("release", pair)
             continue
-        if held is None or (held.why, held.item_id) != now:
-            return _Owed("hold", pair, why=now[0], item_id=now[1])
+        if held is None or (held.why, held.item_id, held.chain) != now:
+            return _Owed("hold", pair, standing=now)
     if any(b == builder for b, _ in state.design_waits.open):
         return "held"
     return None
@@ -142,17 +154,36 @@ def held_subtask(state: RunState) -> str | None:
 def held_for_good(state: RunState, subtask_id: str) -> bool:
     """Whether ``subtask_id`` is a builder no decision of this run can let go any more.
 
-    Held, with nothing owed, by a hold whose designer ended without a merge, or by one whose
-    designer is with a person in a run that records only. Integration is called with such a
-    builder unmerged, as with a subtask that ended.
+    Held, with nothing owed, by a hold whose designer ended without a merge, by one whose
+    designer is with a person in a run that records only, or by one whose designer is itself
+    held so for good. Integration is called with such a builder unmerged, as with a subtask that
+    ended.
+    """
+    return _held_for_good_by(state, subtask_id) is not None
+
+
+def _held_for_good_by(state: RunState, subtask_id: str) -> tuple[str, ...] | None:
+    """The chain that holds ``subtask_id`` for good, from its designer on; ``None`` if none does.
+
+    The earliest such hold of its on the record, so the chain a line names does not move while the
+    holds it rests on stand, whatever later holds join them. A designer is dispatched
+    before its builder, so the chain is followed back through the plan and ends.
     """
     if not _applies(state) or design_gated(state, subtask_id) != "held":
-        return False
-    return any(
-        b == subtask_id
-        and (held.why == "ended_unmerged" or (held.why == "escalated" and not state.acts))
-        for (b, _), held in state.design_waits.open.items()
-    )
+        return None
+    for_good = [
+        held
+        for pair in _designers(state, subtask_id)
+        if (held := state.design_waits.open.get((subtask_id, pair.designer))) is not None
+        and (
+            held.why in ("ended_unmerged", "designer_held")
+            or (held.why == "escalated" and not state.acts)
+        )
+    ]
+    if not for_good:
+        return None
+    first = min(for_good, key=lambda held: held.seq)
+    return first.chain if first.chain is not None else (first.designer,)
 
 
 def wait_line(
@@ -176,14 +207,16 @@ def wait_line(
             designer=owed.pair.designer,
             nodes=owed.pair.nodes,
         )
-    assert owed.why is not None  # noqa: S101 - every hold is built with why
+    assert owed.standing is not None  # noqa: S101 - every hold is built with why
+    why, item_id, chain = owed.standing
     return BuilderHeld(
         **envelope,
         subtask_id=subtask_id,
         designer=owed.pair.designer,
         nodes=owed.pair.nodes,
-        why=owed.why,
-        item_id=owed.item_id,
+        why=why,
+        item_id=item_id,
+        chain=chain,
     )
 
 
@@ -200,9 +233,12 @@ def take(state: RunState, event: BuilderHeld | BuilderReleased) -> str | None:
     if producer_wait.gated(state, subtask_id) is not None:
         return f"a builder's {kind} for {subtask_id!r} while a reader's wait still holds it"
     if (event.designer, event.nodes) != (owed.pair.designer, owed.pair.nodes) or (
-        isinstance(event, BuilderHeld) and (event.why, event.item_id) != (owed.why, owed.item_id)
+        isinstance(event, BuilderHeld) and (event.why, event.item_id, event.chain) != owed.standing
     ):
-        return f"a builder's {kind} names another designer, nodes or reason than the record owes"
+        return (
+            f"a builder's {kind} names another designer, nodes, reason or chain than the record "
+            "owes"
+        )
     if owed.kind != kind:
         return f"no {type(event).__name__} is owed for {subtask_id!r} now"
     if isinstance(event, BuilderHeld):
@@ -244,7 +280,7 @@ def open_holds(state: RunState) -> list[BuilderHeld]:
 def held_builders(state: RunState) -> dict[str, list[dict[str, object]]]:
     """The open builders' holds as a run's status prints them: ``{"held": [...]}``, or nothing."""
     holds = [
-        held.model_dump(include={"subtask_id", "designer", "nodes", "why", "item_id"})
+        held.model_dump(include={"subtask_id", "designer", "nodes", "why", "item_id", "chain"})
         for held in open_holds(state)
     ]
     return {"held": holds} if holds else {}
