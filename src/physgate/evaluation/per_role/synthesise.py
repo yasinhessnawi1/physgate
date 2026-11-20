@@ -20,13 +20,16 @@ specification and kept only if the scorer fails it there:
 
 A task for which no good reference is found is reported, never dropped; one for which no
 bad reference can be built is reported too.
+
+The search can also be aimed at some of a task's headline specifications alone, which is how
+the isolation probe builds an answer that meets one requirement and nothing more on purpose.
 """
 
 from __future__ import annotations
 
 import json
 import math
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -94,10 +97,12 @@ def _scaled(answer: LtiTf, factor: float) -> LtiTf:
     )
 
 
-def _violation(task: Task, values: dict[str, float | None]) -> float:
+def _violation(
+    task: Task, values: dict[str, float | None], specs: Collection[str] | None = None
+) -> float:
     total = 0.0
     for spec in task.specs:
-        if spec.counts != "headline":
+        if spec.counts != "headline" or (specs is not None and spec.name not in specs):
             continue
         value = values[spec.metric]
         if value is None or math.isnan(value):
@@ -129,12 +134,25 @@ def _measure(task: Task, answer: LtiTf, *, screen: bool = False) -> dict[str, fl
     return values
 
 
-def search(task: Task, *, seed: int = SEED) -> LtiTf:
-    """A controller the scorer passes on every headline spec of ``task``.
+def search(task: Task, *, seed: int = SEED, specs: Collection[str] | None = None) -> LtiTf:
+    """A controller the scorer passes on every headline spec of ``task``, or on ``specs`` alone.
+
+    ``specs`` names some of the task's headline specs, at least one; the search then minimises
+    how far the loop sits outside those alone, and stops at the first controller that meets them,
+    whatever it does elsewhere.
 
     Raises:
+        ValueError: ``specs`` is empty or names anything but a headline spec of the task.
         SynthesisError: neither family reached zero violation within the generations.
     """
+    if specs is not None:
+        headline = {spec.name for spec in task.specs if spec.counts == "headline"}
+        aimed = frozenset(specs)
+        if not aimed or not aimed <= headline:
+            # The names are not repeated: they may be a held-out task's.
+            msg = "a search is aimed at one or more of the task's headline specs, and only those"
+            raise ValueError(msg)
+        specs = aimed
     for lead in (False, True):
         bounds = [GAIN_BOUNDS] * 3 + [FILTER_BOUNDS] + ([LEAD_BOUNDS] * 2 if lead else [])
         found: dict[str, Any] = {}
@@ -146,9 +164,9 @@ def search(task: Task, *, seed: int = SEED) -> LtiTf:
                 answer = _answer(_pid(params, lead))
             except (ValueError, ArithmeticError):
                 return 1e6
-            violation = _violation(task, _measure(task, answer, screen=True))
+            violation = _violation(task, _measure(task, answer, screen=True), specs)
             if violation == 0.0:
-                exact = _violation(task, _measure(task, answer))
+                exact = _violation(task, _measure(task, answer), specs)
                 if exact == 0.0:
                     found["answer"] = answer
                 return exact
@@ -167,7 +185,8 @@ def search(task: Task, *, seed: int = SEED) -> LtiTf:
         if "answer" in found:
             answer: LtiTf = found["answer"]
             return answer
-    msg = f"no PID or PID-lead controller meets every headline spec of {task.id!r}"
+    asked = "every headline spec" if specs is None else "the headline specs asked for"
+    msg = f"no PID or PID-lead controller meets {asked} of {task.id!r}"
     raise SynthesisError(msg, task=task.id)
 
 

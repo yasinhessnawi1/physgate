@@ -2,8 +2,9 @@
 
 An attempt refused before review (its change check, its gate) is never reviewed itself, and its
 work is in the commit the next attempt is reviewed on. The next review's packet therefore carries
-that attempt's sealed streams, in numbered parts the reviewer must read whole, and the markers the
-scan finds in them, each marked with its attempt. The reviewer answers each exactly as it answers
+that attempt's sealed streams, in numbered parts the reviewer may read, and the markers the scan
+finds in them, each marked with its attempt, each shown as required reading with the lines around
+it. The reviewer answers each exactly as it answers
 one of its own attempt's: an indicator naming the same evidence, or the answer is no verdict. A
 stream that cannot be shown is never dropped: the packet is refused. A packet with no earlier
 attempt is written exactly as before.
@@ -51,7 +52,14 @@ RUBRIC = Rubric(
 )
 #: The tool call of attempt 1 the scan flags: a lint rule suppressed.
 EARLIER_HIT = "toolu_attempt1_noqa"
-EARLIER_KEYS = ("earlier_sha256", "earlier_parts", "earlier_nonces", "earlier_indicators")
+EARLIER_KEYS = (
+    "earlier_sha256",
+    "earlier_parts",
+    "earlier_nonces",
+    "earlier_indicators",
+    "earlier_hit_parts",
+    "earlier_hits_sha256",
+)
 
 
 def earlier_stream() -> str:
@@ -116,13 +124,14 @@ def _dumped(packet: Packet) -> dict[str, Any]:
 # -- the packet ----------------------------------------------------------------------------------
 
 
-def test_the_packet_carries_the_earlier_attempt_s_streams_to_be_read_whole(tmp_path: Path) -> None:
+def test_the_packet_carries_the_earlier_attempt_s_streams_whole(tmp_path: Path) -> None:
     packet, read, _ = _build(tmp_path)
     data = _dumped(packet)
     parts = data.get("earlier_parts", [])
     assert parts, "the packet carries no earlier attempt's streams"
     names = [str(read / p["name"]) for p in parts]
-    assert all(n in packet.required_reading for n in names)
+    # Readable whole, and no longer required reading: each marker is, with the lines around it.
+    assert not any(n in packet.required_reading for n in names)
     shown = joined_parts(read, packet.earlier_parts).decode()
     assert "Attempt 1" in shown
     assert EARLIER_HIT in shown
@@ -251,7 +260,7 @@ def _review(
     monkeypatch.setattr(claude, "remove_secrets", lambda *a: None)
     monkeypatch.setattr(claude, "redact", lambda *a: None)
     monkeypatch.setattr(claude, "read_captured", lambda path, data=None: captured)
-    monkeypatch.setattr(claude, "require_matching_totals", lambda *a: None)
+    monkeypatch.setattr(claude, "compaction_line", lambda *a, **k: None)
     monkeypatch.setattr(claude, "unavailable_end", lambda *a, **k: None)
     monkeypatch.setattr(claude, "read_in_full", lambda *a: True)
     setup = ReviewerSetup(

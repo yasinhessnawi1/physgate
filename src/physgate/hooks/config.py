@@ -157,6 +157,18 @@ class SessionConfig(BaseModel):
     #: Whether each shell command runs under the survivor reaper (macOS with the OS layer),
     #: which ends every sandboxed command's output with its ``done`` line.
     survivor_reaper: bool
+    #: Whether the installer wrote the OS layer's sandbox for this session, which the dispatcher
+    #: asks for only where it judged the layer present. Inside it a shell command's read of the
+    #: harness checkout is the layer's to deny; without it the hooks refuse a command that names
+    #: one. Left out of the written configuration when false, so a session without the layer
+    #: keeps its bytes, and a configuration without it reads as having none.
+    os_layer: bool = False
+    #: For a reviewer whose run allows compaction (ARCH-060): the required files read again in
+    #: full after each compaction before any tool but Read (the rubric, ARCH-020), and what the
+    #: session is told when it starts again after one, in place of its required reading. Both
+    #: empty, and left out of the written configuration, for every other session.
+    after_compaction: tuple[AbsolutePath, ...] = ()
+    compaction_note: Annotated[str, StringConstraints(min_length=1)] | None = None
 
     @model_validator(mode="after")
     def _coherent(self) -> Self:
@@ -176,7 +188,34 @@ class SessionConfig(BaseModel):
                 f"({self.hook_timeout_seconds} s); otherwise a hung hook lets the tool run"
             )
             raise ValueError(msg)
+        why = compaction_refusal(
+            self.profile, self.required_reading, self.after_compaction, self.compaction_note
+        )
+        if why is not None:
+            raise ValueError(why)
         return self
+
+
+def compaction_refusal(
+    profile: str,
+    required_reading: tuple[str, ...],
+    after_compaction: tuple[str, ...],
+    compaction_note: str | None,
+) -> str | None:
+    """Why the compaction fields do not fit the session, or ``None`` if they do.
+
+    Only a reviewer reads again after a compaction, only what it must read anyway, and it is
+    told the note exactly when it has something to read again.
+    """
+    if not after_compaction and compaction_note is None:
+        return None
+    if profile != "reviewer":
+        return "only a reviewer reads again after a compaction"
+    if (not after_compaction) or compaction_note is None:
+        return "a reviewer is told the compaction note exactly when it reads again after one"
+    if not set(after_compaction) <= set(required_reading):
+        return "a file read again after a compaction is one of the required reading"
+    return None
 
 
 def digest(data: bytes) -> str:
@@ -216,3 +255,5 @@ class HookInput(BaseModel):
     agent_id: str | None = None
     #: Why a tool call failed, on ``PostToolUseFailure``.
     error: str | None = None
+    #: How the session started, on ``SessionStart``: ``compact`` after a compaction.
+    source: str | None = None

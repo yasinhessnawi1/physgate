@@ -39,7 +39,7 @@ from physgate.ui.guard import MUTATING_EVENTS, SPAWN_EVENTS, WRITE_FLAGS
 from physgate.ui.paths import Allowlist
 from physgate.ui.routes import Context, Route
 from physgate.ui.server import make_server
-from physgate.ui.table import ROUTES
+from physgate.ui.table import ROUTES, registered, served
 
 #: Every method the sweep sends: the ones a server might serve, and ones nobody does.
 METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "PROPFIND", "FROB")
@@ -87,6 +87,8 @@ def run_config(run_id: str) -> RunConfig:
         hooks="on",
         ablation=False,
         design_review="off",
+        parts_on_hand="off",
+        review_compaction="off",
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),
@@ -221,10 +223,34 @@ class Live:
         return json.loads(body)
 
 
+def composed() -> tuple[Route, ...]:
+    """The table the command serves: the product's routes and what its composition root adds.
+
+    Built through the composition root itself, so a sweep that walks this walks every route a
+    request to ``physgate ui`` can reach, the ones registered from the evaluation side included.
+    """
+    from physgate.cli import compose  # noqa: PLC0415 - the whole command, only when asked
+
+    compose()
+    return served()
+
+
+def swept() -> tuple[Route, ...]:
+    """The command's table, for a sweep: refused if nothing beside the product's was registered.
+
+    A sweep over the product's routes alone would pass while a registered route went unswept.
+    """
+    routes = composed()
+    assert registered(), "the sweep must reach the routes the composition root registers too"
+    assert routes == (*ROUTES, *registered())
+    return routes
+
+
 @contextmanager
-def serving(context: Context, routes: tuple[Route, ...] = ROUTES) -> Iterator[Live]:
-    """Serve ``routes`` over ``context`` until the block ends."""
-    server = make_server(context, bind="127.0.0.1", port=0, routes=routes, quiet=True)
+def serving(context: Context, routes: tuple[Route, ...] | None = None) -> Iterator[Live]:
+    """Serve ``routes`` over ``context`` until the block ends; by default the command's table."""
+    chosen = composed() if routes is None else routes
+    server = make_server(context, bind="127.0.0.1", port=0, routes=chosen, quiet=True)
     thread = threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True)
     thread.start()
     try:

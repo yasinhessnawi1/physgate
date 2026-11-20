@@ -12,7 +12,9 @@ import type { Quantity } from "../../design/quantity";
 import { type Actor, eventActor, type Models } from "../../words/actors";
 import { checkWords } from "../../words/checks";
 import { nodeLabel, quantityLabel } from "../../words/humanise";
-import { causeWords, triesWords } from "../../words/review";
+import { releasedWords as partsReleasedWords } from "../../words/parts";
+import { causeWords, compactionWords, triesWords } from "../../words/review";
+import { countOf } from "../../words/count";
 import { setAsideWith } from "../../words/queue";
 
 export type RowEnd =
@@ -160,6 +162,7 @@ export function rowOf(
   roles: Readonly<Record<string, string>>,
   models: Models,
   checks?: readonly GateCheck[],
+  going = false,
 ): Row | null {
   const actor = eventActor(event, roles, models);
   const base = {
@@ -191,6 +194,13 @@ export function rowOf(
           event.interfaceNodes.length === 0
             ? "no interface nodes"
             : `interface ${event.interfaceNodes.join(", ")}`,
+      };
+    case "parts_released":
+      return {
+        ...base,
+        depth: 0,
+        sentence: partsReleasedWords(event.choices),
+        meta: `${String(event.choices.length)} ${event.choices.length === 1 ? "part" : "parts"}`,
       };
     case "subtask_planned":
       return {
@@ -258,7 +268,7 @@ export function rowOf(
               ? `The reviewer refused attempt ${String(event.attempt)}${first === null ? "" : `: ${first.head}`}`
               : `The review of attempt ${String(event.attempt)} ended ${event.verdict}${first === null ? "" : `: ${first.head}`}`,
         more: first?.rest ?? null,
-        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)}${event.sessionId === null ? "" : ` · session ${event.sessionId}`}`,
+        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)}${event.sessionId === null ? "" : ` · session ${event.sessionId}`}${compactionWords(event.compactions)}`,
         end: { kind: "review", verdict: event.verdict },
         subtask: event.subtask,
         attempt: event.attempt,
@@ -269,7 +279,7 @@ export function rowOf(
         ...base,
         depth: 2,
         sentence: `Review of attempt ${String(event.attempt)} reached no verdict: ${causeWords(event.cause)}${triesWords(event.detail)}`,
-        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)} · cause ${event.cause}`,
+        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)} · cause ${event.cause}${compactionWords(event.compactions)}`,
         end: { kind: "review", verdict: "no verdict" },
         subtask: event.subtask,
         attempt: event.attempt,
@@ -287,7 +297,7 @@ export function rowOf(
       return {
         ...base,
         depth: 1,
-        sentence: setAsideWith(event.itemId),
+        sentence: setAsideWith(event.itemId, going),
         meta: `${subtaskName(event.subtask)} · ${event.subtask}`,
         subtask: event.subtask,
       };
@@ -362,7 +372,7 @@ export function rowOf(
         ...base,
         depth: 2,
         sentence: `Issued the design's state to attempt ${String(event.attempt)}`,
-        meta: `${subtaskName(event.subtask)} · ${String(event.length)} bytes`,
+        meta: `${subtaskName(event.subtask)} · ${countOf(event.length, "byte")}`,
         subtask: event.subtask,
         attempt: event.attempt,
       };
@@ -527,11 +537,14 @@ export function rowsOf(
   events: readonly RunEvent[],
   models: Models,
   checks?: readonly GateCheck[],
+  /** Whether the run is going now: only then does a set-aside row say the run goes on. */
+  going = false,
 ): readonly Row[] {
   const names = subtaskNames(events);
   const roles = subtaskRoles(events);
   return events.flatMap((event) => {
-    const row = rowOf(event, names, roles, models, checks) ?? unfinishedGate(event, events, names);
+    const row =
+      rowOf(event, names, roles, models, checks, going) ?? unfinishedGate(event, events, names);
     if (row === null) return [];
     if (event.kind !== "attempt_rejected") return [row];
     // A rejection that repeats the finding an earlier row of the same attempt already shows says

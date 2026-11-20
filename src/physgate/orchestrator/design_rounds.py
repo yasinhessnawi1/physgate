@@ -490,7 +490,13 @@ def _one_round(
         )
         workdir = retry_dir(loop.run_dir, k)
         # Sent the prompt as it was, and, where a unit of the plan was refused, why.
-        told = retry_prompt(brief, sorted(loop.config.models.roles), prompt, refused)
+        told = retry_prompt(
+            brief,
+            sorted(loop.config.models.roles),
+            prompt,
+            refused,
+            parts=loop.config.parts_on_hand == "on",
+        )
         outcome = loop.make_call(brief, workdir=workdir, prompt=told, session_id=again)
         refused_ended, call_ended = call_ended[0], loop.now()
     cause: PlanCause | None = outcome.cause
@@ -626,7 +632,13 @@ def decompose_in_rounds(
                 brief,
                 workdir=retry_dir(run_dir, 1),
                 # The brief's prompt as it was, and, where a unit of the plan was refused, why.
-                prompt=retry_prompt(brief, sorted(config.models.roles), None, outcome),
+                prompt=retry_prompt(
+                    brief,
+                    sorted(config.models.roles),
+                    None,
+                    outcome,
+                    parts=config.parts_on_hand == "on",
+                ),
                 session_id=str(uuid.uuid4()),
             )
         found = start_run(
@@ -763,7 +775,13 @@ def decompose_in_rounds(
         ):
             spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
             earlier.append(EarlierRound(call=spent, reviewed=ran.reviewed, plan_sha256=digest))
-            prompt = replan_prompt(brief, sorted(config.models.roles), plan, ran.findings)
+            prompt = replan_prompt(
+                brief,
+                sorted(config.models.roles),
+                plan,
+                ran.findings,
+                parts=config.parts_on_hand == "on",
+            )
             continue
         if follows in ("void", "replan"):
             loop.end(k, "void", cls, cause, ran.detail)

@@ -54,9 +54,10 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from physgate.flags import ReviewCompaction, Reviewers
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
 from physgate.lines import split_lines
-from physgate.orchestrator.accounting import require_matching_totals
+from physgate.orchestrator.accounting import compaction_line, settle
 from physgate.orchestrator.budget import (
     PROMPT_TOO_LONG,
     STRUCTURED_OUTPUT_EXHAUSTED,
@@ -76,6 +77,7 @@ from physgate.orchestrator.decompose import DEBUG_LOG, OUTPUT_CAP, binary_versio
 from physgate.orchestrator.dispatch import (
     OWNER_NAME,
     Installed,
+    compactions_seen,
     harness_protection,
     read_captured,
     read_in_full,
@@ -87,16 +89,17 @@ from physgate.orchestrator.dispatch import (
     write_record,
 )
 from physgate.orchestrator.exceptions import (
+    AccountingError,
     HeldOutExposedError,
     InvocationError,
     ReviewerNotRegisteredError,
     ReviewUnavailableError,
 )
 from physgate.orchestrator.invocation import (
-    REVIEWER_ENV,
     TRAFFIC_ALLOWED_VERSIONS,
     isolated_env,
     reviewer_argv,
+    reviewer_env,
 )
 from physgate.orchestrator.managed import (
     SessionManaged,
@@ -146,6 +149,7 @@ from physgate.reviewers.rubric import (
     Rubric,
     RubricItem,
     RubricKind,
+    generalist_of,
     load_rubric,
     not_evaluable_needs,
 )
@@ -155,9 +159,17 @@ from physgate.reviewers.verdict import Unavailable, judge, to_result
 
 #: How the binary marks a compaction in the stream (measured on both binaries).
 COMPACT_BOUNDARY = "compact_boundary"
+#: The pins on which a reviewer's compaction was measured end to end at the scripted endpoint:
+#: the boundary and its fields, the verdict tool offered after it, how the compaction call's
+#: tokens are counted, the session-start hook after it, a resume after it, what it carries of
+#: the files read before it, and a review that reads its rubric again by the note's range and
+#: reaches its verdict. A run with ``review_compaction: on`` on any other pin is refused before
+#: anything runs.
+COMPACTION_MEASURED_PINS: frozenset[str] = frozenset({"2.1.301", "2.1.322"})
 #: The binary's context limits, which it groups as one: a request too long for the window, its own
-#: check before sending one, and its stop on a compaction that cannot keep up. Reviewer sessions
-#: do not compact, so a review that outgrows its window ends at the binary's own check.
+#: check before sending one, and its stop on a compaction that cannot keep up. With compaction
+#: off a review that outgrows its window ends at the binary's own check; with it on, at a
+#: compaction that cannot keep up.
 CONTEXT_LIMITS = frozenset({PROMPT_TOO_LONG, "blocking_limit", "rapid_refill_breaker"})
 #: The binary's end when a tool call it could not parse was retried until it stopped.
 MALFORMED_TOOL_USE = "malformed_tool_use_exhausted"
@@ -200,11 +212,11 @@ SCAN_FOUND_NONE = (
 #: is told of its own attempt's markers; told only where there are any, so every other prompt is
 #: what it was. Their work is in the commit under review (ARCH-133).
 EARLIER_FOUND = (
-    "Earlier attempts of this subtask that no review judged are shown in the earlier parts "
-    "listed above; their work is in the commit you review. The same search found these markers "
-    "in them, each with the attempt it is from. Judge each one as a marker of this attempt: an "
-    "indicator that names the same evidence and the same attempt, confirmed or dismissed with "
-    "your reason:\n"
+    "Earlier attempts of this subtask that no review judged are shown around each marker in the "
+    "parts listed above; their work is in the commit you review. The same search found these "
+    "markers in them, each with the attempt it is from. Judge each one as a marker of this "
+    "attempt: an indicator that names the same evidence and the same attempt, confirmed or "
+    "dismissed with your reason:\n"
 )
 NO_SCAN_RUN = (
     "No search for the markers of a check switched off was run on this attempt's record. Judge "
@@ -275,18 +287,30 @@ def review_prompt(
     # A packet recorded before earlier attempts were shown carries neither field.
     earlier_hits: tuple[ScanHit, ...] = getattr(packet, "earlier_indicators", ())
     earlier_parts: tuple[Part, ...] = getattr(packet, "earlier_parts", ())
+    excerpts: tuple[Part, ...] = getattr(packet, "earlier_hit_parts", ())
     if earlier_hits:
         indicators += EARLIER_FOUND + "".join(
             f"- {hit.kind}, evidence {hit.evidence}, attempt {hit.attempt}: {hit.what}\n"
             for hit in earlier_hits
         )
-    earlier = (
-        f"- {_parts(read, earlier_parts)}: the trajectories of earlier attempts of this "
-        "subtask that no review judged, attempt by attempt, in numbered parts read in their "
-        "order.\n"
-        if earlier_parts
-        else ""
-    )
+    if excerpts:
+        # Each marker with the lines around it is what must be read; the whole streams are there
+        # to read on (ARCH-133).
+        earlier = (
+            f"- {_parts(read, excerpts)}: for each marker found in earlier attempts of this "
+            "subtask that no review judged, the tool call and its result with the lines around "
+            "them, each headed by the earlier part and lines it is cut from.\n"
+            f"- {_parts(read, earlier_parts)}: those attempts' whole trajectories, in numbered "
+            "parts. Read any of them where the lines around a marker are not enough to judge it.\n"
+        )
+    elif earlier_parts:
+        earlier = (
+            f"- {_parts(read, earlier_parts)}: the trajectories of earlier attempts of this "
+            "subtask that no review judged, attempt by attempt, in numbered parts read in their "
+            "order.\n"
+        )
+    else:
+        earlier = ""
     return (
         f"You review one attempt at a subtask, made by a session in the {role} role. "
         f"Everything you may read is under {read}/:\n\n"
@@ -412,18 +436,38 @@ def _events(stream: str) -> list[dict[str, Any]]:
     return events
 
 
+def compactions_in(stream: str) -> tuple[int | None, ...]:
+    """Each compaction the stream shows, in order, as the context size its boundary names.
+
+    The size is the boundary's ``compact_metadata.pre_tokens`` (the shape the real-binary row
+    B1 is owed to confirm on each pin), or ``None`` where the boundary names none.
+    """
+    sizes: list[int | None] = []
+    for event in _events(stream):
+        if event.get("type") != "system" or event.get("subtype") != COMPACT_BOUNDARY:
+            continue
+        metadata = event.get("compact_metadata")
+        size = metadata.get("pre_tokens") if isinstance(metadata, dict) else None
+        valid = isinstance(size, int) and not isinstance(size, bool) and size >= 0
+        sizes.append(size if valid else None)
+    return tuple(sizes)
+
+
 def unavailable_end(
     stream: str,
     result: dict[str, Any] | None,
     *,
     exit_code: int | None,
     timed_out: bool,
+    compaction: ReviewCompaction = "off",
 ) -> tuple[UnavailableCause, str] | None:
     """Why a review session's end is not one a verdict can come from, or ``None`` if it is.
 
     Read in this order, so a cause the generic classification would call
     infrastructure, and retry, is named for what it is first: a compaction anywhere
-    in the stream, then a request that outgrew the window, then a refusal by the
+    in the stream where ``compaction`` is ``off`` (under ``on`` a compaction is the session
+    carrying on, and what it may drop is held by the hook layer and :meth:`ClaudeReviewer.
+    _conclude`), then a request that outgrew the window, then a refusal by the
     model, then a verdict cut at the output cap (no verdict), then the binary's cap on a
     tool call it could not parse or on refused structured answers (an invalid verdict,
     with the last refusal); then the session's end as every session's is classified,
@@ -432,7 +476,9 @@ def unavailable_end(
     said a full disk lost its own records is infrastructure too, with the loss named.
     """
     events = _events(stream)
-    if any(e.get("type") == "system" and e.get("subtype") == COMPACT_BOUNDARY for e in events):
+    if compaction != "on" and any(
+        e.get("type") == "system" and e.get("subtype") == COMPACT_BOUNDARY for e in events
+    ):
         return "compacted", "the session compacted what it had read"
     if result is not None and result.get("terminal_reason") in CONTEXT_LIMITS:
         return "context_exceeded", "the review outgrew the model's context window"
@@ -465,6 +511,59 @@ def unavailable_end(
     return "infrastructure", f"the session ended with {end.cause}"
 
 
+#: What a reviewer whose run allows compaction is told when its session starts again after one,
+#: in place of its required reading (the reading hook's note, ARCH-060, ARCH-020). Held to this
+#: text byte for byte, its line breaks included, as what a reviewer reads is part of what a run
+#: measures. It names the rubric's range because a Read with no range of a file the compaction
+#: carried is answered as unchanged on 2.1.301, with nothing the reading hook can record; a read
+#: by the range returns the file. ``{lines}`` is :func:`read_tool_lines` of the rubric, and
+#: ``{hits}`` is :data:`COMPACTION_HITS` where the review has markers to judge, else empty.
+COMPACTION_NOTE = (
+    "Your conversation was compacted: what you read before this point is now a summary, not the "
+    "files.\n"
+    "Every file under {read}/ can still be read again with the Read tool. Before you give your "
+    "verdict,\n"
+    "read {read}/rubric.md again in full with the Read tool, from offset 1 with limit {lines}; "
+    "your verdict is refused until you have. Judge every item of\n"
+    "the rubric from the material, and read again any part your summary does not hold in enough "
+    "detail\n"
+    "to judge it. {hits}"
+)
+#: The markers named again after a compaction, each line in the prompt's own format.
+COMPACTION_HITS = (
+    "The markers you must still judge, each with an indicator that names the same evidence (and "
+    "the\n"
+    "same attempt, where one is given), confirmed or dismissed with your reason, are:\n"
+    "{lines}"
+)
+
+
+def read_tool_lines(data: bytes) -> int:
+    """How many lines the Read tool counts in ``data``: one more than its newlines.
+
+    Measured on both pins: the empty line after a final newline is counted, so a file of 19
+    newlines has 20 lines with or without a final newline. A Read from line 1 with this limit
+    returns every line, which the reading hook records as a read in full; and, being a range,
+    it is not one the binary answers as unchanged after a compaction has carried the file.
+    """
+    return data.count(b"\n") + 1
+
+
+def compaction_note(read: Path, hits: tuple[ScanHit, ...], lines: int) -> str:
+    """The note a reviewer is told after a compaction.
+
+    For its read root, its markers, and its rubric's ``lines`` as the Read tool counts them.
+    """
+    listed = "\n".join(
+        f"- {hit.kind}, evidence {hit.evidence}"
+        + ("" if hit.attempt is None else f", attempt {hit.attempt}")
+        + f": {hit.what}"
+        for hit in hits
+    )
+    told = COMPACTION_HITS.format(lines=listed) if hits else ""
+    return COMPACTION_NOTE.format(read=read, lines=lines, hits=told)
+
+
 #: What a resumed session is told when its verdict was refused: the check's own reason.
 REPAIR = (
     "Your structured verdict was not accepted, for this reason: {reason}\n\n"
@@ -494,6 +593,29 @@ class _Ended(Exception):  # noqa: N818 - a session's end, carried to the loop th
         self.spec_defects, self.refusals = spec_defects, refusals
         #: The account's usage limit the session ended on, if its stream named one.
         self.usage_limit: UsageLimit | None = None
+        #: Each compaction the review's session showed so far, its invocations before this one
+        #: included, as the context size before it (``None`` where its boundary named none).
+        self.compacted: tuple[int | None, ...] = ()
+
+
+def compaction_fields(compacted: tuple[int | None, ...]) -> dict[str, Any]:
+    """What a review's record says of its compactions: nothing where there were none.
+
+    The number of compactions, and the context size before each where every boundary named
+    one; a review with none writes neither field, so its line keeps its bytes.
+    """
+    if not compacted:
+        return {}
+    sizes = tuple(size for size in compacted if size is not None)
+    fields: dict[str, Any] = {"compactions": len(compacted)}
+    if len(sizes) == len(compacted):
+        fields["compaction_pre_tokens"] = sizes
+    return fields
+
+
+def after_compactions(count: int) -> str:
+    """How a review with no verdict says how many compactions came before its end."""
+    return f" (after {count} compaction{'' if count == 1 else 's'})" if count else ""
 
 
 class ClaudeReviewer:
@@ -505,6 +627,8 @@ class ClaudeReviewer:
         Raises:
             ReviewError: ``setup`` pins no reviewer model for ``role``, or ``rubric``
                 is another role's.
+            ReviewerNotRegisteredError: ``review_compaction: on`` on a pin where a reviewer's
+                compaction was not measured (:func:`require_measured_compaction`).
         """
         model = setup.models.get(role)
         if model is None:
@@ -513,6 +637,8 @@ class ClaudeReviewer:
         if rubric.role != role:
             msg = "a reviewer judges with its own role's rubric"
             raise ReviewError(msg, role=role, rubric=rubric.role)
+        # Here, where every path that builds a reviewer passes, not only the run's.
+        require_measured_compaction(setup)
         self._role = role
         self._model = model
         self._setup = setup
@@ -689,6 +815,7 @@ class ClaudeReviewer:
         )
         prior: tuple[MessageUsage, ...] = ()
         prior_refusals = 0
+        prior_compacted: tuple[int | None, ...] = ()
         resumes = 0
         while True:
             outcome = self._conclude(
@@ -705,6 +832,7 @@ class ClaudeReviewer:
                 packet=packet,
                 prior=prior,
                 prior_refusals=prior_refusals,
+                prior_compacted=prior_compacted,
             )
             if isinstance(outcome, ReviewResult):
                 return outcome.model_copy(
@@ -715,9 +843,11 @@ class ClaudeReviewer:
                 )
             if outcome.cause != "invalid_verdict" or resumes >= self._setup.repair_resumes:
                 after = f" (after {resumes} repair resume)" if resumes else ""
+                compacted = len(outcome.compacted)
                 raise ReviewUnavailableError(
-                    f"{outcome}{after}",
+                    f"{outcome}{after}{after_compactions(compacted)}",
                     cause=outcome.cause,
+                    compactions=compacted or None,
                     session_id=session_id,
                     reviewer_model=self._model,
                     usage=outcome.usage,
@@ -729,6 +859,7 @@ class ClaudeReviewer:
             # so the reviewer can answer what it has already read. It is the same review.
             resumes += 1
             prior, prior_refusals = outcome.usage, outcome.refusals
+            prior_compacted = outcome.compacted
             self._credentials(sdir)
             stdout, exit_code, timed_out = self._spawn(
                 packet,
@@ -764,6 +895,7 @@ class ClaudeReviewer:
         packet: Packet | PlanPacket,
         prior: tuple[MessageUsage, ...],
         prior_refusals: int,
+        prior_compacted: tuple[int | None, ...] = (),
     ) -> ReviewResult | _Ended:
         """What one session of the review came to: a result, or why it is none.
 
@@ -786,28 +918,57 @@ class ClaudeReviewer:
         # The scan and the totals are held to the same bytes.
         captured = read_captured(stdout, data)
         result = captured.result
-        usage = (*prior, *captured.usage)
-        # Before anything else is concluded from the review: an exposure is recorded
-        # whatever else its end shows. The canary itself is never named.
-        if canary_seen(data, frozenset(self._setup.held_out_canaries)):
+        # Each cut response marked as the totals count it, on every invocation's lines alike.
+        usage = settle(result, (*prior, *captured.usage))
+        exposed = canary_seen(data, frozenset(self._setup.held_out_canaries))
+        text = data.decode(errors="replace")
+        here = compactions_in(text)
+        # A compaction's own call is in the totals and in no message: where this invocation's
+        # stream shows a boundary, the difference is that call's usage, one line of its own
+        # (an earlier invocation's line is in ``prior``, so a resume counts only its own). It
+        # was spent whatever the review shows, an exposure included. A boundary with no result
+        # has no totals to read it from, and stays uncounted.
+        try:
+            line = compaction_line(
+                result,
+                usage,
+                compactions=len(here),
+                message_id=f"compaction-{len(prior_compacted) + 1}",
+            )
+        except AccountingError:
+            # An exposure is recorded whatever else its end shows, a broken account included.
+            if not exposed:
+                raise
+            line = None
+        if line is not None:
+            usage = (*usage, line)
+        # Before anything else is concluded from the review. The canary itself is never named.
+        if exposed:
             msg = f"held-out material in the stream of review session {session_id}"
             raise HeldOutExposedError(
                 msg, session_id=session_id, reviewer_model=self._model, usage=usage
             )
-        require_matching_totals(result, usage)
         answered = sorted(captured.answered - {SYNTHETIC_MODEL})
         if answered and answered != [self._model]:
             msg = "the review was answered by a model other than the pinned one"
             raise InvocationError(msg, asked=self._model, answered=",".join(answered))
-        text = data.decode(errors="replace")
         refusals = prior_refusals + schema_refusals(text)
+        compacted = (*prior_compacted, *here)
 
         def ended(
             cause: UnavailableCause, detail: str, defects: tuple[SpecDefect, ...] = ()
         ) -> _Ended:
-            return _Ended(detail, cause, usage, defects, refusals)
+            stop = _Ended(detail, cause, usage, defects, refusals)
+            stop.compacted = compacted
+            return stop
 
-        cut = unavailable_end(text, result, exit_code=exit_code, timed_out=timed_out)
+        cut = unavailable_end(
+            text,
+            result,
+            exit_code=exit_code,
+            timed_out=timed_out,
+            compaction=self._setup.review_compaction,
+        )
         if cut is not None:
             stop = ended(*cut)
             if cut[0] == "infrastructure":
@@ -820,6 +981,20 @@ class ClaudeReviewer:
             )
         if not answered:
             return ended("no_verdict", "no model message in the review")
+        # The hook layer records each compaction it was told of, and the rubric read since is
+        # held to that record: a compaction it did not see is one after which nothing shows the
+        # rubric was read again. Either difference is no verdict. Under ``off`` a compaction has
+        # already ended the review above, and the hook layer records none.
+        seen = (
+            compactions_seen(Path(installed.config), session_id)
+            if self._setup.review_compaction == "on"
+            else 0
+        )
+        if seen < len(compacted):
+            return ended("reading_incomplete", "a compaction the hook layer did not see")
+        if seen > len(compacted):
+            shown = "a compaction the hook layer recorded and the stream does not show"
+            return ended("reading_incomplete", shown)
         if not read_in_full(Path(installed.config), session_id):
             return ended("reading_incomplete", "a required file was not read in full")
         structured = (result or {}).get("structured_output")
@@ -846,7 +1021,7 @@ class ClaudeReviewer:
             schema_refusals=refusals,
             max_output_tokens=self._setup.max_output_tokens,
             context_window=context_window(result, self._model),
-        )
+        ).model_copy(update=compaction_fields(compacted))
 
     def _prepare(self, review: Path, artefact: Artefact, session_id: str) -> Packet:
         """The review's packet, or no review at all."""
@@ -896,6 +1071,21 @@ class ClaudeReviewer:
             helper = ["--api-key-helper", str(helper_path)]
         read = Path(packet.read_root)
         reading = [arg for path in packet.required_reading for arg in ("--reading", path)]
+        compaction: list[str] = []
+        if self._setup.review_compaction == "on":
+            # Read again after each compaction: the rubric, which the verdict's schema names only
+            # by its item ids. The note is told in place of the required reading, and names the
+            # rubric's range as the packet wrote it.
+            compaction = [
+                "--after-compaction",
+                str(read / RUBRIC_NAME),
+                "--compaction-note",
+                compaction_note(
+                    read,
+                    to_answer(packet),
+                    lines=read_tool_lines((read / RUBRIC_NAME).read_bytes()),
+                ),
+            ]
         argv = [
             str(self._setup.install_bin),
             "hooks",
@@ -919,6 +1109,7 @@ class ClaudeReviewer:
             "--ceiling",
             str(self._setup.token_ceiling),
             *reading,
+            *compaction,
             *helper,
             *harness_protection(),
             *(arg for root in self._setup.held_out for arg in ("--held-out", root)),
@@ -957,7 +1148,8 @@ class ClaudeReviewer:
             api_key=None,
         )
         env.update(installed.spawn_env)
-        env.update(REVIEWER_ENV)
+        added = reviewer_env(self._setup.review_compaction)
+        env.update(added)
         config = sdir / "config"
         # On a pin whose sessions carry the catalog and flag traffic, the review session is held
         # to the conditions its run began with, as a role session is: its own debug log says
@@ -989,7 +1181,7 @@ class ClaudeReviewer:
                 "kind": "reviewer",
                 "run_id": self._setup.run_id,
                 "argv": argv,
-                "env_added": sorted(REVIEWER_ENV),
+                "env_added": sorted(added),
             }
             write_record(sdir.parent, sdir.name, record, "process.json")
 
@@ -1009,6 +1201,7 @@ class ClaudeReviewer:
                 session_id=session_id,
                 on_spawn=self._on_spawn,
                 while_held=while_held,
+                login_dir=config,
             )
             # However the session ends, nothing it started is left running: a process it
             # left could still read, or write, under the review root once it is gone.
@@ -1105,6 +1298,13 @@ class ReviewerSetup:
     #: The held-out tier's canaries: a review session's stream is scanned for them, as a
     #: role session's is. A hit proves display; no hit proves nothing.
     held_out_canaries: tuple[str, ...] = ()
+    #: Whether a review session may compact its conversation (the run's ``review_compaction``,
+    #: ARCH-060). ``off``, as every review before the flag, unless the run says otherwise.
+    review_compaction: ReviewCompaction = "off"
+    #: Who reviews the role work (the run's ``reviewers``): each role's paired specialist, or,
+    #: in an ablation run, the generalist rubric of it on the same pin. ``paired``, as every
+    #: review before the switch, unless the run says otherwise.
+    reviewers: Reviewers = "paired"
 
     @classmethod
     def of_run(
@@ -1142,7 +1342,24 @@ class ReviewerSetup:
             library=library,
             held_out=config.held_out,
             held_out_canaries=config.held_out_canaries,
+            review_compaction=config.review_compaction,
+            reviewers=config.reviewers,
         )
+
+
+def require_measured_compaction(setup: ReviewerSetup) -> None:
+    """Refuse compaction for reviewers on a pin where it was not measured, before anything runs.
+
+    Raises:
+        ReviewerNotRegisteredError: ``review_compaction: on`` on a pin not in
+            :data:`COMPACTION_MEASURED_PINS`.
+    """
+    if setup.review_compaction == "on" and setup.claude_version not in COMPACTION_MEASURED_PINS:
+        msg = (
+            "review_compaction: on needs a pin on which a reviewer's compaction was measured, "
+            "and this one was not"
+        )
+        raise ReviewerNotRegisteredError(msg, claude_version=setup.claude_version)
 
 
 def claude_reviewers(setup: ReviewerSetup) -> dict[str, Reviewer]:
@@ -1150,16 +1367,22 @@ def claude_reviewers(setup: ReviewerSetup) -> dict[str, Reviewer]:
 
     Each with its role's rubric, loaded once, here, before anything is reviewed: a
     rubric that is missing, malformed, or not its last promoted version stops the
-    run before it starts. A role with no pinned reviewer model gets none, and the
-    run's own check of its registrations refuses it.
+    run before it starts. Under ``reviewers: generalist`` each judges with the generalist rubric
+    made from that paired one by code (:func:`generalist_of`), on the same pin; the packet of a
+    generalist rubric holds none of the role's own library files. A role with no pinned reviewer
+    model gets none, and the run's own check of its registrations refuses it.
 
     Raises:
-        ReviewerNotRegisteredError: a role's rubric does not load.
+        ReviewerNotRegisteredError: a role's rubric does not load, or ``review_compaction: on``
+            on a pin where it was not measured.
     """
+    require_measured_compaction(setup)
     reviewers: dict[str, Reviewer] = {}
     for role in sorted(setup.models):
         try:
             rubric = load_rubric(setup.library / KNOWLEDGE_ROOT, role)
+            if setup.reviewers == "generalist":
+                rubric = generalist_of(rubric)
         except ReviewError as exc:
             msg = f"every role needs a paired reviewer, and this one's rubric does not load: {exc}"
             raise ReviewerNotRegisteredError(msg, **{**exc.context, "role": role}) from None
@@ -1179,6 +1402,7 @@ def design_reviewer(setup: ReviewerSetup, config: RunConfig) -> ClaudeReviewer |
     pinned = config.models.design_reviewer
     if pinned is None:
         return None
+    require_measured_compaction(setup)
     try:
         rubric = load_rubric(setup.library / KNOWLEDGE_ROOT, DESIGN_REVIEWER)
     except ReviewError as exc:

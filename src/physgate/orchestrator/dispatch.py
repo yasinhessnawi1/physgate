@@ -44,8 +44,8 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from physgate.hooks import withheld
 from physgate.hooks.config import SessionConfig
-from physgate.hooks.reading import outstanding
-from physgate.hooks.sentinel import _frozen_experiment_paths
+from physgate.hooks.reading import compactions, outstanding
+from physgate.hooks.sentinel import _frozen_experiment_paths, held_apart
 from physgate.hooks.settings import CONFIG_NAME, SETTINGS_NAME
 from physgate.hooks.shell_startup import held_or_refused
 from physgate.hooks.snapshot import Signature, file_digest, signature
@@ -115,6 +115,7 @@ from physgate.orchestrator.managed import (
 from physgate.orchestrator.merge import RunGit, attempt_head, attempt_message, commit_attempt
 from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
 from physgate.orchestrator.params_record import recorded_params
+from physgate.orchestrator.parts_reading import parts_files
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
     Leftover,
@@ -142,6 +143,7 @@ from physgate.orchestrator.session_files import (
     read_beneath,
     read_bounded,
 )
+from physgate.orchestrator.stop_signals import track
 from physgate.orchestrator.tool_environment import (
     changed_while_running,
     forbidden_places,
@@ -209,6 +211,7 @@ def spawn_held(
     session_id: str,
     on_spawn: SpawnHook | None,
     while_held: Callable[[int, str], None],
+    login_dir: Path | None = None,
 ) -> tuple[subprocess.Popen[bytes], str]:
     """Spawn a session held (:data:`HELD`), record it, and only then let it run.
 
@@ -217,6 +220,10 @@ def spawn_held(
     record to), and ``while_held`` runs (the process record, and any record that must
     precede the session). Any failure there stops the held process, which has run nothing,
     and raises. Returns the process and its start time.
+
+    From its spawn the process, and the login file in ``login_dir`` (the session's configuration
+    directory), are held for a stop signal of the run's (``stop_signals``): one that lands while
+    the session lives ends it and removes its credential files.
 
     Nothing is spawned with an environment through which a shell startup file could reach a
     shell the binary starts outside the sandbox (``shell_startup.held_or_refused``): held here,
@@ -246,6 +253,7 @@ def spawn_held(
         raise
     finally:
         os.close(hold)
+    track(process, login_dir)
     try:
         started = started_at(process.pid)
         if started is None:
@@ -334,6 +342,39 @@ def withheld_paths(run_dir: Path) -> tuple[Path, ...]:
     params = recorded_params(run_dir)
     named = tuple(run_dir / name for name in WITHHELD_RECORDS)
     return (*named, params) if params is not None else named
+
+
+#: The run's place apart from every session's own directory, where each role session's sentinel
+#: keeps the part of its record that names the protected entries (a held-out task's directory,
+#: which is its id, and each file's digest): a session's directory can lie later where people and
+#: other sessions read; this place no role session reads or writes on any layer. Resume's checks
+#: read it there, as the session's own checks did.
+SENTINEL_APART_DIR = "sentinel-apart"
+
+
+def place_apart(run_dir: Path) -> Path:
+    """The run's place apart for the sentinel's record, made where it is not there yet.
+
+    Made private, with the run's directory where that is not there yet. One that is there is
+    taken only as the run's own: a real directory, no link, this user's, mode 0700; the sentinel
+    holds it to the same at every check, a resume's among them.
+
+    Raises:
+        InvocationError: it is there as anything else; nothing is installed.
+    """
+    apart = run_dir / SENTINEL_APART_DIR
+    run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        os.mkdir(apart, 0o700)
+    except FileExistsError:
+        pass  # judged below as it is: never changed here
+    else:
+        os.chmod(apart, 0o700)  # as made, whatever bits the parent passes down
+    try:
+        held_apart(str(apart))
+    except ValueError as exc:
+        raise InvocationError(str(exc), place=str(apart)) from None
+    return apart
 
 
 #: The run's own records, in the run directory. The session's working directory is
@@ -635,6 +676,14 @@ def issued_state_path(sdir: Path) -> Path:
     return sdir / "issued" / STATE_NAME
 
 
+def parts_record_dir(sdir: Path) -> Path:
+    """Where a session's parts record files are written.
+
+    Beside its issued state: outside its worktree, in a directory of the session's own.
+    """
+    return sdir / "parts"
+
+
 def write_issued_state(path: Path, data: bytes) -> None:
     """Write a session's issued state, new, where it will read it."""
     path.parent.mkdir(parents=True)
@@ -715,12 +764,23 @@ class _Input:
     tool_response: object = None
     agent_id: str | None = None
     error: str | None = None
+    source: str | None = None
 
 
 def read_in_full(config_path: Path, session_id: str) -> bool:
-    """The hook layer's own answer: is every required file read in full, as it is now?"""
+    """The hook layer's own answer: is every required file read in full, as it is now?
+
+    After a compaction, a file the configuration names to read again counts only through
+    reads made since the last one.
+    """
     config = SessionConfig.model_validate_json(config_path.read_bytes())
     return not outstanding(config, _Input(session_id=session_id))
+
+
+def compactions_seen(config_path: Path, session_id: str) -> int:
+    """The hook layer's own count of the session's compactions it was told of."""
+    config = SessionConfig.model_validate_json(config_path.read_bytes())
+    return compactions(config, session_id)
 
 
 @dataclass(frozen=True)
@@ -1682,6 +1742,10 @@ class ClaudeDispatcher:
         # there; the OS layer opens its home to its commands, and its binary reads its
         # configuration itself.
         protect += ["--sessions-root", str(self._run.run_dir / "sessions")]
+        # Beside the session directories, never in one: made before the install, so the layers
+        # refuse a place that is there.
+        apart = place_apart(self._run.run_dir)
+        protect += ["--sentinel-apart", str(apart)]
         # A session in the target's worktree has nothing of its own in the harness
         # checkout, and the live gate reads from it.
         protect += harness_protection()
@@ -1710,14 +1774,17 @@ class ClaudeDispatcher:
         # touching the module, until the plan names each interface's consumers).
         # loader.py names them relative to the worktree being dispatched to, never
         # the orchestrator's own checkout — that is where this session's Read
-        # tool actually operates.
+        # tool actually operates. Under the run's skills: off the skill file leaves both, and
+        # nothing else changes: decomposition put no skill file into the run's target, so no
+        # worktree holds one, and nothing is withheld in its place.
         contracts = self._contracts(request)
-        reading_paths = loader.required_reading(
+        given = loader.session_reading(
             request.assigned_role,
             Path(request.spec_path),
+            skills=self._config.skills,
             interfaces=tuple(Path(path) for path in contracts),
         )
-        always_loaded_paths = loader.always_loaded(request.assigned_role)
+        reading_paths, always_loaded_paths = given.required, given.always_loaded
         reading_args = [
             arg for path in reading_paths for arg in ("--reading", str(worktree / path))
         ]
@@ -1725,6 +1792,10 @@ class ClaudeDispatcher:
         issued = self._issue_state(request, sdir)
         if issued is not None:
             reading_args += ["--reading", str(issued)]
+        # The parts record, where the run's decisions named parts: every file of it is required
+        # reading, so no session writes before it has read what a person said of the parts.
+        for record_file in self._issue_parts_record(request, sdir):
+            reading_args += ["--reading", str(record_file)]
         always_loaded_args = [
             arg for path in always_loaded_paths for arg in ("--always-loaded", str(worktree / path))
         ]
@@ -1827,6 +1898,44 @@ class ClaudeDispatcher:
             msg = "the issued state written for the session is not the one the run recorded"
             raise InvocationError(msg, subtask_id=request.subtask_id, path=str(path))
         return path
+
+    @staticmethod
+    def _issue_parts_record(request: SessionRequest, sdir: Path) -> list[Path]:
+        """Write the request's parts record where its session reads it, held to the release's line.
+
+        The record's bytes are held to the digest and length the release line named before any
+        file is written; the files are rendered from them (:func:`parts_files`: a person's words
+        cleaned, capped and fenced as data) and read back whole. A request with no record writes
+        nothing.
+
+        Raises:
+            InvocationError: the record is not the one the run recorded, or a file written is
+                not what was rendered.
+        """
+        held = request.parts_record
+        if held is None:
+            return []
+        data = held.text.encode("utf-8")
+        if (hashlib.sha256(data).hexdigest(), len(data)) != (held.sha256, held.length):
+            msg = "the parts record handed to the session is not the one the run recorded"
+            raise InvocationError(msg, subtask_id=request.subtask_id)
+        try:
+            files = parts_files(data)
+        except ValueError as exc:
+            msg = "the parts record the run recorded is not one the session can be shown"
+            raise InvocationError(msg, subtask_id=request.subtask_id, why=str(exc)) from exc
+        written = []
+        directory = parts_record_dir(sdir)
+        directory.mkdir(parents=True)
+        for name, content in files:
+            path = directory / name
+            with path.open("xb") as handle:
+                handle.write(content)
+            if path.read_bytes() != content:
+                msg = "the parts record file written for the session is not the one rendered"
+                raise InvocationError(msg, subtask_id=request.subtask_id, path=str(path))
+            written.append(path)
+        return written
 
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         """Run one attempt in a fresh session and report what it left.
@@ -2070,6 +2179,7 @@ class ClaudeDispatcher:
                 session_id=session_id,
                 on_spawn=on_spawn,
                 while_held=while_held,
+                login_dir=sdir / "config",
             )
             (roots,) = held
             # However the session ends, nothing it started is left running before any git
@@ -2216,7 +2326,7 @@ class ClaudeDispatcher:
         held_out_seen = self.held_out_seen(stdout)
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
-        require_matching_totals(result, usage)
+        usage = require_matching_totals(result, usage)
         # An API error the stream names as the account's usage limit is that limit, its own cause.
         streamed = read_stream_file(stdout)
         end, usage_limit = session_end(
@@ -2564,7 +2674,7 @@ class ClaudeDispatcher:
             why = captured.tampered
             if why is None:
                 try:
-                    require_matching_totals(captured.result, usage)
+                    usage = require_matching_totals(captured.result, usage)
                 except AccountingError as exc:
                     why = f"{exc}: {exc.context}"
             tampered = tampered or why

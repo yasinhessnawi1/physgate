@@ -19,9 +19,13 @@ import json
 import os
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.managed import FLAGS_SETTING, FLAGS_SILENT_VERSIONS, TrafficSettings
+
+if TYPE_CHECKING:
+    from physgate.flags import ReviewCompaction
 
 #: The Claude Code versions the headless contract was measured on: the stream's
 #: shape, the result fields and what a resume replays match on 2.1.272 and
@@ -329,12 +333,22 @@ def role_argv(
     ]
 
 
-#: What a reviewer session's environment adds: the binary's compaction switched off.
-#: A compaction summarises what the reviewer has read, which is a trim of its input
-#: made silently by the runtime (measured to be off with this set, on both pinned
-#: binaries, and on without it). A review that runs out of window instead is not a
-#: verdict, and is recorded as such.
+#: What a reviewer session's environment adds under ``review_compaction: off``: the binary's
+#: compaction switched off. A compaction summarises what the reviewer has read, which is a trim
+#: of its input made by the runtime (measured to be off with this set, on both pinned binaries,
+#: and on without it). A review that runs out of window instead is not a verdict, and is
+#: recorded as such.
 REVIEWER_ENV = {"DISABLE_COMPACT": "1"}
+
+
+def reviewer_env(compaction: ReviewCompaction) -> dict[str, str]:
+    """What a reviewer session's environment adds under the run's ``review_compaction``.
+
+    Under ``off``, :data:`REVIEWER_ENV`, as every review session had before the flag. Under
+    ``on``, nothing: the binary compacts a review that nears its window, and the harness holds
+    what a compaction may drop (the hook layer's rule after a compaction, ARCH-020).
+    """
+    return dict(REVIEWER_ENV) if compaction == "off" else {}
 
 
 def reviewer_argv(

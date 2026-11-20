@@ -24,8 +24,8 @@ import { useConfigs } from "../common/configs";
 import { useLines } from "../common/read";
 import { subtaskNames } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
-import { inProgress, runKey, runSource, useChosenRun } from "../common/runs";
-import { ChecksTable, type Filter, kept } from "./ChecksTable";
+import { phaseOfResult, runKey, runSource, useChosenRun } from "../common/runs";
+import { ChecksTable, CountsExplained, type Filter, kept } from "./ChecksTable";
 import { PairedRun } from "./PairedRun";
 import { pairable } from "./pairing";
 
@@ -40,7 +40,8 @@ export default function GateChecks({ setHeader, query }: ViewProps) {
   const configs = useConfigs(runs?.ok === true ? runs.value : null);
   const [filter, setFilter] = useState<Filter>("all");
   const configValue = config?.ok === true ? config.value : undefined;
-  const going = status?.ok === true && inProgress(status.value);
+  const phase = phaseOfResult(status);
+  const going = phase === "going";
   useEffect(() => {
     if (runs?.ok === true && runs.value.length === 0)
       setHeader({ title: "Gate checks", runState: "none" });
@@ -53,9 +54,11 @@ export default function GateChecks({ setHeader, query }: ViewProps) {
         gateMode: configValue.gateMode,
         osLayer: configValue.osLayer,
         inProgress: going,
+        phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, label, setHeader, checks.result]);
+  }, [runs, config, configValue, going, phase, chosen.standing, label, setHeader, checks.result]);
   if (runs === null) return <LoadingState reading="the run list" />;
   if (!runs.ok)
     return (
@@ -175,7 +178,12 @@ export default function GateChecks({ setHeader, query }: ViewProps) {
               <p className="pg-panel-note">
                 View: counted from {all.length} gate records, one per check and scope that passed
                 and one per failing, warning or <Term term="unchecked">unchecked</Term> instance.
+                Records alike in one gate call share a row, with their count.
               </p>
+              <CountsExplained
+                unchecked={tallyOfChecks(all).unchecked}
+                overNothing={tallyOfChecks(all).overNothing ?? 0}
+              />
               {shown.length === 0 ? (
                 <p className="pg-panel-empty">No check matches this filter.</p>
               ) : (

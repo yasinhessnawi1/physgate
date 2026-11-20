@@ -94,6 +94,8 @@ def test_a_plan_naming_mechanical_and_electrical_decomposes_and_is_reviewed_by_d
     params = {
         **REVIEWING,
         "design_review": "on",
+        "parts_on_hand": "off",
+        "review_compaction": "off",
         "models": {
             "decomposition": MODEL,
             "roles": dict.fromkeys(PLANNED_ONLY, MODEL),

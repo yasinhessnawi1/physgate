@@ -17,8 +17,9 @@ import { SourceChip } from "../../design/components/data/SourceChip";
 import { type Source, sourceAttribute } from "../../design/components/data/source";
 import { Term } from "../../design/components/help/Term";
 import { InProgressBadge } from "../../design/components/status/InProgressBadge";
+import { RunPhaseBadge } from "../../design/components/status/RunPhaseBadge";
+import { Detail } from "../../design/components/status/RunStanding";
 import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
-import { StatusTag } from "../../design/components/status/StatusTag";
 import { OsLayerBadge } from "../../design/components/system/OsLayerBadge";
 import { GateModeBadge } from "../../design/components/verdict/GateMode";
 import { Tally } from "../../design/components/verdict/Tally";
@@ -26,25 +27,29 @@ import { tallyOfChecks } from "../../design/tally";
 import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
 import { SOURCE_WORDS } from "../../words/queue";
-import type { RunLabel } from "../../words/runs";
+import { clockTime, type RunLabel, utc } from "../../words/runs";
 import { CostCaveat } from "../common/cost";
 import { EngineWords } from "../common/engine";
 import { useJson, useLines } from "../common/read";
 import { RowView } from "../common/RowView";
 import { type Row, rowsOf } from "../common/rows";
-import {
-  haltedWords,
-  haltOwedWords,
-  inProgress,
-  runBase,
-  runKey,
-  runSource,
-  useLabels,
-  useRunList,
-} from "../common/runs";
+import { runBase, runKey, runSource, useLabels, useRunList } from "../common/runs";
+import { phaseOf, standingOf } from "../../words/standing";
 import { NoRunsYet } from "./NoRunsYet";
-import { runEnd, runEndWords, waitingFor } from "./runEnd";
-import { activeRun, readTargets, type RunRead, startOfRead, useRunReads } from "./data";
+import { type RunEnd, runEnd, waitingFor } from "./runEnd";
+import {
+  activeRun,
+  homeOrder,
+  phasesOf,
+  readTargets,
+  type RunRead,
+  type Stale,
+  startOfRead,
+  useRunReads,
+  useOrderPhases,
+  useSettled,
+  useStatuses,
+} from "./data";
 import {
   STRIP_STATES,
   STRIP_WORDS,
@@ -96,7 +101,7 @@ export function CostSoFar({
 }) {
   return (
     <span className="pg-figure-line">
-      <Figure {...cost.usd} decimals={2} source={source} partial />
+      <Figure {...cost.usd} decimals={2} source={source} partial atLeast={cost.lowerBound} />
       <span className="pg-panel-note">
         price sheet of {cost.pricesDate}
         <CostCaveat cost={cost} />
@@ -123,95 +128,126 @@ function RunName({
   );
 }
 
-export function statusWords(read: RunRead | undefined) {
-  if (read === undefined) return <span className="pg-muted">Reading…</span>;
-  if (!read.status.ok) return <span className="pg-muted">Where it stands was not read</span>;
-  if (inProgress(read.status.value)) return <InProgressBadge />;
-  const owed = haltOwedWords(read.status.value);
-  if (owed !== null) return <span className="pg-status">{owed}</span>;
-  const halted = haltedWords(read.status.value);
-  if (halted !== null) return <span className="pg-status">{halted}</span>;
-  // A log that could not be read cannot show a run complete: it is not claimed.
-  if (!read.events.ok) return <span className="pg-status">Ended · its log was not read</span>;
-  const open = waitingFor(
-    read.queue.ok ? read.queue.value.open : null,
-    read.status.value.superseded,
+/** A status kept from an earlier read: since when it is not refreshed, and why. */
+function StaleWords({ stale }: { readonly stale: Stale | undefined }) {
+  if (stale === undefined) return null;
+  return (
+    <span className="pg-run-stale pg-muted">
+      Not refreshed since <time title={utc(stale.since)}>{clockTime(stale.since)}</time>:{" "}
+      {stale.error}
+    </span>
   );
-  const end = runEnd(read.events.value, open, read.status.value.completion);
-  if (end.kind === "complete") return <StatusTag status="complete" />;
-  return <span className="pg-status">{runEndWords(end)}</span>;
 }
 
-function Runs({
+export function statusWords(read: RunRead | undefined, stale?: Stale) {
+  if (read === undefined) return <span className="pg-muted">Reading…</span>;
+  if (!read.status.ok)
+    return (
+      <span className="pg-muted">Where it stands was not read: {read.status.refusal.error}</span>
+    );
+  const status = read.status.value;
+  const phase = phaseOf(status);
+  if (phase === "going")
+    return stale === undefined ? (
+      <InProgressBadge />
+    ) : (
+      <div className="pg-run-standing">
+        <InProgressBadge /> <StaleWords stale={stale} />
+      </div>
+    );
+  let end: RunEnd | null = null;
+  if (phase === "done") {
+    // A log that could not be read cannot show a run complete: it is not claimed.
+    if (!read.events.ok) return <span className="pg-status">Ended · its log was not read</span>;
+    const open = waitingFor(read.queue.ok ? read.queue.value.open : null, status.superseded);
+    end = runEnd(read.events.value, open, status.completion);
+  }
+  const standing = standingOf(status, end);
+  return (
+    <div className="pg-run-standing">
+      <RunPhaseBadge
+        phase={standing.phase}
+        {...(standing.word === null ? {} : { word: standing.word })}
+      />{" "}
+      <span className="pg-standing-sentence">{standing.sentence}</span>
+      <Detail text={standing.detail} />
+      <StaleWords stale={stale} />
+    </div>
+  );
+}
+
+/** Home's order of the runs, in the panel's words and as its table is named. */
+const ORDER_NOTE =
+  "View: going, then waiting on a person, then halted or stopped, then newest first";
+const ORDER_LABEL = "Runs, going, waiting on a person, halted or stopped first, then newest first";
+
+/** No run read in full yet. */
+const NO_TARGETS: readonly RunListing[] = [];
+
+export function Runs({
   runs,
   reads,
   labels,
+  stale,
 }: {
   readonly runs: readonly RunListing[];
   readonly reads: ReadonlyMap<string, RunRead>;
   readonly labels: ReadonlyMap<string, RunLabel>;
+  /** The runs whose status is kept from an earlier read, by run key. */
+  readonly stale?: ReadonlyMap<string, Stale>;
 }) {
-  // Grouped by the brief each run read, by its digest: a view, since no project record exists.
-  const groups = new Map<string, RunListing[]>();
+  // One list in Home's order (``homeOrder``): runs going, then runs waiting on a person, then runs
+  // halted or stopped, then the rest, newest start first within each. Grouped by brief, dates would jump.
+  // A run whose records are still read is listed at once, its standing "Reading…".
+  const listed: { run: RunListing; read: RunRead | undefined }[] = [];
   const unread: RunListing[] = [];
   for (const run of runs) {
     const read = reads.get(runKey(run));
-    if (run.error !== null || read === undefined || !read.config.ok) {
-      unread.push(run);
-      continue;
-    }
-    const brief = read.config.value.briefSha256;
-    groups.set(brief, [...(groups.get(brief) ?? []), run]);
+    if (run.error !== null || (read !== undefined && !read.config.ok)) unread.push(run);
+    else listed.push({ run, read });
   }
   return (
     <section className="pg-card pg-panel" aria-label="Runs">
       <header className="pg-panel-head">
         <h2 className="pg-panel-title">Runs</h2>
-        <span className="pg-panel-note">View: grouped by brief</span>
+        <span className="pg-panel-note">{ORDER_NOTE}</span>
       </header>
-      <div className="pg-table-wrap" role="region" aria-label="Runs, grouped by brief" tabIndex={0}>
-        <table className="pg-table pg-runs-table" aria-label="Runs, grouped by brief">
+      <div className="pg-table-wrap" role="region" aria-label={ORDER_LABEL} tabIndex={0}>
+        <table className="pg-table pg-runs-table" aria-label={ORDER_LABEL}>
           <thead>
             <tr>
               <th scope="col">Run</th>
-              <th scope="col">Gate mode</th>
               <th scope="col">Where it stands</th>
+              <th scope="col">Gate mode</th>
               <th scope="col">
                 <Term term="os-layer">OS layer</Term>
               </th>
-              <th scope="col">Folder</th>
+              <th scope="col">Brief</th>
             </tr>
           </thead>
-          {[...groups.entries()].map(([brief, members]) => (
-            <tbody key={brief}>
-              <tr className="pg-group-row">
-                <th scope="rowgroup" colSpan={5}>
-                  Runs of one brief{" "}
-                  <span className="pg-panel-note">
-                    <Term term="digest">brief digest</Term>{" "}
-                    <Id value={brief.slice(0, 12)} copy={false} />
-                  </span>
-                </th>
+          <tbody>
+            {listed.map(({ run, read }) => (
+              <tr key={runKey(run)}>
+                <td>
+                  <a className="pg-run-row-link pg-hit" href={runHref("run-timeline", run)}>
+                    <RunName label={labels.get(runKey(run))} fallback={`Run ${run.name}`} />
+                  </a>
+                </td>
+                <td>{statusWords(read, stale?.get(runKey(run)))}</td>
+                <td>{run.gateMode !== null && <GateModeBadge mode={run.gateMode} />}</td>
+                <td>
+                  <OsLayerBadge layer={run.osLayer} />
+                </td>
+                <td className="pg-runs-brief">
+                  {read?.config.ok === true && (
+                    <span title="The digest of the brief the run read: runs of one brief share it">
+                      <Id value={read.config.value.briefSha256.slice(0, 8)} copy={false} />
+                    </span>
+                  )}
+                </td>
               </tr>
-              {members.map((run) => (
-                <tr key={runKey(run)}>
-                  <td>
-                    <a className="pg-run-row-link pg-hit" href={runHref("run-timeline", run)}>
-                      <RunName label={labels.get(runKey(run))} fallback={`Run ${run.name}`} />
-                    </a>
-                  </td>
-                  <td>{run.gateMode !== null && <GateModeBadge mode={run.gateMode} />}</td>
-                  <td>{statusWords(reads.get(runKey(run)))}</td>
-                  <td>
-                    <OsLayerBadge layer={run.osLayer} />
-                  </td>
-                  <td>
-                    <Id value={run.name} copy={false} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          ))}
+            ))}
+          </tbody>
         </table>
       </div>
       {unread.length > 0 && (
@@ -224,11 +260,8 @@ function Runs({
                   <span className="pg-run-unread">
                     Run {run.name} could not be read: {run.error}
                   </span>
-                ) : read === undefined ? (
-                  <span className="pg-muted">
-                    Run {run.name}: not read yet. Its records are read when all runs are shown.
-                  </span>
                 ) : (
+                  read !== undefined &&
                   !read.config.ok && (
                     <span className="pg-run-unread">
                       Run {run.name}: its configuration could not be read:{" "}
@@ -436,7 +469,12 @@ function RecentActivity({ reads }: { readonly reads: readonly RunRead[] }) {
   const rows: { read: RunRead; row: Row }[] = reads
     .flatMap((read) =>
       read.events.ok && read.config.ok
-        ? rowsOf(read.events.value, read.config.value).map((row) => ({ read, row }))
+        ? rowsOf(
+            read.events.value,
+            read.config.value,
+            undefined,
+            read.status.ok && phaseOf(read.status.value) === "going",
+          ).map((row) => ({ read, row }))
         : [],
     )
     .sort((a, b) => b.row.ts.localeCompare(a.row.ts) || b.row.seq - a.row.seq)
@@ -531,12 +569,43 @@ function SystemPanel({
   );
 }
 
+/**
+ * What this page is, said first, for a person who has not seen it before: what a run is, what
+ * stands between an agent's work and the design, and what Home lists.
+ */
+export function HomeIntro() {
+  return (
+    <div className="pg-home-intro">
+      <p>
+        This is the operator's view of the design runs on this machine. In a run, AI agents design a
+        mechatronic system from a brief: the work is split into subtasks, an agent does each, a
+        physics gate checks the design's numbers (their units, ranges and balances) before a
+        reviewer reads the work, and anything the run cannot settle comes to a person.
+      </p>
+      <p>
+        Home lists the runs, the questions a run has left for a person to decide, and the latest
+        activity. Open a run for its timeline, its design and its gate checks.
+      </p>
+    </div>
+  );
+}
+
 export default function Home({ setHeader }: ViewProps) {
   const runs = useRunList();
   const [all, setAll] = useState(false);
   const listed = useMemo(() => (runs?.ok === true ? runs.value : []), [runs]);
-  const targets = readTargets(listed, all);
-  const reads = useRunReads(targets);
+  const readable = useMemo(() => listed.filter((r) => r.error === null), [listed]);
+  // Where every readable run stands, first: Home's order needs it, and it is small.
+  const { found: statuses, stale, minutes } = useStatuses(readable);
+  // The runs are listed at once; their records are read once the statuses have answered, or
+  // after a short wait, so a run going is among those read and no slow status holds Home up.
+  const settled = useSettled(readable, statuses);
+  const answered = useMemo(() => phasesOf(readable, statuses), [readable, statuses]);
+  // The order is settled once and moved only when a minute's re-read ends, so a row does not
+  // move under a person's pointer as the statuses answer.
+  const phases = useOrderPhases(answered, settled, minutes, readable.map(runKey).join(","));
+  const targets = readTargets(listed, all, phases);
+  const reads = useRunReads(settled ? targets : NO_TARGETS, statuses);
   const starts = useMemo(
     () => new Map([...reads].map(([k, read]) => [k, startOfRead(read)] as const)),
     [reads],
@@ -570,10 +639,11 @@ export default function Home({ setHeader }: ViewProps) {
       <ErrorState title="The run list could not be read" {...runs.refusal} route="/api/runs" />
     );
   if (runs.value.length === 0) return <NoRunsYet />;
-  const readable = listed.filter((r) => r.error === null);
   const pending = targets.length - read.length;
+  const ordered = homeOrder(listed, phases);
   return (
     <div className="pg-screen pg-home">
+      <HomeIntro />
       <header className="pg-screen-head">
         <p className="pg-screen-lead">
           {readable.length === 0
@@ -597,9 +667,10 @@ export default function Home({ setHeader }: ViewProps) {
         </div>
       )}
       <Runs
-        runs={all ? listed : listed.filter((r) => r.error !== null || targets.includes(r))}
+        runs={all ? ordered : ordered.filter((r) => r.error !== null || targets.includes(r))}
         reads={reads}
         labels={labels}
+        stale={stale}
       />
       {readable.length > targets.length && (
         <Button

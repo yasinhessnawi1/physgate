@@ -8,7 +8,8 @@ which a person writes and keeps anywhere, holds no held-out or validation id.
 
 **Everything is refused before any session starts** (:func:`plan`), and before any
 credential is read: a store a split or a session's work has not left clean; a version that
-is not what its manifest says, or two of whose tasks share a brief; an entry whose run no
+is not what its manifest says, or two of whose tasks share a brief, or that the register, read
+now, marks exposed (a run may have seen it since the harness runs started); an entry whose run no
 task of the version was given, that is listed twice, whose run recorded another endpoint
 than the operator's (the record's endpoint is compared, never a destination for the
 credential), whose run does not withhold the protected places of every role's root in the
@@ -60,6 +61,12 @@ directory.
 **What it writes,** beside the visible trials: ``evaluation/tiers.json`` and ``baseline.json``
 (:mod:`.record`), each a new file, counts and digests only.
 
+**What the blind check flagged is left out.** A round on a version is refused unless the
+version's blind check is recorded (:mod:`.tiers.checks`): a held-out tier nobody checked is not
+scored. A harness trial of a held-out task the record flags is not run, and the held-out count
+leaves it out; the tiers record says how many, with the check record's digest and its source.
+The visible and validation tiers are run whole.
+
 **An external task set** (a published benchmark's tasks, ARCH-143) is a source of its own, given
 by its directory in place of a version (:func:`_external_tasks`): every task in it is an
 external one of the role and of one benchmark, and the set lies outside the store. Its trials
@@ -74,6 +81,7 @@ an external number may be reported waits on its audit, which is a person's readi
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import hashlib
 import json
@@ -82,7 +90,8 @@ import secrets
 import shutil
 import stat
 import time
-from collections.abc import Callable, Mapping
+from collections import Counter
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -120,15 +129,27 @@ from physgate.evaluation.per_role.report import TrialRecord
 from physgate.evaluation.tiers.authoring import AuthoringError
 from physgate.evaluation.tiers.base import _Frozen
 from physgate.evaluation.tiers.canaries import store_canaries
+from physgate.evaluation.tiers.checks import CheckRecord, LeftOut, left_out, said
 from physgate.evaluation.tiers.heldout import tier_digest
 from physgate.evaluation.tiers.manifest import TierSet, read_version
 from physgate.evaluation.tiers.store import (
+    BASELINE_DIR as BASELINE_DIR,
+)
+from physgate.evaluation.tiers.store import (
+    PLACE as PLACE,
+)
+from physgate.evaluation.tiers.store import (
     WORKING,
+    WorkRootHeld,
+    WorkRootUnlockable,
+    holding_work_root,
     leftover_refusal,
     make_role_root,
     protected_tier_refusal,
     role_root,
+    running_session,
     spelling_refusal,
+    spelt_as_on_disk,
     version_dir,
     withheld_refusal,
     withheld_root,
@@ -141,6 +162,7 @@ from physgate.evaluation.tiers.task import (
     Role,
     Task,
     canonical_json,
+    id_digest,
     parse_task,
 )
 from physgate.orchestrator.binaries import ClaudeBinary, measure
@@ -156,8 +178,6 @@ from physgate.orchestrator.run_config import (
 from physgate.orchestrator.session_files import FileRefused, open_beneath, read_bounded
 from physgate.oslayer.probe import Absent, Present
 
-#: Where a round's protected trials lie, beneath the role's withheld root.
-BASELINE_DIR = "baseline"
 #: Where a round's finished visible trials lie, beneath the round's own directory.
 WORK = "work"
 #: The differences a development round is held to without refusing: the harness run's own
@@ -165,8 +185,7 @@ WORK = "work"
 DEVELOPMENT_DIFFERENCES = frozenset({"reportable", "harness"})
 TRIALS = "trials.jsonl"
 SCORE = "score.json"
-#: Inside a trial's directory: the session's own place, and the harness's (never the session's).
-PLACE = "place"
+#: Inside a trial's directory, beside the session's own place (``PLACE``): the harness's.
 HARNESS = "harness"
 
 #: A trial's tier: one of a version's three, or ``external`` for an external set's.
@@ -260,6 +279,7 @@ def setup_from_run(
         # before and after it runs (``RawSetup``), and offered only the baseline profile's.
         tool_environment=config.tool_environment,
         tool_servers=config.tool_servers,
+        held_out_sha256=tuple(config.held_out_sha256),
     )
 
 
@@ -361,10 +381,13 @@ def plan(
     if refusal is not None:
         raise BaselineError(refusal[1], refused_because=refusal[0])
     source: TierSet | ExternalSetRecord
+    leaving: frozenset[str] = frozenset()
     if version is not None:
         directory = version_dir(store, role, version)
         source = read_version(directory)
         tasks = _tasks(directory)
+        _require_unexposed(store, role, version)
+        leaving = _left_out_ids(store, role, source, tasks)[1]
     else:
         assert external is not None  # one of the two, checked above
         source, tasks = _external_tasks(store, role, external)
@@ -397,6 +420,10 @@ def plan(
             msg = f"the harness run was given no task of {of_what}"
             raise BaselineError(msg, **where)
         tier, task = found
+        if tier == "held_out" and task.id in leaving:
+            # A task the version's check flagged is left out of every held-out count: no raw
+            # trial is run on it, and the round's record says how many and which were left out.
+            continue
         if config.ablation:
             # Never reportable, which a development round forgives; its own kind it does not:
             # an ablation run's numbers are of a harness with a part taken away.
@@ -424,6 +451,67 @@ def plan(
         binary_seen = config.binary
         planned.append(Planned(index, entry, config, task, tier, cap))
     return source, planned
+
+
+def _check_of(store: Path, role: Role, manifest: TierSet) -> CheckRecord:
+    """The version's check record, or the round refused.
+
+    Raises:
+        BaselineError: the version has no record (``held_out_unchecked``: no round is held to a
+            version whose held-out tier nobody checked), or its record refuses as read.
+    """
+    from physgate.evaluation.tiers.measure import checked
+
+    try:
+        return checked(store, role, manifest)
+    except PerRoleError as exc:
+        reason = exc.context.get("refused_because", "check_record_unreadable")
+        raise BaselineError(str(exc), refused_because=reason) from None
+
+
+def _left_out_ids(
+    store: Path, role: Role, manifest: TierSet, tasks: Mapping[str, tuple[TierName, Task]]
+) -> tuple[LeftOut, frozenset[str]]:
+    """What the version's check leaves out of its held-out tier, and those tasks' ids.
+
+    Raises:
+        BaselineError: the version has no check record, its record refuses as read
+            (:func:`_check_of`), or a digest it flags is not exactly one held-out task's;
+            nothing is named.
+    """
+    record = _check_of(store, role, manifest)
+    held = [task.id for tier, task in tasks.values() if tier == "held_out"]
+    by_digest = Counter(id_digest(task) for task in held)
+    if any(by_digest[digest] != 1 for digest in record.flagged):
+        msg = "the check record flags a task that is not exactly one held-out task of the version"
+        raise BaselineError(msg, refused_because="check_record_not_the_tier")
+    flagged = set(record.flagged)
+    return left_out(record), frozenset(t for t in held if id_digest(t) in flagged)
+
+
+def _require_unexposed(store: Path, role: Role, version: str) -> None:
+    """Refuse a round on a version the register, read now, marks exposed.
+
+    Its harness runs were checked as each started; one may have been seen since (another run's
+    held-out read), and a round held to it would count it.
+
+    Raises:
+        BaselineError: the version is exposed, or the register cannot be read whole.
+    """
+    from physgate.evaluation.tiers.exposure import exposed_versions
+
+    try:
+        exposed = exposed_versions(store, role)
+    except PerRoleError as exc:
+        reason = exc.context.get("refused_because", "register_unreadable")
+        msg = "the register cannot be read whole, so whether the version was seen cannot be told"
+        raise BaselineError(msg, refused_because=reason) from None
+    if version in exposed:
+        msg = (
+            f"the version {version[:8]} has been seen since its harness runs started; no round "
+            "is held to it until a new version is generated"
+        )
+        raise BaselineError(msg, refused_because="version_exposed")
 
 
 def _listed(store: Path) -> set[str]:
@@ -498,9 +586,10 @@ class _Tally:
     excluded: int = 0
     cap: int = 0
     spent: int = 0
+    spent_not_in_binary_totals: int = 0
 
-    def counts(self) -> TierCounts:
-        return TierCounts(**vars(self))
+    def counts(self, **coverage: Any) -> TierCounts:  # noqa: ANN401
+        return TierCounts(**vars(self), **coverage)
 
 
 def _working(root: Path, name: str, work: Path) -> Path:
@@ -517,6 +606,47 @@ def _working(root: Path, name: str, work: Path) -> Path:
     finally:
         os.close(fd)
     return record
+
+
+@contextlib.contextmanager
+def trial_place(store: Path, role: Role, round_id: str, name: str) -> Iterator[tuple[Path, Path]]:
+    """A new trial's directory in the role's work root and its record of work, held while it lives.
+
+    The work root is held (:func:`.tiers.store.holding_work_root`) from the trial's creation
+    until the body ends, which the runner leaves only once the trial's session has ended and the
+    trial has been moved out: while a trial's or a blind check's place there is held, another
+    trial's creation is refused before anything is made. A second measure beside the rule that
+    withholds the work root whole from the session but for its own place.
+
+    A session whose runner was killed outright holds nothing, but its process facts lie beside
+    its place: while it still runs, the creation is refused just the same.
+
+    Raises:
+        BaselineError: ``session_lives``: another place in the work root is held, or a session
+            left there still runs; ``work_root_unlockable``: the volume refuses the lock call.
+            Nothing is made.
+    """
+    root = role_root(store, role)
+    try:
+        with holding_work_root(store, role):
+            trial_dir = work_root(store, role) / f"{BASELINE_DIR}-{round_id}-{name}"
+            working = _working(root, f"{BASELINE_DIR}-{name}", trial_dir)
+            trial_dir.mkdir(mode=0o700, parents=True)
+            yield trial_dir, working
+    except WorkRootHeld as exc:
+        msg = (
+            "another session's place in the role's work root is held (a trial's or a blind "
+            "check's): no trial is made beside it while that session lives"
+        )
+        if str(exc):
+            msg += f" ({exc})"
+        raise BaselineError(msg, refused_because="session_lives") from None
+    except WorkRootUnlockable as exc:
+        msg = (
+            "the role's work root cannot be held on its volume (the lock call failed: "
+            f"{exc}): no trial is made where a second one could be made beside it"
+        )
+        raise BaselineError(msg, refused_because="work_root_unlockable") from None
 
 
 def _secure(work: Path, place: Path) -> None:
@@ -569,13 +699,35 @@ def run_baseline(
     if out.exists():
         msg = "the round's directory exists; each round gets a directory of its own"
         raise BaselineError(msg, out=str(out))
+    # Withheld from every session of the round, by its name: its finished trials and its records
+    # lie there. So it is named as the filesystem spells it, as the store's roots are: on a
+    # volume that ignores case another case names the same directory, and a session naming it
+    # as it is on disk would not be matched by the name withheld.
+    withheld_out = os.path.realpath(out)
+    try:
+        spelt = spelt_as_on_disk(Path(withheld_out))
+    except OSError as exc:
+        msg = "the round's directory's spelling cannot be judged: a directory on the way is unread"
+        raise BaselineError(
+            msg, refused_because="out_not_spelt_as_on_disk", error=str(exc.strerror)
+        ) from None
+    if not spelt:
+        msg = (
+            "the round's directory is not spelt as the filesystem spells it; name it as it is on "
+            "disk, so every session is withheld the spelling that is there"
+        )
+        raise BaselineError(msg, out=str(out), refused_because="out_not_spelt_as_on_disk")
+    # Before anything else of the store is read: a session an earlier runner left running in the
+    # work root (that runner killed outright, its hold gone with it) refuses the round in words.
+    living = running_session(store, role)
+    if living is not None:
+        msg = f"{living}: no round starts while a session left in the work root still runs"
+        raise BaselineError(msg, refused_because="session_lives")
     source, planned = plan(
         store, role, version, runs, base_url=base_url, development=development, external=external
     )
     out.mkdir(mode=0o700, parents=True)
     round_id = secrets.token_hex(8)
-    # Withheld from every session of the round: its finished trials and its records lie there.
-    withheld_out = os.path.realpath(out)
     protected_root = withheld_root(store, role) / BASELINE_DIR / round_id
     counted = EXTERNAL_TIERS if isinstance(source, ExternalSetRecord) else VERSION_TIERS
     tallies = {tier: _Tally() for tier in counted}
@@ -618,6 +770,8 @@ def run_baseline(
         tally.trials += 1
         tally.cap += trial.cap
         tally.spent += int(record.get("tokens", 0))
+        # Cut tokens the session's count leaves out: the spend is a lower bound by them.
+        tally.spent_not_in_binary_totals += int(record.get("tokens_not_in_binary_totals") or 0)
         if isinstance(line, ExcludedTrial):
             tally.excluded += 1
         elif line.outcome == "pass":
@@ -630,7 +784,14 @@ def run_baseline(
             tally.unscored += 1
     assert pins is not None  # the run set holds at least one trial
     external_set = source if isinstance(source, ExternalSetRecord) else None
-    tiers = None if isinstance(source, ExternalSetRecord) else tiers_record(source)
+    # The record the plan held each flagged digest to one held-out task with.
+    check = None if isinstance(source, ExternalSetRecord) else _check_of(store, role, source)
+    tiers = (
+        None
+        if isinstance(source, ExternalSetRecord) or check is None
+        else tiers_record(source, said(left_out(check)))
+    )
+    flagged = 0 if check is None else len(check.flagged)
     baseline = BaselineRecord(
         format=1,
         id=round_id,
@@ -641,7 +802,10 @@ def run_baseline(
         pin_set_sha256=pin_set_sha256(pins),
         development=development,
         harness_runs=len({p.entry.run_dir for p in planned}),
-        counts={tier: tallies[tier].counts() for tier in counted},
+        counts={
+            tier: tallies[tier].counts(**_coverage(source, planned, tier, flagged))
+            for tier in counted
+        },
     )
     if external_set is not None:
         write_new(out / EXTERNAL_RECORD, record_bytes(external_set))
@@ -649,6 +813,22 @@ def run_baseline(
         write_new(out / TIERS_RECORD, record_bytes(tiers))
     write_new(out / BASELINE_RECORD, record_bytes(baseline))
     return baseline
+
+
+def _coverage(
+    source: TierSet | ExternalSetRecord, planned: list[Planned], tier: SourceTier, flagged: int
+) -> dict[str, Any]:
+    """How many of ``tier``'s tasks the round ran, of how many, and whether that is all of them.
+
+    Of a version's held-out tier, the ``flagged`` tasks its check flagged are in neither count:
+    the plan ran none of them, and no figure counts them.
+    """
+    if isinstance(source, ExternalSetRecord):
+        of = source.tasks
+    else:
+        of = getattr(source, tier).count - (flagged if tier == "held_out" else 0)
+    covered = len({trial.task.id for trial in planned if trial.tier == tier})
+    return {"covered": covered, "of": of, "whole": covered == of}
 
 
 def _one_trial(
@@ -682,55 +862,56 @@ def _one_trial(
         raise BaselineError(msg, entry=str(trial.index), refused_because="binary")
     for attempt in (1, 2):
         name = f"{trial.index:04d}-{attempt}"
+        if attempt == 2:
+            # Only a first attempt the machine ended is run again, once its trial is out.
+            sleep(delays[0] if delays else 0.0)
         # Made in the work root, which every run on the store withholds, whatever the trial's
         # tier: its session is given its own place out of the run's held-out roots and nothing
         # else there, and the round's own directory is withheld from it besides. Two
         # directories, never one: the session's place, where it may leave anything, and the
         # harness's, beside it, where the copied answer, the record and the score are written.
-        trial_dir = work_root(store, role) / f"{BASELINE_DIR}-{round_id}-{name}"
-        working = _working(role_root(store, role), f"{BASELINE_DIR}-{name}", trial_dir)
-        given = replace(
-            setup, held_out_carved=str(trial_dir / PLACE), held_out_also=(withheld_out,)
-        )
-        trial_dir.mkdir(mode=0o700, parents=True)
-        work, harness = trial_dir / PLACE, trial_dir / HARNESS
-        harness.mkdir(mode=0o700)
-        record = arm(task, given, work, cap=trial.cap, harness=harness)
-        stream = work / "session" / "stdout.jsonl"
-        answer = harness / "answer" / task.answer.path
-        scored: Mapping[str, Any] | None = None
-        if record.get("answer") == "found":
-            scored = score(task, answer)
-            write_new(harness / SCORE, canonical_json(dict(scored)))
-        machine = False
-        if scored is None:
-            try:
-                machine = raw_ended_by_infrastructure(record, stream, task)
-            except TrialExcludedError:
-                machine = False  # assembled as excluded below, with its reason
-        if machine and attempt == 1:
+        # The work root is held until the trial is out (:func:`trial_place`).
+        with trial_place(store, role, round_id, name) as (trial_dir, working):
+            given = replace(
+                setup, held_out_carved=str(trial_dir / PLACE), held_out_also=(withheld_out,)
+            )
+            work, harness = trial_dir / PLACE, trial_dir / HARNESS
+            harness.mkdir(mode=0o700)
+            record = arm(task, given, work, cap=trial.cap, harness=harness)
+            stream = work / "session" / "stdout.jsonl"
+            answer = harness / "answer" / task.answer.path
+            scored: Mapping[str, Any] | None = None
+            if record.get("answer") == "found":
+                scored = score(task, answer)
+                write_new(harness / SCORE, canonical_json(dict(scored)))
+            machine = False
+            if scored is None:
+                try:
+                    machine = raw_ended_by_infrastructure(record, stream, task)
+                except TrialExcludedError:
+                    machine = False  # assembled as excluded below, with its reason
+            if machine and attempt == 1:
+                _finish(trial_dir, working, protected_root, out, name)
+                continue
+            found = differences(run_dir, work, role=role, task=task, record_dir=harness)
+            allowed = DEVELOPMENT_DIFFERENCES if development else frozenset()
+            named = sorted({f.split(":", 1)[0] for f in found} - allowed)
+            if named:
+                _finish(trial_dir, working, protected_root, out, name)
+                msg = "the raw arm differs from the harness run in more than the harness: "
+                raise BaselineError(msg + ", ".join(named), entry=str(trial.index))
+            line = raw_trial(
+                suite=f"{role}_{trial.tier}",
+                task=task,
+                trial=trial.entry.trial,
+                record=record,
+                stream=stream,
+                prices=prices,
+                score=scored,
+                unscored=machine,
+            )
             _finish(trial_dir, working, protected_root, out, name)
-            sleep(delays[0] if delays else 0.0)
-            continue
-        found = differences(run_dir, work, role=role, task=task, record_dir=harness)
-        allowed = DEVELOPMENT_DIFFERENCES if development else frozenset()
-        named = sorted({f.split(":", 1)[0] for f in found} - allowed)
-        if named:
-            _finish(trial_dir, working, protected_root, out, name)
-            msg = "the raw arm differs from the harness run in more than the harness: "
-            raise BaselineError(msg + ", ".join(named), entry=str(trial.index))
-        line = raw_trial(
-            suite=f"{role}_{trial.tier}",
-            task=task,
-            trial=trial.entry.trial,
-            record=record,
-            stream=stream,
-            prices=prices,
-            score=scored,
-            unscored=machine,
-        )
-        _finish(trial_dir, working, protected_root, out, name)
-        return record, line
+            return record, line
     msg = "a trial ran past its one re-run"  # unreachable: the second attempt always returns
     raise BaselineError(msg, entry=str(trial.index))
 

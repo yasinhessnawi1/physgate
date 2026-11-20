@@ -19,6 +19,13 @@ role that owns completion. The store holds none of these rules, so recorded runs
 written straight into a store replay as they were; whoever checks a step asks the
 role register who owns each duty and passes the answer in, or says by name that it
 checks ownership alone.
+
+And it names a change that touches a quantity a person declared, with the store's own two
+reasons: one changed or dropped is ``declared_fixed``, one added is ``declared_forged``; the kind or
+domain of the node it sits on changed, or an edge taken from that node, is ``declared_fixed`` too.
+The store refuses each from every writer but ``declare``, so such a change did not pass it. The
+parts writer's own revisions are admitted by name. A store holds no declared quantity unless one
+was declared, so the frozen workload's changes are named as before.
 """
 
 from __future__ import annotations
@@ -26,7 +33,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from physgate.state.protocol import REJECT_CROSS_ROLE, NodeChange
-from physgate.state.schema import validate_node_id
+from physgate.state.schema import (
+    REJECT_DECLARED_FIXED,
+    REJECT_DECLARED_FORGED,
+    declared_node_refusal,
+    validate_node_id,
+)
 from physgate.state.store import Store
 
 
@@ -105,6 +117,11 @@ class Divergence:
                 f"{self.owner_role!r} but changed during a step assigned to "
                 f"{self.acting_role!r}"
             )
+        if self.reason in (REJECT_DECLARED_FIXED, REJECT_DECLARED_FORGED):
+            return (
+                f"{self.node_id} at revision {self.revision}, changed during a step assigned to "
+                f"{self.acting_role!r}, touches a declared quantity ({self.reason}): {self.detail}"
+            )
         return (
             f"{self.node_id} at revision {self.revision}, changed during a step assigned to "
             f"{self.acting_role!r}, breaks a duty ({self.reason}): {self.detail}"
@@ -117,6 +134,7 @@ def divergence(
     acting_role: str,
     duties: Duties | OwnershipOnly,
     admitted: frozenset[int] = frozenset(),
+    declared: frozenset[int] = frozenset(),
 ) -> list[Divergence]:
     """Return every change in ``changes`` to a node ``acting_role`` does not own.
 
@@ -159,6 +177,9 @@ def divergence(
             a caller cannot drop the duties by leaving them out.
         admitted: the revisions of interface nodes the step wrote as its change check's
             followed revisions; any other rewrite of an interface is named.
+        declared: the revisions the parts writer wrote through the store's ``declare``; a
+            declared quantity any other change adds, changes or drops is named, after its
+            owner and the duties, whether the duties are held or not.
 
     Returns:
         One entry per offending change, in the order the changes arrived. A node
@@ -198,9 +219,13 @@ def divergence(
                 )
             )
             continue
-        if isinstance(duties, OwnershipOnly):
-            continue
-        broken = _duty_broken(store, change, acting_role, duties, admitted)
+        broken = (
+            None
+            if isinstance(duties, OwnershipOnly)
+            else _duty_broken(store, change, acting_role, duties, admitted)
+        )
+        if broken is None and change.revision not in declared:
+            broken = _declared_touched(store, change)
         if broken is not None:
             reason, detail = broken
             found.append(
@@ -214,6 +239,26 @@ def divergence(
                 )
             )
     return found
+
+
+def _declared_touched(store: Store, change: NodeChange) -> tuple[str, str] | None:
+    """The store's reason ``change`` touches a declared quantity, with what it means; or ``None``.
+
+    Read against the node as it stood before the change (nothing, for a create) by the store's
+    own guard, so a declared node's kind, domain or a taken edge is named as the store refuses it.
+    """
+    earlier = [rev for rev in store.history(change.node_id) if rev < change.revision]
+    before = store.payload_at(max(earlier)) if earlier else None
+    touched = declared_node_refusal(before, store.payload_at(change.revision))
+    if touched is None:
+        return None
+    reason, names = touched
+    done = "changed or dropped" if reason == REJECT_DECLARED_FIXED else "added"
+    return reason, (
+        f"{', '.join(names)} {done}; a declared quantity, and the kind, domain and edges of the "
+        "node it sits on, are written only from a person's recorded decision, by the parts "
+        "writer, and the store refuses them from any other writer (a role may add an edge)"
+    )
 
 
 def _duty_broken(

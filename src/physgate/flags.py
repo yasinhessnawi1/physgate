@@ -167,6 +167,58 @@ def replans(value: DesignReview) -> int:
     return int(value.removeprefix("repair:")) if value.startswith("repair:") else 0
 
 
+#: Whether a run asks which parts a person has or can make. Spelled out for the type checker, as
+#: the others are; a test holds it equal to the register's entry.
+PartsOnHand = Literal["on", "off"]
+
+PARTS_ON_HAND = Flag(
+    name="parts_on_hand",
+    values=("on", "off"),
+    meanings={
+        "on": (
+            "the decomposition's one answer also lists the design's components, and before "
+            "anything is dispatched a person decides for each whether they have it, will make "
+            "it, or it is to be found; what they state of a part is written as declared "
+            "quantities that no role changes and the physics gate still checks. The run holds "
+            "until every part is decided, so it acts on decisions: refused without "
+            "queue_decisions: act, and with it wherever the OS layer is absent"
+        ),
+        "off": (
+            "nothing is asked and every part is found as before: the prompt, the schema and "
+            "everything the run records are those of a run before the switch existed, and "
+            "every run recorded before the switch existed reads as this; every evaluation run "
+            "uses it, since a reportable run acts on no decision"
+        ),
+    },
+    architecture="ARCH-122",
+)
+
+#: Whether a paired reviewer's session may compact its conversation. Spelled out for the type
+#: checker, as the others are; a test holds it equal to the register's entry.
+ReviewCompaction = Literal["on", "off"]
+
+REVIEW_COMPACTION = Flag(
+    name="review_compaction",
+    values=("on", "off"),
+    meanings={
+        "on": (
+            "a review session that nears its model's context window compacts its conversation "
+            "and carries on: its verdict is a verdict, recorded with the number of compactions "
+            "before it and the context size before each; after each compaction the reviewer is "
+            "told again where its material is and which markers it must judge, and its verdict "
+            "is refused until it has read the rubric again in full. A review that still "
+            "outgrows the window reaches no verdict"
+        ),
+        "off": (
+            "every review session runs with the binary's compaction switched off, and a review "
+            "that meets its window reaches no verdict: everything the run records is that of a "
+            "run before the switch existed, and every run recorded before the switch existed "
+            "reads as this"
+        ),
+    },
+    architecture="ARCH-060",
+)
+
 #: Who reviews a role's work. Spelled out for the type checker, as the others are; a test holds
 #: it equal to the register's entry.
 Reviewers = Literal["paired", "generalist", "off"]
@@ -182,14 +234,16 @@ REVIEWERS = Flag(
         ),
         "generalist": (
             "an ablation run's arm: each role's work is reviewed on the same reviewer pin with "
-            "its paired rubric less the domain sections and without the role's library files; "
-            "refused at the run's configuration until the arm is built"
+            "its paired rubric less the domain sections and without the role's library files, "
+            "and each review line names that rubric's kind and digest; only an ablation run "
+            "takes it"
         ),
         "off": (
             "an ablation run's arm: no role reviewer is invoked, each attempt the gate lets "
             "reach review records that its review was skipped and merges on the gate's result "
-            "alone, and every role still names a pinned reviewer; refused at the run's "
-            "configuration until the arm is built"
+            "alone, and every role still names a pinned reviewer; the gate's order is "
+            "unchanged, so an attempt the gate refuses under gate_mode on never merges; only an "
+            "ablation run takes it"
         ),
     },
     architecture="ARCH-140",
@@ -208,9 +262,34 @@ SKILLS = Flag(
             "acts; every run recorded before the switch existed reads as this"
         ),
         "off": (
-            "an ablation run's arm: the role's skill file is withheld from every role session "
-            "and leaves what it must read, and the standards files stay; refused at the run's "
-            "configuration until the arm is built"
+            "an ablation run's arm: no role's skill file is put into the run's target, so no "
+            "worktree of the run holds one; decomposition refuses a target whose store or working "
+            "trees already hold one a session could read: a skill file (knowledge/*/skill.md in "
+            "any letter case, of any bytes) in any commit a ref, a tag, a reflog entry or a stash "
+            "reaches; a tree or a file's content a ref names directly, whatever it holds, since it "
+            "has no path to judge it by; any object none of those reaches; the library's own skill "
+            "bytes under any path; or, in any working tree of the target (its own and every linked "
+            "one), a file at knowledge/*/skill.md in any letter case, tracked, untracked or "
+            "ignored, or a link at that path, at knowledge or at knowledge/<x>; the target must be "
+            "a complete repository with a working tree, so a bare, shallow or partial one is "
+            "refused, and nothing is fetched to judge it; the run starts from a fresh clone of the "
+            "target made without sharing its object files (git clone --no-local), since a target "
+            "an earlier run used holds unreachable objects once a merge of that run was aborted; a "
+            "target of any number of refs is judged whole, at the cost of reading every commit and "
+            "tree it holds; the skill file leaves what every role session must read and its "
+            "always-loaded set, the standards files stay, and the session is still held to reading "
+            "them before it acts; no session's file tool reads the harness checkout, and reads "
+            "through hard links in the worktree are refused. Not covered: skill content of other "
+            "bytes under another path or name in the target, its store or its working trees (a "
+            "knowledge/<x>/skill.md.bak among them); a submodule's own store; a file put into a "
+            "working tree of the target after the run started, which a role session can read, "
+            "since sessions can read the target's working directory; a partial-clone key held only "
+            "in a file the target's config includes, which is not read (nothing is fetched all the "
+            "same); a linked worktree whose record the target repointed at a path that does not "
+            "exist, since the working trees' paths are taken from the target's own worktree "
+            "records and such a record makes the walk skip the real worktree; the paired reviewers "
+            "read the role's skill and standards under both arms, so a reviewer's finding can "
+            "carry skill content to the builder; only an ablation run takes it"
         ),
     },
     architecture="ARCH-140",
@@ -270,6 +349,8 @@ REGISTER: tuple[Flag, ...] = (
     QUEUE_DECISIONS,
     OS_LAYER_ABSENT,
     DESIGN_REVIEW,
+    PARTS_ON_HAND,
+    REVIEW_COMPACTION,
     REVIEWERS,
     SKILLS,
     HOOKS,

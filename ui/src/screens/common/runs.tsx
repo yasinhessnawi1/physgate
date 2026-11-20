@@ -3,19 +3,21 @@
  * and each run's human label. The choice lives in the address's ``run`` query, so a link or a
  * shortcut keeps it.
  *
- * A label needs the run's first event, so each listed run's log is read once per page. Only the
- * first ``FIRST_RUNS`` runs are read before the person asks for all of them: a root with many runs
- * would otherwise make every screen read every log.
+ * A label needs the run's start, which the run list names (the time of its log's first line), so
+ * no run's log is read to label it.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-import { getJson, getLines, type Result } from "../../api/client";
-import { runEvent, startedAt } from "../../api/events";
+import { getJson, type Result } from "../../api/client";
+import { runEvent } from "../../api/events";
 import { type RunConfig, runConfig, type RunListing, runListing } from "../../api/records";
 import { type RunStatus, runStatus } from "../../api/run";
 import type { Source } from "../../design/components/data/source";
-import { type RunLabel, runLabels } from "../../words/runs";
-import { useJson } from "./read";
+import { orderRuns, type RunLabel, runLabels } from "../../words/runs";
+import { queueListing } from "../../api/queue";
+import { type Phase, phaseOf, type Standing, standingOf } from "../../words/standing";
+import { runEnd, waitingFor } from "../home/runEnd";
+import { useJson, useLines, useLiveJson } from "./read";
 import { useResult } from "./useResult";
 
 /** How many runs' logs a screen reads for their labels before the person asks for all. */
@@ -60,62 +62,33 @@ export function haltedWords(status: RunStatus): string | null {
   return HALT_WORDS[status.halted.reason] ?? `Halted · ${status.halted.reason}`;
 }
 
-/** Whether the run is still going: its next step is neither done, nor a halt taken or owed. */
+/**
+ * Whether the run is still going: its next step is work, neither done, a halt taken or owed, nor
+ * a person's decision, and its log is not silent longer than a living run is (``phaseOf``).
+ */
 export function inProgress(status: RunStatus): boolean {
-  return (
-    status.kind !== "done" &&
-    status.halted === null &&
-    status.kind !== "halted" &&
-    status.owedHalt === null
+  return phaseOf(status) === "going";
+}
+
+/** Where the run a screen shows stands, or ``undefined`` until its status is read. */
+export function phaseOfResult(status: Result<RunStatus> | null): Phase | undefined {
+  return status?.ok === true ? phaseOf(status.value) : undefined;
+}
+
+/** The run list, read once per screen, newest start first (``orderRuns``). */
+export function useRunList(): Result<readonly RunListing[]> | null {
+  return useResult(
+    () => getJson("/api/runs", (value) => orderRuns(runListing(value))),
+    "/api/runs",
   );
 }
 
-// Each run's start, read once per page: its log's run_started line, or nothing when the log
-// cannot be read (the run then reads by its folder's name).
-const starts = new Map<string, Promise<string | null>>();
-
-function startOf(base: string): Promise<string | null> {
-  let found = starts.get(base);
-  if (found === undefined) {
-    found = getLines(`${base}/events`, runEvent).then((r) => (r.ok ? startedAt(r.value) : null));
-    starts.set(base, found);
-  }
-  return found;
-}
-
-/** The run list, read once per screen. */
-export function useRunList(): Result<readonly RunListing[]> | null {
-  return useResult(() => getJson("/api/runs", runListing), "/api/runs");
-}
-
 /**
- * Every listed run's start, for its label: the first ``FIRST_RUNS`` readable runs unless ``all``,
- * and always ``also`` (the chosen run), whose label the top bar shows.
+ * Every listed run's start, for its label, as the run list names it: no run's log is read for
+ * it, so a screen reads only its own run's records. Every listed run is labelled.
  */
-export function useStarts(
-  runs: readonly RunListing[],
-  all: boolean,
-  also?: RunListing,
-): ReadonlyMap<string, string | null> {
-  const [found, setFound] = useState<ReadonlyMap<string, string | null>>(new Map());
-  const readable = runs.filter((r) => r.error === null);
-  const wanted = all ? readable : readable.slice(0, FIRST_RUNS);
-  if (also !== undefined && !wanted.includes(also)) wanted.push(also);
-  const key = wanted.map(runKey).join(",");
-  useEffect(() => {
-    let live = true;
-    for (const run of wanted) {
-      void startOf(runBase(run)).then((ts) => {
-        if (live) setFound((current) => new Map(current).set(runKey(run), ts));
-      });
-    }
-    return () => {
-      live = false;
-    };
-    // The key names the runs asked for; the list is rebuilt every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  return found;
+export function useStarts(runs: readonly RunListing[]): ReadonlyMap<string, string | null> {
+  return useMemo(() => new Map(runs.map((run) => [runKey(run), run.started ?? null])), [runs]);
 }
 
 /** Every listed run's label, from the starts read so far. */
@@ -130,7 +103,7 @@ export function useLabels(
           key: runKey(run),
           name: run.name,
           runId: run.runId,
-          started: starts.get(runKey(run)) ?? null,
+          started: run.started ?? starts.get(runKey(run)) ?? null,
         })),
       ),
     [runs, starts],
@@ -149,6 +122,8 @@ export interface ChosenRun {
   readonly showAll: () => void;
   readonly allShown: boolean;
   readonly again: () => void;
+  /** Where the chosen run stands, in words, once its status is read. */
+  readonly standing: Standing | undefined;
 }
 
 /** The run the query names, or the first readable one, with its configuration and status. */
@@ -160,9 +135,29 @@ export function useChosenRun(query: URLSearchParams): ChosenRun {
   const chosen = readable.find((run) => runKey(run) === wanted) ?? readable[0];
   const base = chosen === undefined ? null : runBase(chosen);
   const config = useJson(base === null ? null : `${base}/config`, runConfig);
-  const status = useJson(base === null ? null : `${base}/status`, runStatus);
+  // Read again while the page is open, so a run that stops, or goes on, is seen without a reload.
+  const status = useLiveJson(base === null ? null : `${base}/status`, runStatus);
+  // An ended run's words need its log and queue: read only for a run that has ended.
+  const ended = status.result?.ok === true && status.result.value.kind === "done";
+  const endEvents = useLines(ended && base !== null ? `${base}/events` : null, runEvent);
+  const endQueue = useJson(ended && base !== null ? `${base}/queue` : null, queueListing);
+  const standing = useMemo(() => {
+    if (status.result?.ok !== true) return undefined;
+    const value = status.result.value;
+    const events = endEvents.result;
+    const queue = endQueue.result;
+    const end =
+      value.kind === "done" && events?.ok === true && queue !== null
+        ? runEnd(
+            events.value,
+            waitingFor(queue.ok ? queue.value.open : null, value.superseded),
+            value.completion,
+          )
+        : null;
+    return standingOf(value, end);
+  }, [status.result, endEvents.result, endQueue.result]);
   const [all, setAll] = useState(false);
-  const starts = useStarts(listed, all, chosen);
+  const starts = useStarts(listed);
   const labels = useLabels(listed, starts);
   return {
     runs,
@@ -180,5 +175,6 @@ export function useChosenRun(query: URLSearchParams): ChosenRun {
       config.again();
       status.again();
     },
+    standing,
   };
 }

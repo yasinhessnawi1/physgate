@@ -45,6 +45,8 @@ def test_a_reviewer_on_the_recorded_implementer_s_string_is_refused_whatever_the
         hooks="on",
         ablation=False,
         design_review="off",
+        parts_on_hand="off",
+        review_compaction="off",
         models=ModelStrings(
             decomposition=RECORDED,
             roles={"electrical": OTHER},

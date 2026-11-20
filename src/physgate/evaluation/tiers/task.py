@@ -18,6 +18,7 @@ is what lets a task suite be hashed and the hash be committed in place of the su
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import unicodedata
@@ -47,7 +48,8 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 #: stream, it proves that session read the task.
 Canary = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
 
-Role = Literal["control", "firmware"]
+#: ``whole_run`` is a whole design built and measured in one run, held in a store of its own.
+Role = Literal["control", "firmware", "whole_run"]
 Tier = Literal["visible", "validation", "held_out", "external"]
 #: The tiers no implementer reads: each of their tasks carries a canary.
 PROTECTED_TIERS: frozenset[str] = frozenset({"validation", "held_out"})
@@ -55,13 +57,24 @@ Comparison = Literal[">=", "<=", ">", "<", "in"]
 #: Whether a specification decides the task's pass, or is reported beside it only.
 Counts = Literal["headline", "secondary"]
 #: The forms an answer takes. Each has its own schema in :mod:`.answer`.
-AnswerForm = Literal["lti_tf", "espidf_project"]
-ScorerId = Literal["control", "firmware"]
+AnswerForm = Literal["lti_tf", "espidf_project", "whole_run"]
+ScorerId = Literal["control", "firmware", "whole_design"]
 #: The fewest distinct requirements an own task's headline specifications compose between
 #: them (ARCH-141): one requirement tested alone shows no gap when a feature is isolated.
 COMPOSES_AT_LEAST = 2
 #: The separators an id may use, each one the same as any other when ids are compared.
 _SEPARATORS = re.compile(r"[._-]+")
+#: What a protected task's id is reported as: the first 16 hex digits of its sha256.
+TaskDigest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")]
+
+
+def id_digest(name: str) -> str:
+    """What a held-out task's id is reported as: the first 16 hex digits of its sha256.
+
+    The one form every count, check and refusal names a protected task by, so a digest one
+    command prints is found again by another, and the id itself is never shown.
+    """
+    return hashlib.sha256(name.encode()).hexdigest()[:16]
 
 
 def fold_id(name: str) -> str:

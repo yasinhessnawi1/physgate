@@ -90,6 +90,35 @@ class MessageUsage(_Frozen):
 
     message_id: NonEmptyStr
     usage: Usage
+    #: The binary's own call that wrote a compaction's summary: in its totals and in no message
+    #: of its stream, so it is read as the difference between the two (``accounting``). Left out
+    #: of every other line, so each keeps its bytes.
+    compaction: bool = Field(default=False, exclude_if=lambda v: not v)
+    #: A response the binary cut short and closed itself (its stream failed, stalled or ended
+    #: early), with no final usage and no assistant message: the usage it started with.
+    #: Recorded so it is seen; whether the binary's per-model totals count it is
+    #: ``in_binary_totals`` (``accounting``). Left out of every other line.
+    abandoned: bool = Field(default=False, exclude_if=lambda v: not v)
+    #: A response cut short whose starting usage the binary's per-model totals count, as they
+    #: did on every pin at the scripted endpoint: counted in every sum held to those totals.
+    #: Without it a cut response is in none of them, its billing unknown, as a real run's API
+    #: error had it. Set only by the totals check (``accounting``); left out of every other line.
+    in_binary_totals: bool = Field(default=False, exclude_if=lambda v: not v)
+
+    @model_validator(mode="after")
+    def _one_kind_of_line(self) -> MessageUsage:
+        if self.compaction and self.abandoned:
+            msg = "a compaction's call is no response of the stream, so none is cut short"
+            raise ValueError(msg)
+        if self.in_binary_totals and not self.abandoned:
+            msg = "only a response cut short is marked as counted in the binary's totals"
+            raise ValueError(msg)
+        return self
+
+    @property
+    def counted(self) -> bool:
+        """Whether the account counts this line: every line but a cut response the totals omit."""
+        return not self.abandoned or self.in_binary_totals
 
 
 #: A session's captured stream of events, or a written account of a revision.
@@ -265,6 +294,9 @@ class Artefact(_Frozen):
     #: Integration's issued state, for an attempt of integration's subtask: what its session was
     #: given to read. Left out of a dump when absent, so every other attempt is recorded as before.
     integration_state: IssuedState | None = None
+    #: The parts record the attempt's session read, as the release line names it, for an attempt
+    #: of a run whose decisions named parts. Left out of a dump when absent.
+    parts_record: IssuedState | None = None
     #: The interfaces the attempt's nodes revise, as its change check derived them,
     #: which its reviewer is shown quantity by quantity. Left out of a dump when empty, so every
     #: other attempt is recorded as before.
@@ -283,6 +315,8 @@ class Artefact(_Frozen):
             data.pop("ordered_by_person", None)
         if self.integration_state is None:
             data.pop("integration_state", None)
+        if self.parts_record is None:
+            data.pop("parts_record", None)
         if not self.followed:
             data.pop("followed", None)
         if not self.unjudged:
@@ -732,6 +766,22 @@ class ReviewResult(_Frozen):
     #: and flag traffic: the conditions it ran under. Empty otherwise, and then not written
     #: at all, so a review on an earlier pin is recorded byte for byte as before.
     managed: tuple[SessionManaged, ...] = Field(default=(), exclude_if=lambda v: not v)
+    #: How many times the review's session compacted its conversation before this verdict,
+    #: across its repair resumes (ARCH-060); ``None``, and not written, where it never did, so
+    #: a review without one is recorded byte for byte as before.
+    compactions: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    #: The context size before each compaction, in tokens, as each boundary named it; empty,
+    #: and not written, where there was none or a boundary named no size.
+    compaction_pre_tokens: tuple[Count, ...] = Field(default=(), exclude_if=lambda v: not v)
+
+    @model_validator(mode="after")
+    def _sizes_are_one_per_compaction(self) -> ReviewResult:
+        if self.compaction_pre_tokens and len(self.compaction_pre_tokens) != self.compactions:
+            msg = "a review names the context size before each of its compactions, or none"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _a_verdict_is_consistent(self) -> ReviewResult:

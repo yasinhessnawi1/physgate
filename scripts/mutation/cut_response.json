@@ -1,0 +1,126 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/evaluation/observe/cost.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py",
+   "knowledge",
+   "tests/unit/orchestrator/left_session.py"
+  ]
+ },
+ {
+  "name": "lower_bound_ignores_a_cut_response",
+  "file": "src/physgate/evaluation/observe/cost.py",
+  "old": "    lower_bound = bool(cut) or (\n",
+  "new": "    lower_bound = (\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py",
+   "knowledge"
+  ]
+ },
+ {
+  "name": "lower_bound_only_with_a_reconciliation",
+  "file": "src/physgate/evaluation/observe/cost.py",
+  "old": "    lower_bound = bool(cut) or (\n",
+  "new": "    lower_bound = bool(cut and calls is None) or (\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py",
+   "knowledge"
+  ]
+ },
+ {
+  "name": "validator_exact_rule_ignores_a_cut_response",
+  "file": "src/physgate/evaluation/observe/cost.py",
+  "old": "self.lower_bound != bool(cut or held.unread or held.ttl_unread)",
+  "new": "self.lower_bound != bool(held.unread or held.ttl_unread)",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py",
+   "knowledge"
+  ]
+ },
+ {
+  "name": "validator_drops_the_unreconciled_cut_rule",
+  "file": "src/physgate/evaluation/observe/cost.py",
+  "old": "        if cut and not self.lower_bound:\n",
+  "new": "        if False:\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py",
+   "knowledge"
+  ]
+ },
+ {
+  "name": "cost_line_names_no_cut_response",
+  "file": "src/physgate/evaluation/observe/cost.py",
+  "old": "        not_in_binary_totals_billing_unknown=dict(sorted(cut.items())),\n",
+  "new": "        not_in_binary_totals_billing_unknown={},\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py",
+   "knowledge"
+  ]
+ },
+ {
+  "name": "reader_serves_the_counted_tokens_as_cut",
+  "file": "src/physgate/ui/readers.py",
+  "old": "\"not_in_binary_totals_billing_unknown\": dumped(account.abandoned()),",
+  "new": "\"not_in_binary_totals_billing_unknown\": dumped(account.by_attribution()),",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py",
+   "knowledge"
+  ]
+ },
+ {
+  "name": "reader_key_back_to_not_charged",
+  "file": "src/physgate/ui/readers.py",
+  "old": "\"not_in_binary_totals_billing_unknown\": dumped(account.abandoned()),",
+  "new": "\"abandoned_not_charged\": dumped(account.abandoned()),",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py",
+   "knowledge"
+  ]
+ },
+ {
+  "name": "marker_read_inside_the_event",
+  "file": "src/physgate/orchestrator/decompose.py",
+  "old": "                marked = event.get(\"abandoned_blocks\")\n",
+  "new": "                marked = inner.get(\"abandoned_blocks\")\n",
+  "tests": [
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
+   "knowledge",
+   "tests/unit/orchestrator/left_session.py"
+  ]
+ },
+ {
+  "name": "baseline_last",
+  "file": "src/physgate/evaluation/observe/cost.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/test_a_cut_response_is_recorded_apart_and_the_cost_is_a_lower_bound.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_response_cut_short_by_an_api_error_is_kept_apart_from_the_binary_s_totals.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_graph_and_run_routes_serve_the_readers_answers.py",
+   "knowledge",
+   "tests/unit/orchestrator/left_session.py"
+  ]
+ }
+]

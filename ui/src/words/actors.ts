@@ -84,6 +84,8 @@ export function eventActor(
     case "subtask_rejected":
     case "dispatch_held":
     case "dispatch_released":
+    case "parts_released":
+    case "parts_raised_again":
       return ORCHESTRATOR;
     case "decomposed":
       return {

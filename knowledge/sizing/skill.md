@@ -82,9 +82,14 @@ One row per quantity sizing writes (§1, §2):
 3. At that voltage, compute what the limit allows: no-load speed, stall current, and the torque at
    the speeds the specification asks for.
 4. Compare with each criterion your specification gives that needs voltage, speed or torque. Where
-   the comparison needs a domain's model (a controller's plant, a recovery), state that, with the
-   headroom the limit leaves at the criterion's condition. A criterion the limit cannot meet is a
-   conflict: record it (below), and keep the limit the brief fixes (§3).
+   the comparison needs a domain's design (a controller's coefficients, its tuning), state that,
+   with the headroom the limit leaves at the criterion's condition. A criterion the limit cannot
+   meet is a conflict: record it (below), and keep the limit the brief fixes (§3). A recovery from
+   a disturbance on a plant that falls by itself is not deferred: step 5.
+5. **The recovery bound (§12).** For each criterion, yours or that of a domain module's
+   specification that reads the limit, that asks for recovery from a disturbance (a push), compute
+   the bound as §12 states it, in a script that reads your node's values and prints every figure
+   §12 lists. Below 1, raise the limit as §12 says. State that the bound is necessary only.
 
 ## Procedure: the current budget
 
@@ -135,6 +140,8 @@ In a record under your module directory, cited from the `source` of the value it
   (§5).
 - **Treating an extrapolated stall figure as a working point.** The maker calls it theoretical (§5).
 - **A count limit called a voltage.** It is a voltage only at a named supply voltage (§6).
+- **A recovery left to the controller.** "Whether the headroom is enough is the control module's to
+  show" leaves a limit no controller can work with to a module that cannot change it (§12).
 - **Peak against continuous.** A stall current compared with a continuous rating, or a sustained
   draw with a peak one (§7).
 - **Stall as the worst current of a motor that reverses.** Reversed while turning, it draws more

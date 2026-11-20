@@ -63,6 +63,8 @@ ADDED_FIELDS: dict[str, dict[str, Any]] = {
         # The rig's runs record what a run records today, the search tool denied; the golden
         # file's sessions were fakes, which no search tool reaches, and the queue reads none.
         "tool_search": "denied",
+        "parts_on_hand": "off",
+        "review_compaction": "off",
     },
     "run_started": {"escalation_backend": "rules"},
     # The series records a session left: none, in every session the golden file recorded.

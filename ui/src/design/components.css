@@ -113,6 +113,11 @@ kbd,
   color: var(--color-text);
 }
 
+.pg-at-least {
+  margin-right: 0.3em;
+  color: var(--color-text-2);
+}
+
 .pg-quantity-unit {
   color: var(--color-text-3);
   margin-left: 0.3em;
@@ -205,7 +210,8 @@ kbd,
   overflow-wrap: anywhere;
 }
 
-.pg-id-copy {
+.pg-id-copy,
+.pg-id-whole {
   flex: none;
   white-space: nowrap;
   padding: 0 var(--space-1);
@@ -1843,4 +1849,77 @@ kbd,
 /* An edge between two domains: dashed, as the design draws a cross-domain constraint. */
 .pg-edge-cross {
   stroke-dasharray: 5 4;
+}
+
+/* -- a run's standing: its badge, one short sentence, the record's words on demand ---------- */
+.pg-standing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-badge);
+  background: var(--color-surface);
+}
+
+.pg-run-standing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+.pg-standing-sentence {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pg-standing-detail {
+  flex-basis: 100%;
+  min-width: 0;
+  color: var(--color-text-2);
+}
+
+.pg-standing-detail > summary {
+  width: max-content;
+  cursor: pointer;
+}
+
+.pg-standing-full {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+
+/* -- below 760 px: a timeline row stacks as a card ------------------------------------------- */
+@media (max-width: 760px) {
+  .pg-trow {
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .pg-trow-main,
+  .pg-trow-end {
+    grid-column: 1 / -1;
+  }
+
+  /* A row that opens its attempt holds its sentence in a button: that button is the cell. */
+  .pg-trow-open {
+    grid-column: 1 / -1;
+  }
+
+  .pg-trow-depth-1,
+  .pg-trow-depth-2 {
+    padding-left: calc(var(--space-4) + 12px);
+  }
+
+  /* A long finding's rest, folded under its row, lines up with the stacked sentence. */
+  .pg-trow-more,
+  .pg-trow-more-1,
+  .pg-trow-more-2 {
+    padding-left: var(--space-4);
+  }
 }

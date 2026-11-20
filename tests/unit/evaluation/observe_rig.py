@@ -128,6 +128,8 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         # What the sessions' settings do today: the search tool is denied.
         "tool_search": "denied",
         "design_review": "off",
+        "parts_on_hand": "off",
+        "review_compaction": "off",
         "held_out": (),
         "held_out_canaries": (),
         "held_out_sha256": (),

@@ -21,6 +21,8 @@ def test_the_register_is_not_empty_and_names_the_gate_mode() -> None:
         "queue_decisions",
         "os_layer_absent",
         "design_review",
+        "parts_on_hand",
+        "review_compaction",
         "reviewers",
         "skills",
         "hooks",

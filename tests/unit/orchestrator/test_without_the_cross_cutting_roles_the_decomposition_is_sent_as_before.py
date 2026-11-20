@@ -12,8 +12,11 @@ on an interface node's id in the schema, and the sentence giving that form in th
 prompt; and in the prompt, the gate's quantity names, generated from its catalogue, and who
 writes interface nodes; and since 03.11.2026, where the gate has a bound and what forms each of its
 relations, generated from the tables and the catalogue it loads; and since the catalogue widening
-of 04.11.2026, its new names and kinds. A change to either for such a run is a change to what
-every ordinary run sends, and turns this red.
+of 04.11.2026, its new names and kinds; and since 16.11.2026, the paragraph saying a plan states
+interfaces and criteria, never a solution's law or coefficients; and since 18.11.2026, the
+paragraph saying how one acceptance criterion is written, and the sentence in the first
+paragraph saying which quantities go on an interface node. A change to either for such a run is a
+change to what every ordinary run sends, and turns this red.
 """
 
 from __future__ import annotations
@@ -49,20 +52,36 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: words; every other byte as before
 #: (test_the_widened_catalogue_adds_its_names_to_the_prompt_and_nothing_else); and, since
 #: 12.11.2026, the one sentence on how a unit is spelt, after the words that ask for a unit
-#: (test_the_decomposition_prompt_states_how_a_unit_is_spelt). Before that sentence:
+#: (test_the_decomposition_prompt_states_how_a_unit_is_spelt); and, since 16.11.2026, the
+#: paragraph after the words that ask for the modules and interfaces, saying a specification
+#: states interfaces and criteria and never a solution's law or coefficients
+#: (test_the_plan_states_interfaces_and_criteria_never_a_solution_s_law), reworded on
+#: 17.11.2026 (a test for what the brief fixes, physical properties on an interface, the
+#: designer's node wherever one module implements another's design, named in both
+#: specifications); and, since 18.11.2026, the paragraph after it saying each acceptance
+#: criterion is one statement of one thing with its verification method named
+#: (test_every_acceptance_criterion_is_one_statement_with_its_verification_method); and, since
+#: 18.11.2026, the sentence in the first of those paragraphs saying a quantity is on an
+#: interface node only where another module's specification reads it, and is named in each
+#: reader's specification (test_an_interface_quantity_is_read_by_a_module_besides_its_producer).
+#: Before that sentence: 6672229b67f4..., 6219833c8874... and b85194b2c03a....
+#: Before the criterion paragraph: 38485dfa3eae..., c6bbc8f4ddd1... and 06b330e281cc....
+#: Before the rewording: 7394c68115d3..., 044c69c7b621... and 0e879c749f64....
+#: Before that paragraph: cd9d3713e8dd..., 66e80cd16451... and 6fd51bcf6f3a.... Before the unit
+#: sentence:
 #: c14dba963d6c..., ad94ba0d6bbe... and d713661a9904.... At 470b3f34,
 #: before that sentence: ca0317a59ce7..., 8abeae4b5f23... and 44175ad46745...; before the
 #: widening, since 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
 #: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
 PROMPT_SHA256 = {
-    ("control", "firmware"): "cd9d3713e8dd9f7417686af3897cafbcc4eaa7c0b5554f2967174fb54165211c",
-    ("electrical",): "66e80cd16451939cf8ab9fefe9e0d683ede5c3b8ac3e9251c7078db6d9c93d8a",
+    ("control", "firmware"): "11fc062c365c4f128038c88bae8f05c4a78f135a0b4970f3286ac9e4d3d285ab",
+    ("electrical",): "ccd58c178193d4b0963c808302e6e7d62aa3c4fe2d4dfb492f2dc5ee8d0c57c4",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "6fd51bcf6f3a5b8fe9c1983c48148122206053d0d92fe7a139aa1a07460bd4db",
+    ): "591a7d65fb70b6202d1b4bce6aaf05a1560b3b5361575bf978e1ba0daf746d37",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -80,6 +99,33 @@ PROMPT = (
     "Each node's id is two or more parts joined by dots, each of lowercase "
     "letters, digits and underscores only, the first beginning with a letter, such as "
     '"pump.flow_rate".\n\n'
+    "A specification states its module's interfaces and acceptance criteria, never the internal "
+    "law, structure or coefficients of a solution, unless the brief fixes them. The brief fixes "
+    "a method only where one of its requirements, in its own words, says the design shall use, "
+    "run or contain it; a program or document the brief cites as the source of a number, a part "
+    "or a condition is a source of those only. An interface node holds what both sides must "
+    "agree on before either works (the signals that cross, with their units and rates; the "
+    "limits both sides hold to; and the physical properties one side gives the other, such as a "
+    "mass or a motor constant), never a solution's tuned parameters. A quantity goes on an "
+    "interface node only where the specification of at least one module other than the one that "
+    "produces it reads it by name; a quantity that only its own module uses stays in that "
+    "module's specification, off every interface node; and each quantity on an interface node is "
+    "named, as the node names it, in the specification of every module that reads it. "
+    "Where one module implements what another designs, such as firmware running the control law "
+    "that was analysed, the "
+    "designing module comes before the implementing module in the plan and writes its design on "
+    "a node of its own, named in both specifications; the implementing module's acceptance "
+    "criteria compare its implementation with that node as merged, and where the node is not "
+    "merged when it starts, it reports that and implements no design of its own.\n\n"
+    'Write each acceptance criterion as one statement of one thing, in the form "The <module> '
+    'shall <verb> <what>, <threshold with its unit and tolerance>, verified by <method>.", '
+    "where the method is one of analysis, demonstration, inspection or test, named by that word "
+    "in the criterion; a criterion that sets no figure has no threshold, and each criterion "
+    "names the brief requirement it traces to or says it is derived and why. A requirement that "
+    "holds several figures or conditions (a value and its agreement with another quantity, a "
+    "value and a rule for the rest of the module, two margins, a figure and a setting) becomes "
+    "one criterion for each, so that each is met or unmet on its own. A goal is written with "
+    '"should", outside the acceptance criteria.\n\n'
     # The catalogue's names, from the catalogue: a copy here would hold the test to a list the
     # catalogue no longer keeps. The digests above hold the bytes.
     f"{catalogue_sentence()}\n\n"

@@ -37,9 +37,12 @@ SUBMISSION = SUBMITTED / "review_submission_v3_control.json"
 
 
 #: The review answered the rubric's second version. The third, promoted since, adds one
-#: item (A7, the one line a revision issued with no specification answers) and changes no
-#: other item's id or section, so the second version's items are the third's less A7.
-ADDED_SINCE_THE_REVIEW = ("A7",)
+#: item (A7, the one line a revision issued with no specification answers). A later version
+#: adds three domain-standards items (D34, margins computed with the loop's delays; D35,
+#: margins across every estimated parameter's spread; D36, structure added to a reference
+#: law is needed and the least that works). Neither changes any other item's id, section
+#: or title, so the second version's items are today's less these four.
+ADDED_SINCE_THE_REVIEW = ("A7", "D34", "D35", "D36")
 
 
 def _result() -> ReviewResult:

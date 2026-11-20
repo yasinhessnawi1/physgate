@@ -155,7 +155,7 @@ def _startable(monkeypatch: pytest.MonkeyPatch, *, node: str, library: Exception
     class Planned:
         interface_nodes = (Node(),)
 
-    config = type("C", (), {"target_head": "h"})()
+    config = type("C", (), {"target_head": "h", "skills": "on"})()
     return outcome_of(
         lambda: decompose.require_startable(
             Planned(),  # type: ignore[arg-type]

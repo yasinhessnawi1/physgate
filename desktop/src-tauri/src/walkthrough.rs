@@ -17,6 +17,10 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
 
+/// Confirms the write a click has just asked about: the confirmation's own act button.
+const CONFIRM: &str =
+    "setTimeout(() => document.querySelector('dialog[open] .pg-btn-act').click(), 400)";
+
 fn click(text: &str) -> String {
     format!(
         "[...document.querySelectorAll('button, .card')].find((b) => b.textContent.trim().startsWith({})).click()",
@@ -105,7 +109,7 @@ pub fn start(app: AppHandle) {
         );
         step(
             "sign-in-running",
-            Some(format!("{{ {}; {} }}", click("Sign In"), show("#progress"))),
+            Some(format!("{{ {}; {} }}", click("Sign in"), show("#progress"))),
             2200,
         );
         step(
@@ -135,8 +139,13 @@ pub fn start(app: AppHandle) {
             1800,
         );
         step(
+            "api-key-confirm",
+            Some(format!("{{ {} }}", click("Keep key"))),
+            1200,
+        );
+        step(
             "api-key-kept",
-            Some(format!("{{ {}; {} }}", click("Keep Key"), show("#panel"))),
+            Some(format!("{{ {CONFIRM}; {} }}", show("#panel"))),
             1800,
         );
         step(
@@ -148,7 +157,7 @@ pub fn start(app: AppHandle) {
             "api-test-key",
             Some(format!(
                 "{{ const r = document.getElementById('reviewer'); r.value = 'claude-sonnet-5'; r.dispatchEvent(new Event('change')); {};                  setTimeout(() => document.getElementById('test-result').scrollIntoView({{ block: 'center' }}), 300); }}",
-                click("Test Key")
+                click("Test key")
             )),
             5000,
         );
@@ -169,7 +178,7 @@ pub fn start(app: AppHandle) {
         step(
             "operator-ui",
             Some(format!(
-                "{{ {}; setTimeout(() => document.getElementById('continue').click(), 800); }}",
+                "{{ {}; setTimeout(() => {{ document.getElementById('continue').click(); {CONFIRM}; }}, 800); }}",
                 click("Claude API")
             )),
             7000,

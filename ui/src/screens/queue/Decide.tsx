@@ -25,13 +25,18 @@ import {
   APPROVE_RECORDS_ONLY,
   chooseWords,
   consequenceWords,
+  effectWords,
   DECISION_COPY,
   decisionSummary,
   POSITION_WORDS,
+  setAsideLine,
   supersededOutcome,
   UNSEALED_WORDS,
 } from "../../words/queue";
+import { countOf } from "../../words/count";
 import { lineToWrite, whyNot } from "./model";
+import { useRunPhase } from "./runPhase";
+import { RunStateNote } from "./RunStateNote";
 
 export function Decide({
   view,
@@ -53,6 +58,7 @@ export function Decide({
   readonly supersededBy?: string | undefined;
 }) {
   const [answer, setAnswer] = useState<Result<Resolved> | null>(null);
+  const phase = useRunPhase();
   // The buttons and the command palette open the same confirmation, under the same rules.
   const [opened, setOpened] = useState<Verb | Position | null>(null);
   const why = whyNot(operator, holdsToken);
@@ -87,6 +93,27 @@ export function Decide({
   );
   usePaletteEntries(entries);
 
+  // A choice is offered where its button can be pressed; the domain's value needs a held seal.
+  const positionWhy = (position: Position): string | null =>
+    position === "domain" ? (why ?? (unsealed ? UNSEALED_WORDS.domain : null)) : why;
+  // Beside the buttons: what each decision that can be taken now will do, from the item's own
+  // record; on an item a reopen superseded, only what the run does with a decision on it.
+  const consequence = view.item.consequence;
+  const live = (key: string): boolean =>
+    key === "approve"
+      ? approveWhy === null
+      : key === "reject"
+        ? why === null
+        : key === "note"
+          ? true
+          : positionWhy(key as Position) === null;
+  const stated = consequence === null ? [] : effectWords(consequence).filter((e) => live(e.key));
+  const shown: readonly { readonly key: string; readonly text: string }[] =
+    supersededBy !== undefined
+      ? [{ key: "superseded", text: supersededOutcome(supersededBy) }]
+      : stated.length > 1
+        ? stated
+        : [];
   const choices = view.item.consequence === null ? null : consequenceWords(view.item.consequence);
   const approveLabel = choices?.approveLabel ?? "Approve…";
   const confirmation = (verb: Verb, position?: Position): Confirmation => {
@@ -106,7 +133,7 @@ export function Decide({
         lineToWrite(view, verb, note, who, position) ?? "nothing until the reason is written",
       check:
         `that the item is still the one shown (its digest ${view.itemSha256}) and that each of ` +
-        `its ${String(view.trajectories.length)} transcripts ` +
+        `its ${countOf(view.trajectories.length, "transcript")} ` +
         (binds ? "still holds its seal" : "reads as it did when shown"),
       // What follows: the item's own consequence where the run acts on decisions, else nothing;
       // on an item a reopen superseded, a decision is recorded only, whatever it says.
@@ -126,12 +153,16 @@ export function Decide({
       confirmLabel: verb === "approve" ? "Approve" : verb === "reject" ? "Reject" : "Choose",
       ...(verb === "reject" ? { needsReason: true } : { takesNote: true }),
       children: (
-        <p className="pg-dialog-note">
-          One line appended to queue_decisions.jsonl in run {runId}. This cannot be edited or
-          undone; the item closes. The time is stamped when it is written, beside the time this
-          server showed you the item if it still holds it, so the record says how long the decision
-          took.
-        </p>
+        <>
+          {/* On a run that is not going, its state: the decision waits for a resume. */}
+          <RunStateNote />
+          <p className="pg-dialog-note">
+            One line appended to queue_decisions.jsonl in run {runId}. This cannot be edited or
+            undone; the item closes. The time is stamped when it is written, beside the time this
+            server showed you the item if it still holds it, so the record says how long the
+            decision took.
+          </p>
+        </>
       ),
       onConfirm: (note) => {
         setAnswer(null);
@@ -176,9 +207,7 @@ export function Decide({
             variant="act"
             label={`Choose ${POSITION_WORDS[position].toLowerCase()}…`}
             confirm={confirmation("choose", position)}
-            disabledBecause={
-              position === "domain" ? (why ?? (unsealed ? UNSEALED_WORDS.domain : null)) : why
-            }
+            disabledBecause={positionWhy(position)}
             open={opened === position}
             onOpenChange={(open) => {
               setOpened(open ? position : null);
@@ -186,8 +215,17 @@ export function Decide({
           />
         ))}
       </div>
+      {shown.length > 0 && (
+        <ul className="pg-queue-effects">
+          {shown.map((effect) => (
+            <li key={effect.key} data-verb={effect.key}>
+              {effect.text}
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="pg-panel-note">
-        {DECISION_COPY.reasonRule} {DECISION_COPY.setAside}
+        {DECISION_COPY.reasonRule} {setAsideLine(phase === "going")}
       </p>
       {answer !== null &&
         (answer.ok ? (

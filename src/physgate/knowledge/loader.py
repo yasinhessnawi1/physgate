@@ -26,8 +26,13 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING, NamedTuple
 
 from physgate.knowledge.exceptions import RoleNameError
+
+if TYPE_CHECKING:
+    # A name for the type only: the hook layer loads this module, and loads nothing more for it.
+    from physgate.flags import Skills
 
 #: A role name becomes a directory name under the knowledge root, so it is held
 #: to the same safe-identifier pattern an ablation flag's name already uses
@@ -103,3 +108,46 @@ def required_reading(
     """
     everything = {*always_loaded(role, root=root), Path(module_spec), *interfaces}
     return tuple(sorted(everything))
+
+
+class SessionReading(NamedTuple):
+    """What a role session is given of the curated content, under the run's skills switch."""
+
+    #: What it must read in full before any other tool (ARCH-020).
+    required: tuple[Path, ...]
+    #: What is measured against the token ceiling (ARCH-023).
+    always_loaded: tuple[Path, ...]
+
+
+def is_skill_file(relative: Path, *, root: Path = DEFAULT_ROOT) -> bool:
+    """Whether ``relative`` names a role's skill file: ``<root>/<role>/skill.md``."""
+    return relative.parent.parent == root and relative.name == SKILL_NAME
+
+
+def session_reading(
+    role: str,
+    module_spec: Path,
+    *,
+    skills: Skills,
+    interfaces: tuple[Path, ...] = (),
+    root: Path = DEFAULT_ROOT,
+) -> SessionReading:
+    """What a session of ``role`` reads and is measured on, under ``skills``.
+
+    ``on`` is the two sets above. ``off``, an ablation run's arm, takes the role's skill file
+    out of both; the standards files and the rest of the required reading stay, so the reading
+    rule and the ceiling still hold the session, to the smaller set. Nothing is withheld in its
+    place: under ``off`` decomposition puts no skill file into the run's target, so no worktree
+    of the run holds one. The cross role has no skill file, so ``off`` changes nothing for it.
+
+    Raises:
+        RoleNameError: ``role`` is not a safe directory name.
+    """
+    required = required_reading(role, module_spec, interfaces=interfaces, root=root)
+    loaded = always_loaded(role, root=root)
+    if skills == "on":
+        return SessionReading(required=required, always_loaded=loaded)
+    return SessionReading(
+        required=tuple(path for path in required if not is_skill_file(path, root=root)),
+        always_loaded=tuple(path for path in loaded if not is_skill_file(path, root=root)),
+    )

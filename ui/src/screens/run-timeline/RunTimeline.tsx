@@ -10,6 +10,7 @@ import { runEvent } from "../../api/events";
 import { queueListing } from "../../api/queue";
 import { costRecord, priceDates } from "../../api/records";
 import { gateCheck, trace as runTrace } from "../../api/run";
+import { Button } from "../../design/components/actions/Button";
 import { Segmented } from "../../design/components/actions/Segmented";
 import { Figure } from "../../design/components/data/Figure";
 import { Id } from "../../design/components/data/Id";
@@ -26,10 +27,10 @@ import { InspectorPortal } from "../../shell/inspector";
 import { hrefFor } from "../../shell/route";
 import { CostCaveat } from "../common/cost";
 import { useJson, useLines } from "../common/read";
-import { RowView } from "../common/RowView";
+import { IdsShownContext, RowView } from "../common/RowView";
 import { type Row, rowsOf, subtaskNames, subtaskRoles } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
-import { inProgress, runSource, useChosenRun } from "../common/runs";
+import { phaseOfResult, runSource, useChosenRun } from "../common/runs";
 import { AttemptInspector } from "./AttemptInspector";
 
 const AREA = "orchestration";
@@ -69,7 +70,10 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
     costRecord,
   );
   const [who, setWho] = useState<Who>("all");
-  const going = status?.ok === true && inProgress(status.value);
+  // Internal ids (a subtask's, a session's, the run's) are hidden on the rows until asked for.
+  const [ids, setIds] = useState(false);
+  const phase = phaseOfResult(status);
+  const going = phase === "going";
   const configValue = config?.ok === true ? config.value : undefined;
 
   useEffect(() => {
@@ -89,9 +93,22 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
         gateMode: configValue.gateMode,
         osLayer: configValue.osLayer,
         inProgress: going,
+        phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, label, setHeader, events.result, checks.result]);
+  }, [
+    runs,
+    config,
+    configValue,
+    going,
+    phase,
+    chosen.standing,
+    label,
+    setHeader,
+    events.result,
+    checks.result,
+  ]);
 
   const rows = useMemo(
     () =>
@@ -100,9 +117,10 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
             events.result.value,
             configValue,
             checks.result?.ok === true ? checks.result.value : [],
+            going,
           )
         : [],
-    [events.result, configValue, checks.result],
+    [events.result, configValue, checks.result, going],
   );
 
   if (runs === null) return <LoadingState reading="the run list" />;
@@ -187,7 +205,13 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
               <span className="pg-muted">Reading…</span>
             ) : cost.result.ok ? (
               <>
-                <Figure {...cost.result.value.usd} decimals={2} source={source} partial={going} />
+                <Figure
+                  {...cost.result.value.usd}
+                  decimals={2}
+                  source={source}
+                  partial={going}
+                  atLeast={cost.result.value.lowerBound}
+                />
                 <span className="pg-panel-note">
                   price sheet of {cost.result.value.pricesDate}
                   <CostCaveat cost={cost.result.value} />
@@ -222,6 +246,15 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
             { value: "agents", label: "Agents" },
           ]}
         />
+        <Button
+          size="sm"
+          pressed={ids}
+          onClick={() => {
+            setIds((was) => !was);
+          }}
+        >
+          Show ids
+        </Button>
         <span className="pg-panel-note pg-toolbar-end">
           Select an attempt's row to inspect the <Term term="attempt">attempt</Term>
         </span>
@@ -231,22 +264,24 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
           The run's rows appear here as its log records them.
         </EmptyState>
       ) : (
-        <section className="pg-card pg-rows-card" aria-label="Timeline">
-          {shown.map((row) => {
-            const open = select(row);
-            const on =
-              selected !== null &&
-              row.subtask === selected.subtask &&
-              row.attempt === selected.attempt;
-            return (
-              <RowView
-                key={row.key}
-                row={row}
-                {...(open === undefined ? {} : { onSelect: open, selected: on })}
-              />
-            );
-          })}
-        </section>
+        <IdsShownContext.Provider value={ids}>
+          <section className="pg-card pg-rows-card" aria-label="Timeline">
+            {shown.map((row) => {
+              const open = select(row);
+              const on =
+                selected !== null &&
+                row.subtask === selected.subtask &&
+                row.attempt === selected.attempt;
+              return (
+                <RowView
+                  key={row.key}
+                  row={row}
+                  {...(open === undefined ? {} : { onSelect: open, selected: on })}
+                />
+              );
+            })}
+          </section>
+        </IdsShownContext.Provider>
       )}
       <SourceChip {...source} />
       {selected !== null && (

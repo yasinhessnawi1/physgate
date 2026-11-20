@@ -91,7 +91,7 @@ describe("the decision copy says only what the harness does", () => {
   it("holds no banned word in any sentence of the table", () => {
     const all = [
       ...Object.values(DECISION_COPY),
-      setAsideWith("an-item"),
+      setAsideWith("an-item", true),
       decisionSummary("Ada", "approve", "Approve the sizing", ""),
       decisionSummary("Ada", "reject", "Approve the sizing", "too hot"),
       ...SOURCES.map((s) => SOURCE_WORDS[s].why),
@@ -138,7 +138,7 @@ describe("a run's label is its start, in plain words", () => {
     expect(clockTime(started)).toMatch(/^\d{2}:\d{2}:\d{2}$/);
   });
 
-  it("tells two runs of one minute apart by run id, and by folder when ids match", () => {
+  it("names a run by its id with its start, and tells two of one id and minute by folder", () => {
     const labels = runLabels([
       { key: "0/a", name: "a", runId: "run-a", started },
       { key: "0/b", name: "b", runId: "run-b", started },
@@ -147,10 +147,10 @@ describe("a run's label is its start, in plain words", () => {
     ]);
     const shown = [...labels.values()].map((l) => l.label);
     expect(new Set(shown).size).toBe(4);
-    expect(labels.get("0/a")?.label).toMatch(/· run-a$/);
-    expect(labels.get("0/b")?.label).toMatch(/· b$/);
-    expect(labels.get("0/c")?.label).toMatch(/· c$/);
-    expect(labels.get("0/d")?.label).not.toContain("·");
+    expect(labels.get("0/a")?.label).toBe(`Run run-a · ${dayAndMinute(started)}`);
+    expect(labels.get("0/b")?.label).toBe(`Run run-b · ${dayAndMinute(started)} · b`);
+    expect(labels.get("0/c")?.label).toBe(`Run run-b · ${dayAndMinute(started)} · c`);
+    expect(labels.get("0/d")?.label).toBe(`Run run-d · ${dayAndMinute("2026-10-17T09:00:00Z")}`);
     expect(labels.get("0/a")?.detail).toContain("UTC");
     expect(labels.get("0/a")?.detail).toContain("run run-a");
   });
@@ -214,6 +214,7 @@ describe("actors come from the record, and an unmapped writer is shown as writte
           finding: null,
           reviewerModel: "claude-opus-5-5",
           sessionId: null,
+          compactions: null,
         },
         { s: "electrical" },
         models,

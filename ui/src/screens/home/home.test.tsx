@@ -110,15 +110,44 @@ describe("the active run's cost so far", () => {
 
   it("says it is a lower bound, and by how many calls, when the server could not price every call", () => {
     const html = renderToStaticMarkup(<CostSoFar cost={costRecord(LINE)} source={SOURCE} />);
-    expect(html).toContain("Lower bound");
-    expect(html).toContain("2 calls not priced at the rate they paid");
+    expect(html).toContain("Lower bound: the cost may be higher.");
+    expect(html).toContain(
+      "2 calls counted at the lowest rate, since what they paid could not be read",
+    );
+    expect(html).not.toContain("not priced at the rate");
     expect(html).toContain("price sheet of 2026-10-16");
+    // The figure itself reads "at least", before its number.
+    expect(html).toMatch(/class="pg-at-least">at least<\/span>.*0\.25/s);
+  });
+
+  it("says a response was cut off, and counts no call unpriced, when that alone bounds it", () => {
+    const cut = costRecord({
+      ...LINE,
+      reconciliation: { unread: [], ttl_unread: [] },
+      not_in_binary_totals_billing_unknown: {
+        "reviewer:b": {
+          input_tokens: 2,
+          output_tokens: 1,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 55515,
+        },
+      },
+    });
+    const html = renderToStaticMarkup(<CostSoFar cost={cut} source={SOURCE} />);
+    expect(html).toContain(
+      "A response was cut off by a connection error; its tokens are listed separately and the cost shown is a lower bound.",
+    );
+    expect(html).not.toContain("0 calls");
+    expect(html).toMatch(/class="pg-at-least">at least<\/span>.*0\.25/s);
   });
 
   it("says nothing of a bound when every call was priced", () => {
     const whole = costRecord({ ...LINE, lower_bound: false, reconciliation: null });
     expect(renderToStaticMarkup(<CostSoFar cost={whole} source={SOURCE} />)).not.toContain(
       "Lower bound",
+    );
+    expect(renderToStaticMarkup(<CostSoFar cost={whole} source={SOURCE} />)).not.toContain(
+      "at least",
     );
   });
 });
@@ -372,6 +401,6 @@ describe("a run halted on the account's usage limit", () => {
   it("says it waits for the limit to reset, in plain words; any other halt by its reason", () => {
     expect(said(halted("usage_limit"))).toContain("Waiting for the usage limit to reset");
     expect(said(halted("usage_limit"))).not.toContain("usage_limit");
-    expect(said(halted("infrastructure_exhausted"))).toContain("Halted · infrastructure_exhausted");
+    expect(said(halted("infrastructure_exhausted"))).toContain("every retry was used");
   });
 });

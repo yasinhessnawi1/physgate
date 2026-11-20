@@ -23,7 +23,7 @@ from physgate.evaluation.per_role.answer import read_lti_tf
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.scorers.control import check_references, score
 from physgate.evaluation.tiers.authoring import entry_refusal, sha256sums
-from physgate.evaluation.tiers.task import LoadedTask, load_task
+from physgate.evaluation.tiers.task import LoadedTask, id_digest, load_task
 
 _NUMBER = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 
@@ -40,11 +40,6 @@ def brief_leaks(loaded: LoadedTask) -> bool:
         if n not in (0.0, 1.0, -1.0)
         for t in told
     )
-
-
-def id_digest(name: str) -> str:
-    """What a held-out task's id is reported as: the first 16 hex digits of its sha256."""
-    return hashlib.sha256(name.encode()).hexdigest()[:16]
 
 
 class _Seen(NamedTuple):

@@ -29,13 +29,10 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
 )
 
 from physgate.evaluation.per_role import author_session
-from physgate.evaluation.per_role.author_session import (
-    QUESTIONS,
-    author,
-    blind_check,
-)
+from physgate.evaluation.per_role.author_session import author, blind_check
 from physgate.evaluation.tiers.authoring import AuthoringError
 from physgate.evaluation.tiers.canaries import root_canaries
+from physgate.evaluation.tiers.check_tasks import QUESTIONS
 
 
 class _Stopped(BaseException):
@@ -145,13 +142,26 @@ def test_a_check_whose_cleanup_failed_stops_the_next_check(
 def test_checks_whose_work_was_secured_follow_one_another(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Control: the record is cleared once the work is secured, so the next one runs.
+    # Control: the record of work is cleared once the work is secured, so the next check runs.
+    # A version is checked once, so the next check is of a second version of the same role: a
+    # record of work still standing would refuse it.
     _, version = _held_tier(tmp_path, monkeypatch)
-    for work in ("check", "check-2"):
-        fake, out = _check(tmp_path, monkeypatch, work, version)
-        assert len(fake.calls) == 1 and out.get("answered"), out
+    monkeypatch.setattr(author_session, "run_session", FakeSession(_tasks(24), session_id="s-2"))
+    plan = _plan(tmp_path, seed=6)
+    second = author(
+        plan,
+        dataclasses.replace(
+            _setup(tmp_path / "private"), held_out_canaries=root_canaries(plan.root)
+        ),
+    )
+    assert second.get("version") not in (None, version), second
+    fake, out = _check(tmp_path, monkeypatch, "check", version)
+    assert len(fake.calls) == 1 and out.get("answered"), out
+    fake, out = _check(tmp_path, monkeypatch, "check-2", str(second["version"]))
+    assert len(fake.calls) == 1 and out.get("answered"), out
     root = _plan(tmp_path).root
-    assert not [p for p in root.iterdir() if p.is_file()], "a record was left in the root"
+    left = [p.name for p in root.iterdir() if p.is_file() and not p.name.endswith(".check.json")]
+    assert left == [], "a record was left in the root"
 
 
 def test_a_check_does_not_start_while_an_author_s_work_is_left(

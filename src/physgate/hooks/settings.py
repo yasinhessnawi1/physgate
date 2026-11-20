@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import stat
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -57,6 +58,7 @@ from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
 from physgate.hooks.reasons import HOME_CLAUDE_REASON as HOME_CLAUDE_REASON
 from physgate.hooks.reasons import HOOK_STATE_REASON as HOOK_STATE_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
+from physgate.hooks.reasons import SENTINEL_APART_REASON as SENTINEL_APART_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import SESSION_TEMPS_REASON as SESSION_TEMPS_REASON
 from physgate.hooks.reasons import SESSIONS_REASON as SESSIONS_REASON
@@ -64,6 +66,7 @@ from physgate.hooks.reasons import SHELL_STARTUP_REASON as SHELL_STARTUP_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.reasons import TOOL_ENVIRONMENT_REASON as TOOL_ENVIRONMENT_REASON
 from physgate.hooks.reasons import WITHHELD_REASON as WITHHELD_REASON
+from physgate.hooks.reasons import WITHHELD_WHOLE_REASON as WITHHELD_WHOLE_REASON
 from physgate.hooks.reasons import series_outbox_reason
 from physgate.hooks.runtime import EVENTS, HookSpec
 from physgate.oslayer import reaper_install
@@ -195,6 +198,26 @@ class InstallRequest(BaseModel):
     #: recorded configuration, which holds the held-out tier's canaries. Each is put back
     #: like any protected root, and refused to every read as well.
     withheld: tuple[AbsolutePath, ...] = ()
+    #: The run's place, outside every place of any session's own, where the hook sentinel keeps
+    #: the part of its record that names the protected entries: each entry beneath a root no
+    #: session reads (the held-out tier, the answer keys, the run's withheld records), by its
+    #: path, with its digest. The session's own directory can lie later where people and other
+    #: sessions read; this place no session reads or writes on any layer, and the sentinel
+    #: writes it while the session runs, so it is never put back. ``None``: the record is kept
+    #: whole in the session's hook state, as a session installed before the place existed has.
+    sentinel_apart: AbsolutePath | None = None
+    #: Roots withheld from the session whole, by rule rather than by a list taken now, but for
+    #: the worktree in ``own_place``: a protected trial's session in the store's work root, a
+    #: blind check's in the store. Whatever is made in them later, by anything, is refused to
+    #: every read and write on every layer; the session's worktree is not. Given with
+    #: ``own_place`` only, and both or neither.
+    withheld_whole: tuple[AbsolutePath, ...] = ()
+    #: The session's own place inside every ``withheld_whole`` root: a real directory, reached
+    #: through no link, holding the worktree. Its tools read and write the worktree there exactly
+    #: as spelt (no link, no file with a second name), and nothing else of the place but the
+    #: directory of its interpreter, read only (``os_layer_readable`` there); the OS layer opens
+    #: the same.
+    own_place: AbsolutePath | None = None
     #: The source checkout the orchestrator runs from, when it runs from one: the
     #: gate's source, the curated library and the frozen experiments the run is
     #: judged by. A session in any other worktree may write none of it.
@@ -256,6 +279,11 @@ class InstallRequest(BaseModel):
     #: run's arm (see :data:`DISCIPLINE_HOOKS` and :func:`build_config`), for a role session only.
     #: The installer command takes it only for a run whose recorded configuration says so.
     hooks: Hooks = "on"
+    #: For a reviewer whose run allows compaction (ARCH-060): the required files it reads again
+    #: in full after each compaction, and the note it is told then. Empty for every other
+    #: session, whose configuration is written with the bytes it always had.
+    after_compaction: tuple[AbsolutePath, ...] = ()
+    compaction_note: str | None = None
 
     @model_validator(mode="after")
     def _only_a_role_session_drops_the_discipline(self) -> InstallRequest:
@@ -332,6 +360,65 @@ def _inside(path: str, root: str) -> bool:
 #: the human-run promotion command.
 KNOWLEDGE_DIR_NAME = "knowledge"
 KNOWLEDGE_STAGING_NAME = "staging"
+
+
+def _beneath(path: str, root: str) -> bool:
+    """Whether ``path`` lies strictly beneath ``root``, both as spelt (normalised, not resolved)."""
+    inner, outer = PurePosixPath(os.path.normpath(path)), PurePosixPath(os.path.normpath(root))
+    return inner != outer and inner.is_relative_to(outer)
+
+
+def _whole_roots_refusal(request: InstallRequest) -> str | None:
+    """Why the request's roots withheld whole and its own place may not be installed, or ``None``.
+
+    Both or neither; the place a real directory, not a link and reached through none from any
+    root, lying strictly inside every root as spelt and as the system resolves it; the worktree
+    inside the place.
+    """
+    roots, place = request.withheld_whole, request.own_place
+    if not roots and place is None:
+        return None
+    if not roots or place is None:
+        return "a root withheld whole and the session's own place in it are given together"
+    try:
+        st = os.lstat(place)
+    except OSError as exc:
+        return f"the session's own place {place} is not there ({exc.strerror})"
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+        return f"the session's own place {place} is not a directory (a link is not one)"
+    real = os.path.realpath(place)
+    for root in roots:
+        resolved = os.path.realpath(root)
+        if not (_beneath(place, root) and _beneath(real, resolved)):
+            return f"the session's own place {place} does not lie inside the root {root}"
+        # Every step from the root down to the place is a directory, never a link.
+        if real != os.path.join(resolved, os.path.relpath(place, root)):
+            return f"the session's own place {place} is reached through a link inside {root}"
+    if not _beneath(os.path.realpath(request.worktree), real):
+        return f"the worktree {request.worktree} does not lie in the session's own place {place}"
+    return None
+
+
+def _own_in_place(request: InstallRequest) -> tuple[str, tuple[str, ...]]:
+    """What the session reaches of the roots withheld whole: its worktree, and what else it reads.
+
+    The worktree, spelt beneath the own place as the place is given (the place is checked to be
+    reached through no link, and the worktree to lie in it where it really is), is read and
+    written. Beside it, the one thing named exactly: each further place of its own the OS layer
+    opens to its commands (``os_layer_readable``: the directory of the interpreter they run)
+    that lies in the place, never in its home, where its commands write and could make a link.
+    Read only. Nothing else of the place: its login, its hook records and anything made there
+    beside the worktree are refused, as the OS layer refuses them.
+    """
+    place = str(request.own_place)  # given with the roots (checked before)
+    real = os.path.realpath(place)
+    worktree = os.path.join(place, os.path.relpath(os.path.realpath(request.worktree), real))
+    interpreter = tuple(
+        p
+        for p in request.os_layer_readable
+        if _inside(p, place) and not _inside(p, request.user_home)
+    )
+    return os.path.normpath(worktree), interpreter
 
 
 def _knowledge_root(worktree: Path) -> str:
@@ -483,6 +570,29 @@ def _tools_allowed(request: InstallRequest) -> tuple[str, ...]:
     return (*PROFILE_TOOLS[request.profile], *server_tools(load_register(), servers))
 
 
+def _withheld_inside_the_harness(request: InstallRequest) -> str | None:
+    """Why a place of the run's that no session reads lies in the harness checkout, if one does.
+
+    The run's withheld records, a root withheld whole, the sentinel's place apart and the run's
+    session directories belong to a run, never to the checkout it is judged by. Inside it, each
+    would sit beneath a root whose bytes the sentinel keeps, and a session's own issued state in
+    the session directories would be refused as the checkout's.
+    """
+    if request.harness_root is None:
+        return None
+    places = {
+        "a withheld run record": request.withheld,
+        "a root withheld whole": request.withheld_whole,
+        "the sentinel's place apart": (request.sentinel_apart,),
+        "the run's session directories": (request.sessions_root,),
+    }
+    for what, paths in places.items():
+        for path in (p for p in paths if p is not None):
+            if _inside(path, request.harness_root):
+                return f"{what} ({path}) is inside the harness checkout {request.harness_root}"
+    return None
+
+
 def build_config(request: InstallRequest, installation: Installation) -> SessionConfig:
     """The session configuration for ``request``.
 
@@ -502,6 +612,9 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         if _inside(path, request.worktree):
             msg = f"{what} ({path}) is inside the worktree, where the session could change it"
             raise ValueError(msg)
+    harness_refusal = _withheld_inside_the_harness(request)
+    if harness_refusal is not None:
+        raise ValueError(harness_refusal)
     for root in request.read_roots:
         if not root.strip("/"):
             msg = f"the read root {root!r} names the whole filesystem"
@@ -693,6 +806,22 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         else:
             protected.setdefault(sessions, (SESSIONS_REASON, "none"))
             reads.setdefault(sessions, "shell_denied")
+    if request.sentinel_apart is not None:
+        apart = request.sentinel_apart
+        places: list[str | None] = [request.worktree, request.user_home, request.state_dir]
+        places += [request.target_dir]
+        places += [request.claude_config_dir, request.os_layer_temp_dir, request.temp_dir]
+        for place in (p for p in places if p is not None):
+            if _inside(apart, place) or _inside(place, apart):
+                msg = (
+                    f"the sentinel's place apart {apart} and the session's own place {place} "
+                    "overlap: what it keeps apart would lie where the session reaches"
+                )
+                raise ValueError(msg)
+        # Assigned, not defaulted: refused to every read and write on every layer, and never
+        # put back, since the sentinel writes it while the session runs.
+        protected[apart] = (SENTINEL_APART_REASON, "none")
+        reads[apart] = "denied"
     if request.profile in OWN_TEMP_PROFILES:
         # The temporary directory every Claude Code session of the user shares, which holds the
         # other sessions' task outputs, the operator's among them. This session's binary is
@@ -719,6 +848,22 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     for path in request.held_out:
         protected.setdefault(path, (HELD_OUT_REASON, "revert"))
         reads[path] = "denied"
+    refusal = _whole_roots_refusal(request)
+    if refusal is not None:
+        raise ValueError(refusal)
+    for path in request.withheld_whole:
+        excepted, interpreter = _own_in_place(request)
+        # Assigned, not defaulted: refused to every read and write but the session's worktree in
+        # its own place, whatever is made there later, the rest of the place included: the OS
+        # layer opens the worktree alone, and the two layers say the same. Put back as it was if
+        # it was already (a blind check's store, written by none of its tools), and otherwise
+        # never: it is not snapshotted, so an entry made there by another process is refused,
+        # not removed.
+        watch = protected[path][1] if path in protected else "none"
+        protected[path] = (WITHHELD_WHOLE_REASON, watch)
+        reads[path] = "denied"
+        read_exceptions[path] = (excepted, *interpreter)
+        root_exceptions[path] = tuple(dict.fromkeys((*root_exceptions.get(path, ()), excepted)))
     answer_keys = sorted({str(worktree / "corpora"), *request.answer_keys})
     for path in answer_keys:
         protected.setdefault(path, (ANSWER_KEY_REASON, "revert"))
@@ -787,7 +932,22 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         watchdog_seconds=WATCHDOG_SECONDS,
         hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
         survivor_reaper=reaper_on,
+        os_layer=request.os_layer_temp_dir is not None,
+        after_compaction=tuple(sorted(request.after_compaction)),
+        compaction_note=request.compaction_note,
     )
+
+
+#: The configuration's fields left out of its written bytes when empty: only a reviewer whose
+#: run allows compaction has the first two, and only a session inside the OS layer the third,
+#: so every other session's configuration keeps its bytes.
+_LEFT_OUT_WHEN_EMPTY = ("after_compaction", "compaction_note", "os_layer")
+
+
+def config_bytes(config: SessionConfig) -> bytes:
+    """The configuration's bytes as the installer writes them and the hooks read them."""
+    absent = {name for name in _LEFT_OUT_WHEN_EMPTY if not getattr(config, name)}
+    return _dump(config.model_dump(mode="json", exclude=absent))
 
 
 #: Where :func:`protected_in_a_worktree` places the role session it asks about. Nothing is
@@ -1122,18 +1282,18 @@ def install(
     target = Path(request.target_dir)
     target.mkdir(parents=True, exist_ok=True)
     config_path = target / CONFIG_NAME
-    config_bytes = _dump(config.model_dump(mode="json"))
+    written = config_bytes(config)
     # The shape is validated where it is written, through the schema, on the very
     # bytes the hooks will read and whose digest they carry: the hooks validate
     # them again with the standard-library validator a test holds to this one.
-    if SessionConfig.model_validate_json(config_bytes) != config:
+    if SessionConfig.model_validate_json(written) != config:
         msg = "the configuration does not read back as the one that was built"
         raise ValueError(msg)
-    config_path.write_bytes(config_bytes)
+    config_path.write_bytes(written)
     settings = render_settings(
         config,
         str(config_path),
-        digest(config_bytes),
+        digest(written),
         wired_hooks(request, registry),
         request.api_key_helper,
     )

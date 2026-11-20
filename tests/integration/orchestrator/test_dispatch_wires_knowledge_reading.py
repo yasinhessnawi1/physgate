@@ -19,7 +19,9 @@ import pytest
 from git_rig import config, run_layout
 
 from physgate.hooks.config import SessionConfig
+from physgate.hooks.paths import protection
 from physgate.hooks.reading import outstanding
+from physgate.hooks.reasons import HARNESS_REASON
 from physgate.hooks.token_ceiling import measure, session_start
 from physgate.knowledge import loader
 from physgate.orchestrator.credentials import Credential
@@ -28,7 +30,7 @@ from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.git import commit_all
 from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.ports import SessionRequest
-from physgate.orchestrator.run_config import RunConfig, write_run_config
+from physgate.orchestrator.run_config import RunConfig, harness_root, write_run_config
 from physgate.state.store import Store
 
 pytestmark = pytest.mark.integration
@@ -81,6 +83,7 @@ class _Input:
     tool_response: Any = None
     agent_id: str | None = None
     error: str | None = None
+    source: str | None = None
 
 
 def test_the_installed_session_config_carries_loaders_full_reading_set(tmp_path: Path) -> None:
@@ -123,6 +126,51 @@ def test_the_installed_session_config_carries_loaders_full_reading_set(tmp_path:
     # files, and only those, is outstanding before any is read.
     hook_input = _Input(session_id="probe-session")
     assert set(outstanding(written, hook_input)) == expected_reading
+
+
+def test_what_a_dispatched_session_is_given_to_read_is_outside_the_harness_and_read_there(
+    tmp_path: Path,
+) -> None:
+    """A normal session reads its library from its worktree, and the harness's copy not at all.
+
+    The real dispatcher's installer names this checkout as the harness. Every file the session
+    is required to read, the always-loaded set among them, lies in its worktree and passes the
+    path hook's read check; the same files in the harness checkout are refused to the Read tool.
+    """
+    harness = harness_root()
+    assert harness is not None, "the tests run from a source checkout, which is the harness"
+    run, store_root = _layout(tmp_path)
+    cfg = config()
+    write_run_config(run.run_dir / "run.json", cfg)
+    dispatcher = ClaudeDispatcher(
+        config=cfg,
+        run=run,
+        store_root=store_root,
+        install_bin=_dev_physgate_binary(),
+        binary="unused-by-install",
+        base_url=None,
+        credential=Credential("api_key", "sk-ant-test-dummy"),
+        review_root=Path("/nonexistent/review-scratch"),
+    )
+    request = _request(cfg)
+    worktree = run.open_subtask(request.subtask_id)
+    sdir = run.run_dir / "sessions" / "probe-given"
+    installed = dispatcher._install(
+        request, worktree, sdir, None, own_temp=Path("/var/tmp/pgs/0123456789")
+    )  # noqa: SLF001 - the thing under test
+    written = SessionConfig.model_validate_json(Path(installed.config).read_text())
+
+    given = sorted({*written.required_reading, *written.always_loaded})
+    assert given, "the session is given nothing to read"
+    under_harness = [p for p in given if Path(p).resolve().is_relative_to(harness.resolve())]
+    assert under_harness == [], "a session is given a file to read from the harness checkout"
+    refused = {p: protection(p, str(worktree), written, writing=False) for p in given}
+    assert refused == dict.fromkeys(given), "a file the session must read is refused to it"
+    for relative in loader.always_loaded(request.assigned_role):
+        library_copy = str(harness / relative)
+        assert protection(library_copy, str(worktree), written, writing=False) == HARNESS_REASON, (
+            f"the harness's own {relative} is readable to the session's file tools"
+        )
 
 
 def test_an_install_without_the_layer_for_a_run_that_does_not_allow_it_is_refused(

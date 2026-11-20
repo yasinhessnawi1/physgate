@@ -201,16 +201,37 @@ _CONFIG_FIELDS = (
     "tools_allowed", "installation", "watchdog_seconds", "hook_timeout_seconds",
     "survivor_reaper",
 )  # fmt: skip
+#: Left out of the written configuration of every session but a reviewer whose run allows
+#: compaction (the first two) and a session inside the OS layer (the third), so every other
+#: configuration keeps its bytes.
+_OPTIONAL_CONFIG_FIELDS = ("after_compaction", "compaction_note", "os_layer")
+
+
+def _note(value: object, where: str) -> str:
+    return _string(value, where, min_length=1)
+
+
+def _compaction_refusal(config: LeanConfig) -> str | None:
+    """The schema's ``compaction_refusal``, on the lean configuration."""
+    if not config.after_compaction and config.compaction_note is None:
+        return None
+    if config.profile != "reviewer":
+        return "only a reviewer reads again after a compaction"
+    if (not config.after_compaction) or config.compaction_note is None:
+        return "a reviewer is told the compaction note exactly when it reads again after one"
+    if not set(config.after_compaction) <= set(config.required_reading):
+        return "a file read again after a compaction is one of the required reading"
+    return None
 
 
 class LeanConfig:
     """The session configuration, validated with the same rules as the schema."""
 
-    __slots__ = _CONFIG_FIELDS
+    __slots__ = _CONFIG_FIELDS + _OPTIONAL_CONFIG_FIELDS
 
     def __init__(self, raw: object) -> None:
         """Validate a parsed configuration."""
-        data = _object(raw, "configuration", _CONFIG_FIELDS)
+        data = _object(raw, "configuration", _CONFIG_FIELDS, _OPTIONAL_CONFIG_FIELDS)
         self.profile: str = _choice(data["profile"], "profile", PROFILES)
         self.role: str | None = _optional(data["role"], "role", _string)
         self.worktree: str = _absolute(data["worktree"], "worktree")
@@ -245,6 +266,13 @@ class LeanConfig:
             data["hook_timeout_seconds"], "hook_timeout_seconds"
         )
         self.survivor_reaper: bool = _bool(data["survivor_reaper"], "survivor_reaper")
+        self.os_layer: bool = _bool(data.get("os_layer", False), "os_layer")
+        self.after_compaction: tuple[str, ...] = _strings(
+            data.get("after_compaction", []), "after_compaction", _absolute
+        )
+        self.compaction_note: str | None = _optional(
+            data.get("compaction_note"), "compaction_note", _note
+        )
         if self.profile == "role" and not self.role:
             raise _fail("role", "a role session must name its role")
         if (self.profile == "reviewer") != bool(self.read_roots):
@@ -260,6 +288,9 @@ class LeanConfig:
                 f"must fire at least {WATCHDOG_MARGIN_SECONDS} s before Claude Code's hook "
                 "timeout; otherwise a hung hook lets the tool run",
             )
+        why = _compaction_refusal(self)
+        if why is not None:
+            raise _fail("after_compaction", why)
 
 
 class LeanInput:
@@ -270,8 +301,8 @@ class LeanInput:
     """
 
     __slots__ = (
-        "agent_id", "cwd", "error", "hook_event_name", "session_id", "tool_input", "tool_name",
-        "tool_response",
+        "agent_id", "cwd", "error", "hook_event_name", "session_id", "source", "tool_input",
+        "tool_name", "tool_response",
     )  # fmt: skip
 
     def __init__(self, raw: object) -> None:
@@ -295,6 +326,7 @@ class LeanInput:
         self.tool_response: Any = raw.get("tool_response")
         self.agent_id: str | None = _optional(raw.get("agent_id"), "agent_id", _string)
         self.error: str | None = _optional(raw.get("error"), "error", _string)
+        self.source: str | None = _optional(raw.get("source"), "source", _string)
 
 
 def _json(data: bytes | str) -> object:

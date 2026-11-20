@@ -63,6 +63,10 @@ class SessionRequest(_Frozen):
     #: Integration's issued state, for a session of integration's subtask: the dispatcher writes it
     #: where the session reads it and adds it to the required reading.
     issued_state: IssuedState | None = None
+    #: The parts record, for every session of a run whose decisions named parts: the bytes the
+    #: release line names, which the dispatcher writes as files where the session reads them and
+    #: adds to the required reading.
+    parts_record: IssuedState | None = None
     #: Whether the session is told how to dispute a value of a cross node: a role that may, in a
     #: plan that holds the work of the role that writes those values.
     disputes: bool = False
@@ -432,6 +436,15 @@ class GraphPort(Protocol):
 
         Raises ``StoreRefusalError`` for a revision that is not the derivation the store holds
         it to, and ``StoreStaleError`` when the journal moved underneath the handle.
+        """
+        ...
+
+    def declare(self, payload: Payload, item_ids: tuple[str, ...]) -> int:
+        """Write a node a person's decisions owe through the store's ``declare``; its revision.
+
+        Raises ``StoreRefusalError`` for a node the store does not hold to be the declared
+        revision of ``item_ids``, and ``StoreStaleError`` when the journal moved underneath the
+        handle.
         """
         ...
 

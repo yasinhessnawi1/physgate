@@ -259,8 +259,9 @@ are judged by reading like the rest.
   the module is asked to do (the architecture's role table, ARCH-050): no module asked for another
   role's work, and no role with work left without a module (§2; cat. 2).
 - **PS-4. No module needs another's internals.** Each module's criteria can be met from its own
-  specification and the interface and sizing nodes; one that depends on another module's internal
-  choice fails (§2, Parnas 1972; cat. 2).
+  specification and the interface and sizing nodes, and, for a module that implements another's
+  design, the designer's own node its specification names (§3); one that depends on another
+  module's internal choice any other way fails (§2, Parnas 1972; cat. 2).
 - **PS-5. Boundaries are weakly coupled.** A boundary crossed by many quantities, where moving it
   would remove most of them, is a finding unless the plan states why it stands (§2, skill "finding
   the interfaces" step 4; cat. 3, overridable by a stated reason).
@@ -269,7 +270,10 @@ are judged by reading like the rest.
 
 - **PS-6. Every crossing quantity is on an interface node.** For each pair of modules, every
   quantity one produces and the other reads, by reading both specifications, is on an interface
-  node (or a sizing node, PS-11). One that is not fails (§3; cat. 2).
+  node (or a sizing node, PS-11). One that is not fails (§3; cat. 2). A design one module chooses
+  and another implements (a controller's law and coefficients) is read from the designer's own
+  node by PS-36's route, not from an interface node: it does not fail this item, and an interface
+  node that carries it fails PS-21.
 - **PS-7. An interface node is owned by its producer.** The owner role is the role whose module
   produces the quantities on it; a node owned by a consumer fails (§3; cat. 2).
 - **PS-8. Each interface quantity's record supports it.** Value, unit, source and writer; the
@@ -287,6 +291,14 @@ are judged by reading like the rest.
   one quantity fail, even when their values agree (§3, §5; cat. 2). An interface node that carries
   a quantity sizing owns, citing the sizing node or sizing's specification as its source, is not a
   second producer: it carries sizing's value across the boundary (sizing standards §1).
+- **PS-36. A design implemented elsewhere is compared with its designer's node.** Applies when one
+  module's specification asks it to implement what another module designs (firmware running a
+  control law whose form and coefficients the control module chooses). The designing module comes
+  before the implementing one in the plan; its specification asks it to write the design (form and
+  every coefficient, each with its unit) on a node of its own, named in both specifications; and
+  the implementer's acceptance criteria include one that compares the implementation with that node
+  as merged, each coefficient equal within PS-13's tolerance. Any of the three missing fails (§3;
+  cat. 2). It does not apply to a value fixed at plan time on an interface node.
 
 ### Shared quantities
 
@@ -330,9 +342,24 @@ are judged by reading like the rest.
 - **PS-20. No ambiguous terms.** No "as appropriate", "etc.", "and/or", "but not limited to",
   "robust", "fast" or indefinite pronouns in a criterion (§7, NASA SE Handbook Appendix C.4
   "Clarity"; cat. 2).
-- **PS-21. A fixed method carries its reason.** Where a specification fixes how (a structure, an
-  algorithm, a part the brief does not name), it states why (§7, NASA SE Handbook §4.2.1.2.3, box
-  "Rationale", p. 70; cat. 2).
+- **PS-21. No method fixed that the brief does not require.** Where a specification fixes how (a
+  structure, a law, an algorithm, coefficients or gains, a reference program to copy, a part the
+  brief does not name), or an interface node carries a solution's tuned parameters, find the
+  requirement of the brief that demands it.
+  - The brief *requires* the method when its own words make the method part of what shall be
+    delivered. The specification then cites that requirement as its rationale; one that does not
+    fails.
+  - The brief *cites* the method when it names the reference only as the source of a number, a part
+    or a condition, or as background. A citation is no requirement. A method fixed on a citation
+    fails, and so does reasoning of the form "the brief cites X, so the design uses X's law".
+  - The test, by reading: strike the method from the specification and ask whether the plan, as
+    written, still carries every requirement of the brief. If it does, the brief cites the method.
+  - A requirement that one module's implementation match what another module analysed is met by
+    PS-36's route, never by fixing the method in the plan.
+  - Where the reading is in doubt, the plan leaves the method free and records the doubt with both
+    readings in the specification it concerns (§7, §8); a method fixed on a doubtful reading
+    fails.
+  - (§3, §7, NASA SE Handbook Appendix C.2, p. 236, and §4.2.1.2.3, box "Rationale", p. 70; cat. 2.)
 
 ### Unknowns and conflicts
 
@@ -405,8 +432,8 @@ are judged by reading like the rest.
   judged ("works well", "is robust") (skill; §6, §7).
 - **PP-8. A system behaviour asked of one module.** Look at each criterion's level. Counts when a
   module is asked to show what only the assembly can (skill; §6).
-- **PP-9. A how where a what is needed.** Look at fixed methods. Counts when one has no reason
-  (skill; §7).
+- **PP-9. A how where a what is needed.** Look at fixed methods. Counts when one has no requirement
+  of the brief behind it (skill; §7).
 - **PP-10. An invented number.** Look at numbers the brief does not give. Counts when one is stated
   as if given (skill; §8).
 - **PP-11. A specification that leans on another.** Look at what each specification asks its
@@ -463,4 +490,4 @@ of the brief is not an indicator against the plan.
   and the plan fails the corresponding rule when judged by reading; without that reasoning, at most
   `noted`.
 
-<!-- 28ef6f4dcda7669412630b96ad79c3f8 -->
+<!-- 4825104a5aa2839faa94d040b5f03687 -->

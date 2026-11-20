@@ -114,3 +114,19 @@ test("the Settings screen ships in its own chunk, and names no terminal command"
   expect(text).toContain("pg-catalogue-source");
   expect(namesACommand(text)).toBe(false);
 });
+
+test("the Evidence screen ships in a chunk of its own, reached only through the slot", () => {
+  const chunks = assets().filter((a) => /^Evidence-[\w-]+\.js$/.test(a));
+  expect(chunks).toHaveLength(1);
+  const evidence = chunks.map(read).join("\n");
+  expect(evidence).toContain("/api/evidence/runs");
+  // The page's entry names none of the screen's routes: the screen is loaded when it is opened.
+  const entry = readFileSync(join(DIST, "index.html"), "utf8");
+  const scripts = [...entry.matchAll(/src="\/assets\/([^"]+\.js)"/g)].map((m) => m[1] ?? "");
+  expect(scripts.length).toBeGreaterThan(0);
+  for (const script of scripts) expect(read(script)).not.toContain("/api/evidence/");
+  // The chunk asks for nothing but the screen's own routes and the price sheets.
+  const routes = [...evidence.matchAll(/["'`](\/api\/[a-z/-]*)/g)].map((m) => m[1] ?? "");
+  expect(routes.length).toBeGreaterThan(0);
+  for (const route of routes) expect(route).toMatch(/^\/api\/(evidence\/|prices$)/);
+});

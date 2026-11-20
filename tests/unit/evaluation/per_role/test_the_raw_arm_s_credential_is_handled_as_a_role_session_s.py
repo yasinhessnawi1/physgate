@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import json
 import stat
+import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +72,29 @@ def _setup(tmp_path: Path, binary: Path, mode: str = "subscription") -> raw.RawS
     )
 
 
+def capture_installer(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Every ``subprocess.run`` this thread makes, answered as the installer would; others run.
+
+    The patch replaces the module's own attribute, which every thread of the process reads. A
+    call from another thread (a budget watch an earlier row left behind, stopping its session,
+    reads the process table) runs as it would have, and is never taken for the installer's.
+    """
+    real = subprocess.run
+    owner = threading.get_ident()
+    seen: list[list[str]] = []
+
+    def capture(argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
+        if threading.get_ident() != owner:
+            ran: subprocess.CompletedProcess[str] = real(argv, **kw)
+            return ran
+        seen.append(argv)
+        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": stand_in_spawn_env()}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
+
+    monkeypatch.setattr(subprocess, "run", capture)
+    return seen
+
+
 def _holders(root: Path) -> list[str]:
     return [str(p) for p in root.rglob("*") if p.is_file() and DUMMY.encode() in p.read_bytes()]
 
@@ -126,18 +151,9 @@ def test_the_raw_session_s_shell_is_denied_its_credential_files_by_the_os_layer(
 ) -> None:
     # A sandboxed session's worktree may not lie in a place the OS layer makes writable,
     # where pytest's own temporary directories are; the installer refuses one there.
-    import subprocess
-
     from physgate.hooks.cli import add_parser
 
-    seen: list[list[str]] = []
-
-    def capture(argv: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
-        seen.append(argv)
-        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": stand_in_spawn_env()}
-        return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
-
-    monkeypatch.setattr(subprocess, "run", capture)
+    seen = capture_installer(monkeypatch)
     worktree = outside_tmp / "worktree"
     worktree.mkdir()
     sdir = outside_tmp / "session"
@@ -148,6 +164,7 @@ def test_the_raw_session_s_shell_is_denied_its_credential_files_by_the_os_layer(
         Path(session_temps_root()) / "0123456789",
     )
     monkeypatch.undo()
+    assert seen and seen[0][1:3] == ["hooks", "install"], seen
     parser = argparse.ArgumentParser()
     add_parser(parser.add_subparsers(dest="command"))
     args = parser.parse_args(seen[0][1:])

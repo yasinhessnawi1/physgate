@@ -40,7 +40,7 @@ from physgate.orchestrator.arbitration import (
     dispute_standing,
 )
 from physgate.orchestrator.budget import infra_retry_delay
-from physgate.orchestrator.change_sets import change_history
+from physgate.orchestrator.change_sets import change_history, integration_history
 from physgate.orchestrator.common import PLANNED_ID_MAX_LENGTH, SUBTASK_PATTERN, utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decisions import (
@@ -101,16 +101,25 @@ from physgate.orchestrator.events import (
     NodeFilesRepaired,
     OsLayerChecked,
     OwedEdge,
+    PartsGateRan,
+    PartsRaisedAgain,
+    PartsReleased,
+    PartsWriteDone,
+    PartsWriteIntended,
     PlanRejected,
     ProposalsChecked,
+    RaisedPart,
+    ReleasedPart,
     Resumed,
     ReviewRan,
+    ReviewSkipped,
     ReviewUnavailable,
     SessionEnded,
     SessionFinding,
     SessionSpawned,
     Stage,
     StageEntered,
+    StatedPart,
     SubtaskRejected,
     SubtaskReopened,
     TokensUsed,
@@ -157,6 +166,15 @@ from physgate.orchestrator.managed import (
     traffic_change,
 )
 from physgate.orchestrator.merge import merge_message
+from physgate.orchestrator.parts_write import (
+    TakenPart,
+    blocked_parts,
+    contradictions,
+    parts_record,
+    parts_writes,
+    release_artefact,
+    unlanded_declared,
+)
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
     ChangeCheck,
@@ -192,6 +210,7 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.queue import (
     INTEGRATION,
     ItemConsequence,
+    PartsBody,
     QueueItem,
     QueueResolution,
     QueueSource,
@@ -204,6 +223,8 @@ from physgate.orchestrator.queue import (
     held_windows_of,
     integration_item,
     item_id_for,
+    parts_sha256,
+    raised_again_id,
     read_queue,
     round_stream,
     stream_parts,
@@ -248,12 +269,18 @@ from physgate.reviewers.scan import (
 )
 from physgate.roles import dispatchable, owners_of, require_registered
 from physgate.series.reader import attempt_records
-from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
+from physgate.series.seal import (
+    OVERFLOW_NAME,
+    AttemptDiscard,
+    AttemptRecord,
+    AttemptSeries,
+    SeriesCheck,
+)
 from physgate.state.exceptions import DesignStateError, StoreStaleError
 from physgate.state.held_file import HeldFile
 from physgate.state.protocol import REJECT_CROSS_ROLE
-from physgate.state.schema import Node, validate_node
-from physgate.state.store import payload_digest
+from physgate.state.schema import REJECT_DECLARED_FIXED, REJECT_DECLARED_FORGED, Node, validate_node
+from physgate.state.store import JournalLine, payload_digest
 
 UNREAD = (
     "The session ended without completing its required reading, so nothing it "
@@ -892,6 +919,8 @@ class Loop:
                         message_id=message.message_id,
                         usage=message.usage,
                         partial=not left.complete,
+                        abandoned=message.abandoned,
+                        in_binary_totals=message.in_binary_totals,
                     )
                 )
         for cause, detail in found if len(found) > 1 else ():
@@ -1079,6 +1108,7 @@ class Loop:
             "complete",
             "halt",
             "wait",
+            "parts",
             "reopen",
             "follow_up_ended",
             "hold",
@@ -1101,11 +1131,15 @@ class Loop:
                 if self._decisions_refused_at_the_end():
                     continue  # the run halts on it: that is the step it ends on
                 self.record.hold_plan()  # a decompose killed before it listed the plan's item
+                self.record.hold_parts()  # and before it listed each part, or the plan's hold left
                 self._clean_up_worktrees()
                 return step
             if step.kind == "halt":
                 # A process killed between an incident and its halt: the halt, and nothing else.
                 self._owed_halt()
+                continue
+            if step.kind == "parts":
+                self._release_parts()
                 continue
             if step.kind == "integrate":
                 self._integrate()
@@ -1317,7 +1351,7 @@ class Loop:
         No attempt is in progress here, so an incident names no subtask; its detail does.
         """
         contract = item.source == "contract"
-        whole = item.subtask_id == INTEGRATION or item.source == "plan_review"
+        whole = item.subtask_id == INTEGRATION or item.source in ("plan_review", "parts")
         subtask_id = None if whole or contract else item.subtask_id
         digest = view.digests.get(item.item_id)
         if digest is None:
@@ -1367,6 +1401,8 @@ class Loop:
             if subtask_id is not None
             else self.record.plan_item()
             if item.source == "plan_review"
+            else self.record.parts_item_of(item.item_id)
+            if item.source == "parts"
             else item
         )
         if resolution.verb is not None and rebuilt != item:
@@ -1416,6 +1452,9 @@ class Loop:
                 confirmed_by=confirmed_by,
                 order_too_long=taken.order_too_long,
                 reopens=taken.reopens,
+                parts_sha256=(
+                    parts_sha256(resolution.parts) if resolution.parts is not None else None
+                ),
             )
         )
         return True
@@ -1667,7 +1706,11 @@ class Loop:
             msg = "the run-event log does not replay as a run"
             why = "a rejection whose finding is not the one its rulings give"
             raise CorruptEventLogError(msg, seq=str(before.seq), reason=why)
-        return (repair_instruction(previous.number, before.finding) if before else None), None
+        declared = self.state.declared_heads()
+        instruction = (
+            repair_instruction(previous.number, before.finding, declared) if before else None
+        )
+        return instruction, None
 
     def _screened(self, subtask_id: str, order: PersonOrder) -> str:
         """What a person's order is held to the canaries by, before its session is spawned.
@@ -1777,6 +1820,9 @@ class Loop:
         for screened in dict.fromkeys(o for o in (order, inner) if o is not None):
             if not self._material_clean(subtask_id, self._screened(subtask_id, screened)):
                 return False
+        whole, record = self._parts_record_holds(subtask_id)
+        if not whole:
+            return False
         held: IssuedState | None = None
         if subtask_id == self.state.completion_subtask:
             # Integration's session reads the record's state: built from the log and recorded by
@@ -1842,6 +1888,7 @@ class Loop:
             )
             else "attempt",
             issued_state=held,
+            parts_record=record,
             disputes=disputer_problem(sub.plan.assigned_role) is None
             and any(
                 s.plan.assigned_role in owners_of("cross_nodes")
@@ -1875,6 +1922,8 @@ class Loop:
                     attribution=f"session:{report.session_id}",
                     message_id=message.message_id,
                     usage=message.usage,
+                    abandoned=message.abandoned,
+                    in_binary_totals=message.in_binary_totals,
                 )
             )
         env = self._env()
@@ -2045,6 +2094,49 @@ class Loop:
         owed = self.state.owed_halt()
         if owed is not None:
             self._halt_for(owed.subtask_id, owed.cause)
+
+    def _parts_record_holds(self, subtask_id: str) -> tuple[bool, IssuedState | None]:
+        """The parts record a session reads, built again and held to the line that released it.
+
+        ``(True, None)`` for a run that issues none: it did not ask, or its plan names no part.
+        ``(True, record)`` where the record the plan and the released decisions give now is the
+        one the release line named, by its digest and length. ``(False, None)`` after an incident
+        where it is not: a line the record was built from, or the code that builds it, has
+        changed since the run was released, and nothing is handed to a session or a reviewer.
+        """
+        released = self.state.parts_released
+        components = self.state.components or ()
+        if released is None or not components:
+            return True, None
+        taken = []
+        for named in released.components:
+            decided = self.state.taken[named.item_id]
+            body = (
+                None if named.parts is None else PartsBody.model_validate(named.parts.model_dump())
+            )
+            taken.append(
+                TakenPart(
+                    item_id=named.item_id,
+                    choice=named.choice,
+                    body=body,
+                    operator=decided.resolved_by,
+                    decided_ts=decided.decided_ts,
+                )
+            )
+        data = parts_record(components, taken)
+        if (hashlib.sha256(data).hexdigest(), len(data)) != (
+            released.record_sha256,
+            released.record_length,
+        ):
+            detail = (
+                f"the parts record the release at line {released.seq} named is not what the "
+                "run's record gives now"
+            )
+            self._incident(subtask_id, "parts_record_mismatch", detail)
+            return False, None
+        return True, IssuedState(
+            text=data.decode("utf-8"), sha256=released.record_sha256, length=released.record_length
+        )
 
     def _state_holds(self, subtask_id: str) -> IssuedState | None:
         """Integration's issued state, built again from the record and held to its window's line.
@@ -2230,6 +2322,10 @@ class Loop:
             self._incident(subtask_id, "foreign_journal_line", str(exc))
             return False
         for line in tail:
+            owed = self.state.parts_pending
+            if now is None and owed is not None and self._own_parts_line(line, owed):
+                self._emit(PartsWriteDone(**self._env(), node_id=line.node_id, revision=line.rev))
+                continue
             pending = now.pending if now is not None else None
             own = (
                 pending is not None
@@ -2257,7 +2353,228 @@ class Loop:
             self._incident(subtask_id, "foreign_journal_line", detail)
             return False
         self._graph.hold()
-        return True
+        return self._declared_hold(subtask_id)
+
+    def _declared_hold(self, subtask_id: str | None) -> bool:
+        """Every declared quantity at the journal's head is one a landed parts write wrote.
+
+        Only the parts writer declares, and the record names each write that landed with the
+        digest of its whole payload. A declared quantity the landed writes do not account for,
+        or a landed line the journal no longer holds as it landed, reached the journal past the
+        store's guard: an integrity fault, an incident and a halt, never a repair. Taken after an
+        attempt's journal step, after the parts writes, and whenever the journal is accounted for,
+        so a process killed between a landed write and this check makes it when it next starts.
+        Nothing is recorded when it holds.
+        """
+        try:
+            lines = self._graph.records_after(0)
+        except DesignStateError as exc:
+            self._incident(subtask_id, "foreign_journal_line", str(exc))
+            return False
+        problem = unlanded_declared(lines, self.state.parts_landed)
+        if problem is None:
+            return True
+        self._incident(subtask_id, "foreign_journal_line", problem)
+        return False
+
+    @staticmethod
+    def _own_parts_line(line: JournalLine, owed: PartsWriteIntended) -> bool:
+        """Whether a journal line is the parts write the run intended and did not see land."""
+        return (
+            line.rev == owed.expected_revision
+            and line.node_id == owed.node_id
+            and payload_digest(line.payload) == owed.payload_sha256
+        )
+
+    def _release_parts(self) -> None:
+        """Write what the decisions owe, each node behind an intent, then release the run.
+
+        The values are read from the decisions file, held to the digest each decision's line
+        names, and written through the store's ``declare`` only. A process killed between an
+        intent and its write finds the pending intent on the record, accounts for the journal
+        line if it landed (:meth:`_journal_clean`), and otherwise intends the same write again.
+        The release names every component with what it stated, and the record a role reads.
+        """
+        state = self.state
+        components = state.components or ()
+        try:
+            resolutions = {d.item_id: d for _, d in read_queue(self.run_dir).decisions}
+        except QueueError as exc:
+            if not self._decisions_unreadable(exc):
+                raise
+            return
+        taken: list[TakenPart] = []
+        for item_id in state.parts_ids:
+            decided = state.taken[item_id]
+            said = resolutions.get(item_id)
+            body = None if said is None or decided.position == "find" else said.parts
+            digest = None if body is None else parts_sha256(body)
+            if digest != decided.parts_sha256:
+                detail = f"item {item_id}: the decisions file no longer states what was taken"
+                self._incident(None, "queue_item_mismatch", detail)
+                return
+            taken.append(
+                TakenPart(
+                    item_id=item_id,
+                    choice=decided.position,  # type: ignore[arg-type]  # have, make or find
+                    body=body,
+                    operator=decided.resolved_by,
+                    decided_ts=decided.decided_ts,
+                )
+            )
+        owners = owners_of("cross_nodes")
+        owed = parts_writes(
+            components,
+            state.parts_ids,
+            {part.item_id: part for part in taken},
+            owners[0] if len(owners) == 1 else None,
+        )
+        # A write is owed again where the node's last landed payload is not this round's.
+        latest = {node: digest for node, digest, _ in state.parts_landed}
+        for write in owed:
+            if latest.get(write.node_id) == write.payload_sha256:
+                continue
+            expected = state.journal_head + 1
+            self._emit(
+                PartsWriteIntended(
+                    **self._env(),
+                    node_id=write.node_id,
+                    item_id=write.item_id,
+                    parts=StatedPart.model_validate(write.body.model_dump()),
+                    actor_role=write.owner_role,
+                    payload_sha256=write.payload_sha256,
+                    expected_revision=expected,
+                )
+            )
+            try:
+                revision = self._graph.declare(write.payload, (write.item_id,))
+            except StoreStaleError:
+                if self._journal_clean():
+                    detail = "the store handle went stale"
+                    self._incident(None, "foreign_journal_line", detail)
+                return
+            except StoreRefusalError as exc:
+                self._incident(None, "store_refusal", f"{exc} ({exc.context.get('reason')})")
+                return
+            if revision != expected:
+                self._incident(None, "foreign_journal_line", f"revision {revision}, not {expected}")
+                return
+            self._emit(PartsWriteDone(**self._env(), node_id=write.node_id, revision=revision))
+        if not self._declared_hold(None):
+            return
+        if not self._release_gated():
+            return
+        if owed:
+            self._graph.commit("Parts the person declared\n")
+        record = parts_record(components, taken)
+        self._emit(
+            PartsReleased(
+                **self._env(),
+                components=tuple(
+                    ReleasedPart(
+                        item_id=part.item_id,
+                        node=component.node,
+                        choice=part.choice,
+                        parts=None
+                        if part.body is None
+                        else StatedPart.model_validate(part.body.model_dump()),
+                    )
+                    for component, part in zip(components, taken, strict=True)
+                ),
+                record_sha256=hashlib.sha256(record).hexdigest(),
+                record_length=len(record),
+            )
+        )
+
+    def _release_gated(self) -> bool:
+        """Whether the declared values may be released: no interface contradicts, the gate passed.
+
+        Taken once the writes of a round have landed. An interface a domain produced that holds
+        a declared name with another value raises its part again, and the gate is not called.
+        Otherwise one gate call at subtask scope judges the view above the head before the first
+        parts write (every round from the same base, so every declared node is judged again), in
+        the run's mode; under ``off`` the skip is recorded. A blocking result under ``on`` raises
+        every part it names again. A run that wrote no declared value calls no gate. A process
+        killed after the gate's line acts on that line and does not call the gate again.
+        """
+        state = self.state
+        base = state.parts_base
+        if base is None:
+            return True
+        ran = state.parts_gate
+        if ran is None:
+            contradicted = self._contradicted()
+            if contradicted is None:
+                return False
+            if contradicted:
+                self._emit(PartsRaisedAgain(**self._env(), cause="interface", parts=contradicted))
+                return False
+            mode = self.config.gate_mode
+            result: GateResult | None = None
+            if mode != "off":
+                if self._gate is None:
+                    msg = f"the release's gate cannot pass: gate mode {mode!r}, no gate registered"
+                    raise GateNotRegisteredError(msg, gate_mode=mode)
+                decomposed = next(e for e in self.log.events if isinstance(e, Decomposed))
+                artefact = release_artefact(
+                    graph_root=str(self._graph.root),
+                    base_revision=base,
+                    run_dir=self.run_dir,
+                    commit=decomposed.spec_commit,
+                )
+                result = require_mode(self._gate.check(artefact, mode=mode), mode)
+            self._emit(PartsGateRan(**self._env(), base_revision=base, result=result))
+            ran = self.state.parts_gate
+        if (
+            ran is None
+            or ran.result is None
+            or ran.result.verdict != "fail"
+            or ran.gate_mode != "on"
+        ):
+            return True
+        holder = self.state.parts_holder
+        blocking = [r for r in ran.result.checks if r.outcome == "fail" and r.blocking]
+        raised: list[RaisedPart] = []
+        for component in blocked_parts(ran.result, holder):
+            said = [r.message for r in blocking if holder.get(r.node or "") == component]
+            raised.append(
+                self._raised(
+                    component,
+                    "the gate blocked its declared values: "
+                    + ("; ".join(said) or ran.result.finding),
+                )
+            )
+        self._emit(PartsRaisedAgain(**self._env(), cause="gate", parts=tuple(raised)))
+        return False
+
+    def _raised(self, component: str, why: str) -> RaisedPart:
+        """The next round of ``component``'s item, and why it is raised again."""
+        state = self.state
+        nodes = [c.node for c in state.components or ()]
+        now = state.parts_ids[nodes.index(component)]
+        return RaisedPart(item_id=raised_again_id(now) or now, node=component, why=why)
+
+    def _contradicted(self) -> tuple[RaisedPart, ...] | None:
+        """Each part an interface a domain produced contradicts, or ``None`` if the run halted."""
+        state = self.state
+        try:
+            lines = self._graph.records_after(0)
+        except DesignStateError as exc:
+            self._incident(None, "foreign_journal_line", str(exc))
+            return None
+        head = {line.node_id: line.payload for line in sorted(lines, key=lambda one: one.rev)}
+        owners = owners_of("cross_nodes")
+        found = contradictions(
+            head, list(state.parts_holder), owners[0] if len(owners) == 1 else None
+        )
+        said: dict[str, list[str]] = {}
+        for one in found:
+            said.setdefault(state.parts_holder[one.node_id], []).append(
+                f"interface {one.interface} holds {one.name} as {one.held}, and the part was "
+                f"declared with {one.declared} on {one.node_id}"
+            )
+        ordered = dict.fromkeys(state.parts_holder.values())
+        return tuple(self._raised(c, "; ".join(said[c])) for c in ordered if c in said)
 
     def _apply(self, subtask_id: str, attempt: int, commit: str, role: str) -> bool:
         """Write the attempt's proposals into the canonical store, each behind an intent."""
@@ -2312,6 +2629,8 @@ class Loop:
             )
         followed = now.changes.followed if now.changes is not None else ()
         if not self._apply_followed(subtask_id, attempt, role, followed):
+            return False
+        if not self._declared_hold(subtask_id):
             return False
         if proposals or followed:
             self._graph.commit(f"Nodes of subtask {subtask_id}, attempt {attempt}\n")
@@ -2504,8 +2823,24 @@ class Loop:
             if held is None:
                 return False
             artefact = artefact.model_copy(update={"integration_state": held})
+        whole, record = self._parts_record_holds(subtask_id)
+        if not whole:
+            return False
+        if record is not None:
+            artefact = artefact.model_copy(update={"parts_record": record})
         self._environment_before_a_spawn()
         self._stage(subtask_id, attempt, "review")
+        if self.config.reviewers == "off":
+            # An ablation run's arm: no reviewer is invoked, and the gate's result alone decides.
+            # The gate's order above is every value's, so an attempt it refused under on never
+            # reaches this stage, and the merge below is held to the same gate condition.
+            self._emit(
+                ReviewSkipped(
+                    **self._env(), subtask_id=subtask_id, attempt=attempt, reason="reviewers=off"
+                )
+            )
+            self._stage(subtask_id, attempt, "decide")
+            return self._merge_attempt(subtask_id, attempt)
         reviewer = self._reviewers[role]
         # The implementer's model is read from the run's record on disk, never from the
         # configuration object this loop was handed: what the check compares must be
@@ -2519,6 +2854,13 @@ class Loop:
         if review.reviewer_model != reviewer.model:
             msg = "a reviewer reported a model other than the one it is pinned to"
             raise ReviewerNotRegisteredError(msg, role=role, reported=review.reviewer_model)
+        arm_s = "generalist" if self.config.reviewers == "generalist" else "paired"
+        if (review.rubric_kind or "paired") != arm_s:
+            # Before any line of the review: a verdict of another arm's rubric is not this run's.
+            msg = "a reviewer judged with a rubric other than the one the run's reviewers name"
+            raise ReviewerNotRegisteredError(
+                msg, role=role, reviewers=self.config.reviewers, rubric=str(review.rubric_kind)
+            )
         for message in review.usage:
             self._emit(
                 TokensUsed(
@@ -2526,6 +2868,9 @@ class Loop:
                     attribution=f"reviewer:{review.session_id}",
                     message_id=message.message_id,
                     usage=message.usage,
+                    compaction=message.compaction,
+                    abandoned=message.abandoned,
+                    in_binary_totals=message.in_binary_totals,
                 )
             )
         # An earlier attempt is judged only where the verdict confirmed or dismissed every one of
@@ -2672,7 +3017,9 @@ class Loop:
         """
         sub = self.state.subtasks[subtask_id]
         now = sub.attempts[-1]
-        line = require_mergeable(self.ledger.path, subtask_id, self.config.gate_mode)
+        line = require_mergeable(
+            self.ledger.path, subtask_id, self.config.gate_mode, self.config.reviewers
+        )
         changes = now.changes
         if changes is None:
             msg = "a merge with no recorded change check"
@@ -2762,6 +3109,9 @@ class Loop:
                             attribution=f"reviewer:{exc.session_id}",
                             message_id=message.message_id,
                             usage=message.usage,
+                            compaction=message.compaction,
+                            abandoned=message.abandoned,
+                            in_binary_totals=message.in_binary_totals,
                         )
                     )
                 self._halt_for(subtask_id, "held_out_read")
@@ -2774,6 +3124,9 @@ class Loop:
                             attribution=f"reviewer:{exc.session_id or 'none'}",
                             message_id=message.message_id,
                             usage=message.usage,
+                            compaction=message.compaction,
+                            abandoned=message.abandoned,
+                            in_binary_totals=message.in_binary_totals,
                         )
                     )
                 if self._review_held(subtask_id, exc.session_id, exc.managed):
@@ -2795,6 +3148,7 @@ class Loop:
                         reviewer_model=exc.reviewer_model,
                         spec_defects=exc.spec_defects,
                         managed=exc.managed,
+                        compactions=exc.compactions,
                     )
                 )
                 if not retry:
@@ -2831,6 +3185,9 @@ class Loop:
                         attribution=f"reviewer:{review.session_id}",
                         message_id=message.message_id,
                         usage=message.usage,
+                        compaction=message.compaction,
+                        abandoned=message.abandoned,
+                        in_binary_totals=message.in_binary_totals,
                     )
                 )
         detail = f"review session {session_id or 'none'} {changed}"
@@ -2936,7 +3293,7 @@ class Loop:
             if head is None:
                 msg = "an integration call with no run branch head recorded"
                 raise RunStateError(msg, run_dir=str(self.run_dir))
-            baseline, change_sets = change_history(self.log.events)
+            baseline, change_sets = integration_history(self.log.events)
             artefact = IntegrationArtefact(
                 run_id=self.config.run_id,
                 graph_root=str(self._graph.root),
@@ -3364,7 +3721,7 @@ class Loop:
         head, mode = run_head_of(prefix), self.config.gate_mode
         again: GateResult | None = None
         if head is not None and mode != "off" and self._gate is not None:
-            baseline, change_sets = change_history(prefix)
+            baseline, change_sets = integration_history(prefix)
             artefact = IntegrationArtefact(
                 run_id=self.config.run_id,
                 graph_root=str(self._graph.root),
@@ -3448,8 +3805,19 @@ class Loop:
         if named:
             # A write past the store's own guard is the graver of the two, and the cause a
             # step that made one was always recorded under; duty breaches alone are a breach.
+            # A declared quantity touched past the store's guard is the journal's integrity, as
+            # the head check names it, not a role's duty.
             foreign = any(d.reason == REJECT_CROSS_ROLE for d in found)
-            cause: IncidentCause = "cross_role_write" if foreign else "duty_breach"
+            declared = any(
+                d.reason in (REJECT_DECLARED_FIXED, REJECT_DECLARED_FORGED) for d in found
+            )
+            cause: IncidentCause = (
+                "cross_role_write"
+                if foreign
+                else "foreign_journal_line"
+                if declared
+                else "duty_breach"
+            )
             self._incident(subtask_id, cause, "; ".join(named))
 
     # -- what is not an attempt ---------------------------------------------------------
@@ -3567,14 +3935,22 @@ class Loop:
     def _attempt_series(
         self, subtask_id: str, attempt: int, checks: tuple[SeriesCheck, ...]
     ) -> AttemptSeries | None:
-        """The records the attempt's sessions sealed and its quantities' checks, if any.
+        """The records the attempt's sessions sealed or discarded, and its quantities' checks.
 
         Read from the attempt's own session-end lines, a later session's record superseding
-        an earlier one's of the same id, as the change check read them.
+        an earlier one's of the same id, as the change check read them. A discarded record is
+        one the collector sealed the bytes of; a list cut at its bound is carried with it, so
+        the review is told it was cut. ``None`` for an attempt with none of these.
         """
         ended = self.state.subtasks[subtask_id].attempts[-1].ended
         entries = attempt_records(ended, subtask_id, attempt)
-        if not entries and not checks:
+        discarded = tuple(
+            AttemptDiscard(session_id=session.session_id, entry=entry)
+            for session in ended
+            for entry in session.series.discarded
+            if entry.sha256 is not None or entry.name == OVERFLOW_NAME
+        )
+        if not entries and not checks and not discarded:
             return None
         return AttemptSeries(
             run_dir=str(self.run_dir),
@@ -3582,6 +3958,7 @@ class Loop:
             attempt=attempt,
             records=tuple(AttemptRecord(session_id=e.session_id, record=e.record) for e in entries),
             checks=checks,
+            discarded=discarded,
         )
 
     def _sealed_hold(self, sessions: list[SessionEnded]) -> bool:
@@ -3742,6 +4119,7 @@ class Loop:
                 ts=ts,
                 attempt=now.number,
                 consequence=self._consequence(subtask_id, "escalation_decision", scan),
+                all_declared=decided.state.all_declared,
             )
         return escalation_item(
             item_id=item_id,

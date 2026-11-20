@@ -16,12 +16,20 @@ measured in the tests: in the coercing mode the string ``"2.4"``, the boolean
 one of those would reach the physics gate as a number it could do arithmetic on,
 and two of them are not numbers at all. An integer is still accepted, because
 JSON has no way to say that ``2`` is a float.
+
+A quantity a person declared (a part they own, a constraint on one they make) carries a
+record of the decision that made it, :class:`Declared`, and the one source reserved for it.
+The schema holds the two together and refuses a source that only reads like the reserved
+one. Who may write such a quantity is not the schema's to say: it holds the shape, and the
+store and the layers before it hold the writer.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Annotated, Any, Literal
+import unicodedata
+from collections.abc import Mapping
+from typing import Annotated, Any, Final, Literal
 
 from pydantic import (
     AfterValidator,
@@ -33,6 +41,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema
 
 from physgate.state.exceptions import MalformedNodeIdError, MissingUnitError
 
@@ -134,6 +143,55 @@ class SeriesRef(BaseModel):
         return data
 
 
+#: The source of a quantity a person declared, and of no other quantity.
+DECLARED_SOURCE = "declared by the person"
+
+#: What a source may not fold to unless it is the reserved one itself: the reserved text and
+#: the short forms a writer would reach for.
+_IMITATIONS = frozenset({"declared", "userdeclared", "persondeclared", "declaredbytheperson"})
+#: Characters that separate words without being letters: dashes, connectors such as the
+#: underscore, and formatting marks that print as nothing.
+_SEPARATORS = frozenset({"Pd", "Pc", "Cf"})
+
+
+def _folded(source: str) -> str:
+    """``source`` as a reader takes it in: compatibility forms, case and separators aside."""
+    text = unicodedata.normalize("NFKC", source).casefold()
+    return "".join(
+        char for char in text if not (char.isspace() or unicodedata.category(char) in _SEPARATORS)
+    )
+
+
+def imitates_declared(source: str) -> bool:
+    """True if ``source`` reads like the reserved source without being it."""
+    return source != DECLARED_SOURCE and _folded(source) in _IMITATIONS
+
+
+def _is_a_name(operator: str) -> str:
+    if not operator.strip() or not operator.isprintable():
+        msg = "the operator is a printable name, not blank"
+        raise ValueError(msg)
+    return operator
+
+
+class Declared(BaseModel):
+    """The decision behind a quantity a person declared: a record, not a claim.
+
+    It names the approval-queue item the person decided, the digest of the decision's line
+    as recorded, and who decided, so that the quantity can be rebuilt from that line and a
+    quantity no line explains can be told apart.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    #: A queue item's id is plain identifiers joined by hyphens, never a path.
+    item_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,300}$")]
+    decision_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    operator: Annotated[
+        str, StringConstraints(min_length=1, max_length=64), AfterValidator(_is_a_name)
+    ]
+
+
 class Quantity(BaseModel):
     """One physical quantity: a number, its unit, where it came from, who wrote it.
 
@@ -149,12 +207,45 @@ class Quantity(BaseModel):
     source: NonEmptyStr
     written_by: NonEmptyStr
     series: SeriesRef | None = None
+    #: The decision that made a quantity a person declared; absent on every other quantity
+    #: and then left out of every dump, as ``series`` is. It is kept out of the JSON schema,
+    #: and this class's docstring is left as it was, because the decomposition's answer is
+    #: held to that schema: what every run sends stays byte for byte the same, and a plan
+    #: is offered no way to declare for a person.
+    declared: SkipJsonSchema[Declared | None] = None
+
+    @model_validator(mode="after")
+    def _declared_and_its_source_go_together(self) -> Quantity:
+        # The imitation first: with a record beside it, it is still an imitation.
+        if imitates_declared(self.source):
+            msg = (
+                f"the source {self.source!r} imitates {DECLARED_SOURCE!r}, which is reserved "
+                "for a quantity a person declared through a recorded decision"
+            )
+            raise ValueError(msg)
+        if self.declared is None:
+            if self.source == DECLARED_SOURCE:
+                msg = f"a quantity of the source {DECLARED_SOURCE!r} names no decision"
+                raise ValueError(msg)
+            return self
+        if self.source != DECLARED_SOURCE:
+            msg = (
+                "a quantity names the decision that declared it only under the source "
+                f"{DECLARED_SOURCE!r}"
+            )
+            raise ValueError(msg)
+        if self.series is not None:
+            msg = "a declared quantity was stated by a person: it names no simulation record"
+            raise ValueError(msg)
+        return self
 
     @model_serializer(mode="wrap")
-    def _omit_an_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+    def _omit_what_is_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
         if self.series is None:
             data.pop("series", None)
+        if self.declared is None:
+            data.pop("declared", None)
         return data
 
 
@@ -188,6 +279,19 @@ class Node(BaseModel):
     #: that changed would be the changer excusing itself.
     no_change_justified: dict[NodeIdKey, Justification] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def _a_declared_quantity_is_its_owner_s(self) -> Node:
+        # A node is one writer's. A declared quantity under another name would give a node
+        # two, and the name is what every reader of the node takes its writer from.
+        for name, quantity in self.quantities.items():
+            if quantity.declared is not None and quantity.written_by != self.owner_role:
+                msg = (
+                    f"the declared quantity {name!r} is written by the node's owner "
+                    f"({self.owner_role!r}), not by {quantity.written_by!r}"
+                )
+                raise ValueError(msg)
+        return self
+
 
 def validate_node_id(node_id: object) -> str:
     """Return ``node_id`` if it is a legal identifier, else raise.
@@ -208,6 +312,119 @@ def validate_node_id(node_id: object) -> str:
         msg = "node id is not a dotted identifier"
         raise MalformedNodeIdError(msg, node_id=node_id)
     return node_id
+
+
+#: What a refusal of a quantity a person declared for is called, wherever it is made: one a
+#: revision adds or turns into a declared one (forged), and one the node holds as declared that
+#: it changes or drops (fixed). Not the frozen workload's reasons: that holds no declared one.
+REJECT_DECLARED_FORGED = "declared_forged"
+REJECT_DECLARED_FIXED = "declared_fixed"
+
+
+def declared_refusal(
+    held: dict[str, Any], written: dict[str, Any]
+) -> tuple[str, tuple[str, ...]] | None:
+    """Why a revision writing ``written`` over the ``held`` quantities touches a declared one.
+
+    ``(reason, the quantities' names)``: ``declared_fixed`` for a held declared quantity the
+    revision changes in any field or drops, ``declared_forged`` for a declared one it adds or
+    makes of a quantity that was not. ``None`` where every declared quantity stands as it did
+    and none is new. Only ``Store.declare`` writes one.
+    """
+    fixed = tuple(
+        name
+        for name, quantity in held.items()
+        if isinstance(quantity, dict)
+        and quantity.get("declared") is not None
+        and written.get(name) != quantity
+    )
+    if fixed:
+        return REJECT_DECLARED_FIXED, fixed
+    forged = tuple(
+        name
+        for name, quantity in written.items()
+        if isinstance(quantity, dict)
+        and quantity.get("declared") is not None
+        and held.get(name) != quantity
+    )
+    return (REJECT_DECLARED_FORGED, forged) if forged else None
+
+
+#: The fields of a node that holds a declared quantity that no role's write may change, beside
+#: the declared quantities themselves: what the person's part was declared on. Its
+#: ``constrains`` the owner may add to but never take from: the parts writer creates a
+#: component's node with no edge, only the role that owns the node joins it to the module whose
+#: relations read it, and an edge taken away would take the declared value out of them.
+DECLARED_NODE_FIELDS: Final = ("kind", "domain")
+
+
+def declared_node_refusal(
+    held: Mapping[str, Any] | None, written: Mapping[str, Any]
+) -> tuple[str, tuple[str, ...]] | None:
+    """:func:`declared_refusal` for a whole node written over the ``held`` one (``None``: new).
+
+    Its quantities first, as :func:`declared_refusal` reads them; then, where the held node holds
+    a declared quantity, ``declared_fixed`` naming each of :data:`DECLARED_NODE_FIELDS` the
+    revision changes and each edge of the held ``constrains`` the revision leaves out (an edge
+    removed, or replaced by another). An edge added, or the same edges in another order, is the
+    owner's to write. The hook, apply and the store each ask this, so a role is told the same at
+    every layer.
+    """
+    quantities: dict[str, Any] = {} if held is None else dict(held.get("quantities") or {})
+    found = declared_refusal(quantities, dict(written.get("quantities") or {}))
+    if found is not None or held is None:
+        return found
+    if not any(isinstance(q, dict) and q.get("declared") is not None for q in quantities.values()):
+        return None
+    moved = tuple(field for field in DECLARED_NODE_FIELDS if written.get(field) != held.get(field))
+    # Not a list (a malformed proposal the node check refuses later) keeps no edge.
+    kept = written.get("constrains")
+    kept = kept if isinstance(kept, list) else []
+    edges = held.get("constrains") or ()
+    taken = tuple(f"the edge to {edge}" for edge in edges if edge not in kept)
+    return (REJECT_DECLARED_FIXED, moved + taken) if moved or taken else None
+
+
+def forged_sources(payload: dict[str, Any]) -> tuple[str, ...]:
+    """The quantities of ``payload`` that take the reserved source, or one that imitates it.
+
+    Called where a quantity is already known to be malformed: a quantity that claims the
+    reserved source without the decision behind it is forged, and is not a missing unit.
+    """
+    quantities = payload.get("quantities") or {}
+    if not isinstance(quantities, dict):
+        return ()
+    found = []
+    for name, entry in quantities.items():
+        if not isinstance(entry, dict):
+            continue
+        source = entry.get("source")
+        if not isinstance(source, str) or not (
+            source == DECLARED_SOURCE or imitates_declared(source)
+        ):
+            continue
+        try:
+            Quantity.model_validate(entry)
+        except Exception:  # noqa: BLE001 - any validation failure is the answer
+            found.append(str(name))
+    return tuple(found)
+
+
+def declared_message(reason: str, names: tuple[str, ...]) -> str:
+    """What a session reads when its write touches a declared quantity: it can repair it."""
+    told = ", ".join(names)
+    if reason == REJECT_DECLARED_FIXED:
+        return (
+            f"{told}: a declared part is fixed by a person. Write the node with each declared "
+            "quantity exactly as it stands (value, unit, source and record), its kind and "
+            "domain as they are and every edge in its constrains kept (you may add one), and "
+            "keep to quantities of your own beside it."
+        )
+    return (
+        f"{told}: a quantity is declared only by a person's recorded decision, never by a session. "
+        "Write the quantity under your own source, or leave it out; declared parts are fixed by a "
+        "person."
+    )
 
 
 def quantities_are_valid(payload: dict[str, Any]) -> bool:

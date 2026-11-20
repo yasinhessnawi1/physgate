@@ -1,0 +1,29 @@
+[
+ {
+  "name": "author_summary_drops_the_cut_tokens",
+  "file": "src/physgate/evaluation/per_role/author_session.py",
+  "old": "\"wall_clock_s\")},\n        **_cut_off(record),\n    }\n",
+  "new": "\"wall_clock_s\")},\n    }\n",
+  "tests": [
+   "tests/scoring/test_an_author_session_s_record_carries_the_cut_tokens_its_spend_leaves_out.py"
+  ]
+ },
+ {
+  "name": "author_provenance_drops_the_cut_tokens",
+  "file": "src/physgate/evaluation/per_role/author_session.py",
+  "old": "        **_cut_off(record),\n        \"held_out_seen\": record.get(\"held_out_seen\"),\n",
+  "new": "        \"held_out_seen\": record.get(\"held_out_seen\"),\n",
+  "tests": [
+   "tests/scoring/test_an_author_session_s_record_carries_the_cut_tokens_its_spend_leaves_out.py"
+  ]
+ },
+ {
+  "name": "author_writes_a_session_with_no_cut_tokens_anew",
+  "file": "src/physgate/evaluation/per_role/author_session.py",
+  "old": "    return {CUT_OFF: figure} if figure else {}\n",
+  "new": "    return {CUT_OFF: figure}\n",
+  "tests": [
+   "tests/scoring/test_an_author_session_s_record_carries_the_cut_tokens_its_spend_leaves_out.py"
+  ]
+ }
+]

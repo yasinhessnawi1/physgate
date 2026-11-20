@@ -14,7 +14,7 @@ import hashlib
 import json
 import shutil
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -57,6 +57,17 @@ PRICES = "2026-10-16"
 #: measures the binary it runs, so the harness runs record the build the raw session is given.
 BINARY = Path(__file__).resolve()
 BUILT = measure(str(BINARY))
+#: The pins a stand-in check record names.
+CHECK_PINS = {
+    "model": "claude-sonnet-5",
+    "implementer_model": MODEL,
+    "claude_version": "2.1.301",
+    "effort": "high",
+    "max_output_tokens": 64000,
+    "endpoint": "given",
+    "commit": "0" * 40,
+    "clean": True,
+}
 
 
 @dataclass(frozen=True)
@@ -87,16 +98,28 @@ def _marked(i: int) -> dict[str, Any]:
     return {"id": f"control.{marker(i)}", "specs": task["specs"]}
 
 
-def stand_in_store(root: Path, *, marked: bool = False) -> StandInStore:
+def stand_in_store(
+    root: Path,
+    *,
+    marked: bool = False,
+    changes: dict[str, Any] | None = None,
+    checked: bool = True,
+    flagged: Sequence[int] = (),
+) -> StandInStore:
     """Twenty-four fixture tasks, each with its own brief, split into one version.
 
     ``marked``: every field of task ``i`` but its brief carries :func:`marker` ``(i)``, so
-    what of a task reached a place can be found by a plain search.
+    what of a task reached a place can be found by a plain search. ``changes``: fields every
+    task is given in place of its own (a task the schema admits, though its role may not).
+    ``checked``: the version's blind check is recorded beside it, as a check that answered
+    leaves it, flagging the held-out tasks at the places ``flagged`` gives (none by default);
+    without it the version has no check record.
     """
     store = root.resolve() / "store"
     pool = store / "control" / "withheld" / "pool"
     for i in range(24):
         fields = _marked(i) if marked else {"id": f"control.t{i:02d}"}
+        fields = {**fields, **(changes or {})}
         slow = f"{marker(i)}_settling" if marked else "settling"
         write_task_dir(
             pool / str(fields["id"]),
@@ -134,7 +157,55 @@ def stand_in_store(root: Path, *, marked: bool = False) -> StandInStore:
         str(work_root(store, "control")),
         *(str(directory / tier) for tier in TIERS[1:]),
     )
+    if checked:
+        record_check(store, manifest.version, [tasks["held_out"][i].id for i in flagged])
     return StandInStore(store, manifest.version, tasks, canaries, held_out)
+
+
+def record_check(
+    store: Path,
+    version: str,
+    flagged: Sequence[str],
+    *,
+    by_hand: bool = False,
+    **changes: Any,  # noqa: ANN401
+) -> Any:  # noqa: ANN401
+    """Record the version's blind check as a check that answered does: ``flagged`` by id.
+
+    ``changes``: fields of the record given in place of the check's own. ``by_hand``: its bytes
+    put in place as a person who can write the role's root could, past the writer and its look
+    for a result. Returns the record.
+    """
+    from physgate.evaluation.tiers.checks import check_path, make_check, write_check
+    from physgate.evaluation.tiers.manifest import read_version
+    from physgate.evaluation.tiers.task import canonical_json, id_digest
+
+    manifest = read_version(store / "control" / version)
+    tasks = manifest.held_out.count
+    fields: dict[str, Any] = {
+        "role": "control",
+        "version": version,
+        "tier": "held_out",
+        "tier_sha256": manifest.held_out.sha256,
+        "source": "check",
+        "checked": "2026-11-19T20:49:00Z",
+        "pins": CHECK_PINS,
+        "kept": {"session_id": "s-1", "stream_sha256": None, "bound_by": "ran"},
+        "session": {"end": "ended", "tokens": 1000, "cap": 500000, "wall_clock_s": 1.5},
+        "tasks": tasks,
+        "all_yes": tasks - len(flagged),
+        "flagged": [id_digest(task) for task in flagged],
+        "answer_sha256": "a" * 64,
+        **changes,
+    }
+    record = make_check(**fields)
+    if by_hand:
+        check_path(store, "control", version).write_bytes(
+            canonical_json(record.model_dump(mode="json"))
+        )
+    else:
+        write_check(store, "control", record)
+    return record
 
 
 def copied(made: StandInStore, copy: Path) -> StandInStore:
@@ -247,6 +318,8 @@ class StandInArm:
     #: Called with the session's place and the harness's directory once the session has
     #: ended and before the arm writes its own files: what a session could have left.
     left: Callable[[Path, Path], None] | None = None
+    #: Per call: the tokens of responses cut short that the binary's totals left out.
+    cut_off: dict[int, int] = field(default_factory=dict)
 
     def __call__(
         self, task: Task, setup: RawSetup, work: Path, *, cap: int, harness: Path | None = None
@@ -291,6 +364,7 @@ class StandInArm:
             "left_running": [],
             "wall_clock_s": 12.0,
             "tokens": 400,
+            "tokens_not_in_binary_totals": self.cut_off.get(n, 0),
             "cap": cap,
             "answered_by": [model],
             "held_out_seen": held_out_seen(stream, setup.held_out_canaries),

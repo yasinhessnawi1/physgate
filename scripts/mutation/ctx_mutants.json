@@ -1,0 +1,366 @@
+[
+ {
+  "name": "m1-end-ignores-the-setting",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "    if compaction != \"on\" and any(\n",
+  "new": "    if any(\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "m2-compactions-counted-as-none",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "compacted = (*prior_compacted, *compactions_in(text))",
+  "new": "compacted = (*prior_compacted,)",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "m2b-resume-forgets-earlier-compactions",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "            prior_compacted = outcome.compacted\n",
+  "new": "            prior_compacted = ()\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "m3-zero-compactions-written",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "    if not compacted:\n        return {}\n",
+  "new": "    if not compacted:\n        return {\"compactions\": 0}\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "m3b-sizes-written-when-one-is-missing",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "    if len(sizes) == len(compacted):\n",
+  "new": "    if sizes:\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "m3c-boundary-size-dropped",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "        sizes.append(size if valid else None)\n",
+  "new": "        sizes.append(None)\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "m4-session-start-ignores-source",
+  "file": "src/physgate/hooks/reading.py",
+  "old": "    if hook_input.source == \"compact\" and config.after_compaction and config.compaction_note:\n",
+  "new": "    if config.after_compaction and config.compaction_note:\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m4b-compaction-not-recorded",
+  "file": "src/physgate/hooks/reading.py",
+  "old": "        add_record(_compactions_dir(config, hook_input.session_id), {\"source\": \"compact\"})\n",
+  "new": "        pass\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m5-epoch-not-stored",
+  "file": "src/physgate/hooks/reading.py",
+  "old": "        record[\"epoch\"] = compactions(config, hook_input.session_id)\n",
+  "new": "        pass\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m5b-epoch-not-read",
+  "file": "src/physgate/hooks/reading.py",
+  "old": "            mine = [r for r in mine if r.get(\"epoch\", 0) == epoch]\n",
+  "new": "            mine = list(mine)\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m5c-no-epoch-after-compaction",
+  "file": "src/physgate/hooks/reading.py",
+  "old": "    epoch = compactions(config, hook_input.session_id) if config.after_compaction else 0\n",
+  "new": "    epoch = 0\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m6-cross-check-unseen-removed",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "        if seen < len(compacted):\n",
+  "new": "        if False:\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "m6b-cross-check-unshown-removed",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "        if seen > len(compacted):\n",
+  "new": "        if False:\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "m6c-hook-count-read-as-zero",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "    return compactions(config, session_id)\n",
+  "new": "    return 0\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m7-reviewer-env-constant",
+  "file": "src/physgate/orchestrator/invocation.py",
+  "old": "    return dict(REVIEWER_ENV) if compaction == \"off\" else {}\n",
+  "new": "    return dict(REVIEWER_ENV)\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "m7b-spawn-ignores-the-setting",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "        added = reviewer_env(self._setup.review_compaction)\n",
+  "new": "        added = reviewer_env(\"off\")\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "m8-run-config-defaults-to-on",
+  "file": "src/physgate/orchestrator/run_config.py",
+  "old": "    review_compaction: ReviewCompaction\n",
+  "new": "    review_compaction: ReviewCompaction = \"on\"\n",
+  "tests": [
+   "tests/unit/orchestrator/test_review_compaction_is_a_required_recorded_flag.py",
+   "tests/unit/test_every_flag_is_a_required_recorded_run_parameter.py"
+  ]
+ },
+ {
+  "name": "m8b-old-runs-read-as-on",
+  "file": "src/physgate/orchestrator/run_config.py",
+  "old": "        (\"review_compaction\", \"off\"),\n",
+  "new": "        (\"review_compaction\", \"on\"),\n",
+  "tests": [
+   "tests/unit/orchestrator/test_review_compaction_is_a_required_recorded_flag.py"
+  ]
+ },
+ {
+  "name": "m8c-off-recorded",
+  "file": "src/physgate/orchestrator/run_config.py",
+  "old": "        if self.review_compaction == \"off\":\n            exclude.add(\"review_compaction\")\n",
+  "new": "        if self.review_compaction == \"never\":\n            exclude.add(\"review_compaction\")\n",
+  "tests": [
+   "tests/unit/orchestrator/test_review_compaction_is_a_required_recorded_flag.py"
+  ]
+ },
+ {
+  "name": "m8d-first-line-says-off",
+  "file": "src/physgate/orchestrator/events.py",
+  "old": "            \"review_compaction\",\n            \"reviewers\",\n",
+  "new": "            \"reviewers\",\n",
+  "tests": [
+   "tests/unit/orchestrator/test_review_compaction_is_a_required_recorded_flag.py"
+  ]
+ },
+ {
+  "name": "m8e-record-never-says-on",
+  "file": "src/physgate/orchestrator/record.py",
+  "old": "            review_compaction=\"on\" if self.config.review_compaction == \"on\" else None,\n",
+  "new": "            review_compaction=None,\n",
+  "tests": [
+   "tests/unit/orchestrator/test_review_compaction_is_a_required_recorded_flag.py"
+  ]
+ },
+ {
+  "name": "m8f-setup-ignores-the-run",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "            review_compaction=config.review_compaction,\n",
+  "new": "            review_compaction=\"off\",\n",
+  "tests": [
+   "tests/unit/orchestrator/test_review_compaction_is_a_required_recorded_flag.py"
+  ]
+ },
+ {
+  "name": "m12-detail-without-the-count",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "f\"{outcome}{after}{after_compactions(compacted)}\"",
+  "new": "f\"{outcome}{after}\"",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "m12b-plural-always",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "{'' if count == 1 else 's'}",
+  "new": "{'s'}",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "m12c-error-without-count",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "                    compactions=compacted or None,\n",
+  "new": "                    compactions=None,\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "m12d-loop-drops-the-count",
+  "file": "src/physgate/orchestrator/loop.py",
+  "old": "                        compactions=exc.compactions,\n",
+  "new": "                        compactions=None,\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_review_that_compacted_says_so_on_its_line.py"
+  ]
+ },
+ {
+  "name": "m13-unmeasured-pin-allowed",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "    if setup.review_compaction == \"on\" and setup.claude_version not in COMPACTION_MEASURED_PINS:\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "m14-note-drops-the-attempt",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "        + (\"\" if hit.attempt is None else f\", attempt {hit.attempt}\")\n",
+  "new": "        + \"\"\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_is_told_where_its_material_is_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "m14b-note-drops-the-hits",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "    told = COMPACTION_HITS.format(lines=lines) if hits else \"\"\n",
+  "new": "    told = \"\"\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_is_told_where_its_material_is_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "m15-install-never-reads-again",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "        if self._setup.review_compaction == \"on\":\n            # Read again",
+  "new": "        if False:\n            # Read again",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "m16-cli-drops-after-compaction",
+  "file": "src/physgate/hooks/cli.py",
+  "old": "        after_compaction=tuple(_abs(p) for p in args.after_compaction),\n",
+  "new": "        after_compaction=(),\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "m17-schema-subset-unchecked",
+  "file": "src/physgate/hooks/config.py",
+  "old": "    if not set(after_compaction) <= set(required_reading):\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m17b-schema-role-allowed",
+  "file": "src/physgate/hooks/config.py",
+  "old": "    if profile != \"reviewer\":\n        return \"only a reviewer",
+  "new": "    if False:\n        return \"only a reviewer",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m17c-schema-note-alone-allowed",
+  "file": "src/physgate/hooks/config.py",
+  "old": "    if (not after_compaction) or compaction_note is None:\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m18-lean-subset-unchecked",
+  "file": "src/physgate/hooks/lean.py",
+  "old": "    if not set(config.after_compaction) <= set(config.required_reading):\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m18b-lean-role-allowed",
+  "file": "src/physgate/hooks/lean.py",
+  "old": "    if config.profile != \"reviewer\":\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m18c-lean-note-alone-allowed",
+  "file": "src/physgate/hooks/lean.py",
+  "old": "    if (not config.after_compaction) or config.compaction_note is None:\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m18d-lean-source-unread",
+  "file": "src/physgate/hooks/lean.py",
+  "old": "        self.source: str | None = _optional(raw.get(\"source\"), \"source\", _string)\n",
+  "new": "        self.source: str | None = None\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m19-config-bytes-keep-empty-fields",
+  "file": "src/physgate/hooks/settings.py",
+  "old": "    absent = {name for name in _LEFT_OUT_WHEN_EMPTY if not getattr(config, name)}\n",
+  "new": "    absent: set[str] = set()\n",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py"
+  ]
+ },
+ {
+  "name": "m19b-build-drops-the-note",
+  "file": "src/physgate/hooks/settings.py",
+  "old": "        compaction_note=request.compaction_note,\n    )\n\n\n#: The",
+  "new": "        compaction_note=None,\n    )\n\n\n#: The",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py",
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ }
+]

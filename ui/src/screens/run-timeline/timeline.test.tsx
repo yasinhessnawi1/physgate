@@ -90,10 +90,16 @@ describe("the timeline's rows are sentences built from the record", () => {
     expect(rows.some((r) => r.seq === 3)).toBe(false);
   });
 
-  it("a subtask set aside reads as set aside, and the run going on", () => {
-    expect(rows.find((r) => r.seq === 7)?.sentence).toBe(
+  it("a subtask set aside reads as set aside, and the run going on only while it is going", () => {
+    const going = rowsOf(LOG, MODELS, [], true);
+    expect(going.find((r) => r.seq === 7)?.sentence).toBe(
       "Set aside for a person to decide (item-1). The run goes on with the other subtasks.",
     );
+    // A run that has stopped, ended or whose state is not read is not said to go on.
+    for (const notGoing of [rowsOf(LOG, MODELS, [], false), rows])
+      expect(notGoing.find((r) => r.seq === 7)?.sentence).toBe(
+        "Set aside for a person to decide (item-1).",
+      );
   });
 
   it("every row shows its actor: the harness, or an agent with its model", () => {
@@ -289,6 +295,7 @@ describe("the attempt inspector's reviews are the log's review lines", () => {
             finding: "x",
             reviewerModel: "claude-sonnet-5",
             sessionId: null,
+            compactions: null,
           },
         ]}
       />,
@@ -324,6 +331,7 @@ describe("a review that reached no verdict has its own row, never a pass or a fa
       detail:
         "the binary's cap on refused verdicts ended it: Failed to provide valid structured output after 5 attempts",
       reviewerModel: "claude-sonnet-5",
+      compactions: null,
     },
     { ...at(6), kind: "escalated", subtask: "s1", itemId: "item-1" },
   ];
@@ -379,6 +387,7 @@ describe("a finding is shown once, a short first line first and the rest expanda
       finding: long,
       reviewerModel: "claude-sonnet-5",
       sessionId: "x",
+      compactions: null,
     },
     {
       ...at(6),

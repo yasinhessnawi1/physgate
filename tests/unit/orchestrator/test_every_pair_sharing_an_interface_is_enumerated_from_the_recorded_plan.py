@@ -66,16 +66,22 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 #: sizing, since the same day, that its interfaces follow its joined node; since the catalogue
 #: widening (04.11.2026), the catalogue sentence's new names and kind labels; and since its check
 #: round, the sentence on names with added words; and since 12.11.2026 the sentence on how a unit
-#: is spelt, before which: f42a779e91ee... and 4faaf7ada5eb.... Before the sentence on names with
+#: is spelt, before which: f42a779e91ee... and 4faaf7ada5eb...; and since 16.11.2026 the paragraph
+#: saying a plan states interfaces and criteria, never a solution's law or coefficients, before
+#: which: 48c74090ae02... and 967efb517e3f...; and since 17.11.2026 that paragraph reworded,
+#: before which: bb54c67db294... and ea34d6962014...; and since 18.11.2026 the paragraph saying
+#: how one acceptance criterion is written, before which: 7a17a3f1ead9... and e71b13d25dc6...;
+#: and since the same day the sentence saying which quantities go on an interface node, before
+#: which: 4f6211c3a74e... and 0923e7e6198b.... Before the sentence on names with
 #: added words, at 470b3f34: 44f7ed176029...
 #: and eefbf4fe50d6...; before the widening: 08a7e77a7464... and b26536a34818...; before
 #: those two sentences: f56406956965... and 1a3802deb6f1..., in this order.
 INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "48c74090ae0226c1c23bcd88c8ca922aed0f82baf150d4a1dedc9c76e850ba8a"
+        "98ecf178fc9f2b584cee7d449b202a04dc62ec0689b6c13f56d995c2a70a150d"
     ),
-    BOTH: "967efb517e3ff223c6df31bd6ae07a87cf6f77ac37db01530d89be915196c501",
+    BOTH: "8fe35572c9e94b6d03ac413fcb7e0f1dba842f7a26b083af6f8a0f9d711f837f",
 }
 
 

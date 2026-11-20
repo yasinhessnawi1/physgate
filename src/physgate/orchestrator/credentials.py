@@ -16,10 +16,11 @@ has no secret there is refused before anything is written or spawned.
   process environment, which the same user can list on macOS.
 
 Either way the secret is in a file the session's own user can read while the
-session runs; it is removed when the session ends, by a later resume if the
-orchestrator was killed first, and replaced in the captured stream if it ever
-appears there. A credential the API refuses ends the session with HTTP 401 or
-403, which halts the run for a person to replace it.
+session runs; it is removed when the session ends, before the orchestrator ends on a
+stop signal (``stop_signals``), by a later resume if the orchestrator was killed
+first, and replaced in the captured stream if it ever appears there. A credential
+the API refuses ends the session with HTTP 401 or 403, which halts the run for a
+person to replace it.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import stat
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -93,6 +95,48 @@ def fingerprint(credential: Credential) -> str:
     return hashlib.sha256(credential.secret.encode()).hexdigest()[:FINGERPRINT_LENGTH]
 
 
+#: Every file this process put a credential in, or a session of its may hold one in, by its
+#: directory, until the session's removal has run: what a stop signal removes before the process
+#: ends (:func:`remove_held_secrets`).
+_held: dict[Path, frozenset[str]] = {}
+
+
+def _hold(directory: Path, names: tuple[str, ...]) -> None:
+    _held[directory] = _held.get(directory, frozenset()) | frozenset(names)
+
+
+def hold_login(config_dir: Path) -> None:
+    """Hold a spawned session's login file for a stop signal, whoever writes it: the binary too."""
+    _hold(config_dir, (LOGIN_FILE,))
+
+
+def remove_held_secrets() -> int:
+    """Remove every file :data:`_held` names, by name, as :func:`remove_secrets` does.
+
+    For a process about to end on a stop signal: nothing is raised, and one directory that
+    cannot be reached leaves every other one's files removed. A configuration directory's debug
+    logs and the binary's messaging keys go with its login file. Returns how many removals
+    failed (a count, so a stop can say so without naming or printing a file).
+    """
+    failed = 0
+    for directory, names in list(_held.items()):
+        try:
+            _unlink_in(directory, tuple(sorted(names)))
+        except (OSError, InvocationError):
+            failed += 1
+        if LOGIN_FILE not in names:
+            continue
+        try:
+            remove_debug_logs(directory)
+        except (OSError, InvocationError):
+            failed += 1
+        try:
+            remove_messaging_keys(directory)
+        except (OSError, InvocationError):
+            failed += 1
+    return failed
+
+
 def _write_private(path: Path, data: str, mode: int) -> None:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
     try:
@@ -105,6 +149,7 @@ def _write_private(path: Path, data: str, mode: int) -> None:
 def write_key_helper(state_dir: Path, key: str) -> Path:
     """The api_key mode: an owner-only key file, and the helper script that prints it."""
     secret = state_dir / KEY_FILE
+    _hold(state_dir, (KEY_FILE, KEY_HELPER))
     _write_private(secret, key, 0o600)
     helper = state_dir / KEY_HELPER
     _write_private(helper, f"#!/bin/sh\ncat '{secret}'\n", 0o700)
@@ -115,6 +160,7 @@ def write_login(config_dir: Path, token: str) -> Path:
     """The subscription mode: the token as the binary's own login file, owner-only."""
     config_dir.mkdir(parents=True, exist_ok=True)
     path = config_dir / LOGIN_FILE
+    _hold(config_dir, (LOGIN_FILE,))
     login = {"claudeAiOauth": {"accessToken": token, "scopes": ["user:inference"]}}
     _write_private(path, json.dumps(login), 0o600)
     return path
@@ -189,6 +235,63 @@ def remove_debug_logs(config_dir: Path) -> None:
         os.close(fd)
 
 
+#: Where the binary keeps its per-process messaging keys, in its configuration directory.
+MESSAGING_DIR = "sessions"
+#: A messaging key, as the binary names it: ``<pid>.<sha256 of its socket's path>.key``, which
+#: holds the token a peer process must show it, and the temporary file it is written through,
+#: ``<that name>.tmp.<hex>``. Matched by the name alone, in that one directory.
+MESSAGING_KEY = re.compile(r"^[0-9]+\.[0-9a-f]{64}\.key(?:\.tmp\.[0-9a-f]+)?$")
+
+
+def remove_messaging_keys(config_dir: Path) -> None:
+    """Remove the binary's messaging keys from a session's configuration directory.
+
+    Reached as the credential's files are (:func:`open_in_session`), and the keys' directory
+    without following a link; only names :data:`MESSAGING_KEY` matches are removed, one level
+    down and never recursively, and a link at such a name is itself removed. A directory under
+    such a name is left: no key is written where a directory stands.
+
+    A name that will not go (any error but "not found") does not stop the others: the rest are
+    removed first, and then the failure is raised, by count and never by name or content.
+
+    Raises:
+        InvocationError: the keys' directory is a link, or not a directory; or a key was left.
+    """
+    fd = open_in_session(config_dir)
+    if fd is None:
+        return
+    try:
+        try:
+            keys = os.open(MESSAGING_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            msg = "a session's messaging keys' directory is a link or not a directory"
+            raise InvocationError(
+                msg, path=str(config_dir / MESSAGING_DIR), error=repr(exc)
+            ) from exc
+        left = 0
+        try:
+            for name in os.listdir(keys):
+                if MESSAGING_KEY.fullmatch(name) is None:
+                    continue
+                try:
+                    if stat.S_ISDIR(os.stat(name, dir_fd=keys, follow_symlinks=False).st_mode):
+                        continue
+                    os.unlink(name, dir_fd=keys)
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    left += 1
+        finally:
+            os.close(keys)
+        if left:
+            msg = "a session's messaging keys could not all be removed"
+            raise InvocationError(msg, path=str(config_dir / MESSAGING_DIR), left=str(left))
+    finally:
+        os.close(fd)
+
+
 @contextmanager
 def debug_logs_removed_on_failure(config_dir: Path) -> Iterator[None]:
     """On any failure inside, a session's debug logs are removed before it propagates.
@@ -221,8 +324,15 @@ def remove_secrets(state_dir: Path, config_dir: Path) -> None:
         try:
             _unlink_in(config_dir, (LOGIN_FILE,))
         finally:
-            # A session's debug log may hold the credential: it goes with it.
-            remove_debug_logs(config_dir)
+            try:
+                # A session's debug log may hold the credential: it goes with it.
+                remove_debug_logs(config_dir)
+            finally:
+                # So do the binary's messaging keys, each a token a peer must show.
+                remove_messaging_keys(config_dir)
+    # Removed: a stop signal has nothing more of this session's to remove.
+    _held.pop(state_dir, None)
+    _held.pop(config_dir, None)
 
 
 def _unlink_in(directory: Path, names: tuple[str, ...]) -> None:

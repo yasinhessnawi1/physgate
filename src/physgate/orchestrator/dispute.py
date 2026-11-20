@@ -17,7 +17,9 @@ it checks. The change check alone also holds the unit to its quantity's kind
 - who: every role but the owners of the cross nodes and of completion, found by what they own;
   the first wrote the value, and the second writes no design;
 - what: a quantity that an existing ``cross`` node holds, that node not an interface. An
-  interface is fixed at decomposition, and any other node is its own role's to change.
+  interface is fixed at decomposition, and any other node is its own role's to change. Nor a
+  quantity a person declared: a declaration ranks above sizing and every role, so no position
+  changes it.
 """
 
 from __future__ import annotations
@@ -54,6 +56,11 @@ _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]")
 #: the Unicode version, so the hook and a replay on another version could disagree.
 _UNREADABLE = frozenset({"Cf", "Zl", "Zp", "Co"})
 KEYS = ("reason", "unit", "value")
+#: A quantity a person declared: the parts writer alone writes it, and nothing outranks it.
+DECLARED = (
+    "{quantity} of {node} was declared by a person's recorded decision, which ranks above sizing "
+    "and every role; no position changes it, so it is not disputed"
+)
 
 NAMED = (
     f"a dispute is one file in {DISPUTES_DIR} named <node id>.<quantity>.json, for a node id of "
@@ -161,6 +168,9 @@ def parse(path: str, data: bytes, role: str, nodes: Mapping[str, Mapping[str, ob
     held = node.get("quantities")
     if not isinstance(held, dict) or quantity not in held:
         raise DisputeError(f"the cross node {node_id} holds no quantity {quantity}")
+    entry = held[quantity]
+    if isinstance(entry, dict) and entry.get("declared") is not None:
+        raise DisputeError(DECLARED.format(node=node_id, quantity=quantity))
     value, unit, reason = _body(data)
     try:
         position = QuantityRef(node_id=node_id, name=quantity, value=value, unit=unit)

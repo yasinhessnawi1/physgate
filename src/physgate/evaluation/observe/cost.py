@@ -320,10 +320,26 @@ class CostLine(_Frozen):
     #: The line held to the binary's figures; ``None`` where the records were not read.
     reconciliation: Reconciliation | None = None
     #: The figure is a lower bound: some call's cache writes were priced at the
-    #: five-minute rate because the cache they went to was not read, or some call's
-    #: result was not reached. With a reconciliation, exactly when it names a call
-    #: unread. Absent from lines written before the mark, which read as unmarked.
+    #: five-minute rate because the cache they went to was not read, some call's
+    #: result was not reached, or some response was cut short (its usage below, counted or
+    #: not). With a reconciliation and no cut response, exactly when it names a call unread.
+    #: Absent from lines written before the mark, which read as unmarked.
     lower_bound: bool = False
+    #: The usage of responses the binary cut short, by call: what each started with. It is not
+    #: in the binary's per-model totals, so no figure of this line prices it; the result's
+    #: top-level usage counts it and the API may have billed it, so whether it was billed is
+    #: unknown, and a line with any is a lower bound. Left out of a line with none, so such a
+    #: line keeps its bytes.
+    not_in_binary_totals_billing_unknown: dict[NonEmptyStr, Usage] = Field(
+        default_factory=dict, exclude_if=lambda v: not v
+    )
+    #: The usage of responses the binary cut short that its per-model totals count, by call:
+    #: what each started with. It is priced in this line's figures, as the totals count it;
+    #: what each streamed before it was cut is in no figure, so a line with any is a lower
+    #: bound. Left out of a line with none, so such a line keeps its bytes.
+    cut_short_in_binary_totals: dict[NonEmptyStr, Usage] = Field(
+        default_factory=dict, exclude_if=lambda v: not v
+    )
 
     @model_validator(mode="after")
     def _basis_follows_auth(self) -> CostLine:
@@ -336,8 +352,12 @@ class CostLine(_Frozen):
     @model_validator(mode="after")
     def _a_lower_bound_says_so(self) -> CostLine:
         held = self.reconciliation
-        if held is not None and self.lower_bound != bool(held.unread or held.ttl_unread):
-            msg = "a line is a lower bound exactly when it names a call unread"
+        cut = self.not_in_binary_totals_billing_unknown or self.cut_short_in_binary_totals
+        if held is not None and self.lower_bound != bool(cut or held.unread or held.ttl_unread):
+            msg = "a line is a lower bound exactly when it names a call unread or a cut response"
+            raise ValueError(msg)
+        if cut and not self.lower_bound:
+            msg = "a line with a cut response, whose billing is not all known, is a lower bound"
             raise ValueError(msg)
         return self
 
@@ -395,6 +415,9 @@ def _model_of(attribution: str, config: RunConfig, events: list[Event]) -> str:
         roles = {e.subtask_id: e.assigned_role for e in events if isinstance(e, SubtaskPlanned)}
         for e in events:
             if isinstance(e, SessionEnded) and e.session_id == who:
+                if e.subtask_id not in roles:
+                    msg = f"a session ended on subtask {e.subtask_id!r}, which no line planned"
+                    raise ManifestError(msg, attribution=attribution)
                 return config.models.roles[roles[e.subtask_id]]
         return _role_model(config, who)
     msg = "tokens attributed to routing have no model to price them at"
@@ -521,6 +544,14 @@ def price_events(
     write whose cache was not read, or a call whose result was not, is marked
     ``lower_bound``.
 
+    A response the binary cut short that its per-model totals leave out is priced in no figure;
+    the line names its usage apart, its billing unknown. Its call's result splits by time to
+    live every cache write it counted, the cut response's among them, so that split is not read
+    as the counted writes': the call's writes are priced as unread. One the totals count is
+    priced as they count it and named too. The line is a lower bound whenever there is either,
+    whatever else it read: what a cut response streamed is in nobody's figure, and the API may
+    have billed the one the totals leave out.
+
     Raises:
         ManifestError: a token's model cannot be told from the records.
         PriceSheetError: a model the run used has no price on the sheet, or a call's
@@ -530,10 +561,15 @@ def price_events(
     usd_by_model: dict[str, Decimal] = {}
     reviews: dict[str, Usage] = {}
     priced: list[CallCost] = []
-    for attribution, usage in TokenAccount.from_events(events).by_attribution().items():
+    account = TokenAccount.from_events(events)
+    cut = account.abandoned()
+    counted_cut = account.cut_in_binary_totals()
+    for attribution, usage in account.by_attribution().items():
         model = _model_of(attribution, config, events)
         by_model[model] = _plus(by_model.get(model, _ZERO), usage)
         recorded = None if calls is None else calls.get(attribution)
+        if recorded is not None and attribution in cut:
+            recorded = recorded.model_copy(update={"cache_writes": None})
         call = _call_cost(attribution, model, usage, recorded, prices)
         priced.append(call)
         usd_by_model[model] = usd_by_model.get(model, Decimal(0)) + call.usd
@@ -547,7 +583,7 @@ def price_events(
     usd = sum((r.usd for r in rows), Decimal(0))
     rate = prices.sheet.exchange
     reconciliation = None if calls is None else reconcile(priced)
-    lower_bound = (
+    lower_bound = bool(cut or counted_cut) or (
         bool(reconciliation.unread or reconciliation.ttl_unread)
         if reconciliation is not None
         # No call's record was read, so no write's cache was.
@@ -572,6 +608,8 @@ def price_events(
         calls=() if calls is None else tuple(priced),
         reconciliation=reconciliation,
         lower_bound=lower_bound,
+        not_in_binary_totals_billing_unknown=dict(sorted(cut.items())),
+        cut_short_in_binary_totals=dict(sorted(counted_cut.items())),
     )
 
 

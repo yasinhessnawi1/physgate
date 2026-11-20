@@ -7,7 +7,9 @@ took. What a backend may decide is bounded here, not in the backend:
 - **Forced routes.** Three attempt ends leave the loop nothing else to do: the third
   rejection (a fourth attempt cannot exist, ARCH-030), a blocked review (a repair
   cannot supply what the issued specification lacks) and a review with no verdict
-  (there is nothing to merge and no finding to repair). These go to the queue
+  (there is nothing to merge and no finding to repair). So does a gate rejection
+  for values a person declared and nothing else (ARCH-122): no role can repair one,
+  so no repair attempt is spent on it. These go to the queue
   whatever a backend answers, so a backend can add an escalation and never remove
   one.
 - **The confidence floor.** A confidence below 0.8 goes to the queue whatever the
@@ -80,6 +82,11 @@ class EndOfAttempt(Protocol):
         """The attempt's number."""
         ...
 
+    @property
+    def all_declared(self) -> bool:
+        """Whether the gate rejected the attempt for values a person declared, and those alone."""
+        ...
+
 
 class BackendAnswer(_Frozen):
     """What a backend answers."""
@@ -100,10 +107,11 @@ def forced(state: EndOfAttempt) -> bool:
     """Whether the attempt end leaves the loop nothing to do but ask a person.
 
     The third rejection is read off the repair budget's own rule, so the budget is
-    stated once.
+    stated once. A rejection by the gate for values a person declared, and those alone, is
+    forced at any attempt: no role can repair a value a person declared.
     """
     if state.attempt_end == "rejected":
-        return after_rejection(state.attempt_count) is None
+        return state.all_declared or after_rejection(state.attempt_count) is None
     return True
 
 

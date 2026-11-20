@@ -118,6 +118,7 @@ const RUNS = {
       manifest_id: "m",
       gate_mode: "on",
       os_layer: null,
+      started: "2026-10-01T09:00:00Z",
     },
     {
       root: 0,
@@ -126,6 +127,7 @@ const RUNS = {
       manifest_id: "m",
       gate_mode: "observe",
       os_layer: null,
+      started: "2026-11-02T09:00:00Z",
     },
   ],
 };
@@ -989,15 +991,13 @@ describe("Appearance: the viewer's own choices, shared with the top bar", () => 
 });
 
 describe("what the screen asks the server", () => {
-  it("only GETs, and only the run list, each listed run's log, the chosen run's configuration and status, and the catalogue", async () => {
+  it("only GETs, and only the run list, the chosen run's configuration and status, and the catalogue", async () => {
     await open();
     expect(asked.every(([method]) => method === "GET")).toBe(true);
-    // Each run's log is read once per page for its label, so a later test may find it read.
+    // Each run's label is read from the run list: no run's log is read for it.
     const allowed = new Set([
       "/api/runs",
       "/api/engines",
-      "/api/runs/0/run-a/events",
-      "/api/runs/0/run-b/events",
       "/api/runs/0/run-b/config",
       "/api/runs/0/run-b/status",
     ]);

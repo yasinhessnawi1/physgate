@@ -5,7 +5,8 @@
  */
 import type { GateMode } from "../design/components/verdict/GateMode";
 import { type Quantity, requireQuantity } from "../design/quantity";
-import { count, flag, list, object, oneOf, optionalText, text } from "./check";
+import { count, flag, list, object, oneOf, optionalCount, optionalText, text } from "./check";
+import { ShapeError } from "./client";
 
 /** The precedence table's levels, by the names a ruling's line holds. */
 export const LEVELS = ["gate", "person", "sizing", "queue"] as const;
@@ -20,6 +21,10 @@ export const RELEASED_HOW = [
   "mutual_readers",
 ] as const;
 
+/** What raises a decided part again at the release, as the loop writes it. */
+export const RAISED_BY = ["gate", "interface"] as const;
+export type RaisedBy = (typeof RAISED_BY)[number];
+
 interface Line {
   readonly seq: number;
   readonly ts: string;
@@ -33,6 +38,20 @@ export type RunEvent = Line &
         readonly model: string;
         readonly subtasks: number;
         readonly interfaceNodes: readonly string[];
+        /** The parts a person decides, in a run that asks which they have; ``null`` otherwise. */
+        readonly components?: readonly PlanComponent[] | null;
+      }
+    | {
+        readonly kind: "parts_released";
+        /** Each component's item and the choice that released it, in the plan's order. */
+        readonly choices: readonly { readonly itemId: string; readonly choice: string }[];
+      }
+    | {
+        readonly kind: "parts_raised_again";
+        /** What raised them: the release's gate call, or an interface that holds another value. */
+        readonly cause: RaisedBy;
+        /** Each part's new item, in the line's order. */
+        readonly itemIds: readonly string[];
       }
     | { readonly kind: "subtask_planned"; readonly subtask: string; readonly role: string }
     | {
@@ -63,6 +82,8 @@ export type RunEvent = Line &
         readonly finding: string | null;
         readonly reviewerModel: string | null;
         readonly sessionId: string | null;
+        /** How many times the review's session compacted before its verdict; null when none. */
+        readonly compactions: number | null;
       }
     /** A review that reached no verdict on the attempt: never a pass or a fail. */
     | {
@@ -72,6 +93,8 @@ export type RunEvent = Line &
         readonly cause: string;
         readonly detail: string | null;
         readonly reviewerModel: string | null;
+        /** How many times the review's session compacted before it ended; null when none. */
+        readonly compactions: number | null;
       }
     | {
         readonly kind: "attempt_rejected";
@@ -204,12 +227,46 @@ export interface ContractPair {
   readonly interfaces: readonly string[];
 }
 
+/** A review's compaction count: absent, or at least one, as the record writes it. */
+function compactionCount(value: unknown): number | null {
+  const found = optionalCount(value, "a compaction count");
+  if (found === 0) throw new ShapeError("a compaction count");
+  return found;
+}
+
 function contractPair(value: unknown): ContractPair {
   const p = object(value, "a contract pair");
   return {
     producer: text(object(p.producer, "a producer").module, "a module"),
     consumer: text(object(p.consumer, "a consumer").module, "a module"),
     interfaces: list(p.interfaces, "interfaces").map((i) => text(i, "an interface")),
+  };
+}
+
+/**
+ * One physical part of the design as the decomposition lists it (ARCH-122): its node, the domain
+ * it is of, the role of the module it belongs to, a label a person knows it by, and the names of
+ * the quantities a part on hand states, its own and those more than one domain reads.
+ */
+export interface PlanComponent {
+  readonly node: string;
+  readonly domain: string;
+  readonly role: string;
+  readonly label: string;
+  readonly own: readonly string[];
+  readonly shared: readonly string[];
+}
+
+function planComponent(value: unknown): PlanComponent {
+  const c = object(value, "a component of the plan");
+  const names = (raw: unknown, what: string) => list(raw, what).map((n) => text(n, "a name"));
+  return {
+    node: text(c.node, "a component's node"),
+    domain: text(c.domain, "a component's domain"),
+    role: text(c.role, "a component's role"),
+    label: text(c.label, "a component's label"),
+    own: names(c.own, "a component's own names"),
+    shared: names(c.shared, "a component's shared names"),
   };
 }
 
@@ -234,6 +291,31 @@ export function runEvent(value: unknown): RunEvent {
         model: text(e.model, "a model"),
         subtasks: count(e.subtasks, "a subtask count"),
         interfaceNodes: list(e.interface_nodes, "interface nodes").map((n) => text(n, "a node")),
+        components:
+          e.components === undefined || e.components === null
+            ? null
+            : list(e.components, "the plan's components").map(planComponent),
+      };
+    case "parts_released":
+      return {
+        ...line,
+        kind: "parts_released",
+        choices: list(e.components, "the released parts").map((raw) => {
+          const part = object(raw, "a released part");
+          return {
+            itemId: text(part.item_id, "a part's item"),
+            choice: text(part.choice, "a part's choice"),
+          };
+        }),
+      };
+    case "parts_raised_again":
+      return {
+        ...line,
+        kind: "parts_raised_again",
+        cause: oneOf(e.cause, RAISED_BY, "what raised the parts again"),
+        itemIds: list(e.parts, "the parts raised again").map((raw) =>
+          text(object(raw, "a part raised again").item_id, "a part's new item"),
+        ),
       };
     case "subtask_planned":
       return {
@@ -283,6 +365,7 @@ export function runEvent(value: unknown): RunEvent {
         finding: optionalText(r.finding, "a finding"),
         reviewerModel: optionalText(r.reviewer_model, "a model"),
         sessionId: optionalText(r.session_id, "a session id"),
+        compactions: compactionCount(r.compactions),
       };
     }
     case "review_unavailable":
@@ -294,6 +377,7 @@ export function runEvent(value: unknown): RunEvent {
         cause: text(e.cause, "a cause"),
         detail: optionalText(e.detail, "a detail"),
         reviewerModel: optionalText(e.reviewer_model, "a model"),
+        compactions: compactionCount(e.compactions),
       };
     case "attempt_rejected": {
       const f = object(e.finding, "a finding");
