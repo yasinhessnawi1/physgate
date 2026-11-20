@@ -1,11 +1,12 @@
 """How a Claude Code session is invoked: the one module that names the binary.
 
 Every invocation is isolated the same way: no settings source at all, a settings
-file from outside every worktree, a scratch home and configuration directory, an
-environment built from nothing, stdin from ``/dev/null``, a full model string and
-a session id the orchestrator chose. The binary's own retries are set explicitly,
-because its default was measured to retry an overloaded endpoint for minutes and
-to hide those requests from the orchestrator's count.
+file from outside every worktree, no tool server but those the harness names, a
+scratch home and configuration directory, an environment built from nothing, stdin
+from ``/dev/null``, a full model string and a session id the orchestrator chose.
+The binary's own retries are set explicitly, because its default was measured to
+retry an overloaded endpoint for minutes and to hide those requests from the
+orchestrator's count.
 
 The version is pinned: the headless contract the orchestrator relies on (the
 stream's shape, the result fields, what a resume replays) was measured on
@@ -14,6 +15,7 @@ these versions and on no other.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -39,6 +41,21 @@ if TYPE_CHECKING:
 #: 2.1.301 is assumed of it, and a run never mixes the two.
 PINNED_VERSIONS = frozenset({"2.1.272", "2.1.283", "2.1.301", "2.1.322"})
 _BINARY = "claude"
+
+#: The tool-server configuration every session is spawned with: none. The binary starts
+#: a tool server named in a ``.mcp.json`` of the working directory or any directory above
+#: it, or in the user scope of its configuration directory, as a process of its own outside
+#: the OS layer, where it can write anywhere, read what no session may and reach the
+#: network whatever the session's network setting says. In print mode it does so with no
+#: approval step (measured on 2.1.301 and 2.1.272). ``--setting-sources ""`` closes those
+#: sources today; the strict mode with this explicit configuration closes them by itself,
+#: so a server starts only where the harness names one.
+NO_TOOL_SERVERS = '{"mcpServers":{}}'
+#: The most a tool server's answer may hold, in tokens. Set rather than left to the binary,
+#: whose default (25,000 on 2.1.301) a remote feature flag can replace when it is unset.
+MAX_SERVER_OUTPUT_TOKENS = 25_000
+#: The arguments that pin a session's tool servers to :data:`NO_TOOL_SERVERS`.
+NO_TOOL_SERVER_ARGS = ("--strict-mcp-config", "--mcp-config", NO_TOOL_SERVERS)
 
 
 def claude_binary() -> str:
@@ -102,6 +119,7 @@ def decomposition_argv(
         "",
         "--settings",
         str(settings),
+        *NO_TOOL_SERVER_ARGS,
         "--tools",
         "",
         "--json-schema",
@@ -195,6 +213,9 @@ def isolated_env(
         "CLAUDE_CODE_MAX_RETRIES": str(max_retries),
         "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(max_output_tokens),
         **session_env_settings(claude_version),
+        # Set on every pin, at the binary's own default, so a remote flag cannot move the
+        # bound on one tool server's answer; recorded with the run's tool servers.
+        "MAX_MCP_OUTPUT_TOKENS": str(MAX_SERVER_OUTPUT_TOKENS),
     }
     if base_url:
         env["ANTHROPIC_BASE_URL"] = base_url
@@ -230,6 +251,25 @@ _TRAFFIC_ALLOWED_MEASURED = (
 )
 
 
+def _require_contained(tool_servers: str, wrappers: tuple[str, ...]) -> None:
+    """Refuse a tool-server configuration that names a server outside its wrapper."""
+    try:
+        loaded = json.loads(tool_servers)
+    except ValueError as exc:
+        msg = "the tool-server configuration is not JSON"
+        raise InvocationError(msg) from exc
+    servers = loaded.get("mcpServers") if isinstance(loaded, dict) else None
+    if not isinstance(servers, dict) or set(loaded) != {"mcpServers"}:
+        msg = "the tool-server configuration names anything but its servers"
+        raise InvocationError(msg)
+    for name, entry in servers.items():
+        command = entry.get("command") if isinstance(entry, dict) else None
+        kind = entry.get("type", "stdio") if isinstance(entry, dict) else None
+        if kind != "stdio" or command not in wrappers:
+            msg = f"the tool server {name!r} is not started in a wrapper that contains it"
+            raise InvocationError(msg, server=str(name), command=str(command))
+
+
 def role_argv(
     binary: str,
     *,
@@ -240,18 +280,32 @@ def role_argv(
     max_turns: int,
     effort: str,
     thinking_display: str,
+    tool_servers: str = NO_TOOL_SERVERS,
+    wrappers: tuple[str, ...] = (),
     debug_file: Path | None = None,
 ) -> list[str]:
     """A role session: the hook layer's spawn arguments, the stream the trajectory is.
 
     Never ``--resume``: a resumed session replays turns from a file the session's
     own user can write, including turns the model never produced (measured).
+
+    ``tool_servers`` is the session's tool-server configuration, none unless given. Every
+    server it names is started by the binary outside the sandbox around the session's
+    commands, so each must name one of ``wrappers`` (the programs that contain a server here)
+    as its command, and a local one: a server named by anything else is refused here.
+
+    Raises:
+        InvocationError: the configuration names a server that is not in its wrapper.
     """
+    _require_contained(tool_servers, wrappers)
     return [
         binary,
         "-p",
         prompt,
         *spawn_args,
+        "--strict-mcp-config",
+        "--mcp-config",
+        tool_servers,
         "--output-format",
         "stream-json",
         "--verbose",
@@ -325,6 +379,7 @@ def reviewer_argv(
         "-p",
         prompt,
         *spawn_args,
+        *NO_TOOL_SERVER_ARGS,
         "--tools",
         "Read",
         "--json-schema",

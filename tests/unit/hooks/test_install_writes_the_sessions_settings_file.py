@@ -230,7 +230,37 @@ def test_the_settings_as_rendered_deny_the_web_tools_to_every_profile(
     # deny: the rule is in the settings from the start, not put there by a later step.
     config = build_config(_request(tmp_path, profile=profile), current_installation())
     settings = render_settings(config, "/outside/config.json", "0" * 64, REGISTRY)
-    assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch"]}
+    assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch", "ToolSearch"]}
+
+
+@pytest.mark.parametrize("profile", get_args(Profile))
+def test_the_settings_deny_the_binary_s_tool_search_to_every_profile(
+    tmp_path: Path, profile: str
+) -> None:
+    # With its search tool denied the binary offers every tool server's tools directly instead
+    # of deferring them behind a search step the closed list refuses (measured on both pins,
+    # with tool search turned on as against the live host). Rendered, and as installed.
+    config = build_config(_request(tmp_path, profile=profile), current_installation())
+    rendered = render_settings(config, "/outside/config.json", "0" * 64, REGISTRY)
+    permissions = rendered.get("permissions")
+    assert isinstance(permissions, dict), rendered
+    assert "ToolSearch" in permissions["deny"], permissions
+    done = install(_request(tmp_path, profile=profile), REGISTRY)
+    installed = json.loads(done.settings_path.read_text())["permissions"]
+    assert "ToolSearch" in installed["deny"], installed
+
+
+def test_a_run_records_the_search_tool_s_setting_from_the_profiles_deny(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # What the run's configuration records is read from the deny the sessions get, never taken
+    # from the parameters: denied while every profile denies it, offered otherwise.
+    from physgate.hooks import settings as module
+
+    recorded = getattr(module, "session_tool_search", lambda: None)
+    assert recorded() == "denied"
+    monkeypatch.setitem(module.PROFILE_DENIED, "baseline", ("WebFetch", "WebSearch"))
+    assert recorded() == "offered"
 
 
 def _allowing_run(tmp_path: Path) -> str:
