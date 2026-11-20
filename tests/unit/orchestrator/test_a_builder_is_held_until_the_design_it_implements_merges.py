@@ -8,10 +8,13 @@ of its own naming the designer, its node, why, and the item a person can act on;
 the queue when nothing else can run. A person's approve merges the designer and lets the builder
 go, on a release line, against the merged design. A person's reject ends the designer unmerged:
 the builder stays held, on a line saying so, is never run and never failed, and the integration
-call names it among the subtasks that did not merge. A run that records only holds the builder
-as well. A kill at the hold resumes to the lines of the uninterrupted run, a replay refuses a
-builder dispatched without the line it owed, and a run recorded without design pairs dispatches
-as it always did.
+call names it among the subtasks that did not merge. A person's reject of a blocked review orders
+the designer's one fix: the hold stands through it, and is let go on the fix's merge; a fix not
+accepted ends the designer, and a new hold line says so; a fix sent to a person again moves the
+hold to the new item, on a line of its own. A run that records only holds the builder as well.
+A kill at the hold resumes to the lines of the uninterrupted run, a replay refuses a builder
+dispatched without the line it owed, and a run recorded without design pairs dispatches as it
+always did.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from typing import Any
 import pytest
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeDispatcher, KilledError, Rig
+from test_a_blocked_review_is_a_review_that_goes_to_a_person import blocked_review
 from test_a_choice_on_a_failed_contract_reopens_the_other_module import of, requests_of
 from test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item import (
     lines,
@@ -43,7 +47,7 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
     rig_for,
     side,
 )
-from test_a_queue_decision_acts_at_a_boundary import _layer, decide
+from test_a_queue_decision_acts_at_a_boundary import NO_VERDICT, _layer, decide
 from test_design_pairs_are_read_from_the_plan_and_recorded_before_any_dispatch import balancer
 
 from physgate import roles
@@ -370,6 +374,98 @@ def test_a_run_that_records_only_holds_the_builder_and_goes_on_to_its_integratio
     (skipped,) = of(rows, "integration_gate_skipped")
     assert skipped["subtasks"] == [DRIVE, FW]
     assert step != "wait"
+    assert refusal(rows) is None
+
+
+# --- a person orders the designer's one fix: the hold stands through it ---------------------------
+
+
+def blocked_on_its_last_attempt(tmp_path: Path, *, fix: str) -> Rig:
+    """The designer's third review blocks, so a reject orders its one fix, reviewed ``fix``."""
+    rig = rigged(tmp_path)
+    rig.reviewer.verdicts[:] = ["fail", "fail", "pass", fix]
+    rig.reviewer.results[3] = blocked_review()
+    return rig
+
+
+def test_the_designer_s_fix_merges_and_only_then_is_the_builder_let_go(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = blocked_on_its_last_attempt(tmp_path, fix="pass")
+    assert first_run(rig, monkeypatch) == "wait"
+    item = drive_item(lines(rig))
+    decide(rig.run_dir, "reject", "fix the law", item_id=item)
+    assert resumed(rig, monkeypatch) == "done"
+    rows = lines(rig)
+    # The fix runs while the hold stands: no second hold line, and fw waits for the fix's merge.
+    assert [(h["why"], h.get("item_id")) for h in of(rows, "builder_held")] == [("escalated", item)]
+    assert [(r.subtask_id, r.attempt, r.kind) for r in rig.dispatcher.requests] == [
+        (DRIVE, 1, "attempt"),
+        (DRIVE, 2, "attempt"),
+        (DRIVE, 3, "attempt"),
+        (DRIVE, 4, "fix"),
+        (FW, 1, "attempt"),
+        (INTEG, 1, "attempt"),
+    ]
+    (released,) = of(rows, "builder_released")
+    merge = index_of(rows, "merged", subtask_id=DRIVE)
+    assert rows[merge]["attempt"] == 4
+    assert merge < rows.index(released) < dispatched_at(rows, FW)
+    assert refusal(rows) is None
+
+
+def test_a_fix_not_accepted_ends_the_designer_and_the_hold_says_so_with_no_item(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = blocked_on_its_last_attempt(tmp_path, fix="fail")
+    assert first_run(rig, monkeypatch) == "wait"
+    item = drive_item(lines(rig))
+    decide(rig.run_dir, "reject", "fix the law", item_id=item)
+    assert resumed(rig, monkeypatch) == "done"
+    rows = lines(rig)
+    (ended,) = of(rows, "subtask_rejected", subtask_id=DRIVE)
+    assert ended["by"] == "fix_not_accepted"
+    holds = of(rows, "builder_held")
+    assert [(h["why"], h.get("item_id")) for h in holds] == [
+        ("escalated", item),
+        ("ended_unmerged", None),
+    ]
+    assert rows.index(ended) < rows.index(holds[1])
+    assert requests_of(rig, FW) == []
+    assert of(rows, "builder_released") == of(rows, "attempt_rejected", subtask_id=FW) == []
+    (skipped,) = of(rows, "integration_gate_skipped")
+    assert skipped["subtasks"] == [DRIVE, FW]
+    assert refusal(rows) is None
+
+
+def test_the_fix_goes_to_a_person_again_and_the_hold_moves_to_the_new_item(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = blocked_on_its_last_attempt(tmp_path, fix="pass")
+    rig.reviewer.unavailable.update({4: NO_VERDICT, 5: NO_VERDICT})
+    assert first_run(rig, monkeypatch) == "wait"
+    first = drive_item(lines(rig))
+    decide(rig.run_dir, "reject", "fix the law", item_id=first)
+    assert resumed(rig, monkeypatch) == "wait"
+    rows = lines(rig)
+    second = of(rows, "escalated", subtask_id=DRIVE)[-1]["item_id"]
+    assert second != first
+    # Why it holds is the same, the item a person can act on is not: a new line says so.
+    holds = of(rows, "builder_held")
+    assert [(h["why"], h["item_id"]) for h in holds] == [
+        ("escalated", first),
+        ("escalated", second),
+    ]
+    assert requests_of(rig, FW) == []
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    assert (state.next_step().kind, state.next_step().subtask_id) == ("wait", FW)
+    decide(rig.run_dir, "approve", item_id=second)
+    assert resumed(rig, monkeypatch) == "done"
+    rows = lines(rig)
+    (released,) = of(rows, "builder_released")
+    assert (
+        index_of(rows, "merged", subtask_id=DRIVE) < rows.index(released) < dispatched_at(rows, FW)
+    )
     assert refusal(rows) is None
 
 
