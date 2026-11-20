@@ -26,6 +26,7 @@ from pydantic import ValidationError
 
 from physgate.contracts.pairs import ContractPair, recorded_pairs_problem
 from physgate.flags import Reviewers, replans
+from physgate.orchestrator import design_wait
 from physgate.orchestrator.arbitration import (
     ClauseConflict,
     Held,
@@ -44,6 +45,8 @@ from physgate.orchestrator.common import (
 )
 from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.decisions import require_taken, values_chosen
+from physgate.orchestrator.design_pairs import DesignPair, recorded_design_pairs_problem
+from physgate.orchestrator.design_wait import DesignWaits, gated, held_for_good, held_subtask
 from physgate.orchestrator.escalation import (
     REGISTER,
     TO_THE_QUEUE,
@@ -59,6 +62,8 @@ from physgate.orchestrator.events import (
     ArbitrationDecided,
     AttemptRejected,
     AttemptReturned,
+    BuilderHeld,
+    BuilderReleased,
     CompletionDeclared,
     ContractItemRaised,
     ContractPairsPlanned,
@@ -69,6 +74,7 @@ from physgate.orchestrator.events import (
     DecisionTaken,
     Decomposed,
     DecompositionRetried,
+    DesignPairsPlanned,
     DesignReviewRan,
     DiffChecked,
     DispatchHeld,
@@ -154,9 +160,7 @@ from physgate.orchestrator.plan import (
 from physgate.orchestrator.producer_wait import (
     Waits,
     dispatch_due,
-    gated,
     held_dispatch,
-    held_subtask,
     take,
 )
 from physgate.orchestrator.protocols import ChosenValue, QuantityRef
@@ -480,6 +484,8 @@ class RunState:
         self.integration_escalated: IntegrationEscalated | None = None
         #: The holds on dispatches while a subtask read from waits on a person.
         self.producer_waits = Waits()
+        #: The builders held while the module whose design each implements has not merged.
+        self.design_waits = DesignWaits()
         #: Integration's subtask, if the plan has one: the one subtask whose planning line marks
         #: it as the completion owner's, read from that line and never from the role register or
         #: a role's name. It reads the system-scope result, so it runs after the integration
@@ -494,6 +500,9 @@ class RunState:
         self.interfaces: tuple[str, ...] = ()
         #: The module pairs whose contract the run tests, once their line is on the record.
         self.contract_pairs: tuple[ContractPair, ...] | None = None
+        #: The modules that build what another designs, once their line is on the record;
+        #: ``None`` in a run whose plan has none, or recorded before they were read.
+        self.design_pairs: tuple[DesignPair, ...] | None = None
         #: The modules recorded complete, by the subtask that planned each. Merged is not
         #: complete: a module's subtask is ``done`` once it merged, whether or not it is here.
         self.completed: dict[str, ModuleCompleted] = {}
@@ -705,8 +714,8 @@ class RunState:
         ):
             _refuse("nothing follows a failed contract result but its rulings and its item")
         if isinstance(event, SubtaskPlanned):
-            if self.contract_pairs is not None:
-                _refuse("nothing is planned after the run's contract pairs")
+            if self.contract_pairs is not None or self.design_pairs is not None:
+                _refuse("nothing is planned after the run's contract pairs or its design pairs")
             self._plan(event)
             return
         if isinstance(event, PlanProposed):
@@ -748,7 +757,12 @@ class RunState:
             )
             return
         if isinstance(event, ContractPairsPlanned):
+            if self.design_pairs is not None:
+                _refuse("the run's contract pairs come before its design pairs")
             self._pairs(event)
+            return
+        if isinstance(event, DesignPairsPlanned):
+            self._design_pairs(event)
             return
         if isinstance(event, DesignReviewRan):
             self._plan_reviewed(event)
@@ -808,6 +822,11 @@ class RunState:
             return
         if isinstance(event, DecisionTaken):
             self._take(event)
+            return
+        if isinstance(event, BuilderHeld | BuilderReleased):
+            why = design_wait.take(self, event)
+            if why is not None:
+                _refuse(why)
             return
         if isinstance(event, DispatchHeld | DispatchReleased):
             why = take(self, event)
@@ -1446,6 +1465,23 @@ class RunState:
         if why is not None:
             _refuse(f"the run's contract pairs are not its plan's: {why}")
         self.contract_pairs = event.pairs
+
+    def _design_pairs(self, event: DesignPairsPlanned) -> None:
+        """Take the run's design pairs, once, before any dispatch, if a plan could give them."""
+        if self.design_pairs is not None:
+            _refuse("the run's design pairs are recorded once")
+        if not self._decomposed:
+            _refuse("design pairs are recorded only in a run its decomposition planned")
+        if self.consumers is not None and self.contract_pairs is None:
+            _refuse("the run's design pairs follow its contract pairs")
+        if any(sub.attempts for sub in self.subtasks.values()) or self.integration is not None:
+            _refuse("the run's design pairs are recorded before anything is dispatched")
+        why = recorded_design_pairs_problem(
+            event.pairs, modules=self.modules(), interfaces=self.interface_nodes
+        )
+        if why is not None:
+            _refuse(f"the run's design pairs are not its plan's: {why}")
+        self.design_pairs = event.pairs
 
     def integrated(self) -> list[str]:
         """The planned subtasks the integration call waits for and judges: all but integration's."""
@@ -2283,7 +2319,12 @@ class RunState:
             self.integration = event
             return
         order = self.integrated()
-        unresolved = [s for s in order if self.subtasks[s].status in ("planned", "active")]
+        # A builder whose designer can no longer merge is held for good: unmerged, as one ended.
+        unresolved = [
+            s
+            for s in order
+            if self.subtasks[s].status in ("planned", "active") and not held_for_good(self, s)
+        ]
         if unresolved:
             _refuse(f"integration before every planned subtask is merged or queued: {unresolved}")
         not_merged = tuple(s for s in order if self.subtasks[s].status != "done")
@@ -2337,6 +2378,8 @@ class RunState:
             )
         due = dispatch_due(self, sub.plan.subtask_id)
         if due and (held := held_dispatch(self, sub.plan.subtask_id)):
+            _refuse(held)
+        if due and (held := design_wait.held_dispatch(self, sub.plan.subtask_id)):
             _refuse(held)
         if not sub.attempts or sub.attempts[-1].number != attempt:
             if any(a.fix for a in sub.attempts):
@@ -2591,7 +2634,8 @@ class RunState:
             return Step(kind="contract")
         for subtask_id in self.integrated():
             step = self._step_of(subtask_id)
-            # A dispatch held while a subtask it reads from waits on a person is passed over.
+            # A dispatch held while a subtask it reads from waits on a person, or while the module
+            # whose design it implements has not merged, is passed over.
             gate = gated(self, subtask_id) if step is not None and step.kind == "attempt" else None
             if gate == "hold" or gate == "release":
                 return Step(gate, subtask_id)

@@ -51,6 +51,7 @@ from physgate.orchestrator.credentials import (
     remove_secrets,
     write_login,
 )
+from physgate.orchestrator.design_pairs import DesignPair, plan_design_pairs
 from physgate.orchestrator.events import Followable
 from physgate.orchestrator.exceptions import (
     DecompositionError,
@@ -2356,6 +2357,7 @@ def start_run(
             interface_consumers=consumers,
             system_requirements=requirements,
             contract_pairs=pairs,
+            design_pairs=_design_pairs(plan, planned) or None,
             brief_words=words or None,
             followable=followable,
             components=plan.components if isinstance(plan, PartsPlan) else None,
@@ -2465,6 +2467,17 @@ def _contract_pairs(plan: Plan, planned: Sequence[_Issued]) -> tuple[ContractPai
         return plan_pairs(plan, subtask_of)
     except ContractError as exc:
         raise DecompositionError(str(exc), **exc.context) from None
+
+
+def _design_pairs(plan: Plan, planned: Sequence[_Issued]) -> tuple[DesignPair, ...]:
+    """The plan's design pairs, with each module's subtask, in the order the run dispatches them.
+
+    The plan modules are the first of ``planned``, one each, in run order; a closing pass and
+    integration follow them and are no module of the plan, so neither is a designer or a builder.
+    """
+    modules = planned[: len(plan.modules)]
+    subtask_of = {one.module: one.entry.subtask_id for one in modules}
+    return plan_design_pairs(plan, subtask_of, [one.module for one in modules])
 
 
 def _lists(

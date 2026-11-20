@@ -18,11 +18,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from physgate.contracts.pairs import ContractPair
 from physgate.orchestrator.common import NonEmptyStr, Timestamp, utc_now, utc_stamp
+from physgate.orchestrator.design_pairs import DesignPair
 from physgate.orchestrator.events import (
     RETRIED_CAUSE,
     ContractPairsPlanned,
     Decomposed,
     DecompositionRetried,
+    DesignPairsPlanned,
     DesignReviewRan,
     DesignUnavailable,
     Envelope,
@@ -118,6 +120,9 @@ class DecompositionSummary(BaseModel):
     #: The module pairs whose contract is tested, read from the plan; ``None`` without the
     #: consumers, so a run without the integration role records no such line.
     contract_pairs: tuple[ContractPair, ...] | None = None
+    #: The modules that build what another designs, read from the plan's specifications;
+    #: ``None`` or empty where the plan has none, so the run records no such line.
+    design_pairs: tuple[DesignPair, ...] | None = None
     #: The brief's own words for each system requirement the plan gives by number; ``None`` or
     #: empty when there are none, and then left out of the line.
     brief_words: tuple[CriterionWords, ...] | None = None
@@ -778,6 +783,8 @@ class RunRecord:
             )
         if decomposed is not None and decomposed.contract_pairs is not None:
             yield ContractPairsPlanned(**envelope(), pairs=decomposed.contract_pairs)
+        if decomposed is not None and decomposed.design_pairs:
+            yield DesignPairsPlanned(**envelope(), pairs=decomposed.design_pairs)
 
     def _unwritten(self) -> Callable[[], Envelope]:
         """Envelopes numbered from a log's first line, for lines checked and never written."""

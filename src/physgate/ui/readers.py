@@ -61,6 +61,7 @@ from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import render_jsonl, utc_now
 from physgate.orchestrator.completion import open_preconditions
+from physgate.orchestrator.design_wait import held_builders
 from physgate.orchestrator.events import (
     InfraRetryScheduled,
     SessionEnded,
@@ -371,6 +372,8 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             else {"cause": owed.cause, "subtask_id": owed.subtask_id, "detail": owed.detail},
             "completion": _completion(state),
             "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
+            # Each builder held while the module whose design it implements has not merged.
+            "held": held_builders(state).get("held", []),
             "superseded": dict(state.superseded),
             "last_line_at": None if last is None else last.ts,
             # This server's clock, in the log's own fixed-width form: a page measures the silence

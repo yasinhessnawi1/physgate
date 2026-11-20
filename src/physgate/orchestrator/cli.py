@@ -60,6 +60,7 @@ from physgate.orchestrator.decompose import (
 )
 from physgate.orchestrator.decomposition_review import stop_left_review
 from physgate.orchestrator.design_rounds import decompose_in_rounds
+from physgate.orchestrator.design_wait import held_builders
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
     Envelope,
@@ -1108,6 +1109,9 @@ def _drive_run(
             # the instant to resume after; every other step prints as it always has.
             **printed,
             "subtasks": {k: v.status for k, v in loop.state.subtasks.items()},
+            # Each builder held while the module whose design it implements has not merged, and
+            # why; left out where none is, so every other run prints as it always has.
+            **held_builders(loop.state),
             "open_queue_items": [item.item_id for item in loop.queue.open_items()],
             "tokens": {k: v.total() for k, v in account.by_kind().items()},
         }
