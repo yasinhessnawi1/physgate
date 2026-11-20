@@ -87,7 +87,8 @@ def test_a_stale_sensor_holds_the_sample_it_had_when_the_fault_began() -> None:
     )
 
     def sample(k: int) -> int:
-        return round(math.degrees(k / 208) * 1000 / 35)
+        # The pitch rate and the zero-rate level of 10 dps the scenario gives by default.
+        return round((math.degrees(k / 208) + 10) * 1000 / 35)
 
     assert found == [sample(83), sample(104), sample(104), sample(228)]
 
@@ -155,7 +156,8 @@ def test_a_saturation_reaches_only_the_sensor_it_names(sensor: str) -> None:
         """,
     )
     upright = round(1000 / 0.061)
+    # At rest the gyroscope's x reads its zero-rate level, 10 dps by default.
     assert found == {
-        "gyro": 32767 if sensor == "gyro" else 0,
+        "gyro": 32767 if sensor == "gyro" else round(10 * 1000 / 35),
         "accel": 32767 if sensor == "accel" else upright,
     }

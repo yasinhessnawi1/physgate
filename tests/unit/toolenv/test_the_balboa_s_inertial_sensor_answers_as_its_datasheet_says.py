@@ -400,6 +400,7 @@ def test_the_status_register_shows_each_new_sample_and_the_counts_each_sample_re
             "gyro_samples_read": 3,
             "accel_samples_read": 3,
             "invalid_samples_read": {"gyro": 0, "accel": 0},
+            "read_before_any_sample": {"gyro": 0, "accel": 0},
         },
     }
 
@@ -427,7 +428,9 @@ def test_the_gyroscope_takes_no_sample_in_its_80_ms_turn_on_and_its_first_ones_a
 ):
     # AN4682 Table 16: power-down to an active mode, 80 ms at most; Table 17: at 208 Hz two
     # samples to discard after it and after any ODR change (four at 1.66 kHz). Sample k is at
-    # k / 208 s: none before 80 ms (k < 17); 17 and 18 invalid (read as 0); 19 the first valid.
+    # k / 208 s: none before 80 ms (k < 17); 17 and 18 invalid; 19 the first valid. Before the
+    # first sample and for one to discard the outputs read the end of the range opposite the
+    # input (the documents give no value; the rig's conservative choice).
     found = _run(
         """
         write(0x11, [0x58], 0);
@@ -447,11 +450,11 @@ def test_the_gyroscope_takes_no_sample_in_its_80_ms_turn_on_and_its_first_ones_a
         rate="0.5",
     )
     y = round(math.degrees(0.5) * 1000 / 35)
-    assert found["turningOn"] == [0, 0]
-    assert found["discarded"] == [2, 0, 2, 0]
+    assert found["turningOn"] == [0, -32768]
+    assert found["discarded"] == [2, -32768, 2, -32768]
     assert found["valid"] == [2, y]
     assert found["invalidAfterOn"] == {"gyro": 2, "accel": 0}
-    assert found["changed"] == [0, 0, 0, 0, y]
+    assert found["changed"] == [-32768, -32768, -32768, -32768, y]
     assert found["invalid"] == {"gyro": 6, "accel": 0}
 
 
@@ -482,8 +485,8 @@ def test_the_accelerometer_discards_table_12_s_samples_in_high_performance_mode_
         )
 
     g = round(1000 / 0.061)
-    assert first_three("write(0x10, [0x40], 0);") == [0, 0, g]
-    assert first_three("write(0x13, [0x80], 0); write(0x10, [0x40], 0);") == [0, g, g]
+    assert first_three("write(0x10, [0x40], 0);") == [-32768, -32768, g]
+    assert first_three("write(0x13, [0x80], 0); write(0x10, [0x40], 0);") == [-32768, g, g]
     assert first_three("write(0x15, [0x10], 0); write(0x10, [0x40], 0);") == [g, g, g]
 
 
@@ -542,3 +545,90 @@ def test_each_output_byte_read_is_told_with_the_instant_its_sample_was_taken() -
         """
     )
     assert found == [["gyro", 30], ["accel", 31]]
+
+
+def test_the_gyroscope_s_turn_on_runs_from_its_power_up_write_whatever_rate_is_set_after() -> None:
+    # AN4682 section 2.7.1, Table 16: "Power Down" to "Low-Power / Normal / High-Performance",
+    # 80 ms at most. The Pololu LSM6 library's enableDefault() writes CTRL2_G = 0x80 (1.66 kHz)
+    # and the Balboa's balancing example then writes 0x58 (208 Hz) at once: the second write
+    # changes the rate inside the turn-on and does not end it. At 208 Hz from 0.5 ms the first
+    # sample at or after 80 ms is k = 17 (at 0.5 ms + 17 / 208 s), then Table 17's two discards.
+    found = _run(
+        """
+        write(0x11, [0x80], 0); write(0x11, [0x58], 0.0005);
+        const status = (t) => read(0x1e, 1, t)[0] & 0x02;
+        const y = (t) => { const g = read(0x22, 6, t); return int16(g[2], g[3]); };
+        const k = (n) => 0.0005 + (n + 0.5) / 208;
+        const early = [0.010, 0.020, 0.040, 0.079].map((t) => [status(t), y(t)]);
+        const settled = [17, 18, 19].map((n) => [status(k(n)), y(k(n))]);
+        // Power-down inside the turn-on ends it; a power-up begins a new one of 80 ms.
+        write(0x11, [0x00], 1); write(0x11, [0x58], 1.01); write(0x11, [0x40], 1.05);
+        const again = [status(1.089), status(1.0905), y(1.0905 + 2 / 104)];
+        out({ early, settled, again, before: sensor.counts.read_before_any_sample });
+        """,
+        rate="1.0",
+    )
+    y = round(math.degrees(1.0) * 1000 / 35)
+    assert found["early"] == [[0, -32768]] * 4
+    assert found["settled"] == [[2, -32768], [2, -32768], [2, y]]
+    # From 1.01 s (power-up) to 1.09 s; at 104 Hz from 1.05 s the first sample is at 1.05 + 5 /
+    # 104 = 1.0981 s, so at 1.0905 s none yet; two to discard follow it.
+    assert found["again"] == [0, 0, -32768]
+    # Each high byte read before the first sample is counted: four reads of three axes.
+    assert found["before"] == {"gyro": 12, "accel": 0}
+
+
+def test_an_odr_change_of_either_sensor_starts_the_other_s_discards_again() -> None:
+    # AN4682 sections 2.6.2 and 2.7.1: samples are discarded "when the accelerometer / gyroscope
+    # ODR is changed"; the rig reads that as either sensor's change (the harsher reading). The
+    # gyroscope at 208 Hz, settled at 0.2 s; the accelerometer's rate set at 0.2 s makes the
+    # gyroscope's next two samples ones to discard. The accelerometer in high-performance mode at
+    # 104 Hz (two to discard), settled at 0.3 s; the gyroscope's rate changed then makes its next
+    # two ones to discard as well.
+    found = _run(
+        """
+        write(0x11, [0x58], 0);
+        const y = (t) => { const g = read(0x22, 6, t); return int16(g[2], g[3]); };
+        const x = (t) => { const a = read(0x28, 6, t); return int16(a[0], a[1]); };
+        const before = y(0.2);
+        write(0x10, [0x40], 0.2);
+        const k = (n) => (n + 0.5) / 208;
+        const gyro = [42, 43, 44].map((n) => y(k(n)));
+        const settledX = x(0.3);
+        write(0x11, [0x48], 0.3);
+        const m = (n) => 0.2 + (n + 0.5) / 104;
+        const accel = [11, 12, 13].map((n) => x(m(n)));
+        out({ before, gyro, settledX, accel });
+        """,
+        rate="0.5",
+    )
+    y = round(math.degrees(0.5) * 1000 / 35)
+    g = round(1000 / 0.061)
+    assert found == {
+        "before": y,
+        "gyro": [-32768, -32768, y],
+        "settledX": g,
+        "accel": [-32768, -32768, g],
+    }
+
+
+def test_the_gyroscope_reads_its_zero_rate_level_on_every_axis_but_not_in_a_discarded_one() -> None:
+    # Datasheet "Mechanical characteristics": G_TyOff, the typical zero-rate level, +-10 dps. At
+    # 245 dps (8.75 mdps a count) a level of (2, -3, 4) dps reads (229, -343, 457) at rest; a
+    # sample to discard reads the end of each axis' range opposite the sign of what it measures.
+    found = evaluate(
+        SENSOR.replace("faults,\n", "faults, zeroRateDps: [2, -3, 4],\n")
+        % {
+            "pitch": "0",
+            "rate": "0",
+            "faults": NO_FAULT,
+            "raw": "null",
+            "body": """
+            write(0x11, [0x50], 0);
+            const g = (t) => { const b = read(0x22, 6, t);
+              return [int16(b[0], b[1]), int16(b[2], b[3]), int16(b[4], b[5])]; };
+            out({ discarded: g(17.5 / 208), level: g(0.5) });
+            """,
+        }
+    )
+    assert found == {"discarded": [-32768, 32767, -32768], "level": [229, -343, 457]}

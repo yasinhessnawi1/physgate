@@ -37,7 +37,14 @@ def test_the_least_scenario_is_filled_in_with_a_still_board_and_nothing_injected
     read = _read(_base())["ok"]
     assert read == {
         "duration_s": 1.0,
-        "imu": {"pitch_rad": [[0, 0]], "pitch_rate_rad_s": None, "raw": []},
+        # The gyroscope's zero-rate level by default: the datasheet's typical +-10 dps (G_TyOff)
+        # at its stated magnitude, so firmware that does not calibrate it shows it.
+        "imu": {
+            "pitch_rad": [[0, 0]],
+            "pitch_rate_rad_s": None,
+            "raw": [],
+            "gyro_zero_rate_dps": [10, 10, 10],
+        },
         "encoders": {"left": [[0, 0]], "right": [[0, 0]]},
         "faults": [],
         "buttons": [],
@@ -49,6 +56,10 @@ def test_the_least_scenario_is_filled_in_with_a_still_board_and_nothing_injected
         "trace": {"input_edges": False, "max_lines": 2_000_000},
         "bootloader": "a-star",
         "motors_off_hold_s": 0.02,
+        # The watchdog oscillator's nominal 128 kHz (datasheet "Watchdog Timer"), and the seed of
+        # SRAM's power-on pattern.
+        "watchdog_oscillator_hz": 128_000,
+        "sram_seed": 1,
     }
 
 
@@ -59,6 +70,7 @@ def test_every_part_a_scenario_can_hold_is_read_as_given() -> None:
             "pitch_rad": [[0, 0], [1, 0.5]],
             "pitch_rate_rad_s": [[0, 0.5]],
             "raw": [{"t_s": 1.5, "gyro": [1, -2, 3], "accel": [16384, 0, -1]}],
+            "gyro_zero_rate_dps": [-10, 0, 2.5],
         },
         encoders={"left_rev_s": [[0, 5]], "right_rev_s": [[0, -2.5], [1, 0]]},
         faults=[
@@ -86,8 +98,12 @@ def test_every_part_a_scenario_can_hold_is_read_as_given() -> None:
         trace={"input_edges": True, "max_lines": 10},
         bootloader="none",
         motors_off_hold_s=0.005,
+        watchdog_oscillator_hz=112_000,
+        sram_seed=0xFFFFFFFF,
     )
     read = _read(scenario)["ok"]
+    assert read["imu"]["gyro_zero_rate_dps"] == [-10, 0, 2.5]
+    assert (read["watchdog_oscillator_hz"], read["sram_seed"]) == (112_000, 0xFFFFFFFF)
     assert read["imu"]["raw"] == [{"t_s": 1.5, "gyro": [1, -2, 3], "accel": [16384, 0, -1]}]
     assert read["encoders"] == {"left": [[0, 5]], "right": [[0, -2.5], [1, 0]]}
     assert [f["kind"] for f in read["faults"]] == ["nack", "nack", "sda_held", "stale", "saturated"]
@@ -311,6 +327,33 @@ REFUSED: list[tuple[str, object, str]] = [
     ),
     ("start-of-frame as text", _base(usb_sof="true"), "usb_sof"),
     ("a battery past its bound", _base(battery_v=16), "battery_v"),
+    # Above 10.8 V the motor drivers limit the board; below 5 V its 5 V regulator cannot hold
+    # VCC, and the chip's brown-out reset lies at 4.0 to 4.5 V (Balboa 32U4 User's Guide;
+    # datasheet Table 8-1): neither is shown.
+    ("a battery past the motor drivers' limit", _base(battery_v=10.81), "battery_v"),
+    ("a battery below the regulator's output", _base(battery_v=4.99), "battery_v"),
+    (
+        "a zero-rate level past the datasheet's",
+        _base(imu={"gyro_zero_rate_dps": [0, 10.01, 0]}),
+        "imu.gyro_zero_rate_dps[1]",
+    ),
+    (
+        "a zero-rate level of two axes",
+        _base(imu={"gyro_zero_rate_dps": [0, 1]}),
+        "imu.gyro_zero_rate_dps",
+    ),
+    (
+        "a watchdog oscillator above its nominal",
+        _base(watchdog_oscillator_hz=128_001),
+        "watchdog_oscillator_hz",
+    ),
+    (
+        "a watchdog oscillator below its typical curves",
+        _base(watchdog_oscillator_hz=111_999),
+        "watchdog_oscillator_hz",
+    ),
+    ("an SRAM seed that is no integer", _base(sram_seed=1.5), "sram_seed"),
+    ("an SRAM seed below zero", _base(sram_seed=-1), "sram_seed"),
     ("a probe that is no symbol", _base(probes=[{"symbol": "a b"}]), "probes[0].symbol"),
     ("a probe beginning with a digit", _base(probes=[{"symbol": "1update"}]), "probes[0].symbol"),
     (

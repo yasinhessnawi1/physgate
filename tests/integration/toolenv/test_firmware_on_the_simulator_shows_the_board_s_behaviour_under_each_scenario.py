@@ -139,10 +139,11 @@ void loop() {
 """
 
 RATE = 0.5  # rad/s
-#: The sketch's first instruction after power-on: the fuses' start-up time, 14CK + 65 ms.
-START = round(0.065 * F) + 14
-#: The gyroscope's y counts at 1000 dps (35 mdps a count), and the command the bench derives.
-GYRO_Y = round(math.degrees(RATE) * 1000 / 35)
+#: The sketch's first instruction after power-on: the fuses' start-up time, 16K CK + 14CK + 65 ms.
+START = round(0.065 * F) + 14 + 16_384
+#: The gyroscope's y counts at 1000 dps (35 mdps a count), its zero-rate level of 10 dps by
+#: default (datasheet G_TyOff) included, and the command the bench derives.
+GYRO_Y = round((math.degrees(RATE) + 10) * 1000 / 35)
 COMMAND = int(GYRO_Y / 8)
 
 
@@ -180,35 +181,42 @@ def test_the_sensor_is_read_at_its_full_scale_and_the_motors_driven_from_it(
     assert lines[0] == "RESET:0"
     assert lines[-1] == f"G:{GYRO_Y} X:{round(1000 / 0.061)} A:0 L:0 R:0"
     assert summary["imu"]["registers_written"] == {"CTRL1_XL": 0x40, "CTRL2_G": 0x58}
-    # The sketch starts 65 ms after power-on and the gyroscope then turns on for 80 ms
+    # The sketch starts some 66 ms after power-on and the gyroscope then turns on for 80 ms
     # (AN4682 Table 16): of some 92 updates, the first ones find no sample or an invalid one,
     # which the summary counts.
     assert summary["imu"]["gyro_samples_read"] >= 85
     assert summary["imu"]["invalid_samples_read"]["gyro"] >= 1
     # OCR1A and OCR1B carry the command; Timer1 in phase- and frequency-correct mode to 400.
-    assert summary["motors"]["left"]["last"] == COMMAND
-    assert summary["motors"]["right"]["max"] == COMMAND
+    assert summary["motors"]["left"]["last"] == summary["motors"]["right"]["last"] == COMMAND
+    # The bench does not wait for data ready: during the turn-on it reads the outputs before any
+    # sample and the samples to discard, which read -32768 (the rig's value for them): a command
+    # of -4096, which the library limits to its 300, in reverse.
+    assert summary["motors"]["right"]["max"] == 300
     assert summary["timer1"] == {"icr1": 400, "wgm": 8, "tccr1a": 0b10100000, "tccr1b": 0b00010001}
     for pin in ("PB5", "PB6"):
         pwm = summary["pwm"][pin]
         assert pwm["frequency_hz"] == pytest.approx(20_000, rel=0.01)
-        assert pwm["high_cycles"]["mean"] == pytest.approx(2 * COMMAND, abs=4)
-    # The motors' direction pins stay low for a positive command.
-    assert not [
-        e for e in trace if e["type"] == "pin" and e["pin"] in ("PB1", "PB2") and e["value"]
-    ]
+        # The last high time is the command's (the mean holds the reverse ones at the start).
+        assert pwm["last_high_cycles"] == pytest.approx(2 * COMMAND, abs=4)
+    # The direction pins went high for that reverse command and are low for the positive one.
+    direction = [e["value"] for e in trace if e["type"] == "pin" and e["pin"] in ("PB1", "PB2")]
+    assert 1 in direction and direction[-2:] == [0, 0]
     # The update runs at 100 Hz from the sketch's start, 65 ms after power-on.
     update = summary["probes"]["update"]
     assert update["entries"] >= 90
     entries = [e["c"] for e in trace if e["type"] == "probe" and e["symbol"] == "update"]
     steady = entries[5:]
     assert (steady[-1] - steady[0]) / (len(steady) - 1) == pytest.approx(F / 100, rel=0.001)
-    # Lateness is against the first entry's schedule. millis() counts from init(), and before
-    # setup() the core waits for the PLL's lock (some 10 ms here), so the first updates are due
-    # at once and come back to back, the later ones that much early; millis() steps by
-    # 1.024 ms, and none is late by more than that step.
+    # Lateness is against the grid of the 10 ms period through the earliest phase seen.
+    # millis() counts from init(), and before setup() the core waits for the PLL's lock (some
+    # 10 ms here), so the first updates are due at once and come back to back: late on the grid
+    # the later ones keep, by up to that wait. Against the first entry they read early instead.
     late = update["lateness_cycles"]
-    assert -_cycle(0.015) <= late["min"] <= late["max"] <= _cycle(0.0011)
+    assert late["min"] == 0 and _cycle(0.005) <= late["max"] <= _cycle(0.015)
+    assert update["lateness_from_first_entry_cycles"]["max"] <= 0
+    # Past the catch-up, millis() steps by 1.024 ms and no update strays by more than that.
+    steady_late = [c - steady[0] - i * (F / 100) for i, c in enumerate(steady)]
+    assert max(steady_late) - min(steady_late) <= _cycle(0.0011)
     period = update["period_cycles"]
     assert 0 < period["min"] <= period["max"] <= _cycle(0.0111)
     duration = update["duration_cycles"]
@@ -410,14 +418,13 @@ def test_a_main_program_stalled_with_interrupts_on_misses_updates_while_timers_s
     assert [r["cause"] for r in summary["resets"]] == ["power_on"]
     update = summary["probes"]["update"]
     assert update["period_cycles"]["max"] >= _cycle(0.04)
-    # Against the first entry's schedule the updates run up to the start-up offset early (some
-    # 13 ms, the PLL's lock before setup()); the stall makes the next one 40 ms late against
-    # its own due time, that offset less.
+    # On the grid of the earliest phase the stall makes the first update after it some 40 ms
+    # late; against the first entry, which the PLL's lock before setup() made late itself, the
+    # same update reads that much less late.
     late = update["lateness_cycles"]
-    assert late["max"] >= _cycle(0.02) and late["max"] - late["min"] >= _cycle(0.03)
-    # The updates it missed are caught up back to back, each measured against its own due
-    # time, so none is earlier than the setup offset the unstalled run shows.
-    assert late["min"] >= -_cycle(0.015)
+    assert late["min"] == 0 and _cycle(0.03) <= late["max"] <= _cycle(0.045)
+    first = update["lateness_from_first_entry_cycles"]
+    assert first["max"] < late["max"] - _cycle(0.005)
     assert summary["vectors"]["TIMER0_OVF"]["count"] == pytest.approx((F - START) / 64 / 256, abs=2)
 
 
@@ -509,3 +516,33 @@ def test_a_short_stall_with_interrupts_off_loses_the_timer_ticks_it_held_off(
     first, last = entries[0], entries[-1]
     behind = last - (first + (len(entries) - 1) * F / 100)
     assert _cycle(0.04) <= behind <= _cycle(0.06), behind / F
+
+
+#: A sketch that takes 1800 bytes from the heap and then recurses some 40 frames deep.
+HEAP = r"""#include <Arduino.h>
+uint8_t *volatile buffer;
+static volatile uint16_t sink;
+__attribute__((noinline)) uint16_t deep(uint8_t d) {
+  volatile uint8_t pad[20];
+  pad[0] = d;
+  return d ? deep(d - 1) + pad[0] : 0;
+}
+void setup() {
+  buffer = (uint8_t *)malloc(1800);
+  if (buffer) memset(buffer, 0x5a, 1800);
+  sink = deep(40);
+}
+void loop() {}
+"""
+
+
+def test_a_stack_that_grows_into_the_heap_is_shown_as_a_collision(tmp_path: Path) -> None:
+    # avr-libc's malloc() keeps the heap's end in __brkval: 1800 bytes and their two-byte size
+    # past __heap_start. The recursion takes the stack below that end: the headroom is negative.
+    env = environment()
+    elf = build(env, tmp_path / "heap", HEAP)
+    summary, _ = simulate(env, elf, {"avrsim_scenario": 1, "duration_s": 0.1}, tmp_path)
+    stack = summary["stack"]
+    assert stack["heap_end_max"] == stack["static_end"] + 2 + 1800
+    assert stack["headroom_bytes"] == stack["min_sp"] - stack["heap_end_max"] < 0
+    assert stack["collision"] is True
