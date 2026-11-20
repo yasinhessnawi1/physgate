@@ -358,6 +358,130 @@ def test_platformio_is_quiet_and_its_offline_check_refuses_every_download(tmp_pa
         assert offline.get(name) == "http://127.0.0.1:9"
 
 
+# ---- the AVR simulator ------------------------------------------------------------------------
+
+#: avr8js 0.21.1 as the npm registry publishes it (MIT, no dependencies of its own).
+AVR8JS_INTEGRITY = (
+    "sha512-lS1vPaB0gB2GXoPrHFQOUG/5CRORjvnmjbs8SiPZdJpt4HkV0+v6HnNeXxo/X9lPqumqphls2Qyql8zsw9rBaw"
+    "=="
+)
+
+
+def test_the_simulator_is_locked_to_avr8js_alone_with_its_integrity_hash() -> None:
+    rig = TOOLENV / "avrsim"
+    package = json.loads((rig / "package.json").read_text(encoding="utf-8"))
+    assert package["dependencies"] == {"avr8js": "0.21.1"}
+    assert package["type"] == "module"
+    assert "devDependencies" not in package and "scripts" not in package
+    lock = json.loads((rig / "package-lock.json").read_text(encoding="utf-8"))
+    assert lock["lockfileVersion"] == 3
+    entries = {name: entry for name, entry in lock["packages"].items() if name}
+    assert entries == {
+        "node_modules/avr8js": {
+            "version": "0.21.1",
+            "resolved": "https://registry.npmjs.org/avr8js/-/avr8js-0.21.1.tgz",
+            "integrity": AVR8JS_INTEGRITY,
+            "license": "MIT",
+            "engines": {"node": ">= 20.19.0", "npm": ">= 10.0.0"},
+        }
+    }
+
+
+def test_the_simulator_s_files_are_copied_in_with_its_launcher_executable_and_no_link(
+    tmp_path: Path,
+) -> None:
+    provision = _provision()
+    dest = tmp_path / "env"
+    dest.mkdir()
+    provision.copy_avrsim(dest)
+    rig = TOOLENV / "avrsim"
+    expected = {"package.json", "package-lock.json", "bin/avrsim"}
+    expected |= {f"src/{path.name}" for path in (rig / "src").glob("*.js")}
+    copied = {
+        str(path.relative_to(dest / "avrsim"))
+        for path in (dest / "avrsim").rglob("*")
+        if path.is_file()
+    }
+    assert copied == expected
+    for name in expected:
+        path = dest / "avrsim" / name
+        assert not path.is_symlink() and path.stat().st_nlink == 1, name
+        assert path.read_bytes() == (rig / name).read_bytes(), name
+    assert (dest / "avrsim" / "bin" / "avrsim").stat().st_mode & 0o111 == 0o111
+    assert not (dest / "avrsim" / "src" / "cli.js").stat().st_mode & 0o111
+
+
+def test_the_environment_records_every_file_its_simulator_was_built_from() -> None:
+    provision = _provision()
+    built = provision.built_from()
+    rig = {"avrsim/package.json", "avrsim/package-lock.json", "avrsim/bin/avrsim"}
+    rig |= {f"avrsim/src/{path.name}" for path in (TOOLENV / "avrsim" / "src").glob("*.js")}
+    assert rig <= set(built)
+    assert {"pyproject.toml", "uv.lock", "pins.json", "session.json",
+            "platformio-server/package-lock.json"} <= set(built)  # fmt: skip
+    for name in built:
+        assert (TOOLENV / name).is_file(), name
+
+
+def _summaries() -> tuple[dict[str, object], dict[str, object]]:
+    balboa = {
+        "timer1": {"icr1": 400},
+        "pwm": {
+            "PB5": {"period_cycles": {"count": 19_970, "mean": 800.0}, "frequency_hz": 20_000.0}
+        },
+    }
+    timing = {
+        "usart1": {"text": "W:69 G:58 L:14 R:-7\r\nW:69 G:58 L:30 R:-15\r\n"},
+        "imu": {"registers_written": {"CTRL2_G": 0x58}, "whoami_reads": 100},
+        "encoders": {"counts": {"left": 30, "right": -15}},
+        "probes": {"update": {"entries": 100, "period_cycles": {"count": 99, "mean": 159_722.6}}},
+    }
+    return balboa, timing
+
+
+def test_the_simulator_s_self_check_takes_the_fixtures_known_answers() -> None:
+    provision = _provision()
+    balboa, timing = _summaries()
+    answers = provision.avrsim_answers(balboa, timing)
+    assert answers == {
+        "oc1a_frequency_hz": 20_000.0,
+        "icr1": 400,
+        "who_am_i": "69",
+        "ctrl2_g": "58",
+        "encoder_counts": {"left": 30, "right": -15},
+        "update_period_cycles": 159_722.6,
+    }
+
+
+WRONG_ANSWERS = [
+    ("PWM off by a percent", ("balboa", "pwm", "PB5", "period_cycles", "mean"), 809.0, "OC1A"),
+    ("no PWM at all", ("balboa", "pwm"), {}, "OC1A"),
+    ("another top", ("balboa", "timer1", "icr1"), 255, "ICR1"),
+    ("another WHO_AM_I", ("timing", "usart1", "text"), "W:6A G:58 L:30 R:-15\r\n", "printed"),
+    ("nothing printed", ("timing", "usart1", "text"), "", "fixture printed"),
+    ("CTRL2_G not written", ("timing", "imu", "registers_written"), {}, "CTRL2_G"),
+    ("a count lost", ("timing", "encoders", "counts", "left"), 29, "encoder"),
+    ("a slow update", ("timing", "probes", "update", "period_cycles", "mean"), 158_000.0, "update"),
+    ("too few updates", ("timing", "probes", "update", "entries"), 50, "update"),
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("why", "path", "value", "says"), WRONG_ANSWERS, ids=[w[0] for w in WRONG_ANSWERS]
+)
+def test_a_self_check_answer_that_is_not_the_known_one_stops_provisioning(
+    why: str, path: tuple[str, ...], value: object, says: str
+) -> None:
+    provision = _provision()
+    balboa, timing = _summaries()
+    target: dict[str, object] = {"balboa": balboa, "timing": timing}
+    for key in path[:-1]:
+        target = target[key]  # type: ignore[assignment]
+    target[path[-1]] = value
+    with pytest.raises(provision.ProvisionError, match=says):
+        provision.avrsim_answers(balboa, timing)
+
+
 # ---- the session file ------------------------------------------------------------------------
 
 
@@ -367,7 +491,11 @@ def test_the_session_file_is_one_the_harness_holds_and_names_what_provisioning_m
     wiring = SessionWiring.model_validate_json((TOOLENV / "session.json").read_text("utf-8"))
     # The programs are the environment's own scripts, and the links lead into the store
     # provisioning fills, each by its directory there.
-    assert set(wiring.programs.values()) == {"venv/bin/pio", "venv/bin/platformio"}
+    assert wiring.programs == {
+        "pio": "venv/bin/pio",
+        "platformio": "venv/bin/platformio",
+        "avrsim": "avrsim/bin/avrsim",
+    }
     assert set(wiring.links.values()) == {
         f"platformio/{n}" for n in ("platforms", "packages", "lib")
     }

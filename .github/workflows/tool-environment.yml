@@ -62,7 +62,8 @@ jobs:
         # The only step in which the environment meets the network. The script holds each
         # download to a digest recorded before it was fetched (the interpreter, each
         # wheel, Node, each npm package, each PlatformIO package), copies every file,
-        # checks the result offline and leaves it read-only.
+        # checks the result offline (two firmware fixtures run on the simulator to their
+        # known answers among it) and leaves it read-only.
         if: steps.kept.outputs.cache-hit != 'true'
         run: |
           uv run --frozen python toolenv/provision.py \
@@ -237,7 +238,9 @@ jobs:
         # device, or is let to start an upload; a plain build whose own project file starts a
         # flash finds the device denied; the environment's
         # own servers answer with the pinned libraries, to the pinned binary too; every program
-        # the environment installs is one the hardware rule has classed. Then
+        # the environment installs is one the hardware rule has classed; the simulator is the
+        # locked one, recorded by its version line, keeps the 32U4's vectors and registers,
+        # and firmware built with the environment runs on it to its known answers. Then
         # every row is counted: a file that skipped here ran nowhere on Linux, so a skip
         # is a failure, as is a run that collected nothing.
         env:
@@ -254,6 +257,9 @@ jobs:
             tests/integration/toolenv/test_the_own_tool_servers_compute_with_the_pinned_libraries.py \
             tests/integration/toolenv/test_provisioning_finds_its_own_interpreter_from_any_working_directory.py \
             tests/integration/toolenv/test_every_program_the_tool_environment_installs_is_classed_for_the_hardware_rule.py \
+            tests/integration/toolenv/test_the_provisioned_simulator_is_the_locked_one_and_recorded_by_its_version_line.py \
+            tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py \
+            tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py \
             || status=$?
           python3 - "$RUNNER_TEMP/rows.xml" "$status" <<'PY'
           import sys

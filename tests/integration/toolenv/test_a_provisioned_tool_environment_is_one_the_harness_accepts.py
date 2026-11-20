@@ -64,6 +64,7 @@ def _native(env: Path) -> dict[str, str]:
     return {
         "avr-gcc": str(env / "platformio" / "packages" / "toolchain-atmelavr" / "bin" / "avr-gcc"),
         "node": str(env / "node" / "bin" / "node"),
+        "avrsim": str(env / "avrsim" / "bin" / "avrsim"),
     }
 
 
@@ -98,6 +99,7 @@ def test_the_harness_measures_the_environment_at_its_pins(
     tools = {tool.name: tool.version for tool in measured.native_tools}
     assert tools["node"] == "v24.22.1"
     assert tools["avr-gcc"].startswith("avr-gcc (GCC) 7.3.0")
+    assert tools["avrsim"] == "avrsim 0.1.0 avr8js 0.21.1 node 24.22.1"
     assert measured.entries > 10_000
 
 
@@ -128,6 +130,19 @@ def test_the_offline_self_check_built_the_firmware_and_ran_the_libraries(
     assert check["libraries"]["versions"] == PINNED
     assert check["libraries"]["phase_margin_deg"] == pytest.approx(28.0202, abs=1e-3)
     assert check["platformio_server"] == "3.1.0"
+    # Both firmware fixtures ran on the simulator to their known answers.
+    simulated = check["avrsim"]
+    assert simulated["version"] == "avrsim 0.1.0 avr8js 0.21.1 node 24.22.1"
+    assert simulated["oc1a_frequency_hz"] == pytest.approx(20_000, rel=0.01)
+    assert (simulated["icr1"], simulated["who_am_i"], simulated["ctrl2_g"]) == (400, "69", "58")
+    assert simulated["encoder_counts"] == {"left": 30, "right": -15}
+    assert simulated["update_period_cycles"] == pytest.approx(160_000, rel=0.01)
+    provision = _provision()
+    for name in provision.avrsim_files():
+        assert (env / "avrsim" / name).read_bytes() == (
+            REPO / "toolenv" / "avrsim" / name
+        ).read_bytes()
+    assert set(written["locks_sha256"]) == set(provision.built_from())
     assert not (env / "platformio" / ".cache").exists()
     own = sorted(p.name for p in (REPO / "toolenv" / "servers").glob("*.py"))
     assert written["own_servers"] == own

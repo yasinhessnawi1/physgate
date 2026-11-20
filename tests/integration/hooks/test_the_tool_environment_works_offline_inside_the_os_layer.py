@@ -4,9 +4,10 @@ A real session, through the real binary against the scripted endpoint, under the
 settings with ``network: none``: its shell runs module scripts on the provisioned tool
 environment's interpreter (python-control margins of a fixture loop, a MuJoCo pendulum stepped)
 and builds the Balboa firmware with PlatformIO, its core directory in the session's temp and
-linked into the environment's read-only store. In the same session git is refused, the
-worktree's git directory cannot be written and the network cannot be reached, so what
-succeeded needed none of them (that the build calls no git at all is shown with a stand-in git
+linked into the environment's read-only store, then runs the ELF it built on the environment's
+simulator, ``avrsim``, which writes its trace into the session's temp. In the same session git
+is refused, the worktree's git directory cannot be written and the network cannot be reached, so
+what succeeded needed none of them (that the build calls no git at all is shown with a stand-in git
 by the provisioning test). With the layer off,
 the same two probes reach, which shows they would see a reach. The environment measures the
 same after the session as before: nothing the session ran wrote into it.
@@ -16,6 +17,7 @@ same after the session as before: nothing the session ran wrote into it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Iterator
@@ -66,6 +68,14 @@ void loop() {
   delay(10);
 }
 """
+#: One second of board time for the built firmware: Balboa32U4Motors runs Timer1 at 20 kHz.
+SCENARIO = '{"avrsim_scenario": 1, "duration_s": 1.0}'
+#: What the session reads from the simulator's summary.
+SIMULATED = (
+    "import json, sys; s = json.load(sys.stdin); "
+    "print('AVRSIM ' + json.dumps({'hz': s['pwm']['PB5']['frequency_hz'],"
+    " 'icr1': s['timer1']['icr1'], 'elf': s['elf_sha256']}))"
+)
 GIT_PROBE = "git status --short >/dev/null 2>&1 && echo GIT-REACHED || echo GIT-REFUSED"
 
 
@@ -112,6 +122,7 @@ def layout(tmp_path: Path) -> Iterator[Layout]:
         (control / "pendulum.xml").write_text(PENDULUM)
         (firmware / "platformio.ini").write_text(FIRMWARE_INI)
         (firmware / "src" / "main.cpp").write_text(FIRMWARE_MAIN)
+        (firmware / "scenario.json").write_text(SCENARIO)
         yield made
 
 
@@ -136,6 +147,15 @@ def _steps(env: Path, temp: Path, layout: Layout) -> list[dict[str, object]]:
             "Bash",
             command=f"mkdir -p {core} && {links} && cd {modules}/firmware && {pio} 2>&1 | tail -4",
         ),
+        tool(
+            "Bash",
+            command=(
+                f"cd {modules}/firmware && {env}/avrsim/bin/avrsim run "
+                f"--elf {temp}/pio-build/balboa/firmware.elf "
+                f"--scenario scenario.json --out {temp}/trace.jsonl 2>/dev/null "
+                f'| {interpreter} -I -c "{SIMULATED}"'
+            ),
+        ),
         tool("Bash", command=GIT_PROBE),
         tool("Bash", command=_git_write(layout.common)),
         tool("Bash", command=NET_PROBE),
@@ -157,11 +177,17 @@ def test_a_session_computes_and_builds_offline_with_git_and_the_network_refused(
     done = run_session(layout, steps, layer=True, network="none", timeout=600)
     told = done["told"]
     assert isinstance(told, list)
-    margins, simulated, built, git, gitdir, net = (str(said) for said in told)
+    margins, simulated, built, on_simulator, git, gitdir, net = (str(said) for said in told)
     assert _line(margins, "MARGINS")["phase_margin_deg"] == pytest.approx(28.0202, abs=1e-3)
     assert _line(simulated, "MUJOCO")["time_s"] == pytest.approx(1.0)
     assert "used 4798 bytes from 28672 bytes" in built and "used 173 bytes from 2560 bytes" in built
     assert "[SUCCESS]" in built
+    ran: dict[str, object] = json.loads(on_simulator.split("AVRSIM ", 1)[1].splitlines()[0])
+    assert ran["hz"] == pytest.approx(20_000, rel=0.01)
+    assert ran["icr1"] == 400
+    elf = layout.temp / "pio-build" / "balboa" / "firmware.elf"
+    assert ran["elf"] == hashlib.sha256(elf.read_bytes()).hexdigest()
+    assert (layout.temp / "trace.summary.json").is_file()
     assert "does not run git" in git
     assert "GITDIR-DENIED" in gitdir
     assert not (layout.common / "probe-written").exists()

@@ -1,0 +1,8 @@
+{
+  "name": "physgate-avrsim",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "avr8js": "0.21.1"
+  }
+}
