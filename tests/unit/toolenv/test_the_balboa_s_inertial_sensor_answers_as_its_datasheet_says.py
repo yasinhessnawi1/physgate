@@ -9,6 +9,7 @@ Each fault the scenario can inject changes exactly what it names.
 
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
 
@@ -220,3 +221,124 @@ def test_a_software_reset_returns_the_registers_and_read_only_ones_keep_their_va
     assert found["before"] == [0x58, 0x44, 0x69]
     assert found["after"] == [0x00, 0x04, 0x00]
     assert found["writes"] == [[0x11, 0x58], [0x12, 0x44], [0x0F, 0x00], [0x12, 0x05]]
+
+
+def test_every_full_scale_reads_at_its_own_sensitivity() -> None:
+    # FS_G 00..11: 245, 500, 1000, 2000 dps; FS_XL 00..11: 2, 16, 4, 8 g (that order).
+    found = _run(
+        """
+        const y = (t) => { const g = read(0x22, 6, t); return int16(g[2], g[3]); };
+        const z = (t) => { const a = read(0x28, 6, t); return int16(a[4], a[5]); };
+        const scaled = (register, base, value) => [0, 1, 2, 3].map((fs, i) => {
+          write(register, [base | (fs << 2)], i); return value(i + 0.5); });
+        const gyro = scaled(0x11, 0x50, y);
+        const accel = scaled(0x10, 0x40, z);
+        out({ gyro, accel });
+        """,
+        rate="0.5",
+        pitch="Math.PI / 2",
+    )
+    dps = math.degrees(0.5)
+    assert found == {
+        "gyro": [round(dps * 1000 / mdps) for mdps in (8.75, 17.5, 35, 70)],
+        "accel": [round(1000 / mg) for mg in (0.061, 0.488, 0.122, 0.244)],
+    }
+
+
+#: Every ODR code (CTRL1_XL and CTRL2_G bits 7:4) and its rate in Hz.
+RATES = {1: 12.5, 2: 26, 3: 52, 4: 104, 5: 208, 6: 416, 7: 833, 8: 1660, 9: 3330, 10: 6660}
+
+
+def test_each_output_data_rate_takes_its_samples_at_its_own_period() -> None:
+    # Code c is set at 10 c s; well after it, sample k (taken at 10 c + k / ODR) is not ready a
+    # thousandth of a period before its instant and is just after, once sample k - 1 was read.
+    # The gyroscope stops at 1.66 kHz: its codes 9 and 10 are power-down.
+    found = _run(
+        """
+        const rates = RATES;
+        const ready = (register, bit, outputs) => Object.entries(rates).map(([code, odr]) => {
+          const t0 = 10 * code, k = Math.floor(odr) + 1;
+          write(register, [code << 4], t0);
+          read(outputs, 6, t0 + (k - 0.5) / odr);
+          const status = (t) => read(0x1e, 1, t)[0] & bit;
+          return [status(t0 + (k - 0.001) / odr), status(t0 + (k + 0.001) / odr)];
+        });
+        out({ accel: ready(0x10, 0x01, 0x28), gyro: ready(0x11, 0x02, 0x22) });
+        """.replace("RATES", json.dumps(RATES))
+    )
+    assert found == {
+        "accel": [[0, 1]] * 10,
+        "gyro": [[0, 2]] * 8 + [[0, 0]] * 2,
+    }
+
+
+def test_a_sample_is_ready_at_its_own_instant_to_the_last_bit_of_the_time() -> None:
+    # At 208 Hz, 60 / 208 * 208 falls just short of 60 in floating point; sample 60 is still due.
+    found = _run(
+        """
+        write(0x11, [0x50], 0);
+        read(0x22, 6, 59.5 / 208);
+        out(read(0x1e, 1, 60 / 208)[0] & 0x02);
+        """
+    )
+    assert found == 0x02
+
+
+def test_changing_only_the_full_scale_keeps_the_sampling_instants() -> None:
+    found = _run(
+        """
+        write(0x11, [0x58], 0);
+        read(0x22, 6, 100.5 / 208);
+        write(0x11, [0x5c], 100.6 / 208);                    // 2000 dps, the same 208 Hz
+        const status = (t) => read(0x1e, 1, t)[0] & 0x02;
+        out([status(100.999 / 208), status(101.001 / 208)]);
+        """
+    )
+    assert found == [0, 2]
+
+
+def test_a_stale_sensor_says_no_data_is_ready_even_before_its_held_sample_is_read() -> None:
+    found = _run(
+        """
+        write(0x11, [0x58], 0);
+        read(0x22, 6, 0.4);
+        out(read(0x1e, 1, 0.6)[0] & 0x02);
+        """,
+        faults="{ nack: false, stale_since: t >= 0.5 && t < 1.0 ? 0.5 : null, saturated: null }",
+    )
+    assert found == 0
+
+
+def test_the_status_register_shows_each_new_sample_and_the_counts_each_sample_read() -> None:
+    found = _run(
+        """
+        write(0x11, [0x50], 0); write(0x10, [0x40], 0);      // 208 Hz and 104 Hz
+        const status = read(0x1e, 1, 0.5)[0];
+        for (const t of [0.5, 0.501, 0.51, 0.52]) { read(0x22, 6, t); read(0x28, 6, t); }
+        out({ status, counts: sensor.counts });
+        """
+    )
+    # Before any temperature read, TDA is set beside GDA and XLDA. The read at 0.501 s finds no
+    # sample newer than the one read at 0.5 s; those at 0.51 and 0.52 s each find a new one.
+    assert found == {
+        "status": 0x07,
+        "counts": {"whoami_reads": 0, "gyro_samples_read": 3, "accel_samples_read": 3},
+    }
+
+
+def test_ctrl3_c_s_reboot_bit_clears_itself() -> None:
+    found = _run("write(0x12, [0x84], 0); out(read(0x12, 1, 0)[0]);")
+    assert found == 0x04
+
+
+def test_the_magnetometer_s_address_increments_only_with_its_top_bit_set() -> None:
+    found = _run(
+        """
+        const mag = new imu.LIS3MDL({ faults });
+        mag.begin(true); mag.write(0x80 | 0x20); mag.write(1); mag.write(2);
+        const reads = (pointer) => { mag.begin(true); mag.write(pointer); mag.begin(false);
+          return [mag.read(), mag.read()]; };
+        out({ plain: reads(0x20), incremented: reads(0x80 | 0x20) });
+        """
+    )
+    assert found == {"plain": [1, 1], "incremented": [1, 2]}

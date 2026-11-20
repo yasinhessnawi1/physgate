@@ -194,6 +194,17 @@ def test_the_sensor_is_read_at_its_full_scale_and_the_motors_driven_from_it(
     update = summary["probes"]["update"]
     assert update["entries"] >= 99
     assert update["period_cycles"]["mean"] == pytest.approx(F / 100, rel=0.01)
+    # Lateness is against the first entry's schedule. The first comes a few milliseconds of
+    # setup() after millis() 0, so the later ones, due on millis(), are that much early, and
+    # millis() steps by 1.024 ms; none is late by more than that step.
+    late = update["lateness_cycles"]
+    assert -_cycle(0.005) <= late["min"] <= late["max"] <= _cycle(0.0011)
+    period = update["period_cycles"]
+    # The second entry comes that setup offset sooner after the first; the rest a period apart.
+    assert _cycle(0.005) <= period["min"] <= period["max"] <= _cycle(0.0111)
+    duration = update["duration_cycles"]
+    assert update["entries"] - 1 <= duration["count"] <= update["entries"]
+    assert 0 < duration["min"] <= duration["max"] < F / 100
     delay = summary["input_to_output_cycles"]
     assert delay["count"] >= 99 and 0 < delay["max"] < F / 100
     # What ran, and the stack it took.
@@ -308,8 +319,14 @@ def test_a_held_bus_blocks_every_start_until_released(
     clocks = [e for e in trace if e["type"] == "pin" and e["pin"] == "PD0" and e["value"] == 1]
     assert clocks, "the bench drives no recovery clocks"
     if release == "end":
-        # Nothing on the bus while it is held, whatever the firmware clocks; motors off.
+        # Nothing on the bus while it is held, whatever the firmware clocks: no START completes,
+        # so no address is ever sent; motors off.
         assert acked == []
+        assert not [
+            e for e in trace
+            if e["type"] == "twi" and e["kind"] == "address"
+            and _cycle(0.31) <= e["c"] < _cycle(0.8)
+        ]  # fmt: skip
         assert 0.02 <= event["motors_off_delay_s"] <= 0.05
         assert event["motors_off_until_cycle"] >= _cycle(0.8)
     else:
@@ -344,6 +361,8 @@ def test_a_main_program_stalled_with_interrupts_off_is_reset_by_the_watchdog(
     assert quiet == []
     # After the reset the firmware runs again and drives the motors.
     assert summary["motors"]["left"]["last"] == COMMAND
+    # No interrupt ran in the stall either: Timer0 lost the overflows of its 64 ms or more.
+    assert summary["vectors"]["TIMER0_OVF"]["count"] <= round(0.95 * F / 64 / 256)
 
 
 def test_a_main_program_stalled_with_interrupts_on_misses_updates_while_timers_still_count(
@@ -357,6 +376,9 @@ def test_a_main_program_stalled_with_interrupts_on_misses_updates_while_timers_s
     update = summary["probes"]["update"]
     assert update["period_cycles"]["max"] >= _cycle(0.04)
     assert update["lateness_cycles"]["max"] >= _cycle(0.03)
+    # The updates it missed are caught up back to back, each measured against its own due
+    # time, so none is earlier than the setup offset the unstalled run shows.
+    assert update["lateness_cycles"]["min"] >= -_cycle(0.005)
     assert summary["vectors"]["TIMER0_OVF"]["count"] == pytest.approx(F / 64 / 256, abs=2)
 
 
@@ -390,3 +412,31 @@ def test_a_probe_the_elf_does_not_hold_is_refused_and_nothing_is_written(
     assert done.returncode == 2
     assert "the probe balance is not a function in the ELF" in done.stderr
     assert not (tmp_path / "t.jsonl").exists()
+
+
+def test_each_encoder_edge_comes_when_the_wheel_has_turned_half_a_count_past_the_last(
+    bench: tuple[Path, Path], tmp_path: Path
+) -> None:
+    env, elf = bench
+    # One motor revolution a second, 12 counts: count k is reached at (k - 0.5) / 12 s.
+    encoders = {"left_rev_s": [[0, 1]], "right_rev_s": [[0, -1]]}
+    _, trace = simulate(
+        env, elf, scenario(duration_s=0.3, encoders=encoders, trace={"input_edges": True}), tmp_path
+    )
+    for side, sign in (("left", 1), ("right", -1)):
+        edges = [e for e in trace if e["type"] == "input" and e["what"] == f"encoder_{side}"]
+        assert [e["value"] for e in edges] == [sign * k for k in (1, 2, 3, 4)]
+        # An edge is applied once the instruction under way, or an interrupt's entry, is done.
+        for k, edge in enumerate(edges, start=1):
+            assert 0 <= edge["c"] - _cycle((k - 0.5) / 12) <= 10, (side, k, edge)
+
+
+def test_an_encoder_s_count_is_the_integral_of_its_rate_profile(
+    bench: tuple[Path, Path], tmp_path: Path
+) -> None:
+    env, elf = bench
+    # A ramp to 100 rev/s over 1 ms, then held: 12 * (0.05 + 100 * 0.199) = 239.4 counts by 0.2 s.
+    encoders = {"left_rev_s": [[0, 0], [0.001, 100]]}
+    summary, _ = simulate(env, elf, scenario(duration_s=0.2, encoders=encoders), tmp_path)
+    assert summary["encoders"]["counts"]["left"] == 239
+    assert summary["encoders"]["edges"]["left"] == 239
