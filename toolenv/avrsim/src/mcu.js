@@ -387,7 +387,13 @@ class Watchdog {
     };
     this.changeUntil = -1;
     this.timeout = 0;
-    this.expire = () => this.expired();
+    // Never taken off the clock's queue while it runs: avr8js reuses a removed entry for the
+    // next one added, and would drop it when the running one returns.
+    this.scheduled = false;
+    this.expire = () => {
+      this.scheduled = false;
+      this.expired();
+    };
     cpu.onWatchdogReset = () => this.restart();
     cpu.writeHooks[REG.WDTCSR] = (value, old) => {
       this.write(value, old);
@@ -444,10 +450,12 @@ class Watchdog {
   }
 
   schedule() {
-    this.cpu.clearClockEvent(this.expire);
+    if (this.scheduled) this.cpu.clearClockEvent(this.expire);
+    this.scheduled = false;
     if (!this.running) return;
     if (this.timeout <= this.cpu.cycles) this.timeout = this.cpu.cycles + this.period;
     this.cpu.addClockEvent(this.expire, this.timeout - this.cpu.cycles);
+    this.scheduled = true;
   }
 
   expired() {

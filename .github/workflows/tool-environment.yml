@@ -239,8 +239,8 @@ jobs:
         # flash finds the device denied; the environment's
         # own servers answer with the pinned libraries, to the pinned binary too; every program
         # the environment installs is one the hardware rule has classed; the simulator is the
-        # locked one, recorded by its version line, and firmware built with the environment
-        # runs on it to its known answers. Then
+        # locked one, recorded by its version line, keeps the 32U4's vectors and registers,
+        # and firmware built with the environment runs on it to its known answers. Then
         # every row is counted: a file that skipped here ran nowhere on Linux, so a skip
         # is a failure, as is a run that collected nothing.
         env:
@@ -259,6 +259,7 @@ jobs:
             tests/integration/toolenv/test_every_program_the_tool_environment_installs_is_classed_for_the_hardware_rule.py \
             tests/integration/toolenv/test_the_provisioned_simulator_is_the_locked_one_and_recorded_by_its_version_line.py \
             tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py \
+            tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py \
             || status=$?
           python3 - "$RUNNER_TEMP/rows.xml" "$status" <<'PY'
           import sys
