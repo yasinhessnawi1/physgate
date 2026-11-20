@@ -25,6 +25,14 @@ reviewer, and an admitted one is driven by the real loop on real git (``ablation
   installation reads the skill file and the target holds it, or neither; and every session is
   installed with the run's hooks value, the design discipline's three hooks wired or not and every
   other hook wired either way.
+
+The plan's review under ``repair:1``, ``repair:2`` and ``repair:3`` is admitted for a reportable
+run and runs to completion here, but no repair round is exercised: the stand-in plan reviewer
+always passes the plan, so nothing is re-planned. These rows prove only that the value is
+accepted, recorded, and reviewed once before any session. What a repair round does is held by
+``test_repair_n_is_an_experiment_arm_of_a_reportable_run.py`` and
+``test_a_re_planned_run_s_opening_holds_every_round_and_holds_on_the_last.py`` (on
+``replan_rig``).
 """
 
 from __future__ import annotations

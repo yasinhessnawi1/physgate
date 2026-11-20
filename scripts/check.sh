@@ -28,10 +28,15 @@ fail() {
   exit 1
 }
 
+#: The scripted matrix of the ablation switches: its own gate and its own CI job, since its
+#: rows drive the real loop on real git and would leave the tests job little headroom. The
+#: tests gate leaves out exactly this file, so the two gates together run every test once.
+MATRIX=tests/unit/orchestrator/test_every_combination_of_the_ablation_switches_runs_or_is_refused_before_it_starts.py
+
 gate_tests() {
   echo "== tests =="
   local rc=0
-  uv run pytest -q -n auto --dist loadgroup || rc=$?
+  uv run pytest -q -n auto --dist loadgroup --ignore="$MATRIX" || rc=$?
   # Exit code 5 is "nothing ran". It cannot tell an empty collection apart from
   # every test having been deselected by the marker filter, so this does not
   # claim to know which it was. Both are failures: a suite that sees nothing
@@ -41,6 +46,17 @@ gate_tests() {
     fail "tests — nothing ran (collected nothing, or the marker filter deselected everything)"
   fi
   [ "$rc" -eq 0 ] || fail "tests"
+}
+
+gate_matrix() {
+  echo "== ablation matrix =="
+  local rc=0
+  [ -f "$MATRIX" ] || fail "ablation matrix — $MATRIX is not there"
+  uv run pytest -q -n auto "$MATRIX" || rc=$?
+  if [ "$rc" -eq 5 ]; then
+    fail "ablation matrix — nothing ran"
+  fi
+  [ "$rc" -eq 0 ] || fail "ablation matrix"
 }
 
 gate_scoring() {
@@ -92,13 +108,14 @@ gate_ui() {
 }
 
 # No argument runs every gate, in this order, as always. CI names one gate or a few per job
-# (tests, scoring, types, lint, ui, ui-unit, ui-browser), so the gates run in parallel jobs
+# (tests, matrix, scoring, types, lint, ui, ui-unit, ui-browser), so the gates run in parallel jobs
 # with the same bodies as here.
 gates=("$@")
-[ "${#gates[@]}" -gt 0 ] || gates=(tests scoring types lint ui)
+[ "${#gates[@]}" -gt 0 ] || gates=(tests matrix scoring types lint ui)
 for gate in "${gates[@]}"; do
   case "$gate" in
     tests) gate_tests ;;
+    matrix) gate_matrix ;;
     scoring) gate_scoring ;;
     types) gate_types ;;
     lint) gate_lint ;;

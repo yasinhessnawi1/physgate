@@ -61,12 +61,14 @@ from physgate.reviewers.rubric import NOT_IN_REVIEW, generalist_of, load_rubric
 
 __all__ = ["install"]
 
+#: Whether this machine has a Claude Code binary to run the rows on.
+NO_BINARY = not (os.environ.get("PHYSGATE_CLAUDE_BIN") or shutil.which("claude"))
+#: Set in a job that is meant to run these rows: a missing binary or OS layer then fails them.
+REQUIRED = bool(os.environ.get("PHYSGATE_REQUIRE_OS_LAYER"))
+
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(
-        not (os.environ.get("PHYSGATE_CLAUDE_BIN") or shutil.which("claude")),
-        reason="no Claude Code binary on this machine",
-    ),
+    pytest.mark.skipif(NO_BINARY and not REQUIRED, reason="no Claude Code binary on this machine"),
 ]
 
 ROLE = "electrical"
@@ -116,13 +118,16 @@ def test_the_rows_hold_every_pair_of_values() -> None:
 @pytest.fixture
 def layer() -> None:
     """Skip unless the OS layer runs here; fail instead where the job is meant to have it."""
+    if NO_BINARY:
+        # Only reached where the rows are required: elsewhere the module is skipped.
+        pytest.fail("this job is meant to run these rows, and it has no Claude Code binary")
     # As the command judges it for a new run.
     found = judge_here(
         claude_version=binary_version(), search_path=session_search_path(claude_binary())
     )
     if isinstance(found, Present):
         return
-    if os.environ.get("PHYSGATE_REQUIRE_OS_LAYER"):
+    if REQUIRED:
         pytest.fail("this job is meant to run the OS layer, and the layer cannot run here")
     pytest.skip("the OS layer cannot run here, and a measured run is refused without it")
 
