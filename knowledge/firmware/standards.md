@@ -175,3 +175,23 @@ until or unless a future spec adds a corresponding gate check.
 
 **Judgement-only** — this rule states what rules 1–10 are each already marked as, individually; it
 adds no enforcement of its own beyond naming the pattern plainly.
+
+## 12. Without a board, on-target evidence comes from a provided simulator, or is stated as not shown
+
+Where no board is connected to the run environment, on-target evidence comes from a simulator of
+the target microcontroller only where the run environment provides one (design standards §6): the
+one the specification names, or, where it names none, the provided one, and the omission is said.
+The program built for the board by the target's compiler runs on it, with its output kept, and its
+cycle counts, register states and pin timings are the measurements of timing, peripheral settings
+and trip paths. A device the simulator lacks (a sensor's registers, a motor driver) is modelled by
+the work from its datasheet, each behaviour citing the section it follows; the model is part of
+the work. Where the run environment provides no simulator, the evidence is what the run can
+measure: the program builds with the target's compiler, its size, static checks, and host-side
+tests of the logic and of the control law against the designer's coefficients; on-target
+behaviour (a loop's timing, a fault's timing) is then stated as not shown in this run. What the
+run cannot show (that, or with a simulator a sensor's physical noise, the driver's electrical
+behaviour, an off state set by the board's wiring) is stated as not shown, with the reason: never
+as met, and never as failed. A "not shown" for what a provided simulator or a host-side test does
+measure is not a reason: that evidence is owed.
+
+**Judgement-only** — no check reads where evidence came from; the reviewer does.

@@ -45,10 +45,15 @@
    lead, then full state feedback (standards §7). Choose its coefficients by a stated method
    (§4, §5), never by trial alone.
 5. Compute the margins at the low end, nominal and high end of each estimated parameter's range,
-   one at a time, and at the worst combination; print a sweep across each range. Report the
-   smallest of each margin as the design's (standards §7).
+   one at a time, and print a sweep across each range. Report the smallest of each margin over
+   those as the design's (standards §7). Compute and record every combination of the ends too,
+   beside it, never as the design's margin. A maker's stated tolerance (a no-load speed's ±20 %)
+   is not an estimate: hold its typical value, and record its ends as a sensitivity.
 6. Run the step, disturbance, saturation and recovery simulations again with the new law (skill,
-   "sizing a PID loop", step 3; rubric D33), at the nominal plant and at the worst case of step 5.
+   "sizing a PID loop", step 3; rubric D33), at the nominal plant and at each end of step 5, and
+   record them at the tolerances' ends. Where the push fails at an estimate's end, compute its
+   stated bound there (standards §7); below 1, record the conflict once, as standards §7 says, and
+   go on with the law.
 7. Write the law and every coefficient, with units and their integer form, on your own node, with
    the sample period and command limit restated from the interface or sizing node each comes from;
    name the node in what you report (standards §7). In an incremental (velocity-form) law, a direct
@@ -78,6 +83,10 @@
   challenged in review.
 - **Tuning only at the nominal operating point.** A controller exercised only at the linearization
   point in simulation never tests the validity region it claims (standards §1).
+- **Judging the design at every corner at once, or chasing a criterion the plant cannot meet.**
+  The design's margin is the worst over each estimate's ends one at a time; the corners are
+  recorded only. A criterion its stated bound shows unreachable at an end is a conflict to record, not a
+  reason to keep retuning or to change a range (standards §7).
 - **Treating a Ziegler–Nichols result as a finished design.** The method's own target response is
   oscillatory by construction (standards §4); reporting its output unmodified as the final gains
   without further iteration is a known-weak result, not a mistake unique to this project.

@@ -122,9 +122,24 @@ belongs in the plan's list of system requirements allocated to integration, apar
 and interface nodes. Where the plan's form has no such list, the allocation has no place to be
 written, and the contributing modules' criteria are what the plan can show.
 
+A criterion is written only as the run environment can measure it (*normative*, this harness's
+rule). A module's sessions have programs and files, and no physical board or instrument is
+connected to them unless the brief says one is; a part a person has is not thereby connected.
+With no board connected, a criterion on the board's own behaviour (an update's timing, a
+peripheral's setting, a trip path) is written against a simulator of the board's microcontroller
+only where the run environment provides one, named in the criterion, running the program built
+for the board; none is presumed (on 20.11.2026 the run environment gives firmware the target's
+compiler, PlatformIO's avr-gcc, and no simulator). Where it provides none, the criterion is
+written against what the run can measure: the program builds with that compiler, its size, static
+checks, and host-side tests of the logic and of the control law against the designer's
+coefficients. A requirement the run cannot show (on-target behaviour, such as a loop's or a
+fault's timing, where no simulator is provided; a sensor's physical noise; the motor driver's
+electrical behaviour) is not made a module's criterion: the plan records it as not shown in this
+run, with the reason (§1).
+
 **Enforced:** the review contract reads a specification's numbered lines under an
 acceptance-criteria heading and holds each review to one line per criterion. Whether a criterion
-is verifiable is judgement.
+is verifiable, and measurable in the run environment, is judgement.
 
 ## 7. A requirement says what, in one statement, without ambiguous terms
 

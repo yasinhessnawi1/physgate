@@ -183,16 +183,39 @@ unchanged crossover, and a margin computed without the delays overstates the mar
 that runs. A margin from a model without its delays does not
 meet a margin criterion, and is not reported as the design's.
 
-**The margins hold across the stated spread.** Each plant parameter that is an estimate (a rotor
-inertia, a centre-of-mass height, a body inertia) carries a range from where it was sourced (sizing
-standards §5, §8). The margins are computed at the low end, the nominal value and the high end of
-each such range, one at a time, with the others nominal, and at the combination the work judges
-worst, with the reason; the smallest value of each margin over those cases is the design's margin,
-the one compared with the criterion. This is the parametric form of model uncertainty [same book,
-Ch. 13 "Robust Performance", sections "Modeling Uncertainty" and "Stability in the Presence of
-Uncertainty"; first edition §12.1, §12.2]. A check at points is not a proof between them: the work
-also prints a sweep across each range and reports its smallest value where it is lower than the
-end points'.
+**The margins hold across the stated spread.** Each plant parameter that is an estimate, a quantity
+no maker publishes that the work had to estimate (a rotor inertia, a centre-of-mass height, a body
+inertia, a friction the work itself estimated; one taken from the maker's no-load current is a
+maker's figure, below), carries a range from where it was sourced (sizing standards §5, §8); so
+does a range the brief states (a fall time's). The margins are computed at the low end, the nominal value
+and the high end of each such range, one at a time, with the others nominal; the smallest value of
+each margin over those cases is the design's margin, the one compared with the criterion. This is
+the parametric form of model uncertainty [same book, Ch. 13 "Robust Performance", sections "Modeling
+Uncertainty" and "Stability in the Presence of Uncertainty"; first edition §12.1, §12.2]. A check at
+points is not a proof between them: the work also prints a sweep across each range, one at a time,
+and its smallest value is the design's where it is lower than the end points'. The work also
+computes the margins at every combination of the ranges' ends and records them beside the design's;
+they are not compared with the criterion, and a combination that misses is not a shortfall. *This
+project's rule, not the source's:* each range is a separate estimate with its own basis, and every
+range at its worst end at once assumes every estimate wrong in its worst direction together, which
+no basis states; the combinations are kept for a person to see. A maker's stated tolerance on a
+figure it publishes (a no-load speed's ±20 %, a no-load current's ±50 %), quoted from the maker's
+document in the quantity's source, is not an estimate (*this project's rule*, as in sizing
+standards §12); without that quote the range is an estimate. Every criterion is judged with the
+figure at its typical value, and the results at the tolerance's ends are computed and recorded as a
+sensitivity, not judged. A supply voltage a criterion of the brief pins is a condition, not an
+estimate, and is held at that value.
+
+**A criterion no design can meet at an end.** This applies only to a criterion with a stated
+bound: the push, with sizing standards §12's bound, §12's inputs and the delivered command limit,
+in control's own plant at the end's values. Where it fails at an estimate's end and that bound is
+below 1 there, the shortfall is the plant's, not the law's. The work records it once, as a conflict
+in its module's record (as sizing standards §3 does): the criterion, each such end, the command
+limit the bound needs there against the limit written and the full scale, and the bound's numbers.
+It delivers its law, meeting every criterion it can, and changes no criterion, range or limit for
+it. Where the bound is 1 or more at an end where the law fails, the shortfall is the
+law's. A criterion that fails only at a tolerance's end is recorded with that sensitivity, not as
+a conflict.
 
 **The law that firmware runs is written on control's own node.** Control writes the law in the form
 the firmware will run (the update equation, its sample period, its command limit, every coefficient
