@@ -1,0 +1,492 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "no_store_check",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    if not store.is_dir():\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "corrupt_journal_passed",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    except CorruptRecordError as exc:\n",
+    "new": "    except ArithmeticError as exc:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "store_opened_first",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        lines = journal_records_after(store, 0)\n",
+    "new": "        __import__(\"physgate.state.store\", fromlist=[\"Store\"]).Store(store).close()\n        lines = journal_records_after(store, 0)\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "oldest_payload",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    latest = {line.node_id: line.payload for line in lines}",
+    "new": "    latest = {line.node_id: line.payload for line in reversed(lines)}",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "revision_zero",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    return len(lines), latest",
+    "new": "    return 0, latest",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "unfinished_taken",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    if not _finished(run_dir):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "one_module_enough",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "all(m in state.completed for m in modules)",
+    "new": "any(m in state.completed for m in modules)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "corrupt_log_passed",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    except OrchestratorError as exc:\n",
+    "new": "    except ArithmeticError as exc:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "every_name_read",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "            if name in CONTRACT_NAMES:\n",
+    "new": "            if True:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "no_conflict_ever",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        if any(v != value or u != unit for _, v, u in rows[1:]):",
+    "new": "        if False:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "conflict_on_value_only",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        if any(v != value or u != unit for _, v, u in rows[1:]):",
+    "new": "        if any(v != value for _, v, u in rows[1:]):",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "conflict_on_unit_only",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        if any(v != value or u != unit for _, v, u in rows[1:]):",
+    "new": "        if any(u != unit for _, v, u in rows[1:]):",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "conflicts_ignored",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    if _refusing(conflicts, found):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "every_conflict_refuses",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    return {name: nodes for name, nodes in conflicts.items() if name in read}",
+    "new": "    return dict(conflicts)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "setting_conflict_passes",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    read = set(PARAMETERS)\n    for fields",
+    "new": "    read: set[str] = set()\n    for fields",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "whole_structure_conflict_passes",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "            read |= set(fields)\n",
+    "new": "            pass\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "conflicted_names_not_counted",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    present = set(found) | set(conflicts)\n",
+    "new": "    present = set(found)\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "exported_conflicts_unsaid",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        conflicts=conflicts,\n        left_out=",
+    "new": "        left_out=",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "optional_required",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "if required and n not in found",
+    "new": "if n not in found",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "complete_inverted",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "if not names))",
+    "new": "if names))",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "two_structures_taken",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    if len(complete) > 1:\n",
+    "new": "    if len(complete) > 2:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "lost_settings_unsaid",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        if settings:\n            missing[\"parameters\"] = settings\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "missing_setting_exported",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    structure = complete[0]\n    if settings:\n",
+    "new": "    structure = complete[0]\n    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "one_node_named",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "taken_from={name: found[name][2] for",
+    "new": "taken_from={name: found[name][2][:1] for",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "nothing_left_out",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "left_out=tuple(sorted(set(found) - read)),",
+    "new": "left_out=(),",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "version_one",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        \"version\": _VERSION,\n",
+    "new": "        \"version\": 1,\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "other_structure_written",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        \"controller\": {\"structure\": structure, **_measures(STRUCTURES[structure], found)},",
+    "new": "        \"controller\": {\"structure\": structure, **_measures(STRUCTURES[sorted(STRUCTURES)[0]], found)},",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "inside_run_taken",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    if _inside(out, run_dir):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "mkdir_unguarded",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    try:\n        out.parent.mkdir(parents=True, exist_ok=True)\n        claimed = os.open",
+    "new": "    out.parent.mkdir(parents=True, exist_ok=True)\n    try:\n        claimed = os.open",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "claim_not_exclusive",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "_CLAIM_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC",
+    "new": "_CLAIM_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "taken_name_replaced",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        if not _ours(out, claim):\n            msg = \"the answer's name was taken",
+    "new": "        if False:\n            msg = \"the answer's name was taken",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "temporary_left",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "                os.unlink(temporary)\n",
+    "new": "                pass\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "claim_left",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "            if _ours(out, claim):\n                os.unlink(out)",
+    "new": "            if False:\n                os.unlink(out)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  }
+]

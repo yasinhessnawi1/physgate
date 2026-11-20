@@ -1,0 +1,29 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "absent_analysis_passes",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "    if analysed is None:\n        return None, (\n            \"no analysed controller is stated",
+    "new": "    if analysed is None:\n        return 0.0, None\n    if analysed is None:\n        return None, (\n            \"no analysed controller is stated",
+    "tests": [
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  }
+]

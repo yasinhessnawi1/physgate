@@ -1,13 +1,12 @@
-import { type ChildProcessWithoutNullStreams, execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
 
 import { RUNS } from "../playwright.config";
+import { local, serve, type Started, stopServers } from "./serve";
 import { cspViolations, THEMES, watch } from "./support";
 
 /**
@@ -20,58 +19,10 @@ import { cspViolations, THEMES, watch } from "./support";
  * it reads no run.
  */
 
-const CHECKOUT = fileURLToPath(new URL("../..", import.meta.url));
 const EVIDENCE = join(RUNS, "evidence", "runs");
 const WIDTHS = [1440, 1280] as const;
 
-interface Started {
-  readonly url: string;
-}
-
-const servers: ChildProcessWithoutNullStreams[] = [];
 let folder = "";
-
-/** The real `physgate ui` over `root`, on a free port, in a process group of its own. */
-async function serve(root: string, library: string): Promise<Started> {
-  const child = spawn(
-    "uv",
-    ["run", "physgate", "ui", "--root", root, "--library", library, "--port", "0"],
-    { cwd: CHECKOUT, detached: true },
-  );
-  servers.push(child);
-  return new Promise<Started>((resolve, reject) => {
-    let out = "";
-    let err = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      out += chunk.toString();
-      try {
-        resolve(JSON.parse(out) as Started);
-      } catch {
-        // The announcement is not whole yet.
-      }
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      err += chunk.toString();
-    });
-    child.on("exit", (code) => {
-      reject(new Error(`the server stopped before it served (${String(code)}): ${err}`));
-    });
-  });
-}
-
-/** The processes still running whose command line names `marker`, as `pid command` lines. */
-function runningWith(marker: string): string[] {
-  return execFileSync("ps", ["-A", "-ww", "-o", "pid=,command="], { encoding: "utf8" })
-    .split("\n")
-    .filter((line) => line.includes(marker))
-    .map((line) => line.trim());
-}
-
-async function until(gone: () => boolean, ms: number) {
-  const deadline = Date.now() + ms;
-  while (!gone() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
-}
-
 let evidence: Started = { url: "" };
 let empty: Started = { url: "" };
 /** The reportable run's held-out tier, as its record names it: none of it may reach a page. */
@@ -105,28 +56,8 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   test.setTimeout(60_000);
-  for (const child of servers) {
-    if (child.pid === undefined || child.exitCode !== null) continue;
-    try {
-      process.kill(-child.pid, "SIGINT");
-    } catch {
-      // Gone already.
-    }
-  }
-  await until(() => runningWith(folder).length === 0, 10_000);
-  for (const line of runningWith(folder)) {
-    try {
-      process.kill(Number(line.split(" ")[0]), "SIGKILL");
-    } catch {
-      // Gone since it was listed.
-    }
-  }
-  if (folder !== "") rmSync(folder, { recursive: true, force: true });
+  await stopServers(folder);
 });
-
-function local(url: string): RegExp {
-  return new RegExp(`^${url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
-}
 
 async function settle(page: Page) {
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 60_000 });

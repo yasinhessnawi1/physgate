@@ -72,6 +72,8 @@ def _valid(world: dict[str, Path], run: str) -> dict[str, str]:
         "session": sealed_session(world["root"] / run),
         "date": PRICES,
         "revision": "1",
+        # The line a page follows the log from: the first, so the whole log is served.
+        "seq": "0",
         "round": "2",
         "node": journal_records_after(world["root"] / run / "store", 0)[-1].node_id,
         # The simulation routes: the run's first subtask, at its first attempt. These runs record

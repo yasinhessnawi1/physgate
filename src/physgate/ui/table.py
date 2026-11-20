@@ -35,6 +35,8 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", "/api/library/ratings", "read", library.ratings),
     Route("GET", f"{RUN}/config", "read", readers.config),
     Route("GET", f"{RUN}/events", "read", readers.events),
+    # The same log from a line on, for a page that follows a running run's log as it grows.
+    Route("GET", f"{RUN}/events/from/{{seq:seq}}", "read", readers.events_from),
     Route("GET", f"{RUN}/ledger", "read", readers.ledger),
     Route("GET", f"{RUN}/gate-events", "read", readers.gate_events),
     Route("GET", f"{RUN}/graph", "read", readers.graph),
