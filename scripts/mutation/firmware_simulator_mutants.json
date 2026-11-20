@@ -6,6 +6,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -28,6 +29,7 @@
     "new": "this.changeUntil = cpu.cycles + 3;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -50,6 +52,7 @@
     "new": "this.changeUntil = cpu.cycles + 5;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -72,6 +75,7 @@
     "new": "if (value & 0x10) {",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -94,6 +98,7 @@
     "new": "next = (next & ~0x27) | (value & 0x27);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -116,6 +121,7 @@
     "new": "      next = (next & ~0x2f) | (value & 0x2f);\n",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -138,6 +144,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -160,6 +167,7 @@
     "new": "return !!(this.cpu.data[REG.WDTCSR] & 0x08);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -182,6 +190,7 @@
     "new": "((wdtcsr & 0x20) >> 3)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -204,6 +213,7 @@
     "new": "(1024 << Math.min(wdp, 9))",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -222,10 +232,11 @@
   {
     "name": "wd_oscillator_binary",
     "file": "toolenv/avrsim/src/mcu.js",
-    "old": "(FREQUENCY_HZ / 128_000)",
-    "new": "(FREQUENCY_HZ / 131_072)",
+    "old": "(FREQUENCY_HZ / this.chip.watchdogHz)",
+    "new": "(FREQUENCY_HZ / (this.chip.watchdogHz * 1.024))",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -248,6 +259,7 @@
     "new": "if ((next & 0x27) !== oldPrescaler) this.restart();",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -270,6 +282,7 @@
     "new": "    if (this.running && !wasRunning) {\n      this.schedule();",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -292,6 +305,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -314,6 +328,7 @@
     "new": "next = next | (value & 0x40);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -336,6 +351,7 @@
     "new": "const reset = wdtcsr & 0x08 && !(wdtcsr & 0x40);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -358,6 +374,7 @@
     "new": "const reset = wdtcsr & 0x08;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -380,6 +397,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -402,6 +420,7 @@
     "new": "    if (wdtcsr & 0x40) cpu.setInterruptFlag(this.interrupt);\n    this.timeout = cpu.cycles + 2 * this.period;\n    this.schedule();",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -424,6 +443,7 @@
     "new": "this.cpu.data[REG.WDTCSR] &= ~0x40;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -446,6 +466,7 @@
     "new": "if (this.cpu.data[REG.WDTCSR] & 0x00) this.cpu.data[REG.WDTCSR] &= ~0x40;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -468,6 +489,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -490,6 +512,7 @@
     "new": "cpu.data[REG.MCUSR] = value;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -512,6 +535,7 @@
     "new": "if (cpu.data[REG.MCUSR] & MCUSR_WDRF) cpu.data[REG.WDTCSR] = 0x00;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -534,6 +558,7 @@
     "new": "(cause === 'watchdog' ? MCUSR_PORF : MCUSR_WDRF)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -556,6 +581,7 @@
     "new": "const mcusr = cause === 'watchdog' ? MCUSR_WDRF : MCUSR_PORF;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -578,6 +604,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -600,6 +627,7 @@
     "new": "return 16 + this.cpu.data[REG.TWBR] * this.prescaler;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -622,6 +650,7 @@
     "new": "return 16 + 2 * this.cpu.data[REG.TWBR];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -644,6 +673,7 @@
     "new": "return 17 + 2 * this.cpu.data[REG.TWBR] * this.prescaler;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -666,6 +696,7 @@
     "new": "twi.later(2, () => (twi.bus.start(repeated)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -688,6 +719,7 @@
     "new": "twi.later(8, () => {\n          if (held() && (address << 1)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -710,6 +742,7 @@
     "new": "twi.later(8, () => {\n          if (held() && value)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -732,6 +765,7 @@
     "new": "twi.later(8, () => {\n          if (held() && !ack)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -754,6 +788,7 @@
     "new": "          twi.completeStop();\n        };\n        attempt();",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -776,6 +811,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -798,6 +834,7 @@
     "new": "    this.busy = false;\n  }\n\n  completeStop() {",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -820,6 +857,7 @@
     "new": "if (false) this.abort();",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -842,6 +880,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -864,6 +903,7 @@
     "new": "this.TWI.constant = false;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -886,6 +926,7 @@
     "new": "this.cpu.data[REG.TWCR] &= ~0x00; // TWSTO",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -908,6 +949,7 @@
     "new": "    this.busy = false;\n    this.cpu.data[REG.TWCR] |= 0x80;\n    this.cpu.data[REG.TWCR] &= ~0x10;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -930,6 +972,7 @@
     "new": "start: () => true,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -952,6 +995,7 @@
     "new": "const SCL_PULSES_TO_RELEASE = 8;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -974,6 +1018,7 @@
     "new": "const rose = !!level !== !!this.sclLevel;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -996,6 +1041,7 @@
     "new": "if (!rose) return;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1018,6 +1064,7 @@
     "new": "const DIVIDERS = { 0: 0, 1: 1, 2: 16, 3: 64, 4: 256, 5: 1024, 6: 0, 7: 0 };",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1040,6 +1087,7 @@
     "new": "const DIVIDERS = { 0: 0, 1: 1, 2: 8, 3: 32, 4: 256, 5: 1024, 6: 0, 7: 0 };",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1062,6 +1110,7 @@
     "new": "const DIVIDERS = { 0: 0, 1: 1, 2: 8, 3: 64, 4: 128, 5: 1024, 6: 0, 7: 0 };",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1084,6 +1133,7 @@
     "new": "const DIVIDERS = { 0: 0, 1: 1, 2: 8, 3: 64, 4: 256, 5: 512, 6: 0, 7: 0 };",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1106,6 +1156,7 @@
     "new": "bits: 16, captureInterrupt: 0,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1128,6 +1179,7 @@
     "new": "compPinA: 6,\n  compPortB: REG.PORTB, compPinB: 5,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1150,6 +1202,7 @@
     "new": "compPortA: REG.PORTC, compPinA: 7,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1172,6 +1225,7 @@
     "new": "compAInterrupt: VECTORS.TIMER0_COMPB,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1194,6 +1248,7 @@
     "new": "compAInterrupt: VECTORS.TIMER1_COMPB,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1216,6 +1271,7 @@
     "new": "compAInterrupt: VECTORS.TIMER3_COMPB,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1238,6 +1294,7 @@
     "new": "for (const interrupt of interrupts) cpu.clearInterruptByFlag(interrupt, 0xff);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1260,6 +1317,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1282,6 +1340,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1304,6 +1363,7 @@
     "new": "TIMER1_COMPA: 0x24,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1326,6 +1386,7 @@
     "new": "USART1_RX: 0x30,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1348,6 +1409,7 @@
     "new": "ADC: 0x3c,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1370,6 +1432,7 @@
     "new": "TIMER0_OVF: 0x2c,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1392,6 +1455,7 @@
     "new": "OCR3AL: 0x9a,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1414,6 +1478,7 @@
     "new": "UDFNUMH: 0xe6,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1436,6 +1501,7 @@
     "new": "EICRB: 0x6b,",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1458,6 +1524,7 @@
     "new": "const start = cpu.cycles;\n    cpu.cycles += 2;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1480,6 +1547,7 @@
     "new": "const start = cpu.cycles - 2;\n    cpu.cycles += 0;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1502,6 +1570,7 @@
     "new": "const start = cpu.cycles - 2;\n    cpu.cycles += 3;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1524,6 +1593,7 @@
     "new": "if (flag & F_RET && this.frames.length) {",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1546,6 +1616,7 @@
     "new": "  [1, 0],\n  [1, 1],\n];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1568,6 +1639,7 @@
     "new": "encoder.edges += 2;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1590,6 +1662,7 @@
     "new": "const target = Math.floor(encoder.phase);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1612,6 +1685,7 @@
     "new": "COUNTS_PER_MOTOR_REVOLUTION = 24;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1634,6 +1708,7 @@
     "new": "const distance = rate > 0 ? n + 1 - encoder.phase : encoder.phase - (n - 1);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1656,6 +1731,7 @@
     "new": "const rate = profileAt(encoder.profile, to);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1678,6 +1754,7 @@
     "new": "left: { xor: ['B', 4], b: ['E', 3] },",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1700,6 +1777,7 @@
     "new": "right: { xor: ['E', 5], b: ['F', 0] },",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1722,6 +1800,7 @@
     "new": "const WHO_AM_I_VALUE = 0x6a;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1744,6 +1823,7 @@
     "new": "const GYRO_MDPS = [17.5, 8.75, 35, 70];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1766,6 +1846,7 @@
     "new": "const GYRO_MDPS = [8.75, 17.5, 35, 140];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1788,6 +1869,7 @@
     "new": "const ACCEL_MG = [0.061, 0.122, 0.244, 0.488];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1810,6 +1892,7 @@
     "new": "const ACCEL_MG = [0.061, 0.488, 0.122, 0.122];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1832,6 +1915,7 @@
     "new": "const mdps = ctrl & 0x01 ? GYRO_MDPS_125",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1854,6 +1938,7 @@
     "new": "GYRO_MDPS[(ctrl >> 3) & 0x03]",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1876,6 +1961,7 @@
     "new": "const ODR_HZ = [0, 13, 26, 52, 104, 208, 416, 833, 1660, 3330, 6660];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1898,6 +1984,7 @@
     "new": "const ODR_HZ = [0, 12.5, 26, 52, 104, 208, 400, 833, 1660, 3330, 6660];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1920,6 +2007,7 @@
     "new": "const ODR_HZ = [0, 12.5, 26, 52, 104, 208, 416, 800, 1660, 3330, 6660];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1942,6 +2030,7 @@
     "new": "const ODR_HZ = [0, 12.5, 26, 52, 104, 208, 416, 833, 1600, 3330, 6660];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1964,6 +2053,7 @@
     "new": "const ODR_HZ = [0, 12.5, 26, 52, 104, 208, 416, 833, 1660, 3330, 6600];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -1986,6 +2076,7 @@
     "new": "this.rate('gyro', value >> 4, t);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2008,6 +2099,7 @@
     "new": "    return k >= sensor.read;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2030,6 +2122,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2052,6 +2145,7 @@
     "new": "t : t;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2074,6 +2168,7 @@
     "new": "Math.ceil((at - sensor.t0) * sensor.odr + 1e-9)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2096,6 +2191,7 @@
     "new": "Math.floor((at - sensor.t0) * sensor.odr)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2118,6 +2214,7 @@
     "new": "if (false) sensor.latch[axis] =",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2140,6 +2237,7 @@
     "new": "this.counts[`${which}_samples_read`] += 2;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2162,6 +2260,7 @@
     "new": "this.onOutputRead(which, t);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2180,10 +2279,11 @@
   {
     "name": "imu_sample_at_read_time",
     "file": "toolenv/avrsim/src/imu.js",
-    "old": "this.sample(which, sensor.t0 + k / sensor.odr)",
-    "new": "this.sample(which, sensor.t0 + (k + 0.5) / sensor.odr)",
+    "old": "const at = sensor.t0 + k / sensor.odr;",
+    "new": "const at = sensor.t0 + (k + 0.5) / sensor.odr;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2206,6 +2306,7 @@
     "new": "(saturated.sensor === which)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2228,6 +2329,7 @@
     "new": "counts[AXES[axis]] <= 0 ? -32768 : 32767",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2250,6 +2352,7 @@
     "new": "value : value;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2272,6 +2375,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2294,6 +2398,7 @@
     "new": "const temp = 0;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2316,6 +2421,7 @@
     "new": "if (this.registers[LSM6.CTRL3_C] & 0x40)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2334,10 +2440,11 @@
   {
     "name": "imu_gyro_axis_x",
     "file": "toolenv/avrsim/src/imu.js",
-    "old": "counts = [0, int16((dps * 1000) / mdps), 0];",
-    "new": "counts = [int16((dps * 1000) / mdps), 0, 0];",
+    "old": "counts = [int16((x * 1000) / mdps), int16(((dps + y) * 1000) / mdps), int16((z * 1000) / mdps)];",
+    "new": "counts = [int16(((dps + x) * 1000) / mdps), int16((y * 1000) / mdps), int16((z * 1000) / mdps)];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2360,6 +2467,7 @@
     "new": "counts = [int16((Math.sin(theta) * 1000) / mg), 0, int16((Math.cos(theta) * 1000) / mg)];",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2382,6 +2490,7 @@
     "new": "if (address === LSM6.CTRL3_C && value & 0x02) {",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2404,6 +2513,7 @@
     "new": "this.registers[0x0f] = 0x3e;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2426,6 +2536,7 @@
     "new": "this.increment = true;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2448,6 +2559,7 @@
     "new": "if (fault.kind === 'nack') state.nack = true;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2470,6 +2582,7 @@
     "new": "if (t <= fault.start_s || t >= fault.end_s) continue;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2492,6 +2605,7 @@
     "new": "if (t < fault.start_s || t > fault.end_s) continue;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2514,6 +2628,7 @@
     "new": "if (fault.kind === 'stale') state.stale_since = t;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2536,6 +2651,7 @@
     "new": "state.saturated = { sensor: 'both', axes: fault.axes };",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2558,6 +2674,7 @@
     "new": "    epoch.entries += 1;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2580,6 +2697,7 @@
     "new": "entry - (epoch.first + (epoch.entries + 1) * probe.period)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2602,6 +2720,7 @@
     "new": "add(epoch.lateness, epoch.last === null ? 0 : entry - epoch.last - probe.period);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2624,6 +2743,7 @@
     "new": "if (open) {",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2646,6 +2766,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2668,6 +2789,7 @@
     "new": "const off = !this.enables.left || !this.enables.right;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2690,6 +2812,7 @@
     "new": "const start = from;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2712,6 +2835,7 @@
     "new": "const until = null;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2734,6 +2858,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2756,6 +2881,7 @@
     "new": "    if (!batch) return;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2778,6 +2904,7 @@
     "new": "          if (this.chip.cpu.cycles / FREQUENCY_HZ < window.oldest) window.oldest = this.chip.cpu.cycles / FREQUENCY_HZ;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2800,6 +2927,7 @@
     "new": "      pin.lastHigh = (pin.lastPeriod ?? 0) - (cycle - pin.rise);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2822,6 +2950,7 @@
     "new": "if (stall && (!stall.interrupts || data[95] & 0x80)) {",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2844,6 +2973,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2866,6 +2996,7 @@
     "new": "if (stall && this.frames.length === 0 && !stall.interrupts) {",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2888,6 +3019,7 @@
     "new": "export const PLL_LOCK_CYCLES = FREQUENCY_HZ / 10_000;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2910,6 +3042,7 @@
     "new": "cpu.data[REG.UDINT] = value;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2932,6 +3065,7 @@
     "new": "if (data[REG.UDINT] & data[REG.UDIEN] & 0x79)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2954,6 +3088,7 @@
     "new": "(data[REG.USBCON] & 0x80) === 0x80 && data[REG.PLLCSR] & 0x01 && !(data[REG.UDCON] & 0x01)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2976,6 +3111,7 @@
     "new": "(data[REG.USBCON] & 0xa0) === 0x80 && data[REG.PLLCSR] & 0x01",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -2998,6 +3134,7 @@
     "new": "(data[REG.USBCON] & 0xa0) === 0x80 && !(data[REG.UDCON] & 0x01)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3020,6 +3157,7 @@
     "new": "cpu.data[REG.USBSTA] = value;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3038,10 +3176,11 @@
   {
     "name": "rig_no_start_up_delay",
     "file": "toolenv/avrsim/src/rig.js",
-    "old": "this.releaseAt = cpu.cycles + START_UP_CYCLES;",
+    "old": "this.releaseAt = cpu.cycles + this.startUpCycles;",
     "new": "this.releaseAt = cpu.cycles;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3060,10 +3199,11 @@
   {
     "name": "rig_start_up_4ms",
     "file": "toolenv/avrsim/src/rig.js",
-    "old": "Math.round(0.065 * FREQUENCY_HZ) + 14",
-    "new": "Math.round(0.0041 * FREQUENCY_HZ) + 14",
+    "old": "Math.round(((0.065 * WATCHDOG_OSCILLATOR_HZ.nominal) / watchdogHz) * FREQUENCY_HZ)",
+    "new": "Math.round(((0.0041 * WATCHDOG_OSCILLATOR_HZ.nominal) / watchdogHz) * FREQUENCY_HZ)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3086,6 +3226,7 @@
     "new": "data[REG.MCUSR] = flags & ~(MCUSR_PORF | MCUSR_EXTRF);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3108,6 +3249,7 @@
     "new": "data[REG.MCUSR] = flags & ~(MCUSR_EXTRF | MCUSR_WDRF);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3130,6 +3272,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3152,6 +3295,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3174,6 +3318,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3196,6 +3341,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3218,6 +3364,7 @@
     "new": "flags & MCUSR_WDRF && key === -1",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3240,6 +3387,7 @@
     "new": "export const BOOT_SESSION_CYCLES = 8001 * 250 * 64;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3262,6 +3410,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3284,6 +3433,7 @@
     "new": "      watchdog.schedule(); // WDRF holds it on",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3306,6 +3456,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3328,6 +3479,7 @@
     "new": "pb.addListener((value) => enables(value & cpu.data[REG.DDRB]));",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3350,6 +3502,7 @@
     "new": "ocr_zero_cycle: null",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3372,6 +3525,7 @@
     "new": "      true ||\n",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3394,6 +3548,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3416,6 +3571,7 @@
     "new": "if (flag & F_SLEEP)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3438,6 +3594,7 @@
     "new": "if ((value & 0xa0) === 0x100) report('adc_auto_trigger');",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3460,6 +3617,7 @@
     "new": "observeWrite(cpu, address, (value) => value & 0x40 && report('input_capture'));",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3478,10 +3636,11 @@
   {
     "name": "timing_evaluable_always",
     "file": "toolenv/avrsim/src/rig.js",
-    "old": "timing_evaluable: untimed.length === 0,",
-    "new": "timing_evaluable: true,",
+    "old": "const timed = untimed.length === 0;",
+    "new": "const timed = true;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3504,6 +3663,7 @@
     "new": "export const GYRO_TURN_ON_S = 0;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3526,6 +3686,7 @@
     "new": "sensor.valid = sensor.first;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3548,6 +3709,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3570,6 +3732,7 @@
     "new": "const column = false ?",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3592,6 +3755,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3614,6 +3778,7 @@
     "new": "if (k > sensor.read) {",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3632,10 +3797,11 @@
   {
     "name": "imu_invalid_reads_true_value",
     "file": "toolenv/avrsim/src/imu.js",
-    "old": "const values = k < sensor.valid ? INVALID : this.sample(which, sensor.t0 + k / sensor.odr);",
-    "new": "const values = this.sample(which, sensor.t0 + k / sensor.odr);",
+    "old": "const values = k < sensor.valid ? this.invalid(which, at) : this.sample(which, at);",
+    "new": "const values = this.sample(which, at);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3658,6 +3824,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3680,6 +3847,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3702,6 +3870,7 @@
     "new": "if (false) return",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3724,6 +3893,7 @@
     "new": "if (false) return twi.lost",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3746,6 +3916,7 @@
     "new": "if (false) {",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3768,6 +3939,7 @@
     "new": "cpu.data[REG.TWSR] = value;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3790,6 +3962,7 @@
     "new": "    cpu.data[REG.TWCR] = 0x80; // avr8js sets TWINT",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3812,6 +3985,7 @@
     "new": "bits * this.cyclesPerBit",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3834,6 +4008,7 @@
     "new": "if (flag & F_RETI) {",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3856,6 +4031,7 @@
     "new": "if (flag & F_SEI) {",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3878,6 +4054,7 @@
     "new": "add(s.exclusive, inclusive);",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3900,6 +4077,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3922,6 +4100,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3944,6 +4123,7 @@
     "new": "      if (probe.epoch) continue;\n      probe.epoch = {",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3966,6 +4146,7 @@
     "new": "    else batch = null;",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -3988,6 +4169,973 @@
     "new": "add(this.inputToOutput.newest, cycle - Math.round(batch[0] * FREQUENCY_HZ));",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "imu_turn_on_restarts_on_rate_change",
+    "file": "toolenv/avrsim/src/imu.js",
+    "old": "if (which === 'gyro' && fromPowerDown) sensor.onUntil = t + GYRO_TURN_ON_S;",
+    "new": "if (which === 'gyro') sensor.onUntil = t + GYRO_TURN_ON_S;",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "imu_turn_on_ended_by_rate_change",
+    "file": "toolenv/avrsim/src/imu.js",
+    "old": "const on = sensor.onUntil !== null && sensor.onUntil > t ? sensor.onUntil - t : 0;",
+    "new": "const on = fromPowerDown && sensor.onUntil !== null ? sensor.onUntil - t : 0;",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "imu_other_not_settled",
+    "file": "toolenv/avrsim/src/imu.js",
+    "old": "    this.settleAgain(which === 'gyro' ? 'accel' : 'gyro', t);\n",
+    "new": "",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "imu_settle_counts_the_taken_sample",
+    "file": "toolenv/avrsim/src/imu.js",
+    "old": "const next = Math.max(sensor.first, taken + 1);",
+    "new": "const next = Math.max(sensor.first, taken);",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "imu_invalid_sign_kept",
+    "file": "toolenv/avrsim/src/imu.js",
+    "old": "(count < 0 ? 32767 : -32768)",
+    "new": "(count < 0 ? -32768 : 32767)",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "imu_outputs_zero_before_sample",
+    "file": "toolenv/avrsim/src/imu.js",
+    "old": "if (!k) return sensor.held ?? this.invalid(which, t);",
+    "new": "if (!k) return sensor.held ?? [0, 0, 0];",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "imu_zero_rate_ignored_on_y",
+    "file": "toolenv/avrsim/src/imu.js",
+    "old": "int16(((dps + y) * 1000) / mdps)",
+    "new": "int16((dps * 1000) / mdps)",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "imu_read_before_counts_held",
+    "file": "toolenv/avrsim/src/imu.js",
+    "old": "if (high && !k && !sensor.held) this.counts",
+    "new": "if (high && !k) this.counts",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "scenario_battery_from_zero",
+    "file": "toolenv/avrsim/src/scenario.js",
+    "old": "BATTERY_V = Object.freeze({ min: 5.0, max: 10.8 });",
+    "new": "BATTERY_V = Object.freeze({ min: 0, max: 10.8 });",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "scenario_battery_to_fifteen",
+    "file": "toolenv/avrsim/src/scenario.js",
+    "old": "BATTERY_V = Object.freeze({ min: 5.0, max: 10.8 });",
+    "new": "BATTERY_V = Object.freeze({ min: 5.0, max: 15 });",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "scenario_oscillator_any_low",
+    "file": "toolenv/avrsim/src/scenario.js",
+    "old": "WATCHDOG_OSCILLATOR_HZ = Object.freeze({ min: 112_000,",
+    "new": "WATCHDOG_OSCILLATOR_HZ = Object.freeze({ min: 100_000,",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "scenario_zero_rate_none",
+    "file": "toolenv/avrsim/src/scenario.js",
+    "old": "const DEFAULT_GYRO_ZERO_RATE_DPS = [10, 10, 10];",
+    "new": "const DEFAULT_GYRO_ZERO_RATE_DPS = [0, 0, 0];",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "scenario_zero_rate_unbounded",
+    "file": "toolenv/avrsim/src/scenario.js",
+    "old": "const GYRO_ZERO_RATE_LIMIT_DPS = 10;",
+    "new": "const GYRO_ZERO_RATE_LIMIT_DPS = 20;",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "scenario_seed_not_integer",
+    "file": "toolenv/avrsim/src/scenario.js",
+    "old": "number(raw.sram_seed, 'sram_seed', { min: 0, max: 0xffffffff, integer: true })",
+    "new": "number(raw.sram_seed, 'sram_seed', { min: 0, max: 0xffffffff })",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_brk_each_byte",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "          if (written !== 3) return;\n",
+    "new": "",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_heap_end_ignored",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "const heapEnd = Math.max(this.heapStart ?? 0, this.heapEndMax ?? 0);",
+    "new": "const heapEnd = this.heapStart ?? 0;",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_collision_never",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "collision: headroom === null ? null : headroom < 0,",
+    "new": "collision: headroom === null ? null : false,",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_sleep_any_mode_as_idle",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "if (mode !== 0 || !(data[REG.SREG] & 0x80)) {",
+    "new": "if (!(data[REG.SREG] & 0x80)) {",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_sleep_idle_with_interrupts_off",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "if (mode !== 0 || !(data[REG.SREG] & 0x80)) {",
+    "new": "if (mode !== 0) {",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_sleep_wake_free",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "      cpu.cycles += SLEEP_WAKE_CYCLES;\n",
+    "new": "",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_sleep_wake_four",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "export const SLEEP_WAKE_CYCLES = 5;",
+    "new": "export const SLEEP_WAKE_CYCLES = 4;",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_sleep_no_adc_start",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "    if (data[REG.ADCSRA] & 0x80 && !(data[REG.ADCSRA] & 0x40)) cpu.writeData",
+    "new": "    if (false) cpu.writeData",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_sleep_never",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "if (flag & F_SLEEP && data[REG.SMCR] & 0x01) sleeps = true;",
+    "new": "if (flag & F_SLEEP && data[REG.SMCR] & 0x01) sleeps = false;",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_events_after_end_shown",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "const last = this.evidenceEnd ? this.evidenceEnd.cycle : end;",
+    "new": "const last = end;",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_lateness_from_first_entry",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "if (epoch.phases.count) merge(all.late, againstEarliest(epoch.phases));",
+    "new": "merge(all.late, epoch.lateness);",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_lateness_not_against_earliest",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "max: phases.max - phases.min,",
+    "new": "max: phases.max,",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_timing_never_withheld",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "const timing = (value) => (timed ? value : withheld(untimedWhy));",
+    "new": "const timing = (value) => value;",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_events_not_withheld",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "        if (!timed) for (const key of Object.keys(figures)) figures[key] = withheld(untimedWhy);\n",
+    "new": "",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_withheld_list_empty",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "      withheld: timed\n        ? []",
+    "new": "      withheld: true\n        ? []",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_stayed_off_always",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "stayed_off_to_end: until === null }",
+    "new": "stayed_off_to_end: true }",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_session_leaves_nothing",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "if (this.scenario.bootloader === 'a-star' && this.bootSession) {",
+    "new": "if (false) {",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_start_up_without_16k",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "* FREQUENCY_HZ) + 14 + 16_384;",
+    "new": "* FREQUENCY_HZ) + 14;",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_start_up_not_scaled",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "(0.065 * WATCHDOG_OSCILLATOR_HZ.nominal) / watchdogHz)",
+    "new": "(0.065 * WATCHDOG_OSCILLATOR_HZ.nominal) / WATCHDOG_OSCILLATOR_HZ.nominal)",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_sram_zero",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "{ cycles: 0, sram: powerOnSram(this.scenario.sram_seed) }",
+    "new": "{ cycles: 0 }",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "rig_sram_seed_ignored",
+    "file": "toolenv/avrsim/src/rig.js",
+    "old": "powerOnSram(this.scenario.sram_seed)",
+    "new": "powerOnSram(1)",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "mcu_wdt_nominal_always",
+    "file": "toolenv/avrsim/src/mcu.js",
+    "old": "(FREQUENCY_HZ / this.chip.watchdogHz)",
+    "new": "(FREQUENCY_HZ / 128_000)",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "mcu_prr_ignored",
+    "file": "toolenv/avrsim/src/mcu.js",
+    "old": "if (modules.length) end('power_reduction'",
+    "new": "if (false) end('power_reduction'",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "mcu_prr_timer1_bit",
+    "file": "toolenv/avrsim/src/mcu.js",
+    "old": "0x08: 'timer1'",
+    "new": "0x10: 'timer1'",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "mcu_timer4_shadow_bits_ignored",
+    "file": "toolenv/avrsim/src/mcu.js",
+    "old": "data[REG.TCCR4C] & 0xfc);",
+    "new": "data[REG.TCCR4C] & 0x0c);",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "mcu_spmie_bit",
+    "file": "toolenv/avrsim/src/mcu.js",
+    "old": "value & 0x80 && report('spm_interrupt')",
+    "new": "value & 0x01 && report('spm_interrupt')",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "mcu_clksel_ignored",
+    "file": "toolenv/avrsim/src/mcu.js",
+    "old": "    for (const address of [REG.CLKSEL0, REG.CLKSEL1]) observeWrite(cpu, address, () => report('clock_source'));\n",
+    "new": "",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
+      "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
+      "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
+      "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
+    ],
+    "paths": [
+      "toolenv/avrsim",
+      "tests/unit/toolenv/avrsim_node.py",
+      "tests/integration/toolenv/avrsim_rig.py"
+    ],
+    "args": [
+      "-m",
+      "integration or not integration"
+    ],
+    "tool_environment": true
+  },
+  {
+    "name": "mcu_session_timed",
+    "file": "toolenv/avrsim/src/mcu.js",
+    "old": "'spm_instruction', 'spm_interrupt', 'clock_source', 'bootloader_session',",
+    "new": "'spm_instruction', 'spm_interrupt', 'clock_source',",
+    "tests": [
+      "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
@@ -4010,6 +5158,7 @@
     "new": "",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
+      "tests/unit/toolenv/test_a_simulator_scenario_is_read_bounded_and_refused_whole_when_wrong.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",
       "tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py",
       "tests/integration/toolenv/test_the_simulated_balboa_board_injects_each_fault_on_its_device_and_in_its_window.py"
