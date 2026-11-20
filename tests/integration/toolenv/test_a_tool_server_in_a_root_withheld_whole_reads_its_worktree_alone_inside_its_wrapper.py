@@ -6,8 +6,9 @@ rule: inside the wrapper the harness generates for it (Seatbelt on macOS, bubble
 it reads the worktree, and nothing else of the root: not the rest of the session's own place
 (its login, its records), not a sibling whose name starts as the worktree's, not what lay beside
 the place at the install, not an entry made in the root after the wrapper was built, not a
-denial inside the worktree. It writes nothing in the worktree, only its own directory, and
-reaches no network: a listener on the machine's loopback, answered outside, is not reached.
+denial inside the worktree, nor any of these through a link the session makes in its worktree.
+It writes nothing in the worktree, only its own directory, and reaches no network: a listener on
+the machine's loopback, answered outside, is not reached.
 
 Each row runs on its own platform, and says so where it does not.
 """
@@ -89,6 +90,8 @@ def rig(tmp_path: Path) -> Path:
     (wt / "corpora").mkdir()
     (wt / "corpora" / "key.txt").write_text("an answer key, inside the worktree\n")
     (place / "session" / "state" / "login.txt").write_text("the session's login\n")
+    # A link the session made in its worktree, to its own login beside it.
+    (wt / "out").symlink_to(place / "session" / "state" / "login.txt")
     (place / "worktree2").mkdir()
     (place / "worktree2" / MARKED).write_text("beside, with a name like the worktree's\n")
     (root / "work" / "trial" / "harness").mkdir()
@@ -148,6 +151,7 @@ def _run(rig: Path) -> tuple[dict[str, object], Path, Path]:
         rig / "work" / "trial" / "harness" / MARKED,
         wt / "corpora" / "key.txt",
         late / MARKED,
+        wt / "out",
     ]
     server = ServerLaunch(
         name="probe",
@@ -202,6 +206,8 @@ def test_the_server_reads_the_worktree_and_its_own_directory_and_nothing_else_of
         place / "worktree2" / MARKED,
         rig / "work" / "trial" / "harness" / MARKED,
         rig / "work" / "late-5e2a91" / MARKED,
+        # Through a link in the worktree: judged where it lands, which the server may not read.
+        place / "worktree" / "out",
     ]
     for path in refused:
         assert found[str(path)] in ("PermissionError", "FileNotFoundError"), (path, found)
