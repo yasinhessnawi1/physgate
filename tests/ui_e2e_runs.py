@@ -14,6 +14,10 @@ present, so the request is enforced, and the layer absent, so it is not. The run
 sessions record simulations come after them (see ``ui_series_rig``), for the Simulation screen,
 and two runs of the scripted run on the reference brief held for their parts (see
 ``ui_parts_rig``), for the parts decision's tests.
+Beside the runs, never inside them, ``live/runs`` holds one run still going whose log ends in a
+line the writer has only half written, the rest of that line kept in ``live/rest-of-line``: the
+browser test that follows a running log starts a server of its own over that root and finishes
+the line itself, so no other screen's test sees the run (see ``live_run``).
 Beside the runs, never inside them, ``knowledge`` is a curated library holding every state a
 library file can be in (see ``ui_library_rig``), with two files a reader refuses: a skill file
 that is a link inside the library, and a staged file not named as staging names a candidate. The
@@ -113,6 +117,31 @@ def settings_runs(out: Path, runs: Path) -> None:
     )
 
 
+#: The run the following test reads, in a root of its own beside the runs.
+LIVE_RUN = "drive-live"
+
+
+def live_run(out: Path, runs: Path) -> Path:
+    """A copy of the gated run cut after its first gate stage, then half of the gate's result.
+
+    What a reader meets while the run's process writes the gate's result line: the stage entered,
+    the result line begun and not ended. The rest of that line is kept beside the root, for the
+    browser test to append as the writer would. Returns the root the run lies under.
+    """
+    root = out / "live" / "runs"
+    run = cut_after_first_gate_stage(runs / "drive-on", root / LIVE_RUN)
+    whole = (runs / "drive-on" / "events.jsonl").read_bytes().splitlines(keepends=True)
+    log = run / "events.jsonl"
+    cut = len(log.read_bytes().splitlines(keepends=True))
+    result = whole[cut]
+    assert json.loads(result)["kind"] == "gate_ran", "the line after the gate stage is its result"
+    half = len(result) // 2
+    with log.open("ab") as handle:
+        handle.write(result[:half])
+    (out / "live" / "rest-of-line").write_bytes(result[half:])
+    return root
+
+
 def library(out: Path) -> Path:
     """The fixture library beside the runs, with a row each listing must keep as an error."""
     root = build_library(out).root
@@ -143,6 +172,7 @@ def main(argv: list[str]) -> int:
     series_runs(out, runs)
     parts_runs(out, runs)
     evidence_runs(out / "evidence")
+    live_run(out, runs)
     library(out)
     print(runs, flush=True)
     return 0

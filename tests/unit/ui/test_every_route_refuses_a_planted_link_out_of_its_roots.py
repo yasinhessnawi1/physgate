@@ -56,6 +56,7 @@ def _routes_reading(planted: str, session: str) -> list[str]:
         ],
         "events.jsonl": [
             f"{run}/events",
+            f"{run}/events/from/0",
             f"{run}/ledger",
             f"{run}/gate-events",
             f"{run}/trajectories/{session}",
