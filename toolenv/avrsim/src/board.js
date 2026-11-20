@@ -77,6 +77,7 @@ export class Balboa32U4 {
       onWrite: observers.onImuWrite,
       onUnmodelled: observers.onUnmodelled,
       onOutputRead: observers.onOutputRead,
+      zeroRateDps: scenario.imu.gyro_zero_rate_dps,
     });
     this.lis3mdl = new LIS3MDL({ faults: faultsAt('lis3mdl') });
     this.devices = new Map([

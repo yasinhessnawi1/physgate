@@ -20,7 +20,7 @@ import { MAX_SCENARIO_BYTES, ScenarioError, readScenario } from './scenario.js';
 // and a scenario's check read no more than they need.
 let RigError = class extends Error {};
 
-export const RIG_VERSION = '0.2.0';
+export const RIG_VERSION = '0.3.0';
 const MAX_ELF_BYTES = 4 << 20;
 const USAGE = `usage: avrsim --version
        avrsim check --scenario FILE

@@ -34,6 +34,23 @@ const BOOTLOADERS = new Set(['a-star', 'none']);
 /** How long both motor enables must stay low for the motors to count as off, by default: longer
  * than a PWM period at 50 Hz or faster, so the low part of a PWM wave is never "off". */
 const DEFAULT_MOTORS_OFF_HOLD_S = 0.02;
+/** The gyroscope's zero-rate level by default, in dps on x, y and z: the datasheet's typical
+ * figure (LSM6DS33 "Mechanical characteristics", G_TyOff +-10 dps) at its stated magnitude, so a
+ * firmware that does not calibrate it shows that it does not. */
+const DEFAULT_GYRO_ZERO_RATE_DPS = [10, 10, 10];
+const GYRO_ZERO_RATE_LIMIT_DPS = 10;
+/** The battery voltages the board is shown at. Below 5 V the 5 V buck regulator (MP4423H) cannot
+ * hold its output, and the documents give no figure for what VCC then is; the brown-out detector
+ * resets the chip below VBOT, 4.0 to 4.5 V (extended fuse 0xC8, BODLEVEL 000, datasheet Table 8-1;
+ * Balboa 32U4 User's Guide: "The brown-out threshold is 4.3 V"). Above 10.8 V the motor drivers
+ * limit the board (User's Guide, "5 V and 3.3 V regulators"). */
+export const BATTERY_V = Object.freeze({ min: 5.0, max: 10.8 });
+/** The watchdog oscillator, in Hz: 128 kHz is the datasheet's nominal, from which its Table 8-5
+ * typical time-outs follow; its typical curves at 5 V (Figure 30-34) lie between about 112.5 kHz
+ * (85 degC) and 121.5 kHz (-40 degC). The datasheet gives no bound; a scenario runs either end. */
+export const WATCHDOG_OSCILLATOR_HZ = Object.freeze({ min: 112_000, max: 128_000, nominal: 128_000 });
+/** The seed of the pattern SRAM holds at power-on (the datasheet gives SRAM no initial value). */
+const DEFAULT_SRAM_SEED = 1;
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -127,13 +144,23 @@ function triple(value, where) {
 
 function imu(value, duration) {
   const where = 'imu';
-  only(value, where, ['pitch_rad', 'pitch_rate_rad_s', 'raw']);
+  only(value, where, ['pitch_rad', 'pitch_rate_rad_s', 'raw', 'gyro_zero_rate_dps']);
+  let zeroRate = DEFAULT_GYRO_ZERO_RATE_DPS;
+  if (value.gyro_zero_rate_dps !== undefined) {
+    const at = `${where}.gyro_zero_rate_dps`;
+    if (!Array.isArray(value.gyro_zero_rate_dps) || value.gyro_zero_rate_dps.length !== 3) {
+      throw new ScenarioError(at, 'it is not three rates [x, y, z]');
+    }
+    const bound = { min: -GYRO_ZERO_RATE_LIMIT_DPS, max: GYRO_ZERO_RATE_LIMIT_DPS };
+    zeroRate = value.gyro_zero_rate_dps.map((v, i) => number(v, `${at}[${i}]`, bound));
+  }
   const out = {
     pitch_rad: value.pitch_rad ? profile(value.pitch_rad, `${where}.pitch_rad`, duration, 100) : [[0, 0]],
     pitch_rate_rad_s: value.pitch_rate_rad_s
       ? profile(value.pitch_rate_rad_s, `${where}.pitch_rate_rad_s`, duration, 1000)
       : null,
     raw: [],
+    gyro_zero_rate_dps: [...zeroRate],
   };
   if (value.raw !== undefined) {
     let last = -1;
@@ -193,6 +220,7 @@ export function readScenario(text) {
   const top = [
     'avrsim_scenario', 'duration_s', 'imu', 'encoders', 'faults', 'buttons', 'stalls',
     'usb_sof', 'battery_v', 'probes', 'markers', 'trace', 'bootloader', 'motors_off_hold_s',
+    'watchdog_oscillator_hz', 'sram_seed',
   ]; // prettier-ignore
   only(raw, 'the scenario', top, ['avrsim_scenario', 'duration_s']);
   if (raw.avrsim_scenario !== SCENARIO_VERSION) {
@@ -235,7 +263,15 @@ export function readScenario(text) {
     throw new ScenarioError('usb_sof', 'it is not true or false');
   }
   scenario.usb_sof = raw.usb_sof ?? false;
-  scenario.battery_v = raw.battery_v === undefined ? 7.2 : number(raw.battery_v, 'battery_v', { min: 0, max: 15 });
+  scenario.battery_v = raw.battery_v === undefined ? 7.2 : number(raw.battery_v, 'battery_v', BATTERY_V);
+  scenario.watchdog_oscillator_hz =
+    raw.watchdog_oscillator_hz === undefined
+      ? WATCHDOG_OSCILLATOR_HZ.nominal
+      : number(raw.watchdog_oscillator_hz, 'watchdog_oscillator_hz', WATCHDOG_OSCILLATOR_HZ);
+  scenario.sram_seed =
+    raw.sram_seed === undefined
+      ? DEFAULT_SRAM_SEED
+      : number(raw.sram_seed, 'sram_seed', { min: 0, max: 0xffffffff, integer: true });
   // The board's reset path: the A-Star 32U4 bootloader the Balboa ships with, unless the
   // scenario names "none" (a chip programmed without it).
   scenario.bootloader = raw.bootloader === undefined ? 'a-star' : oneOf(raw.bootloader, 'bootloader', BOOTLOADERS);

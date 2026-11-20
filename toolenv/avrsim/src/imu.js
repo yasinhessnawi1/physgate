@@ -10,8 +10,10 @@
 // sampled is the body's motion as the scenario gives it, through the axis convention of the Balboa
 // library's own balancing example (examples/Balancer/Balance.cpp: the angle rate is +g.y, the
 // angle from the accelerometer is atan2(a.z, a.x)): with pitch theta and pitch rate omega, the
-// gyroscope reads (0, omega, 0) and the accelerometer (cos theta, 0, sin theta) g. No noise, no
-// bias, no filter delay: those are the part's, and not shown.
+// gyroscope reads (0, omega, 0) plus its zero-rate level and the accelerometer (cos theta, 0,
+// sin theta) g. The zero-rate level is the scenario's, within the datasheet's typical figure
+// ("Mechanical characteristics", G_TyOff: +-10 dps). No noise and no filter delay: those are the
+// part's, and not shown.
 
 export const LSM6DS33_ADDRESS = 0x6b;
 export const LIS3MDL_ADDRESS = 0x1e;
@@ -83,7 +85,9 @@ const ACCEL_MG = [0.061, 0.488, 0.122, 0.244];
 
 /** The gyroscope's turn-on from power-down, at most 80 ms (AN4682 Table 16), and the samples to
  * discard after it and after an ODR change, by ODR code (AN4682 Table 17: 2 up to 416 Hz, 3 at
- * 833 Hz, 4 at 1.66 kHz). */
+ * 833 Hz, 4 at 1.66 kHz). The turn-on runs from the write that takes the gyroscope out of
+ * power-down ("Power Down" to "Low-Power / Normal / High-Performance"); a change of its rate
+ * before the turn-on is over does not end it. */
 export const GYRO_TURN_ON_S = 0.08;
 const GYRO_DISCARD = [0, 2, 2, 2, 2, 2, 2, 3, 4];
 /** The accelerometer's samples to discard in high-performance mode, by ODR code and analog
@@ -107,9 +111,17 @@ const ACCEL_DISCARD = [
 const ACCEL_AUTO_BW = [null, 3, 3, 3, 3, 2, 1, 0, 0, 4, 4];
 
 const DEG_PER_RAD = 180 / Math.PI;
-/** What an invalid sample (one the part takes while turning on or settling) reads: the
- * documents give no value, and the rig gives 0 counts on every axis. */
-const INVALID = [0, 0, 0];
+/** The datasheet's typical zero-rate level ("Mechanical characteristics", G_TyOff), in dps: a
+ * scenario's level lies within it on each axis. */
+export const GYRO_ZERO_RATE_LIMIT_DPS = 10;
+/** What a sample to discard reads, and what the outputs read before the part has taken any
+ * sample. The documents give no value for either: AN4682 Tables 12, 16 and 17 say only that such
+ * samples "have to be discarded", and the register map gives the outputs no reset value. The rig's
+ * conservative choice is a value no calibration or angle can take for the truth. */
+export const INVALID_SAMPLE_VALUE =
+  'each axis at the end of its range opposite to the sign of its input: -32768 for an input of 0 or more, ' +
+  '32767 for a negative one (the documents give no value for a sample to discard, or for the outputs before ' +
+  'the first sample)';
 const AXES = { x: 0, y: 1, z: 2 };
 
 function int16(value) {
@@ -124,6 +136,7 @@ export function lsm6Name(address) {
 /**
  * The LSM6DS33.
  *
+ * `zeroRateDps` is the gyroscope's zero-rate level on x, y and z in dps (none if not given);
  * `motion(t)` gives {pitch_rad, pitch_rate_rad_s}; `raw(t)` gives counts that replace the outputs
  * ({gyro, accel}) or null; `faults(t)` gives {nack, stale_since, saturated} (`stale_since` the
  * time the active stale fault began, `saturated` null or {sensor: 'gyro' | 'accel' | 'both',
@@ -144,12 +157,17 @@ export function lsm6Name(address) {
  * - Turn-on and settling (AN4682 sections 2.6.2 and 2.7.1): from power-down the gyroscope takes
  *   no sample for 80 ms (data ready stays 0), and after that, and after any change of its ODR,
  *   its first samples of Table 17 are invalid; the accelerometer's first samples of Table 12 are
- *   invalid after power-down or an ODR change in high-performance mode. An invalid sample reads
- *   INVALID and sets data ready unless CTRL4_C's DRDY_MASK is set; each one taken up is counted.
+ *   invalid after power-down or an ODR change in high-performance mode. A change of either
+ *   sensor's ODR starts the other's discards again: AN4682 section 2.6.2 has the accelerometer
+ *   settle "when the accelerometer / gyroscope ODR is changed", and section 2.7.1 the gyroscope;
+ *   the rig reads that as either sensor's change, the harsher reading. An invalid sample reads
+ *   INVALID_SAMPLE_VALUE and sets data ready unless CTRL4_C's DRDY_MASK is set; each one taken up
+ *   is counted, and so is each high output byte read before the sensor has taken any sample.
  */
 export class LSM6DS33 {
-  constructor({ motion, raw, faults, onWrite, onUnmodelled, onOutputRead }) {
+  constructor({ motion, raw, faults, onWrite, onUnmodelled, onOutputRead, zeroRateDps }) {
     this.motion = motion;
+    this.zeroRateDps = zeroRateDps ?? [0, 0, 0];
     this.raw = raw;
     this.faults = faults;
     this.onWrite = onWrite ?? (() => {});
@@ -164,6 +182,7 @@ export class LSM6DS33 {
       gyro_samples_read: 0,
       accel_samples_read: 0,
       invalid_samples_read: { gyro: 0, accel: 0 },
+      read_before_any_sample: { gyro: 0, accel: 0 },
     };
     /** The instant (s) the newest gyroscope sample taken up so far was taken, or null. */
     this.lastGyroReady = null;
@@ -173,8 +192,10 @@ export class LSM6DS33 {
     this.registers.fill(0);
     this.registers[LSM6.WHO_AM_I] = WHO_AM_I_VALUE;
     for (const [address, value] of Object.entries(RESET_VALUES)) this.registers[address] = value;
-    const sensor = () => ({ odr: 0, code: 0, t0: t, read: 0, first: 1, valid: 1, held: [0, 0, 0],
-      latch: [null, null, null], cache: null }); // prettier-ignore
+    // `held`: what the outputs hold, null before any sample; `onUntil`: the gyroscope's turn-on
+    // end while it lasts.
+    const sensor = () => ({ odr: 0, code: 0, t0: t, read: 0, first: 1, valid: 1, held: null,
+      latch: [null, null, null], cache: null, onUntil: null }); // prettier-ignore
     this.gyro = sensor();
     this.accel = sensor();
   }
@@ -237,10 +258,26 @@ export class LSM6DS33 {
     sensor.read = 0;
     sensor.latch = [null, null, null];
     sensor.cache = null;
-    if (!odr) return;
-    // `first`: the first sample the part takes; `valid`: the first one that is not discarded.
-    sensor.first = which === 'gyro' && fromPowerDown ? Math.max(1, Math.ceil(GYRO_TURN_ON_S * odr - 1e-9)) : 1;
+    this.settleAgain(which === 'gyro' ? 'accel' : 'gyro', t);
+    if (!odr) {
+      sensor.onUntil = null;
+      return;
+    }
+    if (which === 'gyro' && fromPowerDown) sensor.onUntil = t + GYRO_TURN_ON_S;
+    // `first`: the first sample the part takes, none before the turn-on's end; `valid`: the first
+    // one that is not discarded.
+    const on = sensor.onUntil !== null && sensor.onUntil > t ? sensor.onUntil - t : 0;
+    sensor.first = Math.max(1, Math.ceil(on * odr - 1e-9));
     sensor.valid = sensor.first + this.discards(which, code);
+  }
+
+  /** The other sensor's ODR changed at `t`: its next samples are discarded again. */
+  settleAgain(which, t) {
+    const sensor = this[which];
+    if (!sensor.odr) return;
+    const taken = Math.floor((t - sensor.t0) * sensor.odr + 1e-9);
+    const next = Math.max(sensor.first, taken + 1);
+    sensor.valid = Math.max(sensor.valid, next + this.discards(which, sensor.code));
   }
 
   discards(which, code) {
@@ -289,14 +326,20 @@ export class LSM6DS33 {
     return this.registers[address];
   }
 
-  /** Sample k's three counts, or what the outputs held when there is none (k = 0). */
-  values(which, k) {
+  /** Sample k's three counts, or what the outputs hold when there is none (k = 0) at `t`. */
+  values(which, k, t) {
     const sensor = this[which];
-    if (!k) return sensor.held;
+    if (!k) return sensor.held ?? this.invalid(which, t);
     if (sensor.cache && sensor.cache.k === k) return sensor.cache.values;
-    const values = k < sensor.valid ? INVALID : this.sample(which, sensor.t0 + k / sensor.odr);
+    const at = sensor.t0 + k / sensor.odr;
+    const values = k < sensor.valid ? this.invalid(which, at) : this.sample(which, at);
     sensor.cache = { k, values };
     return values;
+  }
+
+  /** INVALID_SAMPLE_VALUE for the input at `t`. */
+  invalid(which, t) {
+    return this.sample(which, t).map((count) => (count < 0 ? 32767 : -32768));
   }
 
   /** One byte of a sensor's output, as BDU gives it. */
@@ -313,13 +356,14 @@ export class LSM6DS33 {
       if (latched.read === 3) sensor.latch[axis] = null;
     } else {
       k = this.index(sensor, t);
-      values = this.values(which, k);
+      values = this.values(which, k, t);
       if (this.registers[LSM6.CTRL3_C] & 0x40) sensor.latch[axis] = { k, values, read: high ? 2 : 1 };
     }
     if (k) {
       sensor.held = values;
       this.onOutputRead(which, sensor.t0 + k / sensor.odr);
     }
+    if (high && !k && !sensor.held) this.counts.read_before_any_sample[which] += 1;
     if (high && k > sensor.read) {
       sensor.read = k;
       this.counts[`${which}_samples_read`] += 1;
@@ -340,7 +384,8 @@ export class LSM6DS33 {
       const ctrl = this.registers[LSM6.CTRL2_G];
       const mdps = ctrl & 0x02 ? GYRO_MDPS_125 : GYRO_MDPS[(ctrl >> 2) & 0x03];
       const dps = this.motion(t).pitch_rate_rad_s * DEG_PER_RAD;
-      counts = [0, int16((dps * 1000) / mdps), 0];
+      const [x, y, z] = this.zeroRateDps;
+      counts = [int16((x * 1000) / mdps), int16(((dps + y) * 1000) / mdps), int16((z * 1000) / mdps)];
     } else {
       const mg = ACCEL_MG[(this.registers[LSM6.CTRL1_XL] >> 2) & 0x03];
       const { pitch_rad: theta } = this.motion(t);

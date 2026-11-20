@@ -93,9 +93,9 @@ export const REG = Object.freeze({
   TCCR0A: 0x44, TCCR0B: 0x45, TCNT0: 0x46, OCR0A: 0x47, OCR0B: 0x48,
   PLLCSR: 0x49,
   SPCR: 0x4c, SPSR: 0x4d, SPDR: 0x4e,
-  ACSR: 0x50, PLLFRQ: 0x52, SMCR: 0x53, MCUSR: 0x54, MCUCR: 0x55,
+  ACSR: 0x50, PLLFRQ: 0x52, SMCR: 0x53, MCUSR: 0x54, MCUCR: 0x55, SPMCSR: 0x57,
   SPL: 0x5d, SPH: 0x5e, SREG: 0x5f,
-  WDTCSR: 0x60, CLKPR: 0x61,
+  WDTCSR: 0x60, CLKPR: 0x61, PRR0: 0x64, PRR1: 0x65,
   PCICR: 0x68, EICRA: 0x69, EICRB: 0x6a, PCMSK0: 0x6b,
   TIMSK0: 0x6e, TIMSK1: 0x6f, TIMSK3: 0x71, TIMSK4: 0x72,
   ADCL: 0x78, ADCH: 0x79, ADCSRA: 0x7a, ADCSRB: 0x7b, ADMUX: 0x7c, DIDR0: 0x7e,
@@ -106,6 +106,7 @@ export const REG = Object.freeze({
   TWBR: 0xb8, TWSR: 0xb9, TWAR: 0xba, TWDR: 0xbb, TWCR: 0xbc, TWAMR: 0xbd,
   TCNT4: 0xbe, TC4H: 0xbf, TCCR4A: 0xc0, TCCR4B: 0xc1, TCCR4C: 0xc2, TCCR4D: 0xc3,
   TCCR4E: 0xc4,
+  CLKSEL0: 0xc5, CLKSEL1: 0xc6,
   UCSR1A: 0xc8, UCSR1B: 0xc9, UCSR1C: 0xca, UCSR1D: 0xcb, UBRR1L: 0xcc, UBRR1H: 0xcd,
   UDR1: 0xce,
   OCR4A: 0xcf, OCR4B: 0xd0, OCR4C: 0xd1, OCR4D: 0xd2, DT4: 0xd4,
@@ -248,8 +249,9 @@ const EEPROM = {
   EEDR: REG.EEDR,
   EEARL: REG.EEARL,
   EEARH: REG.EEARH,
-  // Erase only and write only 1.8 ms each, an atomic erase-and-write their sum, 3.4 ms (avr8js
-  // sums them), as the datasheet's "EEPROM Mode Bits" table gives them.
+  // Erase only and write only 1.8 ms each, as the datasheet's "EEPROM Mode Bits" table gives
+  // them; avr8js takes an atomic erase-and-write as their sum, 3.6 ms, 0.2 ms longer than the
+  // table's 3.4 ms (a later EEPROM-ready, which does not flatter firmware).
   eraseCycles: 28_800,
   writeCycles: 28_800,
 };
@@ -263,6 +265,16 @@ export const MCUSR_WDRF = 0x08;
 /** The PLL's lock time. The datasheet ("PLLCSR", PLOCK) gives only "about several ms"; the rig
  * takes 10 ms, the long end of that reading, so a start-up that waits on PLOCK is not shortened. */
 export const PLL_LOCK_CYCLES = FREQUENCY_HZ / 100;
+
+/** The power reduction bits by register (datasheet "PRR0", "PRR1"): writing one "shuts down" the
+ * module "by stopping the clock to the module", and then "the current state of the peripheral is
+ * frozen and the I/O registers can not be read or written" ("Power Reduction Register"). What a
+ * read then gives is not documented, so the rig does not go on past such a write: the run's
+ * evidence ends there. */
+export const POWER_REDUCTION = Object.freeze({
+  PRR0: { address: 0x64, bits: { 0x80: 'twi', 0x20: 'timer0', 0x08: 'timer1', 0x04: 'spi', 0x01: 'adc' } },
+  PRR1: { address: 0x65, bits: { 0x80: 'usb', 0x10: 'timer4', 0x08: 'timer3', 0x01: 'usart1' } },
+});
 
 /** The four-cycle interrupt response for a part with a two-byte program counter, of which avr8js
  * counts two (datasheet "Interrupt Response Time"). */
@@ -400,8 +412,9 @@ class TimedTWI extends AVRTWI {
 /**
  * The watchdog (datasheet "Watchdog Timer"), with safety level 1 (WDTON unprogrammed).
  *
- * - The counter runs from the 128 kHz oscillator, nominally; a time-out comes after 2K << WDP
- *   oscillator cycles (WDP3..0 = 0 is 16 ms, 9 is 8 s), counted again from WDR and from the
+ * - The counter runs from the watchdog oscillator, 128 kHz nominally (a typical figure: the
+ *   datasheet's curves at 5 V lie lower, and it gives no bound); its frequency is the chip's
+ *   `watchdogHz`. A time-out comes after 2K << WDP oscillator cycles (WDP3..0 = 0 is 16 ms, 9 is 8 s), counted again from WDR and from the
  *   timer's enabling. A change of WDP keeps the count: the new period runs from the last restart,
  *   so a shorter one already passed times out at once (datasheet "WDTCSR", the note to WDP: "a
  *   change in the WDP bits can result in a time-out when switching to a shorter time-out period").
@@ -457,7 +470,7 @@ class Watchdog {
   get period() {
     const wdtcsr = this.cpu.data[REG.WDTCSR];
     const wdp = ((wdtcsr & 0x20) >> 2) | (wdtcsr & 0x07);
-    return Math.round((FREQUENCY_HZ / 128_000) * (2048 << Math.min(wdp, 9)));
+    return Math.round((FREQUENCY_HZ / this.chip.watchdogHz) * (2048 << Math.min(wdp, 9)));
   }
 
   write(value, old) {
@@ -613,8 +626,8 @@ class Usb {
  * interrupt enabled, and that is not reported. Each entry below is a use, counted each time:
  *
  * - `timer4`: Timer4 clocked (TCCR4B CS4) with an interrupt enabled (TIMSK4) or a compare output
- *   connected (COM4A/B in TCCR4A, COM4D in TCCR4C), written as such; or a read of TCNT4, TC4H or
- *   TIFR4, a count that does not count here.
+ *   connected (COM4A/B in TCCR4A, COM4D or the COM4A/B shadow bits in TCCR4C), written as such;
+ *   or a read of TCNT4, TC4H or TIFR4, a count that does not count here.
  * - `input_capture`: ICIE1 or ICIE3 (TIMSKn bit 5) set; avr8js captures nothing.
  * - `vector_relocation`: IVSEL set in MCUCR; the rig's vectors stay at 0.
  * - `pull_up_disable`: PUD set in MCUCR; the ports' pull-ups stay as PORT gives them.
@@ -624,12 +637,15 @@ class Usb {
  * - `spi`: SPDR written, or SPCR written with SPE set.
  * - `analog_comparator`: ACSR read, or written with ACIE set.
  * - `usb_endpoint_data`: UEDATX read or written (no host: no endpoint has data).
- * - The rig adds `sleep` (a SLEEP executed with SMCR's SE set) and `spm_instruction`.
+ * - `spm_interrupt`: SPMIE set in SPMCSR (the SPM_READY interrupt is never raised here).
+ * - `clock_source`: CLKSEL0 or CLKSEL1 written (the rig runs from the crystal whatever they say).
+ * - The rig adds `spm_instruction` (an SPM executed) and `bootloader_session` (the bootloader's
+ *   own session ran, whose length is a lower bound and whose USB state is not modelled).
  */
 export const UNMODELLED_FEATURES = Object.freeze([
   'timer4', 'input_capture', 'vector_relocation', 'pull_up_disable', 'adc_auto_trigger',
-  'adc_mux5', 'clock_prescaler', 'spi', 'analog_comparator', 'usb_endpoint_data', 'sleep',
-  'spm_instruction',
+  'adc_mux5', 'clock_prescaler', 'spi', 'analog_comparator', 'usb_endpoint_data',
+  'spm_instruction', 'spm_interrupt', 'clock_source', 'bootloader_session',
 ]); // prettier-ignore
 
 /**
@@ -643,11 +659,13 @@ export class ATmega32U4 {
   /**
    * @param {Uint16Array} program the flash image, in words
    * @param {{cycles?: number, mcusr?: number, sram?: Uint8Array, eeprom: EEPROMMemoryBackend,
-   *   sof?: boolean, bus: object, onTransfer?: Function, onUnmodelled?: Function}} options
+   *   sof?: boolean, bus: object, onTransfer?: Function, onUnmodelled?: Function,
+   *   onEvidenceEnd?: Function, watchdogHz?: number}} options
    */
   constructor(program, options) {
     const cpu = new CPU(program, SRAM_BYTES);
     this.cpu = cpu;
+    this.watchdogHz = options.watchdogHz ?? 128_000;
     cpu.cycles = options.cycles ?? 0;
     if (options.sram) cpu.data.set(options.sram, 0x100);
     cpu.data[REG.MCUSR] = options.mcusr ?? MCUSR_PORF;
@@ -667,6 +685,19 @@ export class ATmega32U4 {
     this.watchdog = new Watchdog(this);
     this.usb = new Usb(this, { sof: !!options.sof });
     this.watchUnmodelled(options.onUnmodelled ?? (() => {}));
+    this.watchPowerReduction(options.onEvidenceEnd ?? (() => {}));
+  }
+
+  /** A one written to a power reduction bit: `end(cause, detail)` (POWER_REDUCTION). */
+  watchPowerReduction(end) {
+    for (const [register, { address, bits }] of Object.entries(POWER_REDUCTION)) {
+      observeWrite(this.cpu, address, (value) => {
+        const modules = Object.entries(bits)
+          .filter(([bit]) => value & Number(bit))
+          .map(([, module]) => module);
+        if (modules.length) end('power_reduction', { register, value, modules });
+      });
+    }
   }
 
   requestReset(cause) {
@@ -696,7 +727,7 @@ export class ATmega32U4 {
     const { data } = cpu;
     const timer4Used = () =>
       !!(data[REG.TCCR4B] & 0x0f) &&
-      !!(data[REG.TIMSK4] & 0xe4 || data[REG.TCCR4A] & 0xf0 || data[REG.TCCR4C] & 0x0c);
+      !!(data[REG.TIMSK4] & 0xe4 || data[REG.TCCR4A] & 0xf0 || data[REG.TCCR4C] & 0xfc);
     for (const address of [REG.TIMSK4, REG.TCCR4A, REG.TCCR4B, REG.TCCR4C]) {
       observeWrite(cpu, address, () => timer4Used() && report('timer4'));
     }
@@ -720,6 +751,8 @@ export class ATmega32U4 {
     observeWrite(cpu, REG.SPCR, (value) => value & 0x40 && report('spi'));
     observeWrite(cpu, REG.ACSR, (value) => value & 0x08 && report('analog_comparator'));
     observeRead(cpu, REG.ACSR, () => report('analog_comparator'));
+    observeWrite(cpu, REG.SPMCSR, (value) => value & 0x80 && report('spm_interrupt'));
+    for (const address of [REG.CLKSEL0, REG.CLKSEL1]) observeWrite(cpu, address, () => report('clock_source'));
     observeWrite(cpu, REG.UEDATX, () => report('usb_endpoint_data'));
     observeRead(cpu, REG.UEDATX, () => report('usb_endpoint_data'));
   }

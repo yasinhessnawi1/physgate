@@ -10,10 +10,18 @@
 //   (its return address taken off the stack by anything else) is counted as such and dropped;
 // - after SEI and after RETI one more instruction runs before a pending interrupt is taken
 //   (datasheet "Interrupt Response Time" and the SEI example);
-// - the stack's high-water mark is the least stack pointer after any instruction;
+// - the stack's high-water mark is the least stack pointer after any instruction, and its
+//   headroom the distance from it down to the highest the heap reached (avr-libc's __brkval,
+//   taken whenever both its bytes have been written) or, below that, to the end of static data
+//   (__heap_start); a negative headroom is a collision of stack and heap;
+// - idle sleep (SMCR SM2..0 = 000) halts the CPU while the clocks run, until an interrupt is
+//   taken, which costs five cycles more than from active mode (datasheet "Interrupt Response
+//   Time"; "Power Management and Sleep Modes" says four: the rig takes the longer); any other
+//   sleep mode, or idle with interrupts off, ends the run's evidence at that SLEEP;
 // - a probe is a function symbol of the ELF: an entry is the CPU arriving at its address, its
 //   return the RET (or RETI) executed at the stack depth it was entered at; its statistics start
-//   again at each reset and are given per reset as well as over the run;
+//   again at each reset and are given per reset as well as over the run; its lateness is against
+//   the grid of its period through the earliest phase any of its entries kept (LATENESS);
 // - a PWM output's period and high time are taken between the pin's own edges while a timer's
 //   compare unit drives it;
 // - the motors are off while both DRV8838 enable inputs (PB5 and PB6) are low, from their pins'
@@ -28,7 +36,8 @@
 import { avrInstruction } from 'avr8js';
 
 import { BOARD, BOARD_VERSION, Balboa32U4, MOTOR_PINS } from './board.js';
-import { lsm6Name } from './imu.js';
+import { INVALID_SAMPLE_VALUE, lsm6Name } from './imu.js';
+import { WATCHDOG_OSCILLATOR_HZ } from './scenario.js';
 import {
   ATmega32U4,
   EEPROM_BYTES,
@@ -41,6 +50,7 @@ import {
   PLL_LOCK_CYCLES,
   RAMEND,
   REG,
+  SRAM_BYTES,
   UNMODELLED_FEATURES,
   VECTORS,
   VECTOR_TABLE_WORDS,
@@ -67,11 +77,42 @@ export const EDGE_RESOLUTION_CYCLES = 4;
 /**
  * The start-up time after a reset: the Balboa's A-Star 32U4 low fuse is 0xFF (Pololu a-star
  * boards.txt, a-star32U4.bootloader.low_fuses), CKSEL0 = 1 and SUT1..0 = 11, a crystal with
- * slowly rising power, whose "Additional Delay from Reset" is 14CK + 65 ms (datasheet Table 6-4;
- * 65 ms the typical 8K watchdog-oscillator cycles at 5 V, Table 6-2). It follows every reset,
- * power-on and watchdog alike ("Reset Sources", "Watchdog Reset": the delay timer counts tTOUT).
+ * slowly rising power: "Start-up Time" 16K CK and "Additional Delay from Reset" 14CK + 65 ms
+ * (datasheet Table 6-4), both counted, as "the start-up sequence for the clock includes both the
+ * time-out delay and the start-up time when the device starts up from reset" ("Clock Startup
+ * Sequence"). 65 ms is the typical time-out at 5 V of 8K watchdog-oscillator cycles (Table 6-2):
+ * a typical figure, taken at the nominal 128 kHz and scaled with the scenario's oscillator. It
+ * follows every reset, power-on and watchdog alike ("Watchdog Reset": the delay timer counts
+ * tTOUT).
  */
-export const START_UP_CYCLES = Math.round(0.065 * FREQUENCY_HZ) + 14;
+export function startUpCycles(watchdogHz = WATCHDOG_OSCILLATOR_HZ.nominal) {
+  return Math.round(((0.065 * WATCHDOG_OSCILLATOR_HZ.nominal) / watchdogHz) * FREQUENCY_HZ) + 14 + 16_384;
+}
+export const START_UP_CYCLES = startUpCycles();
+/** The extra cycles an interrupt takes to respond when it wakes the CPU from sleep: "increased by
+ * five clock cycles" ("Interrupt Response Time"; "Power Management and Sleep Modes" gives four). */
+export const SLEEP_WAKE_CYCLES = 5;
+/** What the lateness figures are, as the summary names them. */
+const LATENESS =
+  "per entry n of an epoch (from 0): (entry_n - n * period) - min over the epoch's entries m of (entry_m - m * " +
+  'period), never negative: the lateness against the grid of the period whose phase is the earliest any entry ' +
+  "kept. No entry can make another's lateness smaller: an entry early on its grid lowers the reference, which " +
+  'makes every other later, and a late first entry is late itself. lateness_from_first_entry_cycles is the ' +
+  'figure against the first entry: entry_n - (entry_0 + n * period).';
+/** What the output does not show, whatever the run. */
+export const NOT_SHOWN = Object.freeze([
+  'brown-out beyond its reset: the chip resets below VBOT (4.0 to 4.5 V, typically 4.3 V; datasheet Table 8-1), ' +
+    'and the rig refuses a battery below 5 V, where the documents do not say what VCC is',
+  'an external reset (the RESET pin or button) and the bootloader path it takes',
+  "the inertial sensor's noise and its filters' delay; start-up settling beyond AN4682's discard tables",
+  'clock tolerance: the crystal is exactly 16 MHz; the watchdog oscillator and the start-up time-out are typical ' +
+    'figures (typical_figures), with no bound in the datasheet',
+  'stack headroom on paths the run did not execute: stack.headroom_bytes covers only the paths taken',
+  '"off" means the DRV8838 brake (EN low, Table 7-2), not the motors free; a motors-off figure is evidence only ' +
+    'with its hold time (motors_off_rule.hold_cycles) and motors_off_until_cycle or stayed_off_to_end',
+  'I2C transfers at their fastest (no clock stretching by the sensor, no level-shifter delay) and the ' +
+    "bootloader's session without its interrupts' latency: both are lower bounds",
+]);
 /** The bootloader's own .data, which its start-up copies to 0x0100..0x01CD before main(), and its
  * .bss, zeroed at 0x01CE..0x01E3 (Pololu a-star bootloaders/caterina/Caterina-A-Star.map; the
  * bytes are Caterina-A-Star.hex at 0x7F2A..0x7FF7). */
@@ -95,7 +136,8 @@ export const BOOT_SESSION_CYCLES = 8001 * 251 * 64;
  * that does not flatter firmware. */
 const RESET_PATH = {
   'a-star': [
-    'start-up delay after every reset: 14CK + 65 ms (low fuse 0xFF, datasheet Table 6-4)',
+    'start-up delay after every reset: 16K CK + 14CK + 65 ms (low fuse 0xFF, datasheet Table 6-4), the 65 ms a ' +
+      'typical figure scaled with the watchdog oscillator',
     'the bootloader runs first (Pololu: "The bootloader always runs first immediately after the AVR is reset"): ' +
       'it clears PORF, EXTRF and WDRF in MCUSR (and BORF after a power-on), disables the watchdog, zeroes the word ' +
       'at 0x0800 and overwrites 0x0100..0x01E3 with its own data, then starts the sketch with Timer1 stopped, ' +
@@ -104,11 +146,14 @@ const RESET_PATH = {
     'the bootloader\'s own instructions before the sketch (some thousands of cycles by its code) are not counted',
     'its stack (from 0x0AFF down, a few bytes on this path) is not written: the sketch\'s own stack lies there',
     'a watchdog reset with 0x7777 at 0x0800 keeps the bootloader running for its timeout, taken as its lower bound ' +
-      `${BOOT_SESSION_CYCLES} cycles; the USB, PLL and LED state it leaves is not modelled`,
+      `${BOOT_SESSION_CYCLES} cycles; it leaves OCR1A at 250, the LED pins as outputs (DDRC7, DDRB0, DDRD5), ` +
+      'USBE and PLLE set and the USB detached (Caterina.c SetupHardware(), USB_Detach(), StartSketch()); the rest ' +
+      'of its USB state is not modelled, and the timing after such a session is not evaluable',
     `the PLL's lock is taken as ${PLL_LOCK_CYCLES} cycles (datasheet: "about several ms")`,
   ],
   none: [
-    'start-up delay after every reset: 14CK + 65 ms (low fuse 0xFF, datasheet Table 6-4)',
+    'start-up delay after every reset: 16K CK + 14CK + 65 ms (low fuse 0xFF, datasheet Table 6-4), the 65 ms a ' +
+      'typical figure scaled with the watchdog oscillator',
     'no bootloader: the sketch reads MCUSR as the reset left it; after a watchdog reset WDRF holds the watchdog on ' +
       'at 16 ms, its count started when the delay ends',
     `the PLL's lock is taken as ${PLL_LOCK_CYCLES} cycles (datasheet: "about several ms")`,
@@ -122,7 +167,31 @@ const INPUT_TO_OUTPUT_DEFINITION =
   '(upper_bound_cycles); and from the newest such sample (newest_sample_cycles). A write with no read since ' +
   'the previous one is measured from the reads before that one. The rig sees reads and writes, not which ' +
   'data a command was computed from: upper_bound_cycles bounds the delay only for a command computed from ' +
-  'what was read since that register was last written.';
+  "what was read since that register was last written. The sensor's own filter delay (AN4682 Fig. 4: its " +
+  'anti-aliasing and digital low-pass filters) is not included.';
+
+/** The sleep modes by SMCR's SM2..0 (datasheet "SMCR"). */
+const SLEEP_MODES = ['idle', 'adc_noise_reduction', 'power_down', 'power_save', 'reserved', 'reserved',
+  'standby', 'extended_standby']; // prettier-ignore
+
+/** SRAM at power-on: the datasheet gives it no initial value, so the rig fills it with a pattern
+ * from the scenario's seed (mulberry32), the same on every platform. */
+export function powerOnSram(seed) {
+  const sram = new Uint8Array(SRAM_BYTES);
+  let state = seed >>> 0;
+  for (let i = 0; i < sram.length; i += 4) {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let z = state;
+    z = Math.imul(z ^ (z >>> 15), z | 1);
+    z ^= z + Math.imul(z ^ (z >>> 7), z | 61);
+    z = (z ^ (z >>> 14)) >>> 0;
+    for (let j = 0; j < 4 && i + j < sram.length; j += 1) sram[i + j] = (z >>> (8 * j)) & 0xff;
+  }
+  return sram;
+}
+
+/** A figure the run cannot stand behind, in place of its value. */
+const withheld = (because) => ({ withheld: because });
 
 export class RigError extends Error {}
 
@@ -140,6 +209,11 @@ function add(s, value) {
 function report(s) {
   if (!s.count) return { count: 0 };
   return { count: s.count, min: s.min, max: s.max, mean: s.total / s.count };
+}
+
+/** An epoch's phases as lateness against the earliest of them (LATENESS). */
+function againstEarliest(phases) {
+  return { count: phases.count, min: 0, max: phases.max - phases.min, total: phases.total - phases.count * phases.min };
 }
 
 function merge(into, s) {
@@ -234,6 +308,10 @@ export class Rig {
     }
     const heap = elf.symbols.get('__heap_start') ?? elf.symbols.get('_end');
     this.heapStart = heap ? heap.value & 0xffff : null;
+    // avr-libc's heap break: malloc() and free() keep the heap's end in it, 0 until the first.
+    const brk = elf.symbols.get('__brkval');
+    this.brkAddress = brk && brk.type !== 'function' ? brk.value & 0xffff : null;
+    this.heapEndMax = null;
     this.eeprom = new EEPROMMemoryBackend(EEPROM_BYTES);
     if (elf.eeprom) this.eeprom.memory.set(elf.eeprom);
 
@@ -260,6 +338,10 @@ export class Rig {
     this.inputToOutput = { upper: stats(), newest: stats() };
     this.releaseAt = -1;
     this.bootSession = false;
+    this.sleeping = false;
+    this.sleep = { idle_entries: 0, wakes: 0, cycles_asleep: 0 };
+    this.evidenceEnd = null;
+    this.startUpCycles = startUpCycles(scenario.watchdog_oscillator_hz);
     this.twi = { addresses: 0, nacks: 0, arbitration_lost: 0, bytes: 0 };
     this.board = new Balboa32U4(scenario, {
       onImuWrite: (register, value) => {
@@ -292,6 +374,14 @@ export class Rig {
     this.trace.event(cycle, { type: 'unmodelled', what });
   }
 
+  /** The run's evidence ends here: nothing after this cycle is the board's behaviour. */
+  endEvidence(cause, detail) {
+    if (this.evidenceEnd) return;
+    const cycle = this.chip.cpu.cycles;
+    this.evidenceEnd = { cycle, cause, ...detail };
+    this.trace.event(cycle, { type: 'evidence_end', cause, ...detail });
+  }
+
   build(mcusr, carried, cause) {
     const chip = new ATmega32U4(this.program, {
       ...carried,
@@ -299,16 +389,33 @@ export class Rig {
       eeprom: this.eeprom,
       sof: this.scenario.usb_sof,
       bus: this.board.bus,
+      watchdogHz: this.scenario.watchdog_oscillator_hz,
       onTransfer: (transfer) => this.transfer(transfer),
       onUnmodelled: (what) => this.noteUnmodelled(what),
+      onEvidenceEnd: (why, detail) => this.endEvidence(why, detail),
     });
     this.chip = chip;
     const { cpu } = chip;
     this.resets.push({ cycle: cpu.cycles, cause, sketch_start_cycle: null, mcusr_at_sketch_start: null });
     this.trace.event(cpu.cycles, { type: 'reset', cause });
     // The internal reset is stretched by the start-up time; then the reset path (`release`).
-    this.releaseAt = cpu.cycles + START_UP_CYCLES;
+    this.releaseAt = cpu.cycles + this.startUpCycles;
     this.bootSession = false;
+    this.sleeping = false;
+    if (this.brkAddress !== null) {
+      // The heap's end once both bytes of __brkval are written, whatever their order.
+      const at = this.brkAddress;
+      let written = 0;
+      for (const [address, bit] of [[at, 1], [at + 1, 2]]) {
+        observeWrite(cpu, address, () => {
+          written |= bit;
+          if (written !== 3) return;
+          written = 0;
+          const end = cpu.data[at] | (cpu.data[at + 1] << 8);
+          if (end && (this.heapEndMax === null || end > this.heapEndMax)) this.heapEndMax = end;
+        });
+      }
+    }
     for (const name of ['OCR1A', 'OCR1B']) this.ocr[name].value = 0;
     this.ocrChanged(cpu.cycles);
     this.frames = [];
@@ -317,7 +424,7 @@ export class Rig {
       probe.open = [];
       if (probe.epoch && probe.epoch.entries) probe.epochs.push(probe.epoch);
       probe.epoch = { reset: this.resets.length - 1, entries: 0, first: null, last: null,
-        periods: stats(), durations: stats(), lateness: stats() }; // prettier-ignore
+        periods: stats(), durations: stats(), lateness: stats(), phases: stats() }; // prettier-ignore
     }
     // The motors' enable inputs, from the pins' levels: high when driven high or pulled up.
     const pb = chip.ports.B;
@@ -472,7 +579,7 @@ export class Rig {
 
   /** Run the scenario to its end; the summary's measurements. */
   run() {
-    this.build(MCUSR_PORF, { cycles: 0 }, 'power_on');
+    this.build(MCUSR_PORF, { cycles: 0, sram: powerOnSram(this.scenario.sram_seed) }, 'power_on');
     const end = Math.round(this.scenario.duration_s * FREQUENCY_HZ);
     const stalls = this.scenario.stalls.map((stall) => ({
       start: Math.round(stall.start_s * FREQUENCY_HZ),
@@ -483,7 +590,7 @@ export class Rig {
     let stall = null;
     let stalledByReset = -1;
     let stallShown = -1;
-    while (this.chip.cpu.cycles < end) {
+    while (this.chip.cpu.cycles < end && !this.evidenceEnd) {
       const { cpu } = this.chip;
       const now = cpu.cycles;
       while (stallIndex < stalls.length && stalls[stallIndex].end <= now) stallIndex += 1;
@@ -503,7 +610,7 @@ export class Rig {
       } else {
         this.execute(limit, stall);
       }
-      if (this.chip.resetRequest) {
+      if (this.chip.resetRequest && !this.evidenceEnd) {
         const cause = this.chip.resetRequest;
         // A reset sets its own flag and leaves the others, which only a written zero clears.
         const mcusr = (cause === 'watchdog' ? MCUSR_WDRF : MCUSR_PORF) | this.chip.cpu.data[REG.MCUSR];
@@ -545,6 +652,23 @@ export class Rig {
         return;
       }
     }
+    if (this.scenario.bootloader === 'a-star' && this.bootSession) {
+      // What the session leaves (Caterina.c SetupHardware(), then USB_Detach() and StartSketch()):
+      // OCR1A at 250, the LED pins as outputs, the USB controller and its PLL on, detached.
+      const { timer1 } = this.chip;
+      timer1.ocrA = 250;
+      timer1.nextOcrA = 250;
+      data[REG.OCR1AL] = 250;
+      data[REG.OCR1AL + 1] = 0;
+      this.ocr.OCR1A.value = 250;
+      this.ocrChanged(cpu.cycles);
+      cpu.writeData(REG.DDRC, data[REG.DDRC] | 0x80);
+      cpu.writeData(REG.DDRB, data[REG.DDRB] | 0x01);
+      cpu.writeData(REG.DDRD, data[REG.DDRD] | 0x20);
+      data[REG.USBCON] = (data[REG.USBCON] | 0x80) & ~0x20;
+      data[REG.PLLCSR] = 0x13;
+      data[REG.UDCON] |= 0x01;
+    }
     if (this.scenario.bootloader === 'a-star') {
       // StartSketch(): Timer1 stopped and cleared (as it is from reset on this path), the vectors
       // back at 0, the LEDs off: L (PC7) low, TX (PD5) and RX (PB0) high.
@@ -562,14 +686,14 @@ export class Rig {
     this.trace.event(cpu.cycles, { type: 'sketch_start', mcusr: data[REG.MCUSR] });
   }
 
-  /** Execute until `limit` cycles, a reset, or the stall's end. */
+  /** Execute until `limit` cycles, a reset, the stall's end, or the evidence's end. */
   execute(limit, stall) {
     const chip = this.chip;
     const { cpu } = chip;
     const { data } = cpu;
     const { flags } = this;
     let minSp = this.minSp;
-    while (cpu.cycles < limit && !chip.resetRequest) {
+    while (cpu.cycles < limit && !chip.resetRequest && !this.evidenceEnd) {
       const pc = cpu.pc;
       // The main program is stuck in place. Stuck with interrupts on, it stops at its first
       // instruction with them enabled (not inside a section that holds them off) and an
@@ -587,10 +711,19 @@ export class Rig {
         }
         continue;
       }
+      if (this.sleeping) {
+        // Idle: the CPU halted, the clocks running, until an interrupt is taken.
+        cpu.cycles += 1;
+        this.sleep.cycles_asleep += 1;
+        cpu.tick();
+        if (cpu.pc !== pc && !chip.resetRequest) this.entered(pc);
+        continue;
+      }
       const flag = flags[pc];
+      let sleeps = false;
       if (flag) {
         if (flag & F_PROBE) this.probeEntry(pc, cpu);
-        if (flag & F_SLEEP && data[REG.SMCR] & 0x01) this.noteUnmodelled('sleep');
+        if (flag & F_SLEEP && data[REG.SMCR] & 0x01) sleeps = true;
         if (flag & F_SPM) this.noteUnmodelled('spm_instruction');
         if (flag & (F_RET | F_RETI)) {
           const sp = data[93] | (data[94] << 8);
@@ -606,6 +739,7 @@ export class Rig {
       if (sp < minSp) minSp = sp;
       // An interrupt whose return address is no longer on the stack has been left without RETI.
       while (this.frames.length && sp > this.frames[this.frames.length - 1].sp) this.unwind();
+      if (sleeps && !this.enterSleep()) break;
       const after = cpu.pc;
       if (flag & (F_SEI | F_RETI)) {
         // The next instruction runs before any pending interrupt is taken.
@@ -618,7 +752,26 @@ export class Rig {
       }
       if (cpu.pc !== after && !chip.resetRequest) this.entered(after);
     }
-    this.minSp = minSp;
+    this.minSp = Math.min(this.minSp, minSp);
+  }
+
+  /** A SLEEP with SE set has run: idle with interrupts on sleeps; anything else ends the evidence
+   * (datasheet "Power Management and Sleep Modes": only idle keeps every clock and wake source
+   * the rig models, and whether an interrupt wakes the part with I clear is not documented).
+   * Whether the CPU goes on. */
+  enterSleep() {
+    const { cpu } = this.chip;
+    const { data } = cpu;
+    const mode = (data[REG.SMCR] >> 1) & 0x07;
+    if (mode !== 0 || !(data[REG.SREG] & 0x80)) {
+      this.endEvidence('sleep', { mode: SLEEP_MODES[mode], interrupts_enabled: !!(data[REG.SREG] & 0x80) });
+      return false;
+    }
+    this.sleeping = true;
+    this.sleep.idle_entries += 1;
+    // "If the ADC is enabled, a conversion starts automatically when this mode is entered."
+    if (data[REG.ADCSRA] & 0x80 && !(data[REG.ADCSRA] & 0x40)) cpu.writeData(REG.ADCSRA, data[REG.ADCSRA] | 0x40);
+    return true;
   }
 
   unwind() {
@@ -633,6 +786,11 @@ export class Rig {
     // avr8js counts two cycles of the response; the part takes four.
     const start = cpu.cycles - 2;
     cpu.cycles += 2;
+    if (this.sleeping) {
+      this.sleeping = false;
+      this.sleep.wakes += 1;
+      cpu.cycles += SLEEP_WAKE_CYCLES;
+    }
     const vector = cpu.pc;
     if (vector === VECTORS.WDT) this.chip.watchdog.vectored();
     const sp = cpu.data[93] | (cpu.data[94] << 8);
@@ -676,8 +834,9 @@ export class Rig {
     if (epoch.last !== null) add(epoch.periods, entry - epoch.last);
     if (epoch.first === null) epoch.first = entry;
     if (probe.period) {
-      // The n-th entry since the reset is due n periods after its first: an entry missed makes
-      // the later ones late.
+      // The n-th entry's phase on the period's grid (LATENESS): an entry missed makes the later
+      // ones late.
+      add(epoch.phases, entry - epoch.entries * probe.period);
       add(epoch.lateness, entry - (epoch.first + epoch.entries * probe.period));
     }
     epoch.entries += 1;
@@ -685,48 +844,76 @@ export class Rig {
   }
 
   summary(end) {
+    const { cpu, timer1 } = this.chip;
+    const features = new Set(UNMODELLED_FEATURES);
+    const untimed = Object.keys(this.unmodelled).filter((what) => features.has(what)).sort();
+    const timed = untimed.length === 0;
+    // With timing not evaluable, every figure of time is withheld (`withheld` names them).
+    const untimedWhy = `timing not evaluable: ${untimed.join(', ')}`;
+    const timing = (value) => (timed ? value : withheld(untimedWhy));
+    // The evidence's end: nothing after it is the board's behaviour.
+    const last = this.evidenceEnd ? this.evidenceEnd.cycle : end;
     const vectors = {};
     for (const name of [...this.vectors.keys()].sort()) {
       const v = this.vectors.get(name);
-      vectors[name] = { count: v.inclusive.count, inclusive_cycles: report(v.inclusive), exclusive_cycles: report(v.exclusive) };
+      vectors[name] = { count: v.inclusive.count, inclusive_cycles: timing(report(v.inclusive)),
+        exclusive_cycles: timing(report(v.exclusive)) }; // prettier-ignore
     }
     const pwm = {};
     for (const name of Object.keys(this.pwm).sort()) {
       const pin = this.pwm[name];
-      pwm[name] = {
+      pwm[name] = timing({
         period_cycles: report(pin.period),
         high_cycles: report(pin.high),
         last_period_cycles: pin.lastPeriod,
         last_high_cycles: pin.lastHigh,
         frequency_hz: pin.period.count ? FREQUENCY_HZ / (pin.period.total / pin.period.count) : null,
-      };
+      });
     }
     const probes = {};
     for (const probe of this.probes.values()) {
       const epochs = [...probe.epochs, ...(probe.epoch && probe.epoch.entries ? [probe.epoch] : [])];
-      const all = { periods: stats(), durations: stats(), lateness: stats() };
-      for (const epoch of epochs) for (const key of Object.keys(all)) merge(all[key], epoch[key]);
+      const all = { periods: stats(), durations: stats(), lateness: stats(), late: stats() };
+      for (const epoch of epochs) {
+        for (const key of ['periods', 'durations', 'lateness']) merge(all[key], epoch[key]);
+        if (epoch.phases.count) merge(all.late, againstEarliest(epoch.phases));
+      }
+      const lateness = (epoch) =>
+        probe.period ? timing(epoch.phases.count ? report(againstEarliest(epoch.phases)) : { count: 0 }) : null;
       const shown = (epoch) => ({
         reset_index: epoch.reset,
         entries: epoch.entries,
         first_entry_cycle: epoch.first,
-        period_cycles: report(epoch.periods),
-        duration_cycles: report(epoch.durations),
-        lateness_cycles: probe.period ? report(epoch.lateness) : null,
+        period_cycles: timing(report(epoch.periods)),
+        duration_cycles: timing(report(epoch.durations)),
+        lateness_cycles: lateness(epoch),
+        lateness_from_first_entry_cycles: probe.period ? timing(report(epoch.lateness)) : null,
       });
       probes[probe.symbol] = {
         entries: epochs.reduce((n, epoch) => n + epoch.entries, 0),
         first_entry_cycle: epochs.length ? epochs[0].first : null,
-        period_cycles: report(all.periods),
-        duration_cycles: report(all.durations),
-        lateness_cycles: probe.period ? report(all.lateness) : null,
+        period_cycles: timing(report(all.periods)),
+        duration_cycles: timing(report(all.durations)),
+        lateness_cycles: probe.period ? timing(report(all.late)) : null,
+        lateness_from_first_entry_cycles: probe.period ? timing(report(all.lateness)) : null,
+        lateness_definition: probe.period ? LATENESS : null,
         nominal_period_cycles: probe.period,
         by_reset: epochs.map(shown),
       };
     }
     const events = [];
-    const push = (kind, cycle, extra = {}) =>
-      events.push({ kind, cycle, ...extra, ...this.motorsOffAfter(cycle, end), ocr_zero_cycle: this.ocrZeroAfter(cycle) });
+    const push = (kind, cycle, extra = {}) => {
+      let figures;
+      if (cycle > last) {
+        const after = withheld(`after the evidence ends at cycle ${last}`);
+        figures = { motors_off_cycle: after, motors_off_delay_s: after, motors_off_until_cycle: after,
+          stayed_off_to_end: after, ocr_zero_cycle: after }; // prettier-ignore
+      } else {
+        figures = { ...this.motorsOffAfter(cycle, last), ocr_zero_cycle: this.ocrZeroAfter(cycle) };
+        if (!timed) for (const key of Object.keys(figures)) figures[key] = withheld(untimedWhy);
+      }
+      events.push({ kind, cycle, ...extra, ...figures });
+    };
     this.scenario.faults.forEach((fault, i) =>
       push(`fault:${fault.kind}`, Math.round(fault.start_s * FREQUENCY_HZ), { index: i }),
     );
@@ -741,25 +928,39 @@ export class Rig {
       return { compare: pins.compare, pwm_pin: pins.pwmName, direction_pin: pins.directionName,
         writes: entry.writes, max: entry.max, last: entry.value }; // prettier-ignore
     };
-    const { cpu, timer1 } = this.chip;
-    const features = new Set(UNMODELLED_FEATURES);
-    const untimed = Object.keys(this.unmodelled).filter((what) => features.has(what)).sort();
     const unmodelled = {};
     for (const what of Object.keys(this.unmodelled).sort()) unmodelled[what] = this.unmodelled[what];
+    const heapEnd = Math.max(this.heapStart ?? 0, this.heapEndMax ?? 0);
+    const headroom = this.heapStart === null && this.heapEndMax === null ? null : this.minSp - heapEnd;
+    const ioUpper = report(this.inputToOutput.upper);
+    const ioNewest = report(this.inputToOutput.newest);
     return {
       board: { model: BOARD, version: BOARD_VERSION },
       frequency_hz: FREQUENCY_HZ,
       simulated_cycles: cpu.cycles,
       simulated_s: toSeconds(cpu.cycles),
       scenario_end_cycle: end,
+      evidence_end: this.evidenceEnd,
+      not_shown: NOT_SHOWN,
+      typical_figures: {
+        watchdog_oscillator_hz: this.scenario.watchdog_oscillator_hz,
+        scenario_range_hz: [WATCHDOG_OSCILLATOR_HZ.min, WATCHDOG_OSCILLATOR_HZ.max],
+        start_up_cycles: this.startUpCycles,
+        statement:
+          'the watchdog period (2K << WDP oscillator cycles, Table 8-5) and the start-up time-out (typically 65 ms ' +
+          'at 5 V, Table 6-2) are typical figures: the datasheet gives no bound; its typical curves at 5 V ' +
+          '(Figure 30-34) lie between about 112.5 and 121.5 kHz, below the nominal 128 kHz; a scenario runs any ' +
+          'oscillator in scenario_range_hz',
+      },
       reset_path: {
         bootloader: this.scenario.bootloader,
-        start_up_cycles: START_UP_CYCLES,
+        start_up_cycles: this.startUpCycles,
         pll_lock_cycles: PLL_LOCK_CYCLES,
         readings: RESET_PATH[this.scenario.bootloader],
       },
       resets: this.resets,
       interrupt_response_cycles: 4,
+      sleep: { ...this.sleep, wake_extra_cycles: SLEEP_WAKE_CYCLES },
       vectors,
       vectors_left_without_reti: this.unwound,
       stack: {
@@ -767,15 +968,24 @@ export class Rig {
         ramend: RAMEND,
         max_depth_bytes: RAMEND - this.minSp,
         heap_start: this.heapStart,
-        headroom_bytes: this.heapStart === null ? null : this.minSp - this.heapStart,
+        static_end: this.heapStart,
+        heap_end_max: this.heapEndMax,
+        headroom_bytes: headroom,
+        collision: headroom === null ? null : headroom < 0,
+        definition:
+          'headroom_bytes = min_sp - max(static_end, heap_end_max): from the least stack pointer to the highest ' +
+          "the heap's end (avr-libc __brkval) reached, or to static data's end; negative is a collision. It covers " +
+          'the paths this run executed only.',
       },
+      power_on_sram_seed: this.scenario.sram_seed,
       motors: { left: motor('left'), right: motor('right') },
       motors_off_rule: {
         enable_pins: [MOTOR_PINS.right.pwmName, MOTOR_PINS.left.pwmName],
         hold_cycles: this.hold,
         definition:
           'off while both DRV8838 EN inputs are low (an output driven low, or an input without its pull-up) for ' +
-          'hold_cycles without a break; an interval cut short by the end of the run is not counted',
+          'hold_cycles without a break; an interval cut short by the end of the run or of its evidence is not ' +
+          'counted; stayed_off_to_end: off from motors_off_cycle to that end. Off is the DRV8838 brake.',
       },
       timer1: { icr1: timer1.icr, wgm: timer1.WGM, tccr1a: cpu.data[REG.TCCR1A], tccr1b: cpu.data[REG.TCCR1B] },
       pwm,
@@ -787,38 +997,48 @@ export class Rig {
         gyro_samples_read: this.board.lsm6.counts.gyro_samples_read,
         accel_samples_read: this.board.lsm6.counts.accel_samples_read,
         invalid_samples_read: this.board.lsm6.counts.invalid_samples_read,
-        invalid_sample_value:
-          'a sample the part takes while turning on or settling (AN4682 Tables 12, 16, 17) has no documented value; ' +
-          'the rig gives 0 counts on every axis',
+        read_before_any_sample: this.board.lsm6.counts.read_before_any_sample,
+        invalid_sample_value: INVALID_SAMPLE_VALUE,
+        gyro_zero_rate_dps: this.scenario.imu.gyro_zero_rate_dps,
       },
       input_to_output: {
         definition: INPUT_TO_OUTPUT_DEFINITION,
-        upper_bound_cycles: report(this.inputToOutput.upper),
-        newest_sample_cycles: report(this.inputToOutput.newest),
+        upper_bound_cycles: timing(ioUpper),
+        newest_sample_cycles: timing(ioNewest),
       },
-      twi: this.twi,
+      twi: { ...this.twi, durations: 'each step at f_SCL exactly: a lower bound (a device may hold SCL low)' },
       encoders: { edges: this.board.encoderEdges(), counts: this.board.encoderCounts() },
       usart1: { bytes: this.usart.bytes, text: this.usart.text, text_truncated: this.usart.bytes > this.usart.text.length },
       unmodelled,
-      timing_evaluable: untimed.length === 0,
+      timing_evaluable: timed,
       timing_not_evaluable_because: untimed,
+      withheld: timed
+        ? []
+        : ['vectors.*.inclusive_cycles', 'vectors.*.exclusive_cycles', 'pwm.*', 'probes.*.period_cycles',
+            'probes.*.duration_cycles', 'probes.*.lateness_cycles', 'probes.*.lateness_from_first_entry_cycles',
+            'input_to_output.upper_bound_cycles', 'input_to_output.newest_sample_cycles',
+            'events.*.motors_off_*', 'events.*.stayed_off_to_end', 'events.*.ocr_zero_cycle'], // prettier-ignore
       trace: { lines: this.trace.lines, truncated_at_cycle: this.trace.truncatedAt },
     };
   }
 
-  /** The first cycle at or after `cycle` from which both motor enables stay low for the hold, and
-   * the cycle they next rise (null: not before the run's end). */
+  /** The first cycle at or after `cycle` from which both motor enables stay low for the hold, the
+   * cycle they next rise (null: not before `end`, the run's or its evidence's), and whether they
+   * stayed off to `end`. */
   motorsOffAfter(cycle, end) {
     const timeline = this.offTimeline;
     for (let i = 0; i < timeline.length; i += 1) {
       const [from, off] = timeline[i];
-      const until = i + 1 < timeline.length ? timeline[i + 1][0] : null;
+      if (from >= end) break;
+      const next = i + 1 < timeline.length ? timeline[i + 1][0] : null;
+      const until = next !== null && next < end ? next : null;
       if (!off || (until !== null && until <= cycle)) continue;
       const start = Math.max(from, cycle);
       if ((until ?? end) - start < this.hold) continue;
-      return { motors_off_cycle: start, motors_off_delay_s: toSeconds(start - cycle), motors_off_until_cycle: until };
+      return { motors_off_cycle: start, motors_off_delay_s: toSeconds(start - cycle), motors_off_until_cycle: until,
+        stayed_off_to_end: until === null }; // prettier-ignore
     }
-    return { motors_off_cycle: null, motors_off_delay_s: null, motors_off_until_cycle: null };
+    return { motors_off_cycle: null, motors_off_delay_s: null, motors_off_until_cycle: null, stayed_off_to_end: false };
   }
 
   /** The first cycle at or after `cycle` at which the last writes to OCR1A and OCR1B are both 0. */
