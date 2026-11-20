@@ -749,6 +749,8 @@ class RunState:
         if isinstance(event, SignOffRaisedAgain):
             self._raised_again(event)
             return
+        if isinstance(event, Resumed) and self._resumes_a_sign_off_line(event):
+            return
         self.sign_off_after = self.sign_off_tail = None
         if isinstance(event, ContractRuled):
             self._ruled(event)
@@ -2754,6 +2756,40 @@ class RunState:
             now.restart("spawn")
         else:
             now.cursor, now.diff = "decide", None
+
+    def halted_at_a_sign_off_line(self) -> tuple[str, int] | None:
+        """The clean merge a resumable halt came after, before its sign-off line, if any.
+
+        After a clean merge's diff its sign-off line is owed (``sign_off_due``), or asked of the
+        graph (``sign_off_after``); a halt can land in between, and then no attempt is in
+        progress for a resume to take over. A resume there names that merge at its diff, and
+        the line comes next, so the run neither stays halted with nothing for a person to do
+        nor loses a raise only the graph owes.
+        """
+        if self.halted is None or not self.halt_resumable() or self.interrupted() is not None:
+            return None
+        return self.sign_off_due or self.sign_off_after
+
+    def _resumes_a_sign_off_line(self, event: Resumed) -> bool:
+        """Take a resume that names a clean merge whose sign-off line a halt came before.
+
+        Only where :meth:`halted_at_a_sign_off_line` gives that merge, at its diff: it lifts the
+        halt and keeps what owes the line. Any other resume of a merged subtask is not one, and
+        is refused where a resume of an attempt in progress is held.
+        """
+        merge = (event.subtask_id, event.attempt)
+        if merge not in (self.sign_off_due, self.sign_off_after):
+            return False
+        if self.subtasks[event.subtask_id].status != "done":
+            return False
+        if self.halted_at_a_sign_off_line() != merge or event.point != "diff":
+            _refuse(
+                "a resume of a merged attempt comes only after a halt a resume continues from, "
+                "between its clean diff and its sign-off line, at its diff"
+            )
+        self.halted = None
+        self.open_incidents, self.ruled = [], None
+        return True
 
     def halt_resumable(self) -> bool:
         """Whether the run's halt is one a resume continues from.

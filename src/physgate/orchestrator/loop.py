@@ -733,6 +733,19 @@ class Loop:
                     limit_reset_by=limit_word,
                 )
             )
+        elif (merge := self.state.halted_at_a_sign_off_line()) is not None:
+            # A halt between a clean merge's diff and its sign-off line: no attempt is in
+            # progress to take over, so the resume names that merge at its diff, and the line
+            # it owes, or the graph's raise, is written next (:meth:`_raise_owed_at_start`).
+            self._emit(
+                Resumed(
+                    **self._env(),
+                    subtask_id=merge[0],
+                    attempt=merge[1],
+                    point="diff",
+                    limit_reset_by=limit_word,
+                )
+            )
         return self._drive()
 
     def _limit_reset(self, limit_reset_by: str | None) -> str | None:
