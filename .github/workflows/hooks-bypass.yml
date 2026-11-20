@@ -226,11 +226,14 @@ jobs:
         # suite measures the checkout once at its start, and a run a row resumes in a
         # process of its own measures it again, so a file written there between the two
         # reads as a different harness.
+        # The layer runs here, so a row that needs it fails rather than skips where it cannot
+        # (the ablation arms' rows read this): a skip would read as green with nothing run.
         if: success() || failure()
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
           PHYSGATE_OSLAYER_REPORT: ${{ runner.temp }}/oslayer-report
           PHYSGATE_FULL_VOLUME: /mnt/pg-small
+          PHYSGATE_REQUIRE_OS_LAYER: "1"
         run: uv run pytest -q -rs -m integration tests --ignore=tests/integration/hooks
 
       - name: The task author and the blind check on the real binary, in the evaluation environment
