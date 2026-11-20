@@ -16,7 +16,9 @@ owes a person's sign-off (sizing, control, electrical and integration; or the co
 integration alone, ``_alone``); each session's stream path is cut to the run's own ``/run``. In a
 run that records decisions, none is taken on the sign-off item: ``records_a_sign_off_owed`` and
 ``records_a_sign_off_owed_alone`` end escalated with only the sign-off open, and
-``records_a_sign_off_owed_and_a_failed_call`` with the system-scope call failed as well. In a run
+``records_a_sign_off_owed_and_a_failed_call`` with the system-scope call failed as well;
+``records_a_sign_off_owed_and_integration_escalated`` with the call passed and integration's own
+subtask escalated, every one of its attempts declaring the control module and refused. In a run
 that acts, ``acts_waiting_on_a_sign_off`` waits for the person before the integration call,
 ``acts_signed`` is the same run once the person approved, and ``acts_rejected_a_sign_off_owed``
 ended escalated after the person rejected the item and then the fix's item.
@@ -588,6 +590,21 @@ def test_a_module_whose_sign_off_is_owed_with_another_precondition_open_is_unfin
     assert record.status == "unfinished"
     assert record.sign_offs_owed == ()
     assert not out.exists()
+
+
+def test_a_run_whose_integration_did_not_merge_is_unfinished_though_only_a_sign_off_is_open(
+    tmp_path: Path,
+) -> None:
+    # The run records decisions, the call passed, and the control module's only open
+    # precondition is its sign-off; but integration declared the module on every attempt, each
+    # was refused, and its subtask ended escalated. The run ended without integration's merge,
+    # so the graph may hold a change no merge kept.
+    recorded = "records_a_sign_off_owed_and_integration_escalated"
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
+    assert record.sign_offs_owed == ()
+    assert not out.parent.exists() or list(out.parent.iterdir()) == []
 
 
 def test_a_run_that_records_decisions_and_has_not_ended_is_unfinished(tmp_path: Path) -> None:

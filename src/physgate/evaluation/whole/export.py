@@ -13,11 +13,13 @@ alone in a run that records decisions. A run short of that is ``unfinished`` and
 
 **A sign-off owed in a run that records decisions.** A module whose role owes a person's
 sign-off (ARCH-130) is complete only once a person signed its values, and such a run takes no
-decision: the module merged, every other precondition of its completion held, and the run ended
-escalated naming it. That module has ended, and its merges stand, so the run is exported and its
-record names each such module (``sign_offs_owed``). A run that acts is ``unfinished`` until a
-person has signed: there a decision could still close the sign-off, or a rejected one left it
-unsigned.
+decision: the module merged, every other precondition of its completion held, integration's own
+subtask merged, and the run ended escalated naming it. That module has ended, and its merges
+stand, so the run is exported and its record names each such module (``sign_offs_owed``). An
+integration that ended without its merge (escalated, or rejected) leaves the run ``unfinished``,
+whatever else is open: its own attempts' writes may be in the journal with no merge keeping them.
+A run that acts is ``unfinished`` until a person has signed: there a decision could still close
+the sign-off, or a rejected one left it unsigned.
 
 **By name, never by guess.** Each field of the answer is the quantity of exactly that name in
 the graph, in whichever node holds it, copied as the graph holds it: its value and its unit,
@@ -219,9 +221,13 @@ def _sign_offs_owed(state: RunState, modules: list[str]) -> tuple[str, ...]:
     """The modules a run that records decisions ended with only their sign-off owed, in order.
 
     None in a run that acts, where a person's decision is what ends one, nor before the run has
-    ended: until then a merge may still be under way.
+    ended: until then a merge may still be under way. None either where integration's own
+    subtask did not merge: the run ended, but not with the merge that declares what is complete.
     """
     if state.acts or state.next_step().kind != "escalated":
+        return ()
+    integration = state.completion_subtask
+    if integration is None or state.subtasks[integration].status != "done":
         return ()
     return tuple(
         m
