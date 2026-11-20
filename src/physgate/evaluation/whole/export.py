@@ -38,8 +38,9 @@ none. No simulation record: where the graph read a quantity off a sealed record,
 quantity's value is what is exported, its record staying beside the run.
 
 **The write.** The answer is never written inside the run's directory. It is written whole to
-a new name beside ``out`` and then linked to ``out``, which must not exist yet, so nothing left
-at that name is overwritten or written through, and a write that fails leaves nothing behind.
+a new name beside ``out`` and then renamed onto ``out``, which the export first claimed by
+creating it, so nothing left at that name is overwritten or written through, and a write that
+fails leaves nothing behind.
 """
 
 from __future__ import annotations
@@ -71,6 +72,7 @@ EVENTS_NAME = "events.jsonl"
 Status = Literal["exported", "unfinished", "contract_lost", "ambiguous"]
 
 _READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+_CLAIM_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
 class ExportError(Exception):
@@ -284,28 +286,51 @@ def _write_all(fd: int, raw: bytes) -> None:
         view = view[os.write(fd, view) :]
 
 
-def _write_new(out: Path, raw: bytes) -> None:
-    """``raw`` at ``out``, where nothing may be yet: written whole beside it, then linked there.
+def _ours(out: Path, claim: os.stat_result) -> bool:
+    """Whether ``out`` is still the empty file this export claimed it as, and not a link."""
+    try:
+        now = os.lstat(out)
+    except OSError:
+        return False
+    return (now.st_dev, now.st_ino) == (claim.st_dev, claim.st_ino)
 
-    The new name is made by :func:`tempfile.mkstemp` in ``out``'s directory, so nothing was at
-    it; the link fails if anything is at ``out`` by then, and never replaces it; the new name
-    is removed whatever happens, so a failed write leaves nothing behind.
+
+def _write_new(out: Path, raw: bytes) -> None:
+    """``raw`` at ``out``, where nothing may be yet: claimed, written whole beside it, put there.
+
+    ``out`` is claimed first by creating it empty, which fails if anything is at it, a link
+    included. The answer is written whole to a new name :func:`tempfile.mkstemp` makes in the
+    same directory and renamed onto the claim, only while ``out`` is still the claimed file, so
+    no name the export did not make is ever replaced. The harness makes no second name for a
+    file, so the answer is never linked into place. Whatever fails, both names the export made
+    are removed, so a failed write leaves nothing behind and the next export is not refused.
     """
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
-        fd, temporary = tempfile.mkstemp(prefix=f".{out.name}.", dir=out.parent)
+        claimed = os.open(out, _CLAIM_FLAGS, 0o644)
     except OSError as exc:
-        msg = f"the answer's directory cannot be made or written ({exc.strerror})"
+        msg = f"the answer cannot be written where asked ({exc.strerror})"
         raise ExportError(msg, out=str(out)) from exc
+    claim = os.fstat(claimed)
+    os.close(claimed)
+    temporary: str | None = None
     try:
+        fd, temporary = tempfile.mkstemp(prefix=f".{out.name}.", dir=out.parent)
         try:
             _write_all(fd, raw)
             os.fsync(fd)
         finally:
             os.close(fd)
-        os.link(temporary, out, follow_symlinks=False)
+        if not _ours(out, claim):
+            msg = "the answer's name was taken by something else while it was written"
+            raise ExportError(msg, out=str(out))
+        os.replace(temporary, out)
+        temporary = None
     except OSError as exc:
         msg = f"the answer cannot be written where asked ({exc.strerror})"
         raise ExportError(msg, out=str(out)) from exc
     finally:
-        os.unlink(temporary)
+        if temporary is not None:
+            os.unlink(temporary)
+            if _ours(out, claim):
+                os.unlink(out)

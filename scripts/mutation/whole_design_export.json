@@ -408,8 +408,8 @@
   {
     "name": "mkdir_unguarded",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "    try:\n        out.parent.mkdir(parents=True, exist_ok=True)\n        fd, temporary",
-    "new": "    out.parent.mkdir(parents=True, exist_ok=True)\n    try:\n        fd, temporary",
+    "old": "    try:\n        out.parent.mkdir(parents=True, exist_ok=True)\n        claimed = os.open",
+    "new": "    out.parent.mkdir(parents=True, exist_ok=True)\n    try:\n        claimed = os.open",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
@@ -420,10 +420,24 @@
     ]
   },
   {
-    "name": "replaces_what_is_there",
+    "name": "claim_not_exclusive",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "        os.link(temporary, out, follow_symlinks=False)\n",
-    "new": "        os.replace(temporary, out)\n        os.link(out, temporary)\n",
+    "old": "_CLAIM_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC",
+    "new": "_CLAIM_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "taken_name_replaced",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        if not _ours(out, claim):\n            msg = \"the answer's name was taken",
+    "new": "        if False:\n            msg = \"the answer's name was taken",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
@@ -436,8 +450,22 @@
   {
     "name": "temporary_left",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "        os.unlink(temporary)\n",
-    "new": "        pass\n",
+    "old": "            os.unlink(temporary)\n            if _ours(out, claim):",
+    "new": "            pass\n            if _ours(out, claim):",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+    ]
+  },
+  {
+    "name": "claim_left",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "            if _ours(out, claim):\n                os.unlink(out)",
+    "new": "            if False:\n                os.unlink(out)",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],

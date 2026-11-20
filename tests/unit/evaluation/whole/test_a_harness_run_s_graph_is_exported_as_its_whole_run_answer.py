@@ -610,3 +610,24 @@ def test_a_write_that_fails_leaves_nothing_at_the_answer_s_name_or_beside_it(
     record = module.export_whole_run(run, out)
     assert record.status == "exported"
     assert record.sha256 == hashlib.sha256(out.read_bytes()).hexdigest()
+
+
+def test_an_answer_name_taken_while_the_answer_is_written_is_left_as_it_was_taken(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
+    module = _module()
+    write_all = module._write_all  # noqa: SLF001 - the write the swap goes beside
+
+    def written_then_swapped(fd: int, raw: bytes) -> None:
+        write_all(fd, raw)
+        out.unlink()
+        out.write_text("theirs")
+
+    monkeypatch.setattr(module, "_write_all", written_then_swapped)
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        module.export_whole_run(run, out)
+    assert isinstance(caught.value, module.ExportError)
+    assert out.read_text() == "theirs"
+    assert [p.name for p in out.parent.iterdir()] == ["whole_run.json"]
