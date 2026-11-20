@@ -276,7 +276,8 @@ def test_a_name_two_nodes_agree_on_is_exported_once_and_names_both(tmp_path: Pat
 
 @pytest.mark.parametrize(
     "other",
-    [(0.8, "1"), (75, "%")],
+    # The same value in another unit, and another value in the same unit: each alone.
+    [(0.8, "1"), (0.75, "%")],
     ids=["another value", "another unit"],
 )
 def test_a_name_two_nodes_disagree_on_is_ambiguous_and_nothing_is_written(
