@@ -22,7 +22,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from off_identity_rig import reference
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
+
+#: These runs plan a control module, and what is tested is the queue and the lines
+#: they wrote before: each starts as a
+#: run recorded before the sign-off rule table, which owes no sign-off.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 RECORDED = json.loads((Path(__file__).parent / "off_identity_reference.json").read_text())
 

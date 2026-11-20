@@ -74,6 +74,12 @@ export const SOURCE_WORDS: Readonly<Record<QueueSource, SourceWords>> = {
       "The run asks which parts you already have or will make: nothing is dispatched until " +
       "you have decided each part of the plan.",
   },
+  sign_off: {
+    kind: "A standing sign-off",
+    why:
+      "A module whose role owes a person's sign-off merged: it is not complete until you sign " +
+      "the values it shows.",
+  },
 };
 
 /** Said while a page keeps what it read last because its latest read again failed. */
@@ -98,6 +104,7 @@ export const FINDING_VERDICT: Readonly<Record<QueueSource, string | null>> = {
   plan_review:
     "Did not pass: the design reviewer did not pass the plan, or reached no verdict on it.",
   parts: null,
+  sign_off: null,
 };
 
 /**
@@ -196,6 +203,7 @@ const HEADLINES: Readonly<Record<QueueSource, string>> = {
   contract: "Two merged modules break an interface contract",
   plan_review: "The plan's review did not pass",
   parts: "A part of the plan to decide",
+  sign_off: "A module's values to sign",
 };
 
 /**
@@ -411,6 +419,10 @@ export function effectWords(c: Consequence): readonly Effect[] {
   let approve: string;
   if (c.onApprove === "release")
     approve = "Approving releases the hold, and the plan runs as it stands.";
+  else if (c.onApprove === "sign")
+    approve =
+      "Approving signs the values this item shows, as shown: the module may then be declared " +
+      "complete while they stand, and a later change to them is a new item.";
   else if (c.onApprove === "merge_attempt") {
     const commit = c.attemptCommit === null ? "" : ` (commit ${c.attemptCommit.slice(0, 12)})`;
     approve =
@@ -462,6 +474,12 @@ export function consequenceWords(c: Consequence): ChoiceWords {
     return {
       approveLabel: "Approve…",
       approve: "Approve: the hold is released, and the plan runs as it stands.",
+      reject,
+    };
+  if (c.onApprove === "sign")
+    return {
+      approveLabel: "Approve…",
+      approve: "Approve: the values this item shows are signed, as shown.",
       reject,
     };
   if (c.onApprove === "merge_attempt") {
@@ -554,6 +572,7 @@ export function takenWords(t: Taken): string {
   }
   const done: Readonly<Record<Taken["effect"], string>> = {
     merge: "The run took it: the attempt it names was merged.",
+    sign: "The run took it: the values the item shows are signed.",
     retry: "The run took it: the next attempt was ordered, told what the decision said.",
     fix: "The run took it: one fix was ordered.",
     end_subtask: "The run took it: the subtask ended rejected.",

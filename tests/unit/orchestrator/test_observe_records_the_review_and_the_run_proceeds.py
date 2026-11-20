@@ -34,11 +34,17 @@ from design_review_rig import (
     reviewed,
     started,
 )
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.events import read_events
 from physgate.orchestrator.exceptions import RunConfigError
 from physgate.orchestrator.replay import replay
+
+#: These runs plan a control module, and what is tested is the queue and the lines
+#: they wrote before: each starts as a
+#: run recorded before the sign-off rule table, which owes no sign-off.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 
 def _started(tmp_path: Path, *args: Any, **kwargs: Any) -> Path:  # noqa: ANN401

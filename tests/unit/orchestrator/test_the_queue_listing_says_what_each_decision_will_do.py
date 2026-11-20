@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 from test_a_reopen_supersedes_the_other_items_on_its_module import OTHER, reopened
 
 from physgate.cli import main
@@ -26,6 +27,11 @@ from physgate.orchestrator.queue import (
     read_queue,
 )
 from physgate.orchestrator.queue_words import decision_sentences
+
+#: These runs plan a control module, and what is tested is the decision sequence and
+#: the queue's words: each starts as a
+#: run recorded before the sign-off rule table, which owes no sign-off.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 SAYS = "what_each_decision_does"
 FIXTURE = Path(__file__).parents[2] / "fixtures" / "queue_sentences.json"

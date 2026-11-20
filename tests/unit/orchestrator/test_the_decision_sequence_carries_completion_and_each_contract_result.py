@@ -16,9 +16,15 @@ from typing import Any
 
 import pytest
 import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as runner
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 
 from physgate import roles
 from physgate.evaluation.observe.sequence import decisions
+
+#: These runs plan a control module, and what is tested is the decision sequence and
+#: the queue's words: each starts as a
+#: run recorded before the sign-off rule table, which owes no sign-off.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 INTEG, DRIVE, FW = runner.INTEG, runner.DRIVE, runner.FW
 

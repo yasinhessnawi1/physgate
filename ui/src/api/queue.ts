@@ -31,11 +31,15 @@ export const SOURCES = [
   "contract",
   "plan_review",
   "parts",
+  "sign_off",
 ] as const;
 export type QueueSource = (typeof SOURCES)[number];
 
-/** ``release`` and ``end_run``: the plan's item, which lets a held run dispatch or ends it. */
-export const ON_APPROVE = ["merge_attempt", "release", "record_only"] as const;
+/**
+ * ``release`` and ``end_run``: the plan's item, which lets a held run dispatch or ends it.
+ * ``sign``: a sign-off item, whose approve signs the values it shows (ARCH-130).
+ */
+export const ON_APPROVE = ["merge_attempt", "release", "sign", "record_only"] as const;
 export const ON_REJECT = ["retry", "fix", "end_subtask", "end_run", "record_only"] as const;
 export const WHY_RECORD_ONLY = [
   "gate",
@@ -242,6 +246,7 @@ export function queueItem(value: unknown): QueueItem {
 
 export const EFFECTS = [
   "merge",
+  "sign",
   "retry",
   "fix",
   "end_subtask",

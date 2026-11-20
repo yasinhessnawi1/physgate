@@ -34,10 +34,16 @@ from escalation_paths import (
     records,
     scenario_names,
 )
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 from stand_in_drive_plan import DRIVE_MODULE, POWER_BUS
 
 from physgate.gate.catalogue import catalogue_digest
 from physgate.orchestrator import decompose
+
+#: These runs plan a control module, and what is tested is the queue and the lines
+#: they wrote before: each starts as a
+#: run recorded before the sign-off rule table, which owes no sign-off.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 #: Event kinds the escalation interface writes, absent from the golden file by
 #: construction: one decision line at every attempt end that did not merge.

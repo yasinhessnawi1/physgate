@@ -39,9 +39,15 @@ from parts_rig import (
 )
 from plan_hold_rig import again, dispatched, items, kinds, outcome_of
 from plan_hold_rig import decide as decide_plan
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.queue import QueueResolution, read_queue
+
+#: These runs plan a control module, and what is tested is the queue and the lines
+#: they wrote before: each starts as a
+#: run recorded before the sign-off rule table, which owes no sign-off.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 IDS = ["run-1-parts-1", "run-1-parts-2", "run-1-parts-3"]
 HELD = "while a part is undecided"
