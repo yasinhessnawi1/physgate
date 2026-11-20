@@ -213,16 +213,10 @@ def sandbox_policy(
         # As the kernel finds it: /var is /private/var on macOS, and either may be spelt.
         return any(_under(os.path.realpath(place), os.path.realpath(root)) for root in roots)
 
-    # A root withheld whole but for the session's worktree there (a protected trial's, a blind
-    # check's): the one read-denied root a worktree may lie in, where it is that root's exception.
-    # The worktree alone is opened again, as the hooks except it alone, never the place, which
-    # holds the session's own login and hook records: an opening re-opens everything beneath it.
-    around = {
-        r.path
-        for r in config.protected_roots
-        if r.reason == WITHHELD_WHOLE_REASON
-        and any(real_under(config.worktree, (place,)) for place in r.read_exceptions)
-    }
+    # The worktree alone is opened again in a root withheld whole around it, as the hooks except
+    # it alone, never the place, which holds the session's own login and hook records: an
+    # opening re-opens everything beneath it.
+    around = withheld_around_worktree(config)
     for place in (config.worktree, temp_dir):
         others = read_denied - temps if place == temp_dir else read_denied - around
         if real_under(place, others):
@@ -262,6 +256,21 @@ def sandbox_policy(
     if network == "none":
         settings["sandbox"]["network"] = offline_block()
     return OsPolicy(settings=settings, absent_named=tuple(sorted(absent_named)))
+
+
+def withheld_around_worktree(config: SessionConfig) -> frozenset[str]:
+    """The roots withheld from the session whole but for its worktree there, as they are named.
+
+    A protected trial's session and a blind check's: the one kind of read-denied root a worktree
+    may lie in, where the worktree is that root's exception. Empty for every other session.
+    """
+    worktree = os.path.realpath(config.worktree)
+    return frozenset(
+        r.path
+        for r in config.protected_roots
+        if r.reason == WITHHELD_WHOLE_REASON
+        and any(_under(worktree, os.path.realpath(place)) for place in r.read_exceptions)
+    )
 
 
 def board_devices(platform: str) -> tuple[str, ...]:
