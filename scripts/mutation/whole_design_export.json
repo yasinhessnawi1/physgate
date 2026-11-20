@@ -86,8 +86,8 @@
   {
     "name": "unfinished_taken",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "    if not _finished(run_dir):\n",
-    "new": "    if False:\n",
+    "old": "    if not finished:\n        return Export(status=\"unfinished\", revision=revision)",
+    "new": "    if False:\n        return Export(status=\"unfinished\", revision=revision)",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
@@ -100,8 +100,8 @@
   {
     "name": "one_module_enough",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "all(m in state.completed for m in modules)",
-    "new": "any(m in state.completed for m in modules)",
+    "old": "all(m in state.completed or m in owed for m in modules)",
+    "new": "any(m in state.completed or m in owed for m in modules)",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
@@ -408,8 +408,8 @@
   {
     "name": "mkdir_unguarded",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "    try:\n        out.parent.mkdir(parents=True, exist_ok=True)\n        claimed = os.open",
-    "new": "    out.parent.mkdir(parents=True, exist_ok=True)\n    try:\n        claimed = os.open",
+    "old": "    at = files[0][0]\n    try:\n        for out, _ in files:\n            at = out\n            out.parent.mkdir(parents=True, exist_ok=True)\n",
+    "new": "    at = files[0][0]\n    files[0][0].parent.mkdir(parents=True, exist_ok=True)\n    try:\n        for out, _ in files:\n            at = out\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
@@ -436,8 +436,8 @@
   {
     "name": "taken_name_replaced",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "        if not _ours(out, claim):\n            msg = \"the answer's name was taken",
-    "new": "        if False:\n            msg = \"the answer's name was taken",
+    "old": "            if not _ours(out, claim):\n                msg = \"the answer's name was taken",
+    "new": "            if False:\n                msg = \"the answer's name was taken",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
@@ -464,8 +464,8 @@
   {
     "name": "claim_left",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "            if _ours(out, claim):\n                os.unlink(out)",
-    "new": "            if False:\n                os.unlink(out)",
+    "old": "                if _ours(out, claim):\n                    os.unlink(out)",
+    "new": "                if False:\n                    os.unlink(out)",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],

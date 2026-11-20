@@ -6,12 +6,13 @@
     "new": "",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
-      "tests/unit/ui/test_the_status_names_each_modules_completion_and_a_halt_owed.py",
       "tests/unit/orchestrator/test_a_module_whose_role_owes_a_sign_off_is_complete_only_once_a_person_signed.py",
+      "tests/unit/orchestrator/test_a_rejected_sign_off_orders_the_module_s_one_fix_where_an_attempt_is_left.py",
       "tests/unit/orchestrator/test_a_sign_off_item_is_raised_by_code_at_every_clean_merge_that_owes_one.py",
       "tests/unit/orchestrator/test_a_sign_off_owed_holds_the_integration_call_and_refuses_a_declaration_of_its_module.py",
-      "tests/unit/orchestrator/test_a_rejected_sign_off_orders_the_module_s_one_fix_where_an_attempt_is_left.py",
-      "tests/unit/orchestrator/test_a_sign_off_whose_raise_was_lost_is_raised_again_and_the_run_goes_on.py"
+      "tests/unit/orchestrator/test_a_sign_off_waits_after_the_follow_ups_so_a_person_signs_the_final_values_once.py",
+      "tests/unit/orchestrator/test_a_sign_off_whose_raise_was_lost_is_raised_again_and_the_run_goes_on.py",
+      "tests/unit/ui/test_the_status_names_each_modules_completion_and_a_halt_owed.py"
     ],
     "data": [
       "tests/unit/orchestrator/accounted.py",
@@ -32,7 +33,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -66,7 +68,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -100,7 +103,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -134,7 +138,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -168,7 +173,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -202,7 +208,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -235,7 +242,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -268,7 +276,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -301,7 +310,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -334,7 +344,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -367,7 +378,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -400,7 +412,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -433,7 +446,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -467,7 +481,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -500,7 +515,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -533,7 +549,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -566,7 +583,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -599,7 +617,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -632,7 +651,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -665,7 +685,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -698,7 +719,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -731,7 +753,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -764,7 +787,8 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
@@ -798,21 +822,140 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   },
   {
-    "name": "baseline_last",
+    "name": "export_integration_not_merged",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "",
-    "new": "",
+    "old": "    if integration is None or state.subtasks[integration].status != \"done\":\n        return ()",
+    "new": "    if integration is None:\n        return ()",
     "tests": [
-      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
-      "tests/unit/ui/test_the_status_names_each_modules_completion_and_a_halt_owed.py",
-      "tests/unit/orchestrator/test_a_module_whose_role_owes_a_sign_off_is_complete_only_once_a_person_signed.py",
-      "tests/unit/orchestrator/test_a_sign_off_item_is_raised_by_code_at_every_clean_merge_that_owes_one.py",
-      "tests/unit/orchestrator/test_a_sign_off_owed_holds_the_integration_call_and_refuses_a_declaration_of_its_module.py",
-      "tests/unit/orchestrator/test_a_rejected_sign_off_orders_the_module_s_one_fix_where_an_attempt_is_left.py",
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line.py",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+    ]
+  },
+  {
+    "name": "export_record_not_written",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    _write_new(((out, raw), (record_path(out), _record_bytes(export, out))))",
+    "new": "    _write_new(((out, raw),))",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line.py",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+    ]
+  },
+  {
+    "name": "export_record_owes_nothing",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "            \"sign_off\": UNSIGNED if export.sign_offs_owed else None,",
+    "new": "            \"sign_off\": None,",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line.py",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+    ]
+  },
+  {
+    "name": "export_placed_answer_left",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "                if _ours(out, written):\n                    os.unlink(out)",
+    "new": "                if False:\n                    os.unlink(out)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line.py",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+    ]
+  },
+  {
+    "name": "halt_window_not_resumed",
+    "file": "src/physgate/orchestrator/loop.py",
+    "old": "        elif (merge := self.state.halted_at_a_sign_off_line()) is not None:",
+    "new": "        elif False and (merge := self.state.halted_at_a_sign_off_line()) is not None:",
+    "tests": [
       "tests/unit/orchestrator/test_a_sign_off_whose_raise_was_lost_is_raised_again_and_the_run_goes_on.py"
     ],
     "data": [
@@ -834,7 +977,263 @@
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
       "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
-      "tests/unit/gate/run4/plan_interfaces.json"
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+    ]
+  },
+  {
+    "name": "halt_window_replay_any_resume",
+    "file": "src/physgate/orchestrator/replay.py",
+    "old": "        if self.halted_at_a_sign_off_line() != merge or event.point != \"diff\":",
+    "new": "        if False:",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sign_off_whose_raise_was_lost_is_raised_again_and_the_run_goes_on.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line.py",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+    ]
+  },
+  {
+    "name": "halt_window_marker_cleared",
+    "file": "src/physgate/orchestrator/replay.py",
+    "old": "        if isinstance(event, Resumed) and self._resumes_a_sign_off_line(event):\n            return\n",
+    "new": "        if isinstance(event, Resumed) and self._resumes_a_sign_off_line(event):\n            self.sign_off_after = self.sign_off_tail = None\n            return\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sign_off_whose_raise_was_lost_is_raised_again_and_the_run_goes_on.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line.py",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+    ]
+  },
+  {
+    "name": "skipped_call_owes_follow_ups",
+    "file": "src/physgate/orchestrator/loop.py",
+    "old": "            skipped = isinstance(self.state.integration, IntegrationGateSkipped)",
+    "new": "            skipped = False",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sign_off_waits_after_the_follow_ups_so_a_person_signs_the_final_values_once.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line.py",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+    ]
+  },
+  {
+    "name": "status_sign_off_state_dropped",
+    "file": "src/physgate/ui/readers.py",
+    "old": "        if any(name == \"sign_off\" for name, _ in still):\n            word = \"sign_off_owed\"",
+    "new": "        if False:\n            word = \"sign_off_owed\"",
+    "tests": [
+      "tests/unit/ui/test_the_status_names_each_modules_completion_and_a_halt_owed.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line.py",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+    ]
+  },
+  {
+    "name": "status_every_owed_open_to_decide",
+    "file": "src/physgate/ui/readers.py",
+    "old": "        if (items := state.sign_offs_of(module)) and state.undecided(items[-1].item_id)",
+    "new": "        if (items := state.sign_offs_of(module))",
+    "tests": [
+      "tests/unit/ui/test_the_status_names_each_modules_completion_and_a_halt_owed.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line.py",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+    ]
+  },
+  {
+    "name": "told_cap_unsaid",
+    "file": "src/physgate/orchestrator/loop.py",
+    "old": "        if last is not None and last.number >= ATTEMPT_LIMIT:",
+    "new": "        if False:",
+    "tests": [
+      "tests/unit/orchestrator/test_a_rejected_sign_off_orders_the_module_s_one_fix_where_an_attempt_is_left.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line.py",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+    ]
+  },
+  {
+    "name": "told_fix_end_unsaid",
+    "file": "src/physgate/orchestrator/loop.py",
+    "old": "        if sub.sign_off_fixed is not None and last is not None and last.merged is None:",
+    "new": "        if False:",
+    "tests": [
+      "tests/unit/orchestrator/test_a_rejected_sign_off_orders_the_module_s_one_fix_where_an_attempt_is_left.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line.py",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
+      "tests/unit/orchestrator/test_a_module_whose_role_owes_a_sign_off_is_complete_only_once_a_person_signed.py",
+      "tests/unit/orchestrator/test_a_rejected_sign_off_orders_the_module_s_one_fix_where_an_attempt_is_left.py",
+      "tests/unit/orchestrator/test_a_sign_off_item_is_raised_by_code_at_every_clean_merge_that_owes_one.py",
+      "tests/unit/orchestrator/test_a_sign_off_owed_holds_the_integration_call_and_refuses_a_declaration_of_its_module.py",
+      "tests/unit/orchestrator/test_a_sign_off_waits_after_the_follow_ups_so_a_person_signs_the_final_values_once.py",
+      "tests/unit/orchestrator/test_a_sign_off_whose_raise_was_lost_is_raised_again_and_the_run_goes_on.py",
+      "tests/unit/ui/test_the_status_names_each_modules_completion_and_a_halt_owed.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line.py",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl"
     ]
   }
 ]
