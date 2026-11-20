@@ -59,7 +59,8 @@ never computes with a period of a day or a delay line of a million states.
 
 ``controller`` is the controller the firmware runs. ``analysed_controller``, when given, is
 the one the design's analysis is shown for; a brief can require the two to be the same, and
-the scorer compares them. ``files`` names module files the answer refers to, by path inside
+the scorer compares them; without it there is nothing to compare, and that requirement is not
+judged either way. ``files`` names module files the answer refers to, by path inside
 the answer's directory; reading them is the scorer's business, and naming them here grants
 nothing outside that directory.
 """

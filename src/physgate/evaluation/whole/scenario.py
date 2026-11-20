@@ -166,7 +166,10 @@ def _static(answer: WholeRun, metric: str) -> tuple[float | None, str | None]:
         return values[metric](), None
     analysed = answer.analysed_controller
     if analysed is None:
-        return 0.0, None
+        return None, (
+            "no analysed controller is stated, so there is no second controller to compare "
+            "the firmware's with; not judged either way"
+        )
     if type(analysed) is not type(c):
         return None, (
             "the firmware's and the analysed controller are written in different structures; "
