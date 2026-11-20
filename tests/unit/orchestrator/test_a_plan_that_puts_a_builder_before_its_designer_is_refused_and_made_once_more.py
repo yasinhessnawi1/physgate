@@ -6,9 +6,13 @@ specification names control's own node as the design it runs, would have firmwar
 no design to build and no hold: the failure the hold exists for, passed in silence. So the plan is
 refused at the schema stage, as a plan whose interface unit the grammar refuses is: the call is made
 once more, told which module was put before which and on what node, and the refusal is on the
-record. A second such plan ends the decomposition. The module of the role that opens the domain
-work runs first whatever the plan says, and sizes from the domain's nodes, so its specification
-naming a domain module's node refuses nothing.
+record, with the way out: the two modules the other way round, or the quantity on an interface
+node where both sides must agree on it. A second such plan ends the decomposition. The module of
+the role that opens the domain work runs first whatever the plan says, and sizes from the domain's
+nodes, so its specification naming a domain module's node refuses nothing. Two modules that each
+name a node of the other's own are no misorder, in either order: no order could satisfy a refusal
+of them. The later builds what the earlier designs, as the plan orders them, and the earlier
+module's naming of the later one's node holds nothing.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from test_the_decomposition_prompt_states_how_a_unit_is_spelt import REFUSED, _o
 
 import physgate.orchestrator.decompose as decompose
 from physgate.orchestrator.decompose import ORDER_REFUSAL_HEAD, judge
+from physgate.orchestrator.design_pairs import plan_design_pairs, plan_mutual_namings
 
 MODEL = "claude-sonnet-5"
 CRITERIA = "\n\n## Acceptance criteria\n\n1. It holds.\n"
@@ -76,7 +81,8 @@ def judged(*modules: dict[str, str], roles: tuple[str, ...] = ("control", "firmw
 MISORDERED = (
     f"{ORDER_REFUSAL_HEAD}'firmware' before module 'control', whose design on "
     "control.balance_design it implements: the designing module comes before the implementing "
-    "module in the plan"
+    "module in the plan; put the two modules the other way round, or, where both sides must agree "
+    "on the quantity, put it on an interface node and name that instead"
 )
 
 
@@ -91,6 +97,45 @@ def test_a_builder_listed_before_its_designer_is_refused_naming_both_and_the_nod
 def test_the_same_plan_in_the_designer_s_order_is_a_plan() -> None:
     cause, _, plan = judged(module("control", CONTROL), module("firmware", FIRMWARE))
     assert (cause, [m.name for m in plan.modules]) == (None, ["control", "firmware"])
+
+
+def test_a_one_way_misorder_is_refused_and_the_plan_reordered_as_told_is_a_plan() -> None:
+    # Firmware also names a node of its own that control does not name: still one way, refused.
+    firmware = FIRMWARE + " Its own `firmware.timing` holds the loop's period."
+    assert judged(module("firmware", firmware), module("control", CONTROL))[:2] == (
+        REFUSED,
+        MISORDERED,
+    )
+    cause, detail, plan = judged(module("control", CONTROL), module("firmware", firmware))
+    assert (cause, detail, [m.name for m in plan.modules]) == (
+        None,
+        "a plan",
+        ["control", "firmware"],
+    )
+
+
+#: Each names a node of the other's own: control reads firmware's timing, firmware runs control's
+#: design.
+MUTUAL_CONTROL = CONTROL + " It reads `firmware.timing`, the firmware module's own node."
+MUTUAL_FIRMWARE = FIRMWARE + " `firmware.timing` is this module's own node: the loop's period."
+
+
+@pytest.mark.parametrize("order", [("control", "firmware"), ("firmware", "control")])
+def test_two_modules_naming_each_other_s_node_are_a_plan_in_either_order_paired_in_its_order(
+    order: tuple[str, str],
+) -> None:
+    specs = {"control": MUTUAL_CONTROL, "firmware": MUTUAL_FIRMWARE}
+    cause, detail, plan = judged(*(module(name, specs[name]) for name in order))
+    assert (cause, detail) == (None, "a plan")
+    assert [m.name for m in plan.modules] == list(order)
+    # The later builds what the earlier designs; the earlier's naming of the later's node is the
+    # pair the other way round, held to nothing and read for the record.
+    first, later = order
+    own = {"control": ("control.balance_design",), "firmware": ("firmware.timing",)}
+    found = plan_design_pairs(plan, {n: n for n in order}, order)
+    assert [(p.designer, p.builder, p.nodes) for p in found] == [(first, later, own[first])]
+    crossed = plan_mutual_namings(plan, {n: n for n in order}, order)
+    assert [(p.designer, p.builder, p.nodes) for p in crossed] == [(later, first, own[later])]
 
 
 def test_a_builder_found_by_the_shortened_name_is_refused_too() -> None:

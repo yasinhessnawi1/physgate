@@ -60,7 +60,7 @@ from test_design_pairs_are_read_from_the_plan_and_recorded_before_any_dispatch i
 
 from physgate import roles
 from physgate.contracts.pairs import ContractPair
-from physgate.orchestrator.design_pairs import DesignPair, plan_design_pairs
+from physgate.orchestrator.design_pairs import DesignPair, plan_design_pairs, plan_mutual_namings
 from physgate.orchestrator.design_wait import held_builders, open_holds
 from physgate.orchestrator.events import read_events
 from physgate.orchestrator.loop import Loop
@@ -92,10 +92,17 @@ def _sizing_registered(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
 
 
-def begin(loop: Loop, *, design: bool = True, pairs: tuple[DesignPair, ...] = (DESIGN,)) -> None:
+def begin(
+    loop: Loop,
+    *,
+    design: bool = True,
+    pairs: tuple[DesignPair, ...] = (DESIGN,),
+    mutual: tuple[DesignPair, ...] = (),
+) -> None:
     """drive, then fw, then integration; fw builds what drive designs where ``design`` is set.
 
-    ``pairs`` are the design pairs the opening records where ``design`` is set.
+    ``pairs`` are the design pairs the opening records where ``design`` is set, and ``mutual``
+    the namings the other way round written beside them.
     """
     plan = [entry(DRIVE, "control", "drive"), entry(FW, "firmware", "fw")]
     plan.append(entry(INTEG, "integration", "integration"))
@@ -113,6 +120,7 @@ def begin(loop: Loop, *, design: bool = True, pairs: tuple[DesignPair, ...] = (D
         system_requirements=(SystemRequirement.model_validate_json(requirement),),
         contract_pairs=(P_TILT,),
         design_pairs=pairs if design else None,
+        design_mutual=mutual or None,
     )
     loop.record.start(plan, decomposed=summary)
 
@@ -142,12 +150,13 @@ def first_run(
     *,
     design: bool = True,
     pairs: tuple[DesignPair, ...] = (DESIGN,),
+    mutual: tuple[DesignPair, ...] = (),
     kill: Callable[[Any, list[Any]], bool] | None = None,
 ) -> str:
     """The first process, until it stops: the step it stopped at, ``killed``, or what escaped."""
     loop = rig.open()
     hooked(monkeypatch, loop, declared=(DRIVE, FW), kill=kill)
-    begin(loop, design=design, pairs=pairs)
+    begin(loop, design=design, pairs=pairs, mutual=mutual)
     if rig.config_overrides.get("queue_decisions") == "act":
         _layer(loop)
     try:
@@ -329,6 +338,46 @@ def test_the_last_run_s_plan_holds_firmware_while_control_waits_and_runs_it_on_c
     (released,) = of(rows, "builder_released")
     merge = index_of(rows, "merged", subtask_id=DRIVE)
     assert merge < rows.index(released) < dispatched_at(rows, FW)
+    assert [r.subtask_id for r in rig.dispatcher.requests] == [DRIVE] * 3 + [FW, INTEG]
+    assert refusal(rows) is None
+
+
+@pytest.mark.parametrize("first", ["control", "firmware"])
+def test_two_modules_naming_each_other_s_node_hold_and_release_as_a_plain_pair_in_plan_order(
+    first: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Control also reads a node of firmware's own: no order could satisfy a refusal, so the pair
+    # follows the plan's order, in either order, and the later one's own node, named by the
+    # earlier, holds nothing. The module listed first is the rig's first-dispatched subtask.
+    control = CONTROL_SPEC + "It reads `firmware.timing`, the firmware module's own node.\n"
+    firmware = FIRMWARE_SPEC + "`firmware.timing` is this module's own node: the loop's period.\n"
+    plan = balancer(control=control, firmware=firmware)
+    later = "firmware" if first == "control" else "control"
+    own = {"control": ("control.balance_design",), "firmware": ("firmware.timing",)}
+    subtask = {"sizing": "sizing-000000", first: DRIVE, later: FW}
+    order = ("sizing", first, later)
+    found = plan_design_pairs(plan, subtask, order)
+    assert found == (DesignPair(designer=DRIVE, builder=FW, nodes=own[first]),)
+    crossed = plan_mutual_namings(plan, subtask, order)
+    assert crossed == (DesignPair(designer=FW, builder=DRIVE, nodes=own[later]),)
+    rig = rigged(tmp_path)
+    assert first_run(rig, monkeypatch, pairs=found, mutual=crossed) == "wait"
+    rows = lines(rig)
+    (planned,) = of(rows, "design_pairs_planned")
+    assert planned["pairs"] == [{"designer": DRIVE, "builder": FW, "nodes": list(own[first])}]
+    assert planned["mutual"] == [{"designer": FW, "builder": DRIVE, "nodes": list(own[later])}]
+    # The first is dispatched and held by nothing; the later is held on the first's design.
+    (held,) = of(rows, "builder_held")
+    assert (held["subtask_id"], held["designer"], held["why"]) == (FW, DRIVE, "escalated")
+    assert of(rows, "builder_held", subtask_id=DRIVE) == []
+    assert requests_of(rig, FW) == []
+    decide(rig.run_dir, "approve", item_id=drive_item(rows))
+    assert resumed(rig, monkeypatch) == "done"
+    rows = lines(rig)
+    (released,) = of(rows, "builder_released")
+    assert released["subtask_id"] == FW
+    assert index_of(rows, "merged", subtask_id=DRIVE) < rows.index(released)
+    assert rows.index(released) < dispatched_at(rows, FW)
     assert [r.subtask_id for r in rig.dispatcher.requests] == [DRIVE] * 3 + [FW, INTEG]
     assert refusal(rows) is None
 

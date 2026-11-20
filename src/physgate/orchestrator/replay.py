@@ -1477,7 +1477,10 @@ class RunState:
         if any(sub.attempts for sub in self.subtasks.values()) or self.integration is not None:
             _refuse("the run's design pairs are recorded before anything is dispatched")
         why = recorded_design_pairs_problem(
-            event.pairs, modules=self.modules(), interfaces=self.interface_nodes
+            event.pairs,
+            modules=self.modules(),
+            interfaces=self.interface_nodes,
+            mutual=event.mutual,
         )
         if why is not None:
             _refuse(f"the run's design pairs are not its plan's: {why}")

@@ -51,7 +51,12 @@ from physgate.orchestrator.credentials import (
     remove_secrets,
     write_login,
 )
-from physgate.orchestrator.design_pairs import DesignPair, misordered_pairs, plan_design_pairs
+from physgate.orchestrator.design_pairs import (
+    DesignPair,
+    misordered_pairs,
+    plan_design_pairs,
+    plan_mutual_namings,
+)
 from physgate.orchestrator.events import Followable
 from physgate.orchestrator.exceptions import (
     DecompositionError,
@@ -1290,9 +1295,12 @@ def order_refusal(plan: Plan, roles: Sequence[str]) -> str | None:
 
     Among the domain modules, whose order in the plan is the run's (ARCH-051): a module whose
     specification names a node that is a later module's own, which that module's specification
-    names too, would be dispatched before the design it implements and never held to it. The
-    module of the role that opens the domain work runs first whatever the plan says and reads the
-    domain's nodes to size them, so it is no builder here.
+    names too, would be dispatched before the design it implements and never held to it. Where
+    the later module names a node of the earlier one's own as well, no order could satisfy a
+    refusal, so none is made: the pair follows the plan's order. The refusal names the way out:
+    the two the other way round, or the quantity on an interface node. The module of the role
+    that opens the domain work runs first whatever the plan says and reads the domain's nodes to
+    size them, so it is no builder here.
     """
     openings = set(_in_run("cross_nodes", roles))
     domain = [module.name for module in plan.modules if module.role not in openings]
@@ -1304,7 +1312,11 @@ def order_refusal(plan: Plan, roles: Sequence[str]) -> str | None:
         f"whose design on {', '.join(nodes)} it implements"
         for at, (builder, designer, nodes) in enumerate(found)
     )
-    return f"{said}: the designing module comes before the implementing module in the plan"
+    return (
+        f"{said}: the designing module comes before the implementing module in the plan; put the "
+        "two modules the other way round, or, where both sides must agree on the quantity, put it "
+        "on an interface node and name that instead"
+    )
 
 
 def _units_as_products(plan: Plan, roles: Sequence[str]) -> Plan:
@@ -2412,6 +2424,7 @@ def start_run(
             system_requirements=requirements,
             contract_pairs=pairs,
             design_pairs=_design_pairs(plan, planned) or None,
+            design_mutual=_design_pairs(plan, planned, mutual=True) or None,
             brief_words=words or None,
             followable=followable,
             components=plan.components if isinstance(plan, PartsPlan) else None,
@@ -2523,15 +2536,19 @@ def _contract_pairs(plan: Plan, planned: Sequence[_Issued]) -> tuple[ContractPai
         raise DecompositionError(str(exc), **exc.context) from None
 
 
-def _design_pairs(plan: Plan, planned: Sequence[_Issued]) -> tuple[DesignPair, ...]:
+def _design_pairs(
+    plan: Plan, planned: Sequence[_Issued], *, mutual: bool = False
+) -> tuple[DesignPair, ...]:
     """The plan's design pairs, with each module's subtask, in the order the run dispatches them.
 
     The plan modules are the first of ``planned``, one each, in run order; a closing pass and
     integration follow them and are no module of the plan, so neither is a designer or a builder.
+    With ``mutual``, each of those pairs the other way round instead (:func:`plan_mutual_namings`).
     """
     modules = planned[: len(plan.modules)]
     subtask_of = {one.module: one.entry.subtask_id for one in modules}
-    return plan_design_pairs(plan, subtask_of, [one.module for one in modules])
+    read = plan_mutual_namings if mutual else plan_design_pairs
+    return read(plan, subtask_of, [one.module for one in modules])
 
 
 def _lists(

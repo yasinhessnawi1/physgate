@@ -14,14 +14,19 @@ role.
 A node is named by its first two parts, so a specification that writes a quantity's path under it
 (``control.law.gain``) names the node (``control.law``). A name inside a file path is no node, and
 neither is a file's own name (``control.md``, ``control.py``): one whose last part is a file
-extension.
+extension no quantity could be named by. A last part that could name one (``control.step``, a step
+response; ``control.m``, a mass) is read as a node, whatever file type is spelt the same.
 
 The pairs are fixed from the plan and recorded before the first dispatch. Only a designer that the
 run dispatches before its builder makes a pair, as the prompt asks the plan to order them: the run
 order is the harness's (ARCH-051), so a builder is never moved ahead of the module that opens the
 domain work, and no two modules can wait on each other. A plan that puts a domain module's builder
 before its designer is found here too (:func:`misordered_pairs`), so the decomposition refuses it
-rather than let it pass with no hold. Nothing here reads the register, a store or a model.
+rather than let it pass with no hold. Two modules that each name a node of the other's own are no
+misorder: no order could satisfy a refusal of them. The later builds what the earlier designs, as
+the plan orders them, and the earlier one's naming of the later one's node holds nothing; it is
+written on the pairs line beside its pair (:func:`plan_mutual_namings`), so a reader sees it.
+Nothing here reads the register, a store or a model.
 """
 
 from __future__ import annotations
@@ -43,17 +48,12 @@ from physgate.state.schema import NODE_ID_MAX_LENGTH, NODE_ID_PATTERN, NodeIdKey
 _NAMED = re.compile(
     r"(?<![A-Za-z0-9_./\\-])[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_]+)+(?![A-Za-z0-9_/\\-])"
 )
-#: The last parts that make a name a file's, never a node's: the files a specification of these
-#: roles names (documents, data, sources, builds, models, drawings, images, archives).
+#: The last parts that make a name a file's, never a node's: file types a specification of these
+#: roles names that no quantity is named by. A word a design node may end in (``step``, ``ts``,
+#: ``mat``, ``m``, ``c``, ``h``, ...) is left out, whatever file type is spelt the same: such a file
+#: named inside a path is no node already.
 FILE_EXTENSIONS: frozenset[str] = frozenset(
-    {
-        *("md", "txt", "rst", "pdf", "tex", "csv", "tsv", "json", "jsonl", "yaml", "yml"),
-        *("toml", "ini", "cfg", "xml", "html", "htm", "ipynb"),
-        *("py", "pyi", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "ino", "asm", "ld"),
-        *("hex", "elf", "js", "ts", "sh", "mk", "cmake", "m", "mat", "slx"),
-        *("step", "stp", "stl", "iges", "igs", "dxf", "dwg", "scad", "urdf", "sdf", "xacro"),
-        *("png", "jpg", "jpeg", "svg", "gif", "zip", "gz", "tar"),
-    }
+    {"py", "md", "cpp", "hpp", "ino", "json", "toml", "yaml", "yml", "txt", "csv", "ini"}
 )
 
 
@@ -162,19 +162,42 @@ def plan_design_pairs(
     return tuple(pairs)
 
 
+def plan_mutual_namings(
+    plan: Plan, subtask_of: Mapping[str, str], order: Sequence[str]
+) -> tuple[DesignPair, ...]:
+    """Each pair's naming the other way round: its designer names a node of its builder's own.
+
+    Read as :func:`plan_design_pairs` reads a pair, with the two the other way round, and only
+    for a pair it gives, in its order: ``designer`` is the pair's builder, whose own nodes are
+    ``nodes``, and ``builder`` the pair's designer, which names them. It holds nothing, as that
+    module is dispatched first; it is recorded so a reader sees it.
+    """
+    named, own = _named_and_own(plan, order)
+    module_of = {subtask_of[name]: name for name in order}
+    found: list[DesignPair] = []
+    for pair in plan_design_pairs(plan, subtask_of, order):
+        designer, builder = module_of[pair.designer], module_of[pair.builder]
+        nodes = tuple(sorted(n for n in own[builder] if n in named[designer]))
+        if nodes:
+            found.append(DesignPair(designer=pair.builder, builder=pair.designer, nodes=nodes))
+    return tuple(found)
+
+
 def misordered_pairs(plan: Plan, order: Sequence[str]) -> list[tuple[str, str, tuple[str, ...]]]:
     """Each builder ``order`` puts before its designer: (builder, designer, nodes), by module.
 
     ``order`` is the modules among which the plan's order is the run's: the domain modules, in
     the plan's order. Read as :func:`plan_design_pairs` reads a pair, with the two the other way
-    round, by builder and then designer in that order.
+    round, by builder and then designer in that order. Two that each name a node of the other's
+    own are none: no order could satisfy a refusal of them, and the pair follows the plan's order.
     """
     named, own = _named_and_own(plan, order)
     found: list[tuple[str, str, tuple[str, ...]]] = []
     for at, builder in enumerate(order):
         for designer in order[at + 1 :]:
             nodes = tuple(sorted(n for n in own[designer] if n in named[builder]))
-            if nodes:
+            mutual = any(n in named[designer] for n in own[builder])
+            if nodes and not mutual:
                 found.append((builder, designer, nodes))
     return found
 
@@ -184,13 +207,15 @@ def recorded_design_pairs_problem(
     *,
     modules: Sequence[str],
     interfaces: Sequence[str],
+    mutual: Sequence[DesignPair] = (),
 ) -> str | None:
     """Why a recorded set of design pairs cannot be a plan's, given the run's own lines.
 
     ``modules`` are the subtasks that plan the plan's modules, in run order; ``interfaces`` the
     interface nodes the decomposition's line names. Each pair is of two of them, the designer
     dispatched first, each pair once, in the order :func:`plan_design_pairs` gives, and no node
-    is an interface node.
+    is an interface node. Each of ``mutual`` is a recorded pair the other way round, each once,
+    in the pairs' order (:func:`plan_mutual_namings`), its nodes held as a pair's are.
     """
     place = {subtask: index for index, subtask in enumerate(modules)}
     keys: list[tuple[int, int]] = []
@@ -206,4 +231,22 @@ def recorded_design_pairs_problem(
         keys.append((place[pair.builder], place[pair.designer]))
     if keys != sorted(set(keys)):
         return "the pairs are not each recorded once, by builder and then designer in run order"
+    return _mutual_problem(pairs, mutual, interfaces)
+
+
+def _mutual_problem(
+    pairs: Sequence[DesignPair], mutual: Sequence[DesignPair], interfaces: Sequence[str]
+) -> str | None:
+    at = {(pair.builder, pair.designer): index for index, pair in enumerate(pairs)}
+    places: list[int] = []
+    for one in mutual:
+        if (one.designer, one.builder) not in at:
+            return "a naming the other way round is no recorded pair the other way round"
+        if any(_is_excluded(node, interfaces) for node in one.nodes):
+            return "a naming the other way round is on an interface node"
+        if list(one.nodes) != sorted(set(one.nodes)):
+            return "a naming the other way round has its nodes not each named once, in id order"
+        places.append(at[(one.designer, one.builder)])
+    if places != sorted(set(places)):
+        return "the namings the other way round are not each written once, in the pairs' order"
     return None

@@ -5,11 +5,14 @@ read from that: a node the designer's specification names under its module's nam
 other module could be meant, under that name with a hyphen-separated suffix left off, or its role),
 no interface node and no component, which a module dispatched after it names too. A name is read
 in any case and with its module's hyphen, in the id's own form. A node is named by its first two
-parts; a name inside a file path is no node, and nor is a file's own name.
-A designer dispatched after the module that names its node makes no pair, so the run order the
-harness sets is never changed. The pairs are recorded once, in the run's opening after the contract
-pairs, only where there are some; replay refuses a set no plan could give, a second one, one after
-a dispatch, and a planning line after it.
+parts; a name inside a file path is no node, and nor is a file's own name, one whose last part no
+quantity's name could be (``md``, ``py``, ``json``, ...): ``control.step`` or ``control.m`` is a
+node. A designer dispatched after the module that names its node makes no pair, so the run order
+the harness sets is never changed; where it is the pair the other way round (each module names a
+node of the other's own), that naming holds nothing and is written on the pairs line beside the
+pair. The pairs are recorded once, in the run's opening after the contract pairs, only where there
+are some; replay refuses a set no plan could give, a second one, one after a dispatch, and a
+planning line after it.
 """
 
 from __future__ import annotations
@@ -32,7 +35,12 @@ from test_every_pair_sharing_an_interface_is_enumerated_from_the_recorded_plan i
 )
 
 from physgate.orchestrator.decompose import IntegratedPlan, PartsPlan, Plan, mint_id
-from physgate.orchestrator.design_pairs import DesignPair, named_nodes, plan_design_pairs
+from physgate.orchestrator.design_pairs import (
+    DesignPair,
+    named_nodes,
+    plan_design_pairs,
+    plan_mutual_namings,
+)
 
 CRITERIA = "\n\n## Acceptance criteria\n\n1. It holds.\n"
 
@@ -123,8 +131,9 @@ def test_a_node_is_named_by_its_first_two_parts_and_a_path_or_a_sentence_end_is_
 
 def test_a_file_s_own_name_is_no_node_whatever_its_case() -> None:
     spec = (
-        "Write control.md, control.py and `firmware.c`, with firmware.h, README.MD, "
-        "control.law.py and balance_design.json; run control.law."
+        "Write control.md, control.py and `firmware.cpp`, with firmware.hpp, README.MD, "
+        "firmware.ino, control.law.py, balance_design.json, params.toml, ci.yaml, ci.yml, "
+        "notes.txt, log.csv and setup.ini; run control.law."
     )
     assert named_nodes(spec) == ["control.law"]
     # Both specifications naming one file of control's is no design held: no pair.
@@ -132,6 +141,21 @@ def test_a_file_s_own_name_is_no_node_whatever_its_case() -> None:
     for name, spec in shared.items():
         shared[name] = spec.replace("control.balance_design", "control.md")
     assert pairs_of(balancer(**shared)) == []
+
+
+def test_a_last_part_a_quantity_could_be_named_is_a_node_unless_it_lies_in_a_path() -> None:
+    # A step response, a time series, a matrix, a model: words a design node may end in, even
+    # where a file type is spelt the same.
+    words = ("step", "ts", "mat", "sdf", "ld", "h", "c", "m")
+    spec = " ".join(f"`control.{word}`" for word in words)
+    assert named_nodes(spec) == [f"control.{word}" for word in words]
+    paths = " ".join(f"modules/control/control.{word}" for word in words)
+    assert named_nodes(paths + " and ./firmware.c, .\\firmware.h") == []
+    stepped = {"control": CONTROL + " Its `control.step` holds the step response."}
+    stepped["firmware"] = FIRMWARE + " Its period follows `control.step`."
+    assert pairs_of(balancer(**stepped)) == [
+        ("c-2", "f-3", ("control.balance_design", "control.step"))
+    ]
 
 
 def test_a_node_in_capitals_or_with_its_module_s_hyphen_is_read_in_the_id_s_form() -> None:
@@ -304,7 +328,58 @@ def test_the_pairs_are_recorded_once_after_the_contract_pairs_before_any_dispatc
     names = ["budget", "drive", "fw"]
     drive, fw = (mint_id(SEED, names.index(n), n) for n in ("drive", "fw"))
     assert log[-1]["pairs"] == [{"designer": drive, "builder": fw, "nodes": ["drive.law"]}]
+    # No naming the other way round: the line is as it was before there was one to write.
+    assert "mutual" not in log[-1]
     assert refusal(tmp_path, log) == ""
+
+
+def _plan_with_mutual() -> IntegratedPlan:
+    """The pair test's plan, where drive also reads fw's own node ``fw.timing``."""
+    plan = integrated()
+    modules = [m.model_dump() for m in plan.modules]
+    for m in modules:
+        if m["name"] == "drive":
+            m["spec"] = "Write the law on `drive.law`, your own node; read `fw.timing`." + CRITERIA
+        if m["name"] == "fw":
+            m["spec"] = "Run what `drive.law` holds; `fw.timing` is your own node." + CRITERIA
+    return integrated(modules=modules)
+
+
+def test_a_naming_the_other_way_round_is_written_beside_its_pair_and_holds_nothing(
+    tmp_path: Path,
+) -> None:
+    run_dir, _ = start(tmp_path, _plan_with_mutual())
+    log = lines(run_dir)
+    names = ["budget", "drive", "fw"]
+    drive, fw = (mint_id(SEED, names.index(n), n) for n in ("drive", "fw"))
+    (planned,) = [one for one in log if one["kind"] == "design_pairs_planned"]
+    assert planned["pairs"] == [{"designer": drive, "builder": fw, "nodes": ["drive.law"]}]
+    assert planned["mutual"] == [{"designer": fw, "builder": drive, "nodes": ["fw.timing"]}]
+    assert refusal(tmp_path, log) == ""
+    subtask = dict(zip(names, ("s-1", "c-2", "f-3"), strict=True))
+    order = ("budget", "drive", "fw")
+    assert plan_mutual_namings(_plan_with_design(), subtask, order) == ()
+
+
+def test_replay_refuses_a_naming_the_other_way_round_no_recorded_pair_gives(
+    tmp_path: Path,
+) -> None:
+    log = lines(start(tmp_path, _plan_with_mutual())[0])
+    pairs = log[-1]
+    (crossed,) = pairs["mutual"]
+
+    def with_mutual(*changed: dict[str, Any]) -> list[dict[str, Any]]:
+        return [*log[:-1], {**pairs, "mutual": list(changed)}]
+
+    same_way = {**crossed, "designer": crossed["builder"], "builder": crossed["designer"]}
+    cases = {
+        "the other way round": with_mutual(same_way),
+        "on an interface node": with_mutual({**crossed, "nodes": ["iface.speed"]}),
+        "each named once": with_mutual({**crossed, "nodes": ["fw.timing", "fw.timing"]}),
+        "each written once": with_mutual(crossed, crossed),
+    }
+    for said, edited in cases.items():
+        assert said in refusal(tmp_path, edited), said
 
 
 def test_a_plan_with_no_design_pair_records_no_line_and_its_opening_as_before(

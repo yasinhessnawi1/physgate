@@ -1513,6 +1513,17 @@ class DesignPairsPlanned(_Event):
 
     kind: Literal["design_pairs_planned"] = "design_pairs_planned"
     pairs: Annotated[tuple[DesignPair, ...], Field(min_length=1)]
+    #: Each pair the other way round, where its designer's specification also names a node of its
+    #: builder's own: no hold, as the plan's order is the pair's, and written so a reader sees it.
+    #: Left out of the line when empty, so every other line keeps its bytes.
+    mutual: tuple[DesignPair, ...] = ()
+
+    @model_serializer(mode="wrap")
+    def _omit_no_mutual(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.mutual:
+            data.pop("mutual", None)
+        return data
 
 
 class ContractTested(_Event):

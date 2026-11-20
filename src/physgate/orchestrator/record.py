@@ -123,6 +123,9 @@ class DecompositionSummary(BaseModel):
     #: The modules that build what another designs, read from the plan's specifications;
     #: ``None`` or empty where the plan has none, so the run records no such line.
     design_pairs: tuple[DesignPair, ...] | None = None
+    #: Each of those pairs the other way round, where its designer names a node of its builder's
+    #: own too; ``None`` or empty where there is none, and then left out of the pairs line.
+    design_mutual: tuple[DesignPair, ...] | None = None
     #: The brief's own words for each system requirement the plan gives by number; ``None`` or
     #: empty when there are none, and then left out of the line.
     brief_words: tuple[CriterionWords, ...] | None = None
@@ -784,7 +787,8 @@ class RunRecord:
         if decomposed is not None and decomposed.contract_pairs is not None:
             yield ContractPairsPlanned(**envelope(), pairs=decomposed.contract_pairs)
         if decomposed is not None and decomposed.design_pairs:
-            yield DesignPairsPlanned(**envelope(), pairs=decomposed.design_pairs)
+            mutual = decomposed.design_mutual or ()
+            yield DesignPairsPlanned(**envelope(), pairs=decomposed.design_pairs, mutual=mutual)
 
     def _unwritten(self) -> Callable[[], Envelope]:
         """Envelopes numbered from a log's first line, for lines checked and never written."""
