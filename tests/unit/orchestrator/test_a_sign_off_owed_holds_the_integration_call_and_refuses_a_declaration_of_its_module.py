@@ -403,3 +403,29 @@ def test_a_held_approve_confirmed_after_a_later_item_superseded_it_records_only(
     assert FIRST in state.confirmed
     assert step.kind == "wait"
     assert state.undecided(SECOND)
+
+
+def test_a_run_halted_at_a_merge_s_sign_off_line_is_not_asked_again_by_the_next_process(
+    tmp_path: Path,
+) -> None:
+    rig, graph = journal_rig(tmp_path)
+
+    def tamper() -> None:
+        # While the electrical module's session runs: the control loop's line rewritten in place.
+        line = next(ln for ln in graph.journal if (ln.node_id, ln.rev) == (LOOP, 3))
+        payload = json.loads(json.dumps(line.payload))
+        payload["quantities"]["phase_margin"]["value"] = 1.2
+        graph.journal[graph.journal.index(line)] = line.model_copy(update={"payload": payload})
+
+    rig.dispatcher.during[3] = tamper
+    events, step = drive(rig)
+    assert step.kind == "halted"
+    before = len(events)
+    # The log still ends at the electrical module's merge and the halt the raise wrote: a fresh
+    # process finds the run halted and writes nothing, not the same incident again.
+    again = rig.open()
+    assert again.run().kind == "halted"
+    again.close()
+    events = read_events(tmp_path / "events.jsonl")
+    assert len(events) == before
+    assert len([e for e in events if isinstance(e, Incident)]) == 1

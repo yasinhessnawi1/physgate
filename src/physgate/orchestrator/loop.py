@@ -3561,10 +3561,13 @@ class Loop:
         latest item binds (``sign_off_due``, the next step). A merge that bound a new node to a
         module (a cross node it wrote that now constrains the module's) owes one only by the
         graph: a process killed between that merge's clean diff and its line leaves the diff the
-        last line, and this process asks the graph before it writes any line of its own.
+        last line, and this process asks the graph before it writes any line of its own. Never
+        in a halted run, nor where a halt is owed: the halt comes first, and a resume after it.
         """
-        if self.state.sign_off_after is not None and self.state.sign_off_due is None:
-            self._raise_sign_offs()
+        state = self.state
+        if state.halted is None and not state.halt_owed() and state.sign_off_due is None:
+            if state.sign_off_after is not None:
+                self._raise_sign_offs()
 
     def _sign_off_refusal(self, check: ChangeCheck) -> ChangeCheck:
         """``check``, or the declaration's refusal where it names a module whose sign-off is owed.

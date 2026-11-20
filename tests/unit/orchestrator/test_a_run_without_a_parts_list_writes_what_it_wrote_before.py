@@ -26,11 +26,6 @@ import pytest
 from off_identity_rig import reference
 from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 
-#: These runs plan a control module, and what is tested is the queue and the lines
-#: they wrote before: each starts as a
-#: run recorded before the sign-off rule table, which owes no sign-off.
-pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
-
 RECORDED = json.loads((Path(__file__).parent / "off_identity_reference.json").read_text())
 
 
@@ -41,6 +36,10 @@ def test_the_reference_covers_what_a_run_sends_and_writes() -> None:
     assert {name.split(":")[0] for name in RECORDED} == {"prompt", "schema", "run", "store"}
 
 
+# The reference was recorded before the sign-off rule table existed, and its run plans a control
+# module: held to those bytes, the run starts as one recorded before the table, which owes no
+# sign-off and writes no line of it. The same run twice, below, runs with the rule in force.
+@pytest.mark.usefixtures("before_the_sign_off_rule")
 def test_the_seeded_run_leaves_the_bytes_recorded_before_the_switch(tmp_path: Path) -> None:
     now = reference(tmp_path)
     changed = sorted(
