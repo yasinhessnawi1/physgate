@@ -221,7 +221,7 @@ def test_a_structure_lacking_any_of_its_names_is_no_answer_and_the_name_is_said(
     run = _run(tmp_path, *_split(controller, {**PARAMETERS, **SENSITIVITY}))
     record, out = _export(run, tmp_path)
     assert record.status == "contract_lost"
-    assert name in record.missing[structure]
+    assert name in record.missing.get(structure, ())
     assert record.structure is None
     assert record.sha256 is None
     assert not out.exists()
@@ -410,8 +410,11 @@ def test_a_store_whose_journal_no_store_could_have_written_is_refused(tmp_path: 
     run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
     journal = next(p for p in (run / "store").iterdir() if p.is_file() and p.suffix == ".jsonl")
     journal.write_bytes(journal.read_bytes() + b'{"rev": 9}\n')
-    with pytest.raises(_module().ExportError, match="journal"):
+    # Any exception is caught, so one of another type is a failed assertion, not an error.
+    with pytest.raises(Exception) as caught:  # noqa: PT011
         _export(run, tmp_path)
+    assert isinstance(caught.value, _module().ExportError)
+    assert "journal" in str(caught.value)
 
 
 @pytest.mark.parametrize("left", ["file", "link", "directory"])
@@ -447,7 +450,7 @@ def test_the_reference_run_s_plan_as_written_exports_no_answer_and_says_why(
     record, out = _export(run, tmp_path)
     assert record.status == "contract_lost"
     assert not out.exists()
-    assert "update_rate" in record.missing["parameters"]
-    assert "encoder_counts_per_wheel_revolution" in record.missing["parameters"]
+    assert "update_rate" in record.missing.get("parameters", ())
+    assert "encoder_counts_per_wheel_revolution" in record.missing.get("parameters", ())
     for structure in STRUCTURES:
-        assert "sensor_delay" in record.missing[structure]
+        assert "sensor_delay" in record.missing.get(structure, ())

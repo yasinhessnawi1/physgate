@@ -187,7 +187,7 @@ def export_whole_run(run_dir: Path, out: Path) -> Export:
         if settings:
             missing["parameters"] = settings
         return Export(status="contract_lost", revision=revision, missing=missing)
-    (structure,) = complete
+    structure = complete[0]
     if settings:
         return Export(
             status="contract_lost",

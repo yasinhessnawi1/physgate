@@ -1,0 +1,191 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "no_store_check",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    if not store.is_dir():\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "corrupt_journal_passed",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    except CorruptRecordError as exc:\n",
+    "new": "    except ArithmeticError as exc:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "oldest_payload",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    latest = {line.node_id: line.payload for line in lines}",
+    "new": "    latest = {line.node_id: line.payload for line in reversed(lines)}",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "revision_zero",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    return len(lines), latest",
+    "new": "    return 0, latest",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "every_name_read",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "            if name in CONTRACT_NAMES:\n",
+    "new": "            if True:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "no_conflict_ever",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        if any(v != value or u != unit for _, v, u in rows[1:]):",
+    "new": "        if False:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "conflict_on_value_only",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        if any(v != value or u != unit for _, v, u in rows[1:]):",
+    "new": "        if any(v != value for _, v, u in rows[1:]):",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "conflict_on_unit_only",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        if any(v != value or u != unit for _, v, u in rows[1:]):",
+    "new": "        if any(u != unit for _, v, u in rows[1:]):",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "optional_required",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "if required and n not in found",
+    "new": "if n not in found",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "complete_inverted",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "if not names))",
+    "new": "if names))",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "conflicts_ignored",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    if conflicts:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "two_structures_taken",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    if len(complete) > 1:\n",
+    "new": "    if len(complete) > 2:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "lost_settings_unsaid",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        if settings:\n            missing[\"parameters\"] = settings\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "missing_setting_exported",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    structure = complete[0]\n    if settings:\n",
+    "new": "    structure = complete[0]\n    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "one_node_named",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "taken_from={name: found[name][2] for",
+    "new": "taken_from={name: found[name][2][:1] for",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "nothing_left_out",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "left_out=tuple(sorted(set(found) - read)),",
+    "new": "left_out=(),",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "version_one",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        \"version\": _VERSION,\n",
+    "new": "        \"version\": 1,\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "overwrites",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "_WRITE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC",
+    "new": "_WRITE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "other_structure_written",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        \"controller\": {\"structure\": structure, **_measures(STRUCTURES[structure], found)},",
+    "new": "        \"controller\": {\"structure\": structure, **_measures(STRUCTURES[sorted(STRUCTURES)[0]], found)},",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ]
+  }
+]
