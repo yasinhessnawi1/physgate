@@ -48,6 +48,7 @@ refuses only a run on it (:func:`version_refusal`).
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -55,7 +56,7 @@ import os
 import stat
 import tempfile
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -505,6 +506,38 @@ def register_lines(store: Path, role: Role) -> list[Exposure | Authoring | Measu
     return found
 
 
+@contextlib.contextmanager
+def holding_register(store: Path, role: Role) -> Iterator[None]:
+    """The role's register held from its writers while the body runs, as every reader holds it.
+
+    A shared hold of the register's lock: readers go on, and no measurement or exposure line is
+    appended until the body ends. For a look at the register that must still hold as something
+    is put in place beside it. A role with no withheld root yet has no register to hold.
+
+    Raises:
+        ExposureError: the withheld root is a link, or the register's lock cannot be taken.
+    """
+    fd = _dir_fd(withheld_root(store, role))
+    if fd is None:
+        yield
+        return
+    try:
+        try:
+            lock = os.open(
+                REGISTER + LOCK_SUFFIX, os.O_RDONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=fd
+            )
+        except OSError as exc:
+            msg = f"the {REGISTER} lock cannot be taken: {exc}"
+            raise _refuse("register_unreadable", msg) from exc
+        try:
+            fcntl.flock(lock, fcntl.LOCK_SH)
+            yield
+        finally:
+            os.close(lock)
+    finally:
+        os.close(fd)
+
+
 def run_roots(store: Path, role: Role) -> list[Path]:
     """The directories beneath which the role's runs are made.
 
@@ -594,11 +627,19 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
                 walk.missing.append(root)
             continue
         except OSError as exc:
-            msg = f"{here} cannot be listed, so a run in it cannot be ruled out"
+            msg = (
+                f"{here}, beneath the run root {root}, cannot be listed, so a run in it cannot be "
+                "ruled out: a person makes it readable to this user again"
+            )
             raise _refuse("register_unreadable", msg) from exc
         walk.seen += len(listed)
         if walk.seen > MOST_ENTRIES:
-            msg = f"the run roots hold more than {MOST_ENTRIES} entries"
+            msg = (
+                f"the run roots hold more than {MOST_ENTRIES} entries, the bound passed in the "
+                f"run root {root}: a walk past it is refused rather than read in part. A person "
+                "looks at that root and moves out of it what is no run's (a run is never moved "
+                "out of the run roots to let a look pass)"
+            )
             raise _refuse("register_unreadable", msg)
         names = {e.name: e for e in listed}
         run = names.get(RUN_RECORD)
@@ -622,7 +663,10 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
                     places.append(where.relative_to(root).as_posix())
                 continue
             if depth + 1 > MOST_DEPTH:
-                msg = f"the run roots hold directories deeper than {MOST_DEPTH}"
+                msg = (
+                    f"the run root {root} holds directories deeper than {MOST_DEPTH}: a person "
+                    "looks at it and moves out of it what is no run's"
+                )
                 raise _refuse("register_unreadable", msg)
             stack.append((Path(entry.path), depth + 1))
     if places:
@@ -1112,6 +1156,126 @@ def _scan_refusal(
     return None
 
 
+def _names_version(value: object, digests: frozenset[str]) -> bool:
+    return isinstance(value, list) and any(isinstance(d, str) and d in digests for d in value)
+
+
+def results_refusal(store: Path, role: Role, version: str) -> tuple[str, str] | None:
+    """Why the version's blind check may no longer be made or imported; ``None`` if it may.
+
+    What a check flags is left out of every held-out figure of its version, so the check is
+    made, or an earlier one imported, before any result of the version exists: never once the
+    register holds a measurement of it (``version_measured``) or an exposure
+    (``version_exposed``, as freshly scanned), or a run under the role's run roots or a raw
+    record beneath them or the withheld root's baseline records names its held-out or validation
+    tier (``version_has_runs``: a run withholds every version it was made beside, so one that
+    names it was made after it was written). A run root that is not there or not read whole
+    leaves a run on it unruled out (``run_roots_unread``). Only a digest's prefix is said.
+
+    Raises:
+        ExposureError: the register, the run roots or a run they hold cannot be read whole.
+    """
+    known = versions(store, role)
+    manifest = known.get(version)
+    if manifest is None:
+        return "version_unknown", f"the role has no version {version[:_PREFIX]}"
+    said = version[:_PREFIX]
+    for line in register_lines(store, role):
+        if line.version == version and line.kind == "measurement":
+            return "version_measured", (
+                f"the register holds a measurement of the version {said}: what its check leaves "
+                "out would be chosen after a result of it exists"
+            )
+    if version in exposed_versions(store, role):
+        return "version_exposed", (
+            f"the version {said} is marked exposed as the register reads now: it is no "
+            "measurement, and its check is not made after it was seen"
+        )
+    walk = _Walk(runs=[], records=[])
+    for root in run_roots(store, role):
+        _walk(root, walk, required=True)
+    _walk(withheld_root(store, role) / BASELINE_RECORDS, walk, required=False)
+    if walk.missing or walk.unread:
+        return "run_roots_unread", _roots_unread_words(walk, said)
+    digests = frozenset({manifest.held_out.sha256, manifest.validation.sha256})
+    for run in sorted(set(walk.runs)):
+        try:
+            named = load_run_config(run / RUN_RECORD).held_out_sha256
+        except Exception as exc:  # noqa: BLE001 - a run that cannot be read cannot be ruled out
+            msg = f"a run under the run roots cannot be read: {type(exc).__name__}"
+            raise _refuse("register_unreadable", msg) from exc
+        if _names_version(list(named), digests):
+            return "version_has_runs", (
+                f"a run under the role's run roots names the version {said}: its check is made "
+                "before any run on it, never after"
+            )
+    for path in sorted(set(walk.records)):
+        fd = _dir_fd(path.parent)
+        data = None
+        if fd is not None:
+            try:
+                data = _read_at(fd, path.name, MOST_RECORD_BYTES)
+            finally:
+                os.close(fd)
+        try:
+            record = json.loads(data) if data is not None else {}
+        except ValueError as exc:
+            raise _refuse("register_unreadable", "a raw record cannot be read") from exc
+        if isinstance(record, dict) and _names_version(record.get("held_out_sha256"), digests):
+            return "version_has_runs", (
+                f"a raw record names the version {said}: its check is made before any trial on "
+                "it, never after"
+            )
+    return None
+
+
+def _roots_unread_words(walk: _Walk, said: str) -> str:
+    """Which run roots a look could not read, and what a person does about each kind."""
+    parts = []
+    if walk.missing:
+        gone = ", ".join(str(root) for root in walk.missing)
+        parts.append(
+            f"the run root {gone} is not there: a person puts it back as it was, with the runs it "
+            "held (a root that is gone may have held a run on the version, so making an empty "
+            "one in its place is a person's deliberate act, after looking)"
+        )
+    if walk.unread:
+        unread = ", ".join(str(root) for root in walk.unread)
+        parts.append(
+            f"{unread} holds a link to a directory, which a look does not follow, "
+            "or a directory inside a run that looks like a run, which a look does not read: a "
+            "person replaces the link with the directory it names, or moves the inner run to a "
+            "place of its own beneath a run root"
+        )
+    return (
+        "; ".join(parts) + f". Until then a run on the version {said} cannot be ruled out, so "
+        "no check or import of it is made; the harness never drops a root from the run roots"
+    )
+
+
+def _check_refusal(store: Path, role: Role, version: str) -> tuple[str, str] | None:
+    """Why a measured run on ``version`` may not be made for want of its blind check; or ``None``.
+
+    A version is measured only once its held-out tier's check is recorded: what the check
+    flagged is left out of every held-out figure, so a version with no record, or one whose
+    record does not read as the version's, has no held-out figure, and no run on it is
+    measured (``held_out_unchecked``, or the record's own reason).
+    """
+    from physgate.evaluation.tiers.checks import CheckError, read_check
+
+    try:
+        record = read_check(store, role, version, manifest=versions(store, role)[version])
+    except CheckError as exc:
+        reason = str(exc.context.get("refused_because", "check_record_unreadable"))
+        return reason, str(exc)
+    if record is None:
+        return "held_out_unchecked", (
+            f"the version {version[:_PREFIX]} the run is on has no record of its blind check: a "
+            "held-out tier nobody checked is not scored, so no run on it is measured"
+        )
+    return None
+
+
 def _inside_a_run(run_dir: Path, roots: Sequence[Path]) -> bool:
     """Whether a directory between ``run_dir`` and the run root it lies beneath holds a run."""
     for root in roots:
@@ -1132,7 +1296,8 @@ def version_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str] 
     digest the run recorded (``tier_digest`` recomputed now); a tier whose version is not what
     its manifest says, or whose manifest names another digest; a brief in no version of the
     stores the run names, or in several; that version marked exposed by the register, freshly
-    scanned; a run directory beneath none of the role's run roots; and the pre-run scan of the
+    scanned; that version with no record of its blind check, or one that does not read as its
+    own; a run directory beneath none of the role's run roots; and the pre-run scan of the
     version's two protected tiers. Nothing but a digest's prefix is said: never a task id or
     content. ``None`` if the run may go on.
     """
@@ -1193,6 +1358,9 @@ def _version_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str]
             f"the version {version[:_PREFIX]} the run is on has been seen; it is no measurement "
             "until a new version is generated"
         )
+    unchecked = _check_refusal(store, role, version)
+    if unchecked is not None:
+        return unchecked
     roots = run_roots(store, role)
     if run_dir is None or not any(run_dir.resolve().is_relative_to(r) for r in roots):
         return "run_outside_run_roots", (

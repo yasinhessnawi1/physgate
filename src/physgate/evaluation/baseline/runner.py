@@ -61,6 +61,12 @@ directory.
 **What it writes,** beside the visible trials: ``evaluation/tiers.json`` and ``baseline.json``
 (:mod:`.record`), each a new file, counts and digests only.
 
+**What the blind check flagged is left out.** A round on a version is refused unless the
+version's blind check is recorded (:mod:`.tiers.checks`): a held-out tier nobody checked is not
+scored. A harness trial of a held-out task the record flags is not run, and the held-out count
+leaves it out; the tiers record says how many, with the check record's digest and its source.
+The visible and validation tiers are run whole.
+
 **An external task set** (a published benchmark's tasks, ARCH-143) is a source of its own, given
 by its directory in place of a version (:func:`_external_tasks`): every task in it is an
 external one of the role and of one benchmark, and the set lies outside the store. Its trials
@@ -84,6 +90,7 @@ import secrets
 import shutil
 import stat
 import time
+from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -122,6 +129,7 @@ from physgate.evaluation.per_role.report import TrialRecord
 from physgate.evaluation.tiers.authoring import AuthoringError
 from physgate.evaluation.tiers.base import _Frozen
 from physgate.evaluation.tiers.canaries import store_canaries
+from physgate.evaluation.tiers.checks import CheckRecord, LeftOut, left_out, said
 from physgate.evaluation.tiers.heldout import tier_digest
 from physgate.evaluation.tiers.manifest import TierSet, read_version
 from physgate.evaluation.tiers.store import (
@@ -154,6 +162,7 @@ from physgate.evaluation.tiers.task import (
     Role,
     Task,
     canonical_json,
+    id_digest,
     parse_task,
 )
 from physgate.orchestrator.binaries import ClaudeBinary, measure
@@ -367,11 +376,13 @@ def plan(
     if refusal is not None:
         raise BaselineError(refusal[1], refused_because=refusal[0])
     source: TierSet | ExternalSetRecord
+    leaving: frozenset[str] = frozenset()
     if version is not None:
         directory = version_dir(store, role, version)
         source = read_version(directory)
         tasks = _tasks(directory)
         _require_unexposed(store, role, version)
+        leaving = _left_out_ids(store, role, source, tasks)[1]
     else:
         assert external is not None  # one of the two, checked above
         source, tasks = _external_tasks(store, role, external)
@@ -404,6 +415,10 @@ def plan(
             msg = f"the harness run was given no task of {of_what}"
             raise BaselineError(msg, **where)
         tier, task = found
+        if tier == "held_out" and task.id in leaving:
+            # A task the version's check flagged is left out of every held-out count: no raw
+            # trial is run on it, and the round's record says how many and which were left out.
+            continue
         if config.ablation:
             # Never reportable, which a development round forgives; its own kind it does not:
             # an ablation run's numbers are of a harness with a part taken away.
@@ -431,6 +446,42 @@ def plan(
         binary_seen = config.binary
         planned.append(Planned(index, entry, config, task, tier, cap))
     return source, planned
+
+
+def _check_of(store: Path, role: Role, manifest: TierSet) -> CheckRecord:
+    """The version's check record, or the round refused.
+
+    Raises:
+        BaselineError: the version has no record (``held_out_unchecked``: no round is held to a
+            version whose held-out tier nobody checked), or its record refuses as read.
+    """
+    from physgate.evaluation.tiers.measure import checked
+
+    try:
+        return checked(store, role, manifest)
+    except PerRoleError as exc:
+        reason = exc.context.get("refused_because", "check_record_unreadable")
+        raise BaselineError(str(exc), refused_because=reason) from None
+
+
+def _left_out_ids(
+    store: Path, role: Role, manifest: TierSet, tasks: Mapping[str, tuple[TierName, Task]]
+) -> tuple[LeftOut, frozenset[str]]:
+    """What the version's check leaves out of its held-out tier, and those tasks' ids.
+
+    Raises:
+        BaselineError: the version has no check record, its record refuses as read
+            (:func:`_check_of`), or a digest it flags is not exactly one held-out task's;
+            nothing is named.
+    """
+    record = _check_of(store, role, manifest)
+    held = [task.id for tier, task in tasks.values() if tier == "held_out"]
+    by_digest = Counter(id_digest(task) for task in held)
+    if any(by_digest[digest] != 1 for digest in record.flagged):
+        msg = "the check record flags a task that is not exactly one held-out task of the version"
+        raise BaselineError(msg, refused_because="check_record_not_the_tier")
+    flagged = set(record.flagged)
+    return left_out(record), frozenset(t for t in held if id_digest(t) in flagged)
 
 
 def _require_unexposed(store: Path, role: Role, version: str) -> None:
@@ -532,8 +583,8 @@ class _Tally:
     spent: int = 0
     spent_not_in_binary_totals: int = 0
 
-    def counts(self) -> TierCounts:
-        return TierCounts(**vars(self))
+    def counts(self, **coverage: Any) -> TierCounts:  # noqa: ANN401
+        return TierCounts(**vars(self), **coverage)
 
 
 def _working(root: Path, name: str, work: Path) -> Path:
@@ -728,7 +779,14 @@ def run_baseline(
             tally.unscored += 1
     assert pins is not None  # the run set holds at least one trial
     external_set = source if isinstance(source, ExternalSetRecord) else None
-    tiers = None if isinstance(source, ExternalSetRecord) else tiers_record(source)
+    # The record the plan held each flagged digest to one held-out task with.
+    check = None if isinstance(source, ExternalSetRecord) else _check_of(store, role, source)
+    tiers = (
+        None
+        if isinstance(source, ExternalSetRecord) or check is None
+        else tiers_record(source, said(left_out(check)))
+    )
+    flagged = 0 if check is None else len(check.flagged)
     baseline = BaselineRecord(
         format=1,
         id=round_id,
@@ -739,7 +797,10 @@ def run_baseline(
         pin_set_sha256=pin_set_sha256(pins),
         development=development,
         harness_runs=len({p.entry.run_dir for p in planned}),
-        counts={tier: tallies[tier].counts() for tier in counted},
+        counts={
+            tier: tallies[tier].counts(**_coverage(source, planned, tier, flagged))
+            for tier in counted
+        },
     )
     if external_set is not None:
         write_new(out / EXTERNAL_RECORD, record_bytes(external_set))
@@ -747,6 +808,22 @@ def run_baseline(
         write_new(out / TIERS_RECORD, record_bytes(tiers))
     write_new(out / BASELINE_RECORD, record_bytes(baseline))
     return baseline
+
+
+def _coverage(
+    source: TierSet | ExternalSetRecord, planned: list[Planned], tier: SourceTier, flagged: int
+) -> dict[str, Any]:
+    """How many of ``tier``'s tasks the round ran, of how many, and whether that is all of them.
+
+    Of a version's held-out tier, the ``flagged`` tasks its check flagged are in neither count:
+    the plan ran none of them, and no figure counts them.
+    """
+    if isinstance(source, ExternalSetRecord):
+        of = source.tasks
+    else:
+        of = getattr(source, tier).count - (flagged if tier == "held_out" else 0)
+    covered = len({trial.task.id for trial in planned if trial.tier == tier})
+    return {"covered": covered, "of": of, "whole": covered == of}
 
 
 def _one_trial(

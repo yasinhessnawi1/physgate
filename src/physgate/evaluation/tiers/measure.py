@@ -12,7 +12,14 @@ from before any of them is counted:
   those two roots were named); of those two, a task's
   runs share one target commit, while tasks may start from different ones;
 - the records are the runs, one each, by task and trial, all of the harness arm, none
-  excluded; and every task was run the same number of times.
+  excluded; every task of the tier that is not left out has runs (``tier_not_covered``: a
+  figure of a tier is of all of it, never of a part chosen by which runs were made); and every
+  task was run the same number of times;
+- of the held-out tier, the version has a check record (:mod:`physgate.evaluation.tiers.checks`):
+  one with none is refused (``held_out_unchecked``), since a held-out tier nobody checked is not
+  scored; each task it flags is exactly one task of the tier, and is left out, its runs and
+  records with it, of every count; what was left out is returned with the counts, and the
+  withheld vector carries it, by digest. The visible and validation tiers are counted whole.
 
 It reads only the tier it is given. **The vector writer** (:func:`write_vector`) is the
 harness's own step for a protected tier: given the tier's records and run set, both beneath the
@@ -51,8 +58,10 @@ from physgate.evaluation.gaps.vector import (
 )
 from physgate.evaluation.observe.compare import DRIFT, compared_held_out
 from physgate.evaluation.per_role.exceptions import PerRoleError
+from physgate.evaluation.tiers.checks import CheckError, CheckRecord, LeftOut, left_out, read_check
+from physgate.evaluation.tiers.manifest import TierSet
 from physgate.evaluation.tiers.store import WITHHELD, version_dir
-from physgate.evaluation.tiers.task import Role, canonical_json, parse_task
+from physgate.evaluation.tiers.task import Role, canonical_json, id_digest, parse_task
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 
@@ -87,6 +96,9 @@ class Census:
     manifest_ids: tuple[str, ...]
     run_set_sha256: str
     trials_sha256: str
+    #: Of the held-out tier: the tasks its version's check flagged, left out of every count
+    #: above, and the record that flagged them. ``None`` for the other tiers, counted whole.
+    left_out: LeftOut | None = None
 
 
 def _read(path: Path, what: str) -> bytes:
@@ -185,7 +197,8 @@ def census(
     from physgate.evaluation.observe.manifest import manifest_id_of, read_run_events
     from physgate.evaluation.tiers.exposure import exposed_versions, versions
 
-    if version not in versions(store, role):
+    known = versions(store, role)
+    if version not in known:
         raise _refuse("version_unknown", f"the role has no version {version[:8]}")
     if version in exposed_versions(store, role):
         msg = (
@@ -193,6 +206,7 @@ def census(
             "measured on it is counted"
         )
         raise _refuse("version_exposed", msg)
+    check = checked(store, role, known[version]) if tier == "held_out" else None
     run_bytes, record_bytes = _read(runs, "run_set"), _read(trials, "trials")
     try:
         run_set = RunSet.model_validate_json(run_bytes)
@@ -200,6 +214,10 @@ def census(
         raise _refuse("run_set_unreadable", "the run set is not one") from None
     records = _records(record_bytes)
     digest, by_brief = _tier_tasks(store, role, version, tier)
+    left = (
+        None if check is None else _left_out_of(check, tuple(by_brief.values()), f"the {tier} tier")
+    )
+    leaving = frozenset() if left is None else left[1]
     seen: set[tuple[str, int]] = set()
     reference: dict[str, Any] | None = None
     heads: dict[str, str] = {}
@@ -216,7 +234,7 @@ def census(
         run_dir = Path(entry.run_dir)
         try:
             config = load_run_config(run_dir / "run.json")
-            manifests.append(manifest_id_of(run_dir, read_run_events(run_dir)))
+            manifest_id = manifest_id_of(run_dir, read_run_events(run_dir))
         except (OrchestratorError, PerRoleError, OSError):
             raise _refuse("run_unreadable", f"{where} cannot be read whole") from None
         if config.ablation or not (config.reportable and config.harness.clean):
@@ -225,6 +243,10 @@ def census(
         task = by_brief.get(config.brief_sha256)
         if task is None:
             raise _refuse("run_not_in_tier", f"{where} was given no task of the {tier} tier")
+        if task in leaving:
+            # A task the check flagged is left out of every count: its run is not counted.
+            continue
+        manifests.append(manifest_id)
         held = _held(config)
         if reference is None:
             reference = held
@@ -249,6 +271,20 @@ def census(
     if any(trials != set(range(len(trials))) for trials in numbered.values()):
         msg = "a task's trials are not numbered from 0, one after another"
         raise _refuse("trials_not_numbered", msg)
+    if not pairs:
+        msg = f"the run set holds no run of a task of the {tier} tier that is counted"
+        raise _refuse("nothing_counted", msg)
+    unrun = set(by_brief.values()) - leaving - set(numbered)
+    if unrun:
+        # A tier's figure is of every task of it but those its check left out, never of a part
+        # chosen by which runs were made.
+        msg = (
+            f"{len(unrun)} task(s) of the {tier} tier that are not left out have no run in the "
+            "run set: a tier's figure covers every task of it but those its check left out"
+        )
+        raise _refuse("tier_not_covered", msg)
+    # A left-out task's records are left out with its runs, never counted as another's.
+    records = [r for r in records if not (r.arm == arm and r.task in leaving)]
     recorded: Counter[tuple[str, int]] = Counter()
     for item in records:
         if item.arm != arm:
@@ -283,7 +319,55 @@ def census(
         manifest_ids=tuple(sorted(manifests)),
         run_set_sha256=hashlib.sha256(run_bytes).hexdigest(),
         trials_sha256=hashlib.sha256(record_bytes).hexdigest(),
+        left_out=None if left is None else left[0],
     )
+
+
+def checked(store: Path, role: Role, manifest: TierSet) -> CheckRecord:
+    """The version's check record, or the reason no held-out figure of it is counted.
+
+    Raises:
+        GapsError: the version has no record (``held_out_unchecked``: a held-out tier nobody
+            checked is not scored), or its record refuses as read (its own reason).
+    """
+    try:
+        record = read_check(store, role, manifest.version, manifest=manifest)
+    except CheckError as exc:
+        reason = str(exc.context.get("refused_because", "check_record_unreadable"))
+        raise _refuse(reason, str(exc)) from None
+    if record is None:
+        raise _refuse("held_out_unchecked", unchecked(manifest.version))
+    return record
+
+
+def unchecked(version: str) -> str:
+    """The words every refusal of a version with no check record says."""
+    return (
+        f"the version {version[:8]} has no record of its blind check: a held-out tier nobody "
+        "checked is not scored, so nothing of it is counted until its check is recorded"
+    )
+
+
+def _left_out_of(
+    record: CheckRecord, ids: tuple[str, ...], what: str
+) -> tuple[LeftOut, frozenset[str]]:
+    """What ``record`` leaves out of a tier whose tasks have ``ids``, and those tasks' ids.
+
+    Each flagged digest is the digest of exactly one of the tier's tasks, or the record is not
+    this tier's check (``check_record_not_the_tier``); nothing is named.
+
+    Raises:
+        GapsError: a flagged digest is no task's, or several tasks'.
+    """
+    by_digest: Counter[str] = Counter(id_digest(task) for task in ids)
+    if any(by_digest[digest] != 1 for digest in record.flagged):
+        msg = (
+            f"the check record flags a task that is not exactly one task of {what}: it is not "
+            "this tier's check"
+        )
+        raise _refuse("check_record_not_the_tier", msg)
+    flagged = set(record.flagged)
+    return left_out(record), frozenset(task for task in ids if id_digest(task) in flagged)
 
 
 def _beneath(path: Path, root: Path) -> bool:
@@ -342,6 +426,7 @@ def write_vector(
         harness_commits=found.harness_commits,
         accounts=found.accounts,
         tasks=tuple(tasks),
+        left_out=found.left_out,
     )
     raw = canonical_json(vector.model_dump(mode="json"))
     key = vector_key(raw)

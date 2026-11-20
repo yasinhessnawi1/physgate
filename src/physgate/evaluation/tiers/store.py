@@ -15,6 +15,8 @@
           visible/<task>/…       read by implementers
           validation/<task>/…    protected, as held out is; SHA256SUMS and canaries.json
           held_out/<task>/…      protected; SHA256SUMS and canaries.json
+        <version>.check.json     the version's blind check: counts and digests, written once,
+                                 beside the version since a version is never written again
 
 **A run that names anything under a role's root withholds all of it that is protected.** The
 authoring sessions' streams hold every task they wrote, the blind check's hold the held-out
@@ -756,13 +758,21 @@ def _out_of_place(path: Path) -> int:
     there, at any depth, the version is read whole and held to its manifest
     (:func:`.manifest.read_version`), and one that is not what its manifest names counts once:
     a file beside a visible task, inside one or in place of a record is named by no digest.
-    Anything else directly in the role's root counts whole: a copy of a task a session dropped
-    there is withheld by no run, which withholds the tiers, the withheld root and the work
-    root. Names are compared as the harness writes them, so another case is out of place too.
+    A version's check record beside it (``<version>.check.json``) is in place when it reads as
+    that version's record (:func:`.checks.check_in_place`); a file under that name that does not
+    is out of place, as anything else is. Anything else directly in the role's root counts
+    whole: a copy of a task a session dropped there is withheld by no run, which withholds the
+    tiers, the withheld root and the work root. Names are compared as the harness writes them,
+    so another case is out of place too.
 
     Raises:
         OSError: a version cannot be listed.
     """
+    # The check record's reader imports this module; it is reached when a root is judged.
+    from physgate.evaluation.tiers.checks import CHECK_NAME, check_in_place
+
+    if CHECK_NAME.fullmatch(path.name) is not None:
+        return 0 if check_in_place(path) else 1
     if VERSION_NAME.fullmatch(path.name) is None or path.is_symlink() or not path.is_dir():
         return 1
     count = sum(1 for name in os.listdir(path) if name not in VERSION_HOLDS)

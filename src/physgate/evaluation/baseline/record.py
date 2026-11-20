@@ -5,9 +5,13 @@ Two records, each written once, as a new file:
 - ``<out>/evaluation/tiers.json``: the tier version the round ran on and each tier's digest,
   as the version's manifest names them (:class:`TiersRecord`). The record a comparison of two
   runs reads beside each to refuse runs on different tiers.
+  A round on a version leaves out the held-out tasks its blind check flagged (it runs none of
+  them), and the record says which (``held_out_left_out``), beside the held-out count.
 - ``<out>/baseline.json``: the round's record (:class:`BaselineRecord`): the tier version and
   digests, the pin set every raw session ran under with its digest, and per tier the trials,
-  their outcomes and excluded trials counted, and the caps and tokens spent summed. A
+  their outcomes and excluded trials counted, the caps and tokens spent summed, and how many of
+  the tier's tasks it covered, of how many, and whether that is the whole tier: a round on part
+  of a tier is run and recorded so, and is no figure of the tier (:func:`tier_figure`). A
   baseline is bound to the version id and the pin-set digest: a comparison against a harness
   run set on another version, or under another pin, is no comparison with this baseline.
 
@@ -36,6 +40,7 @@ from pydantic import Field, StringConstraints, model_validator
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.base import Identifier, _Frozen
+from physgate.evaluation.tiers.checks import LeftOutSaid
 from physgate.evaluation.tiers.manifest import TierSet
 from physgate.evaluation.tiers.task import Role, Sha256, canonical_json
 
@@ -59,7 +64,14 @@ class BaselineRecordError(PerRoleError):
 
 
 class TiersRecord(_Frozen):
-    """The tier version a run ran on, and each tier's digest as its manifest names it."""
+    """The tier version a run ran on, and each tier's digest as its manifest names it.
+
+    And how many held-out tasks its version's blind check flagged, which the round left out of
+    its held-out count and did not run, with the check record's digest and its source; never
+    which, since a run's directory may be published. Two records on one version that name
+    different check records are no comparison. Left out of the bytes of a record written before
+    there was any.
+    """
 
     format: Literal[1]
     version: Sha256
@@ -67,6 +79,7 @@ class TiersRecord(_Frozen):
     visible: Sha256
     validation: Sha256
     held_out: Sha256
+    held_out_left_out: LeftOutSaid | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class ExternalSetRecord(_Frozen):
@@ -100,6 +113,32 @@ class TierCounts(_Frozen):
     #: count, their billing unknown. Where it is above 0, ``spent`` is a lower bound by up to
     #: that much. Left out of a tier with none, so such a tier keeps its bytes.
     spent_not_in_binary_totals: Count = Field(default=0, exclude_if=lambda v: not v)
+    #: How many of the tier's tasks the round ran, those its version's check left out not
+    #: among them; of how many such tasks the tier holds; and whether that is all of them. A
+    #: round is held to the harness runs it is given, which may be of part of a tier: it runs
+    #: them, and says so here. Left out of a record written before records said it, which is
+    #: then no tier's figure (:func:`tier_figure`).
+    covered: Count | None = Field(default=None, exclude_if=lambda v: v is None)
+    of: Count | None = Field(default=None, exclude_if=lambda v: v is None)
+    whole: bool | None = Field(default=None, exclude_if=lambda v: v is None)
+
+    @model_validator(mode="after")
+    def _coverage_holds_together(self) -> TierCounts:
+        said = (self.covered, self.of, self.whole)
+        if said == (None, None, None):
+            return self
+        if (
+            self.covered is None
+            or self.of is None
+            or self.covered > self.of
+            or self.whole != (self.covered == self.of)
+        ):
+            msg = (
+                "a tier's coverage does not hold together: it says how many tasks were covered, "
+                "of how many, and is whole exactly when those are equal"
+            )
+            raise ValueError(msg)
+        return self
 
 
 class BaselineRecord(_Frozen):
@@ -134,8 +173,41 @@ class BaselineRecord(_Frozen):
         return self
 
 
-def tiers_record(manifest: TierSet) -> TiersRecord:
-    """The tiers record of the version ``manifest`` names, from the manifest's own digests."""
+def tier_figure(record: BaselineRecord, tier: SourceTier) -> TierCounts:
+    """A round's counts of ``tier``, as a figure of the tier: only of all of it.
+
+    The one door through which a round's record becomes a figure of a tier (a pass rate, a gap,
+    a comparison): a tier's figure is of every task of it but those its version's check left
+    out, never of a part chosen by which runs were made, as the harness side's counting rule
+    holds (:func:`physgate.evaluation.tiers.measure.census`).
+
+    Raises:
+        BaselineRecordError: the round did not cover the whole tier, or its record does not say
+            (``tier_not_covered``); or the record counts no such tier.
+    """
+    counts = record.counts.get(tier)
+    if counts is None:
+        msg = f"the round counts no {tier} tier"
+        raise BaselineRecordError(msg, refused_because="tier_not_in_round")
+    if counts.whole is not True:
+        known = (
+            "does not say how much of it it covered"
+            if counts.whole is None
+            else f"covered {counts.covered} of its {counts.of} tasks that are not left out"
+        )
+        msg = (
+            f"the round {known} of the {tier} tier: a tier's figure covers every task of it but "
+            "those its check left out"
+        )
+        raise BaselineRecordError(msg, refused_because="tier_not_covered")
+    return counts
+
+
+def tiers_record(manifest: TierSet, left: LeftOutSaid | None = None) -> TiersRecord:
+    """The tiers record of the version ``manifest`` names, from the manifest's own digests.
+
+    ``left``: how many held-out tasks its check flagged, which the round left out.
+    """
     return TiersRecord(
         format=1,
         version=manifest.version,
@@ -143,6 +215,7 @@ def tiers_record(manifest: TierSet) -> TiersRecord:
         visible=manifest.visible.sha256,
         validation=manifest.validation.sha256,
         held_out=manifest.held_out.sha256,
+        held_out_left_out=left,
     )
 
 

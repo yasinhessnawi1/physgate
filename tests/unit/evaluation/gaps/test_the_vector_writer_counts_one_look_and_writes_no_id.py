@@ -79,7 +79,8 @@ def test_a_vector_is_written_beneath_the_withheld_root_as_counts_alone(
     raw = path.read_bytes()
     assert hashlib.sha256(raw).hexdigest() == key, "the key is not the vector's digest"
     vector = json.loads(raw)
-    assert sorted((t["passes"], t["trials"]) for t in vector["tasks"]) == [(0, 2), (1, 2)]
+    # Every held-out task, two trials each: task 0 passes trial 0 only, the rest pass none.
+    assert sorted((t["passes"], t["trials"]) for t in vector["tasks"]) == [(0, 2)] * 7 + [(1, 2)]
     assert vector["version"] == made.version and vector["tier"] == "held_out"
     text = raw.decode()
     for task in made.tasks["held_out"]:
@@ -111,7 +112,7 @@ def test_the_order_is_shuffled_afresh_on_every_write(tmp_path: Path, made: Stand
             (withheld_root(made.store, "control") / "gaps" / f"{key}.json").read_text()
         )
         orders.add(tuple(t["passes"] for t in vector["tasks"]))
-    assert len(orders) == 2, "twenty writes of two tasks kept one order"
+    assert len(orders) > 1, "twenty writes of eight tasks kept one order"
 
 
 def test_inside_a_session_the_writer_writes_nothing(
@@ -193,8 +194,9 @@ def test_one_task_s_runs_start_from_one_target_head(tmp_path: Path, made: StandI
 
 
 def test_tasks_may_start_from_different_target_heads(tmp_path: Path, made: StandInStore) -> None:
-    first = measured(made, "held_out", tmp_path / "a", tasks=2, trials=2)
-    other = measured(made, "held_out", tmp_path / "b", tasks=2, trials=2, target_head="d" * 40)
+    # Task 0's two runs from one target commit, every other task's from another.
+    first = measured(made, "held_out", tmp_path / "a", trials=2)
+    other = measured(made, "held_out", tmp_path / "b", trials=2, target_head="d" * 40)
     runs = [(r, i % 2) for i, r in enumerate(first.run_dirs[:2])]
     runs += [(r, i % 2) for i, r in enumerate(other.run_dirs[2:])]
     _write(made, "held_out", _swap_runs(first, runs))

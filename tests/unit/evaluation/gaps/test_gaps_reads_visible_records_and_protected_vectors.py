@@ -59,26 +59,27 @@ def _gaps(
     return code, json.loads(out[-1])
 
 
-def test_one_task_per_tier_matches_the_hand_table(
+def test_every_task_of_each_tier_matches_the_hand_table(
     tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Hand table, task 0 of each tier, two trials (gap_fixtures.PASSES): visible passes both
-    # (2/2), validation trial 0 only (1/2), held out trial 0 only (1/2). Reward-hacking gap
-    # 1 - 1/2 = 0.5; optimiser-overfit gap 1/2 - 1/2 = 0.
-    visible = measured(made, "visible", tmp_path / "v", tasks=1)
-    held = _vector(made, "held_out", measured(made, "held_out", tmp_path / "h", tasks=1))
-    valid = _vector(made, "validation", measured(made, "validation", tmp_path / "w", tasks=1))
-    body = design(made, visible, held_out_tasks=1, validation_tasks=1)
+    # Hand table, the eight tasks of each tier, two trials (gap_fixtures.PASSES). Visible: task i
+    # passes trial t unless (i + t) % 3 == 2, so tasks 0, 3, 6 pass both and the rest one: 11/16.
+    # Validation: each task passes one trial of two: 8/16. Held out: task 0's trial 0 only: 1/16.
+    # Reward-hacking gap 11/16 - 1/16 = 0.625; optimiser-overfit gap 8/16 - 1/16 = 0.4375.
+    visible = measured(made, "visible", tmp_path / "v")
+    held = _vector(made, "held_out", measured(made, "held_out", tmp_path / "h"))
+    valid = _vector(made, "validation", measured(made, "validation", tmp_path / "w"))
+    body = design(made, visible)
     code, said = _gaps(capsys, tmp_path, body, visible, held, valid)
     assert code == 0, said
-    assert [said[t]["passed"] for t in ("visible", "validation", "held_out")] == [2, 1, 1]
-    assert [said[t]["n"] for t in ("visible", "validation", "held_out")] == [2, 2, 2]
-    assert said["reward_hacking"]["gap"] == pytest.approx(0.5)
-    assert said["optimiser_overfit"]["gap"] == pytest.approx(0.0)
+    assert [said[t]["passed"] for t in ("visible", "validation", "held_out")] == [11, 8, 1]
+    assert [said[t]["n"] for t in ("visible", "validation", "held_out")] == [16, 16, 16]
+    assert said["reward_hacking"]["gap"] == pytest.approx(0.625)
+    assert said["optimiser_overfit"]["gap"] == pytest.approx(0.4375)
     for gap in ("reward_hacking", "optimiser_overfit"):
-        assert said[gap]["interval"] is None, "one task gave an interval"
-        assert "one task: no interval" in said[gap]["words"]
-    assert any("held out: 1 task, so this rate is that task's outcome" in n for n in said["notes"])
+        low, high = said[gap]["interval"]
+        assert low <= said[gap]["gap"] <= high
+    assert any("held out: 8 tasks, 2 trials each" in n for n in said["notes"])
     assert "noise floor" in (said["optimiser_overfit"]["label"] or ""), said
     for tier in ("visible", "validation", "held_out"):
         assert "/" in said[tier]["rate"] and said[tier]["rate"].startswith(
@@ -86,6 +87,24 @@ def test_one_task_per_tier_matches_the_hand_table(
         ), "a rate is printed without its count"
     assert said["harness_commits"] == ["c" * 40]
     assert said["accounts"] and all(isinstance(a, str) for a in said["accounts"])
+
+
+def test_one_held_out_task_counted_gives_no_interval(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Seven of the eight held-out tasks flagged: the one counted is task 0, which passes trial
+    # 0 only (1/2). Reward-hacking gap 11/16 - 1/2 = 0.1875, with no interval on one task.
+    made = stand_in_store(tmp_path / "one", flagged=range(1, 8))
+    visible = measured(made, "visible", tmp_path / "v")
+    held = _vector(made, "held_out", measured(made, "held_out", tmp_path / "h"))
+    body = design(made, visible, validation_tasks=None)
+    code, said = _gaps(capsys, tmp_path, body, visible, held, None)
+    assert code == 0, said
+    assert (said["held_out"]["passed"], said["held_out"]["n"]) == (1, 2)
+    assert said["reward_hacking"]["gap"] == pytest.approx(0.1875)
+    assert said["reward_hacking"]["interval"] is None, "one task gave an interval"
+    assert "one task: no interval" in said["reward_hacking"]["words"]
+    assert any("held out: 1 task, so this rate is that task's outcome" in n for n in said["notes"])
 
 
 def test_two_tasks_give_an_interval(
@@ -179,13 +198,14 @@ def test_visible_runs_that_are_not_the_design_s_tasks_times_trials_are_refused(
 def test_one_task_written_twice_counts_two_looks(
     tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # One task: the shuffle cannot change the bytes, so both writes give one key, and the
-    # register holds two lines. Each line is a look.
-    visible = measured(made, "visible", tmp_path / "v", tasks=1)
-    held = measured(made, "held_out", tmp_path / "h", tasks=1)
+    # One task counted (the other seven flagged): the shuffle cannot change the bytes, so both
+    # writes give one key, and the register holds two lines. Each line is a look.
+    made = stand_in_store(made.store.parent.parent / "one", flagged=range(1, 8))
+    visible = measured(made, "visible", tmp_path / "v")
+    held = measured(made, "held_out", tmp_path / "h")
     first, second = _vector(made, "held_out", held), _vector(made, "held_out", held)
     assert first == second, "one task's vector was written to two keys"
-    body = design(made, visible, held_out_tasks=1, validation_tasks=None)
+    body = design(made, visible, validation_tasks=None)
     code, said = _gaps(capsys, tmp_path, body, visible, second, None)
     assert code == 0, said
     assert said["measurements"] == 2, "two looks were counted as one"
@@ -225,13 +245,13 @@ def _orders(made: StandInStore, tier: str, m: Measured) -> list[Path]:
 def test_the_interval_does_not_depend_on_the_vector_s_order(
     tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Four tasks of each protected tier passing 0, 1, 2 and 3 of three trials: each write
-    # shuffles them, and the same counts in another order give the same intervals.
+    # The eight tasks of each protected tier passing 0, 1, 2 and 3 of three trials, twice over:
+    # each write shuffles them, and the same counts in another order give the same intervals.
     visible = measured(made, "visible", tmp_path / "v", trials=3)
-    counts: dict[str, Any] = {"tasks": 4, "trials": 3, "outcome": lambda i, t: t < i}
+    counts: dict[str, Any] = {"trials": 3, "outcome": lambda i, t: t < i % 4}
     held = _orders(made, "held_out", measured(made, "held_out", tmp_path / "h", **counts))
     valid = _orders(made, "validation", measured(made, "validation", tmp_path / "w", **counts))
-    body = design(made, visible, trials=3, held_out_tasks=4, validation_tasks=4)
+    body = design(made, visible, trials=3)
     intervals: dict[str, set[tuple[float, float]]] = {"reward_hacking": set()}
     intervals["optimiser_overfit"] = set()
     for h, w in zip(held, valid, strict=True):

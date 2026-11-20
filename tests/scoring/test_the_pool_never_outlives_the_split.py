@@ -30,9 +30,9 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
 )
 
 from physgate.evaluation.per_role import author_session
-from physgate.evaluation.per_role.author_session import QUESTIONS
 from physgate.evaluation.tiers.authoring import AuthoringError, sha256sums
 from physgate.evaluation.tiers.canaries import root_canaries
+from physgate.evaluation.tiers.check_tasks import QUESTIONS
 from physgate.evaluation.tiers.task import canonical_json
 
 

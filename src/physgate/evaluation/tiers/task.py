@@ -18,6 +18,7 @@ is what lets a task suite be hashed and the hash be committed in place of the su
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import unicodedata
@@ -63,6 +64,17 @@ ScorerId = Literal["control", "firmware", "whole_design"]
 COMPOSES_AT_LEAST = 2
 #: The separators an id may use, each one the same as any other when ids are compared.
 _SEPARATORS = re.compile(r"[._-]+")
+#: What a protected task's id is reported as: the first 16 hex digits of its sha256.
+TaskDigest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")]
+
+
+def id_digest(name: str) -> str:
+    """What a held-out task's id is reported as: the first 16 hex digits of its sha256.
+
+    The one form every count, check and refusal names a protected task by, so a digest one
+    command prints is found again by another, and the id itself is never shown.
+    """
+    return hashlib.sha256(name.encode()).hexdigest()[:16]
 
 
 def fold_id(name: str) -> str:

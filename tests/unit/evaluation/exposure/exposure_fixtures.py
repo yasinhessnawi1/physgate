@@ -26,6 +26,7 @@ from baseline_fixtures import (  # noqa: E402
     StandInStore,
     config,
     harness_run,
+    record_check,
     stand_in_store,
 )
 from task_fixtures import controller, own_task, write_task_dir  # noqa: E402
@@ -44,6 +45,7 @@ __all__ = [
     "facts",
     "harness_run",
     "incident_in",
+    "record_check",
     "refusal",
     "second_version",
     "stand_in_store",
@@ -151,4 +153,6 @@ def second_version(
         *(str(made.store / "control" / made.version / tier) for tier in TIERS[1:]),
         *(str(directory / tier) for tier in TIERS[1:]),
     )
+    # As every version a run is measured on: its blind check is recorded beside it.
+    record_check(made.store, manifest.version, ())
     return StandInStore(made.store, manifest.version, tasks, made.canaries + canaries, held_out)

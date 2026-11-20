@@ -129,6 +129,7 @@ def _gaps(args: argparse.Namespace) -> int:
         "measurements": found.measurements,
         "keys": found.keys,
         "manifest_ids": list(found.manifest_ids),
+        "held_out_left_out": found.held_out_left_out.model_dump(mode="json"),
         "appended": args.append is not None,
     }
     print(json.dumps(said, sort_keys=True))
