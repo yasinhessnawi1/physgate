@@ -632,6 +632,7 @@ def test_a_probe_is_timed_from_its_entry_to_its_own_return_and_the_stack_s_deepe
         }
     )
     f = found["probes"]["f"]
+    assert f["entries"] > 1 and f["period_cycles"]["count"] == f["entries"] - 1
     assert (f["duration_cycles"]["min"], f["duration_cycles"]["max"]) == (12, 12)
     assert (f["period_cycles"]["min"], f["period_cycles"]["max"]) == (19, 19)
     assert (f["lateness_cycles"]["min"], f["lateness_cycles"]["max"]) == (0, 0)

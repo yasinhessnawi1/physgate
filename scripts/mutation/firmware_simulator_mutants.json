@@ -2181,7 +2181,7 @@
     "name": "imu_sample_at_read_time",
     "file": "toolenv/avrsim/src/imu.js",
     "old": "this.sample(which, sensor.t0 + k / sensor.odr)",
-    "new": "this.sample(which, t)",
+    "new": "this.sample(which, sensor.t0 + (k + 0.5) / sensor.odr)",
     "tests": [
       "tests/unit/toolenv/test_the_balboa_s_inertial_sensor_answers_as_its_datasheet_says.py",
       "tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py",

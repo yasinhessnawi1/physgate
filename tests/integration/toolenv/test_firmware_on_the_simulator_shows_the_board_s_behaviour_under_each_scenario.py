@@ -378,6 +378,8 @@ def test_a_main_program_stalled_with_interrupts_off_is_reset_by_the_watchdog(
     (event,) = summary["events"]
     assert event["kind"] == "stall"
     assert event["motors_off_cycle"] == resets[1]["cycle"]
+    # The reset also returns OCR1A and OCR1B to 0, their reset value.
+    assert event["ocr_zero_cycle"] == resets[1]["cycle"]
     # Nothing ran between the stall's start and the reset: no motor command, no bus traffic.
     quiet = [
         e
