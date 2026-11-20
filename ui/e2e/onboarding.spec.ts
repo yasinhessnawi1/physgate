@@ -1119,4 +1119,42 @@ test.describe("a trigger other than a plain click makes the calls a click makes"
     expect(await calls(page)).toEqual(recorded(flow));
     await holds(page, seen, "Enter in the operator name");
   });
+
+  test("under reduced motion the welcome is a still that waits, and Continue makes the calls Skip makes", async ({
+    page,
+  }) => {
+    const flow = "the welcome, skipped";
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const seen = await rig(page, fixture({ intro_seen: false }));
+    await open(page, "");
+    await upTo(page, flow, 1);
+    await expect(page.locator("#intro-film")).toHaveAttribute("src", "intro-poster.png");
+    await expect(page.locator("#skip")).toHaveText("Continue");
+    // Nothing moves on by itself: long past the film's length, the page is still the welcome.
+    await page.clock.runFor(20_000);
+    await settle();
+    expect(await calls(page)).toEqual(recorded(flow).slice(0, 1));
+    await expect(page.locator("#welcome")).toBeVisible();
+    await page.locator("#skip").click();
+    await engineStepDrawn(page, flow, 6);
+    await settle();
+    expect(await calls(page)).toEqual(recorded(flow));
+    await holds(page, seen, "the welcome under reduced motion");
+  });
+
+  test("the welcome replayed from the menu, already seen, makes the calls Skip makes", async ({
+    page,
+  }) => {
+    const flow = "the welcome, skipped";
+    const seen = await rig(page, fixture());
+    await open(page, "intro");
+    await upTo(page, flow, 1);
+    await expect(page.locator("#welcome")).toBeVisible();
+    await expect(page.locator("#skip")).toBeFocused();
+    await page.locator("#skip").click();
+    await engineStepDrawn(page, flow, 6);
+    await settle();
+    expect(await calls(page)).toEqual(recorded(flow));
+    await holds(page, seen, "the welcome replayed");
+  });
 });
