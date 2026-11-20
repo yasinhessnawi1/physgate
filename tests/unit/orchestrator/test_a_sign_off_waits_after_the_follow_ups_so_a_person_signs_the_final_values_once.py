@@ -158,6 +158,28 @@ def test_under_gate_off_the_line_comes_before_the_wait_and_the_skip_after_the_de
     assert taken.seq < call.seq
 
 
+def test_under_gate_off_a_closing_pass_that_moved_what_a_module_reads_owes_no_follow_up(
+    tmp_path: Path,
+) -> None:
+    # Sizing's closing pass moves the plant the control loop reads. With the gate on that owes the
+    # control module a follow-up; under off the call is skipped, and a skipped call is owed none,
+    # so the line says so and the person signs the closing pass's values. Held to the journal
+    # where integration's state is issued, the line is borne out: no follow-up is owed a skip.
+    rig, graph = journal_rig(tmp_path, gate_mode="off")
+    _closing_moves_the_plant(graph)
+    events, step = drive(rig, closing=True)
+    assert step.kind == "wait"
+    assert len(none_owed(events)) == 1
+    assert follow_ups(events) == []
+    latest = sign_off_item_id("run-1", CONTROL, 2)
+    assert replay(events).undecided(latest)
+    decide(tmp_path, "approve", NOTE, item_id=latest)
+    events, step = resume(rig)
+    assert not [e for e in events if isinstance(e, Incident)]
+    assert step.kind == "done"
+    assert completions(events) == [CONTROL, ELECTRICAL]
+
+
 def test_a_process_killed_after_the_line_waits_on_resume_and_writes_it_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
