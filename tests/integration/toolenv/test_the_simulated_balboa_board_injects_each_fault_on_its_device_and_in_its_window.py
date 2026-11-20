@@ -137,3 +137,25 @@ def test_a_held_bus_is_released_by_nine_clocks_of_scl_as_an_open_drain_line_too(
         """,
     )
     assert found == {"eight": 0, "nine": [1, True]}
+
+
+@pytest.mark.parametrize("sensor", ["gyro", "accel"])
+def test_a_saturation_reaches_only_the_sensor_it_names(sensor: str) -> None:
+    # The fault names its sensor and axes; the other sensor reads its true counts.
+    found = _board(
+        [{"kind": "saturated", "sensor": sensor, "axes": ["x"], "start_s": 0, "end_s": 2}],
+        """
+        const read = (register) => { bus.connect(0x6b, true); bus.write(register);
+          bus.connect(0x6b, false); const v = [bus.read(true), bus.read(true)]; bus.stop();
+          return ((v[1] << 8) | v[0]) << 16 >> 16; };
+        at(0); bus.connect(0x6b, true); bus.write(0x10); bus.write(0x40); bus.write(0x58);
+        bus.stop();
+        at(0.5);
+        console.log(JSON.stringify({ gyro: read(0x22), accel: read(0x28) }));
+        """,
+    )
+    upright = round(1000 / 0.061)
+    assert found == {
+        "gyro": 32767 if sensor == "gyro" else 0,
+        "accel": 32767 if sensor == "accel" else upright,
+    }

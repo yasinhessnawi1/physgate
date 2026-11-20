@@ -1006,6 +1006,32 @@ def test_a_probe_s_periods_and_lateness_start_again_at_each_reset() -> None:
     ] * 3
 
 
+def test_a_probe_s_lateness_is_against_its_first_entry_s_schedule_and_accumulates() -> None:
+    # f comes round every 19 cycles against a nominal 18: the n-th entry is n cycles late, not 1.
+    body = """
+    const main = at, f = at + 12;
+    words.set(asm.jmp(main), 0);
+    words.set([...asm.call(f), ...Array(8).fill(0), ...asm.jmp(main)], main);
+    words.set(asm.ret(), f);
+    """
+    scenario = {
+        "avrsim_scenario": 1,
+        "duration_s": (START + 1900) / 16e6,
+        "probes": [{"symbol": "f", "period_s": 18 / 16e6}],
+    }
+    found = _node(
+        CALLS
+        % {
+            "src": _src(),
+            "body": body,
+            "symbols": json.dumps({"f": 0x56 + 12}),
+            "scenario": json.dumps(scenario),
+        }
+    )
+    f = found["probes"]["f"]
+    assert (f["lateness_cycles"]["min"], f["lateness_cycles"]["max"]) == (0, f["entries"] - 1)
+
+
 def test_with_sda_held_low_a_one_sent_loses_arbitration_and_no_stop_can_be_sent() -> None:
     # Datasheet "Two-wire Serial Interface", status codes: 0x38 "Arbitration lost in SLA+W or
     # data bytes" and "Arbitration lost in SLA+R or NOT ACK bit". A low SDA reads as a 0 and as an
