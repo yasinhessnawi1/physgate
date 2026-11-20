@@ -8,8 +8,8 @@ left it: the canonical store's journal at its newest revision, read without open
 **Only a finished run.** The store cannot say, without being opened, which of its revisions a
 merge kept: a role's nodes are applied before its merge, so a merge that then fails leaves them
 in the journal. So the export asks the run's event log instead, read once and replayed: every
-module of the plan must have its completion line, and the run must not have halted. A run
-short of that is ``unfinished`` and has no answer.
+module of the plan must have its completion line. A run short of that is ``unfinished`` and
+has no answer.
 
 **By name, never by guess.** Each field of the answer is the quantity of exactly that name in
 the graph, in whichever node holds it, copied as the graph holds it: its value and its unit,
@@ -65,10 +65,9 @@ from physgate.state.store import journal_records_after
 STORE_DIRNAME = "store"
 EVENTS_NAME = "events.jsonl"
 
-#: How the export ended. ``unfinished``: the run did not record every module complete, or
-#: halted. ``contract_lost``: the graph holds no structure whole, or lacks a setting.
-#: ``ambiguous``: two nodes disagree on a name that matters, or the graph holds two structures
-#: whole.
+#: How the export ended. ``unfinished``: the run did not record every module complete.
+#: ``contract_lost``: the graph holds no structure whole, or lacks a setting. ``ambiguous``:
+#: two nodes disagree on a name that matters, or the graph holds two structures whole.
 Status = Literal["exported", "unfinished", "contract_lost", "ambiguous"]
 
 _READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
@@ -179,7 +178,7 @@ def _measures(fields: dict[str, bool], found: dict[str, Any]) -> dict[str, dict[
 
 
 def _finished(run_dir: Path) -> bool:
-    """Whether the run's event log records every module of its plan complete, and no halt."""
+    """Whether the run's event log records every module of its plan complete."""
     path = run_dir / EVENTS_NAME
     try:
         fd = os.open(path, _READ_FLAGS)
@@ -194,7 +193,7 @@ def _finished(run_dir: Path) -> bool:
         msg = "the run's event log holds a line no run could have written"
         raise ExportError(msg, run=str(run_dir), reason=str(exc)) from exc
     modules = state.modules()
-    return state.halted is None and bool(modules) and all(m in state.completed for m in modules)
+    return bool(modules) and all(m in state.completed for m in modules)
 
 
 def _refusing(
