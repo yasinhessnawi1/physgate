@@ -39,15 +39,9 @@ from parts_rig import (
 )
 from plan_hold_rig import again, dispatched, items, kinds, outcome_of
 from plan_hold_rig import decide as decide_plan
-from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.queue import QueueResolution, read_queue
-
-#: These runs plan a control module, and what is tested is the queue and the lines
-#: they wrote before: each starts as a
-#: run recorded before the sign-off rule table, which owes no sign-off.
-pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 IDS = ["run-1-parts-1", "run-1-parts-2", "run-1-parts-3"]
 HELD = "while a part is undecided"
@@ -58,6 +52,24 @@ def _waiting(tmp_path: Path) -> Path:
     the_rig = started(tmp_path / "run")
     assert again(the_rig) == "wait"
     return the_rig.run_dir
+
+
+def _sign_off(run_dir: Path, **rig_fields: str) -> str:
+    """Drive the run to its integration call, sign what it owes there, and drive it on.
+
+    The plan's modules are control modules: each owes a person's sign-off at its merge, and the
+    integration call waits for it. The first drive ends at that wait, the person approves every
+    sign-off item, and the next drive makes the call. One rig carries both drives, so the graph
+    it declared the parts into is the one the second drive reads back.
+    """
+    the_rig = rig(run_dir, **rig_fields)
+    assert again(the_rig) == "wait"
+    owed = [one for one in read_queue(run_dir).open_items() if str(one.source) == "sign_off"]
+    assert owed
+    for one in owed:
+        signed = decide(run_dir, one.item_id, None, verb="approve")
+        assert isinstance(signed, QueueResolution), signed
+    return again(the_rig)
 
 
 def _taken(run_dir: Path) -> list[dict[str, Any]]:
@@ -110,14 +122,18 @@ def test_the_run_waits_while_one_part_is_undecided(tmp_path: Path) -> None:
 def test_the_last_decision_releases_the_run(tmp_path: Path) -> None:
     run_dir = _waiting(tmp_path)
     find_all(run_dir)
-    assert again(rig(run_dir)) == "done"
+    assert _sign_off(run_dir) == "done"
     assert "stage_entered" in dispatched(run_dir)
     assert "incident" not in kinds(run_dir)
-    # Nothing was dispatched before the last of the three was taken.
-    order = kinds(run_dir)
-    last_taken = max(i for i, kind in enumerate(order) if kind == "decision_taken")
-    assert order.index("stage_entered") > last_taken
-    assert order.count("decision_taken") == 3
+    # Nothing was dispatched before the last of the three parts was taken.
+    lines = log_of(run_dir)
+    last_part = max(
+        i
+        for i, one in enumerate(lines)
+        if one["kind"] == "decision_taken" and one["item_id"] in IDS
+    )
+    assert [one["kind"] for one in lines].index("stage_entered") > last_part
+    assert [one["item_id"] for one in _taken(run_dir)][:3] == IDS
 
 
 def test_each_choice_is_taken_as_one_line_naming_what_it_stated(tmp_path: Path) -> None:
@@ -127,8 +143,8 @@ def test_each_choice_is_taken_as_one_line_naming_what_it_stated(tmp_path: Path) 
     assert isinstance(decide(run_dir, IDS[0], "have", stated), QueueResolution)
     assert isinstance(decide(run_dir, IDS[1], "make", made, note="mine"), QueueResolution)
     assert isinstance(decide(run_dir, IDS[2], "find"), QueueResolution)
-    assert again(rig(run_dir)) == "done"
-    have, make, find = _taken(run_dir)
+    assert _sign_off(run_dir) == "done"
+    have, make, find = (one for one in _taken(run_dir) if one["item_id"] in IDS)
     digest = named("parts_sha256")
     assert (have["position"], have["effect"], have["acts"]) == ("have", "declare", True)
     assert have["parts_sha256"] == digest(stated)
@@ -151,8 +167,8 @@ def test_a_decision_taken_once_is_not_taken_again(tmp_path: Path) -> None:
 
 def test_a_plan_with_no_component_holds_nothing(tmp_path: Path) -> None:
     the_rig = started(tmp_path / "run", components=())
-    assert again(the_rig) == "done"
-    assert items(the_rig.run_dir) == []
+    assert _sign_off(the_rig.run_dir) == "done"
+    assert parts_items(the_rig.run_dir) == []
     assert "stage_entered" in dispatched(the_rig.run_dir)
 
 
@@ -161,8 +177,8 @@ def test_a_run_that_does_not_ask_lists_no_part(tmp_path: Path) -> None:
     loop = outcome_of(lambda: opened(the_rig, None))
     assert isinstance(loop, Loop), loop
     loop.close()
-    assert again(the_rig) == "done"
-    assert items(the_rig.run_dir) == []
+    assert _sign_off(the_rig.run_dir, parts="off") == "done"
+    assert parts_items(the_rig.run_dir) == []
 
 
 # --- the plan's own hold comes first ---------------------------------------------------------
@@ -185,7 +201,7 @@ def test_the_parts_are_listed_only_once_the_plan_s_hold_is_released(tmp_path: Pa
     assert [one.item_id for one in parts_items(run_dir)] == IDS
     assert dispatched(run_dir) == []
     find_all(run_dir)
-    assert again(rig(run_dir, design_review="on")) == "done"
+    assert _sign_off(run_dir, design_review="on") == "done"
     assert "stage_entered" in dispatched(run_dir)
 
 

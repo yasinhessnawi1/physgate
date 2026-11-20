@@ -24,7 +24,6 @@ from typing import Any
 import pytest
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeDispatcher, FakeGate, KilledError, Rig, failing_gate_result
-from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing import (
     BUDGET,
     DRIVE,
@@ -37,6 +36,7 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
     node,
     rig_for,
     start,
+    unsigned,
 )
 from test_a_queue_decision_acts_at_a_boundary import _layer
 
@@ -55,16 +55,15 @@ from physgate.orchestrator.queue import (
     ShownItem,
     read_queue,
     record_decision,
+    sign_off_item_id,
     statuses_now,
 )
 from physgate.orchestrator.replay import replay
 from physgate.oslayer.probe import Present
 
-#: These runs plan a control module, and what is tested is the contract's hold on its completion:
-#: each starts as a run recorded before the sign-off rule table, which owes no sign-off.
-pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
-
 ITEM = "run-1-contract-1"
+#: Drive is a control module: its clean merge raises the item of its sign-off (ARCH-130).
+SIGN_OFF = sign_off_item_id("run-1", DRIVE, 1)
 SPAN = "e" * 40
 ACTS = {
     "queue_decisions": "act",
@@ -118,7 +117,11 @@ def ran(
     kill: Callable[[Event, list[Event]], bool] | None = None,
     **fields: Any,  # noqa: ANN401 - the rig's own
 ) -> Rig:
-    """The contract rig, driven to its end (or to the line ``kill`` picks)."""
+    """The contract rig, driven to its end (or to the line ``kill`` picks).
+
+    Integration's attempts after a first one refused leave drive out of ``declared``: drive's
+    sign-off is owed until a person signs it.
+    """
     # A person binds a decision to the streams the item links, each held to its seal.
     fields.setdefault("dispatcher", FakeDispatcher(trajectories=tmp_path / "run" / "sessions"))
     rig = rig_for(tmp_path, **fields)
@@ -126,7 +129,7 @@ def ran(
         rig.config_overrides.update(ACTS)
     rig.diff.writes.update(writes or {})  # type: ignore[attr-defined]
     loop = rig.open()
-    hooked(monkeypatch, loop, declared=declared, kill=kill)
+    hooked(monkeypatch, loop, declared=declared, kill=kill, then=unsigned(declared))
     start(loop, sizing=sizing)
     if acts:
         _layer(loop)
@@ -140,7 +143,7 @@ def resumed(
     rig: Rig, monkeypatch: pytest.MonkeyPatch, declared: Sequence[str] | None = None
 ) -> str:
     loop = rig.open()
-    hooked(monkeypatch, loop, declared=declared)
+    hooked(monkeypatch, loop, declared=declared, then=unsigned(declared))
     if rig.config_overrides.get("queue_decisions") == "act":
         _layer(loop)
     kind = loop.resume().kind
@@ -378,14 +381,17 @@ def test_a_kill_on_the_way_to_the_item_resumes_to_the_uninterrupted_lines(
     reference = ran(tmp_path / "reference", monkeypatch, fw_volts=11, declared=(DRIVE, FW))
     rig = ran(tmp_path / "cut", monkeypatch, fw_volts=11, declared=(DRIVE, FW), kill=first_of(kind))
     assert kind not in kinds(lines(rig))
-    assert resumed(rig, monkeypatch, declared=(DRIVE, FW)) == "done"
+    # Both runs end escalated: drive's sign-off is owed, and a run that records decisions takes
+    # none on its item.
+    assert replay(read_events(reference.run_dir / "events.jsonl")).next_step().kind == "escalated"
+    assert resumed(rig, monkeypatch, declared=(DRIVE, FW)) == "escalated"
     events = read_events(rig.run_dir / "events.jsonl")
     # The same lines, each run's streams under its own directory.
     ours = json.dumps(comparable(events), default=str).replace(str(rig.run_dir), "RUN")
     theirs = comparable(read_events(reference.run_dir / "events.jsonl"))
     assert ours == json.dumps(theirs, default=str).replace(str(reference.run_dir), "RUN")
-    # The item is listed once, however often the process got to it.
-    assert [i.item_id for i in read_queue(rig.run_dir).items] == [ITEM]
+    # The item is listed once, however often the process got to it, after drive's sign-off item.
+    assert [i.item_id for i in read_queue(rig.run_dir).items] == [SIGN_OFF, ITEM]
 
 
 def test_a_ruling_rewritten_before_its_item_halts_and_raises_nothing(
@@ -408,7 +414,7 @@ def test_a_ruling_rewritten_before_its_item_halts_and_raises_nothing(
     assert incident["cause"] == "foreign_journal_line"
     assert "contract_item_raised" not in kinds(after)
     # The item the killed process listed holds the journal's values, never the rewritten line's.
-    (listed,) = read_queue(rig.run_dir).items
+    (listed,) = [i for i in read_queue(rig.run_dir).items if i.source == "contract"]
     assert 'node "fw.main" holds 11 "volt"' in listed.triggering_finding
 
 
@@ -536,13 +542,20 @@ def test_a_module_is_not_complete_while_an_item_about_its_pair_is_undecided(
         )
         assert completed == [FW]
         assert "contract" not in dict(open_preconditions(state, DRIVE))
-    # A person's decision, recorded even where it acts on nothing, closes it.
+    # A person's decision, recorded even where it acts on nothing, closes it. In a run that acts
+    # the person signs drive's item too, so the integration call is made; a run that records
+    # decisions takes none on it, so drive's sign-off alone still holds it, and the run escalates.
     decide(rig.run_dir, "approve")
-    assert resumed(rig, monkeypatch, declared=declared) == "done"
+    if acts:
+        decide(rig.run_dir, "approve", item_id=SIGN_OFF)
+    assert resumed(rig, monkeypatch, declared=declared) == ("done" if acts else "escalated")
     rows = lines(rig)
     assert [r["subtask_id"] for r in rows if r["kind"] == "module_completed"] == (
-        [BUDGET, DRIVE, FW] if acts else [FW, BUDGET, DRIVE]
+        [BUDGET, DRIVE, FW] if acts else [FW, BUDGET]
     )
+    if not acts:
+        state = replay(read_events(rig.run_dir / "events.jsonl"))
+        assert [name for name, _ in open_preconditions(state, DRIVE)] == ["sign_off"]
     assert refusal(rows) is None
 
 
@@ -639,7 +652,7 @@ def test_a_held_decision_on_a_contract_item_leaves_it_open_until_it_is_confirmed
     rig.diff.writes.update({BUDGET: [low]})  # type: ignore[attr-defined]
     rig.dispatcher.during[3] = lambda: decide(rig.run_dir, "approve")
     loop = rig.open()
-    hooked(monkeypatch, loop, declared=declared)
+    hooked(monkeypatch, loop, declared=declared, then=unsigned(declared))
     start(loop, sizing=True)
     _layer(loop, present=False)
     assert escaped(loop.run) is None
@@ -657,9 +670,13 @@ def test_a_held_decision_on_a_contract_item_leaves_it_open_until_it_is_confirmed
     assert state.undecided(ITEM)
     assert "open_item" in dict(open_preconditions(state, DRIVE))
     assert refusal(rows) is None
-    # Confirmed by the operator, it closes the item, and the modules are recorded complete.
+    # Confirmed by the operator, it closes the item, and the modules are recorded complete. In a
+    # run that acts the person signs drive's item too, between the processes, where no session's
+    # shell runs; a run that records decisions takes none on it, and escalates for that alone.
+    if acts:
+        decide(rig.run_dir, "approve", item_id=SIGN_OFF)
     again = rig.open()
-    hooked(monkeypatch, again, declared=declared)
+    hooked(monkeypatch, again, declared=declared, then=unsigned(declared))
     _layer(again, present=False)
     resumed_kind: list[str] = []
     assert (
@@ -668,14 +685,23 @@ def test_a_held_decision_on_a_contract_item_leaves_it_open_until_it_is_confirmed
         )
         is None
     )
-    assert resumed_kind == ["done"]
+    assert resumed_kind == (["done"] if acts else ["escalated"])
     again.close()
     rows = lines(rig)
-    confirmed = [row for row in rows if row["kind"] == "decision_taken"][-1]
-    assert (confirmed["confirmed_by"], confirmed["acts"]) == ("operator", False)
-    assert [r["subtask_id"] for r in rows if r["kind"] == "module_completed"] == (
-        [BUDGET, DRIVE, FW] if acts else [FW, BUDGET, DRIVE]
+    confirmed = next(
+        row for row in rows if row["kind"] == "decision_taken" and row.get("confirmed_by")
     )
+    assert (confirmed["item_id"], confirmed["confirmed_by"], confirmed["acts"]) == (
+        ITEM,
+        "operator",
+        False,
+    )
+    assert [r["subtask_id"] for r in rows if r["kind"] == "module_completed"] == (
+        [BUDGET, DRIVE, FW] if acts else [FW, BUDGET]
+    )
+    if not acts:
+        state = replay(read_events(rig.run_dir / "events.jsonl"))
+        assert [name for name, _ in open_preconditions(state, DRIVE)] == ["sign_off"]
     assert refusal(rows) is None
 
 

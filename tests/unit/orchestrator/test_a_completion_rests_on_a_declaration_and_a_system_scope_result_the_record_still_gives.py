@@ -23,8 +23,17 @@ from typing import Any
 import pytest
 import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as runner
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
-from loop_fakes import FakeChanges, FakeGate, FakeReviewer, KilledError, Rig, passing_gate_result
-from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
+from loop_fakes import (
+    FakeChanges,
+    FakeDispatcher,
+    FakeGate,
+    FakeReviewer,
+    KilledError,
+    Rig,
+    passing_gate_result,
+)
+from sign_off_rig import layer
+from test_a_queue_decision_acts_at_a_boundary import decide
 from test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line import (
     at_integrations_resolve,
     ended,
@@ -53,6 +62,7 @@ from physgate.orchestrator.events import (
     read_events,
 )
 from physgate.orchestrator.exceptions import GitError
+from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.ports import ChangeCheck
 from physgate.orchestrator.protocols import (
     Artefact,
@@ -62,15 +72,11 @@ from physgate.orchestrator.protocols import (
     RunningGateMode,
 )
 from physgate.orchestrator.replay import replay
+from physgate.oslayer.probe import Present
 from physgate.roles import CrossCuttingRole
 from physgate.series.seal import SessionSeries
 from physgate.state.exceptions import DesignStateError
 from physgate.state.store import Store
-
-#: These runs plan a control module, and what is tested is the declaration and the
-#: system-scope result its completion rests on: each starts as a run
-#: recorded before the sign-off rule table, which owes no sign-off.
-pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 INTEG, DRIVE, FW = runner.INTEG, runner.DRIVE, runner.FW
 DECLARED = (DRIVE, FW)
@@ -88,11 +94,46 @@ def declared(*modules: str, sha256: str = DIGEST) -> Declaration:
     return Declaration(modules=modules, sha256=sha256)
 
 
+#: The control module, which owes a person's sign-off before it is complete.
+CONTROL_SIGN_OFF = f"run-1-SIGNOFF-{DRIVE}"
+
+
+def signed_while_fw_runs(rig: Rig) -> None:
+    """Have a person approve the control module's sign-off while the next module's session runs.
+
+    The run acts on decisions, so the approve lets integration's call go on and the module
+    complete: what is tested here is the completion, not the wait for the sign-off.
+    """
+
+    def approve() -> None:
+        decide(rig.run_dir, "approve", item_id=CONTROL_SIGN_OFF)
+
+    rig.dispatcher.during[2] = approve
+
+
 def rig_for(tmp_path: Path, **fields: Any) -> Rig:  # noqa: ANN401 - the rig's own
-    """The contract rig, whose checker reads ``DECLARED`` in each of integration's attempts."""
+    """The contract rig, whose checker reads ``DECLARED`` in each of integration's attempts.
+
+    The run acts on decisions with the sign-off rule on, and the control module is signed
+    before integration is called.
+    """
+    fields.setdefault("dispatcher", FakeDispatcher(trajectories=tmp_path / "run" / "sessions"))
     rig = runner.rig_for(tmp_path, **fields)
+    rig.config_overrides.update(
+        {
+            "queue_decisions": "act",
+            "os_layer": Present(mechanism="seatbelt", claude_version="2.1.301"),
+        }
+    )
+    signed_while_fw_runs(rig)
     rig.changes.declares.setdefault(INTEG, declared(*DECLARED))
     return rig
+
+
+def begin(loop: Loop, **start: Any) -> None:  # noqa: ANN401
+    """The plan started and the OS layer recorded, as the command does before driving."""
+    runner.start(loop, **start)
+    layer(loop)
 
 
 def log_of(rig: Rig) -> list[Event]:
@@ -112,7 +153,7 @@ def killed(rig: Rig, kill: Callable[[Event, list[Event]], bool], **start: Any) -
         emit(event)
 
     loop._emit = emitting  # type: ignore[method-assign]  # noqa: SLF001
-    runner.start(loop, **start)
+    begin(loop, **start)
     with pytest.raises(KilledError):
         loop.run()
     loop.close()
@@ -173,7 +214,7 @@ def test_the_loop_writes_integrations_declaration_straight_after_its_accepted_ch
     # declaration both times, and only the accepted check's attempt records it.
     rig = rig_for(tmp_path, changes=FakeChanges(refuse={3: ("proposal", "a node no one writes")}))
     loop = rig.open()
-    runner.start(loop)
+    begin(loop)
     assert ended(loop.run) == "done"
     loop.close()
     events = log_of(rig)
@@ -198,11 +239,11 @@ def test_the_loop_writes_integrations_declaration_straight_after_its_accepted_ch
 def test_only_an_accepted_integration_attempt_causes_module_completed(tmp_path: Path) -> None:
     # Attempt 1 declares both modules and fails its review; attempt 2 declares drive alone.
     changes = FakeChanges(declared={3: declared(DRIVE, FW), 4: declared(DRIVE)})
-    rig = runner.rig_for(
+    rig = rig_for(
         tmp_path, changes=changes, reviewer=FakeReviewer(verdicts=["pass", "pass", "fail"])
     )
     loop = rig.open()
-    runner.start(loop)
+    begin(loop)
     assert ended(loop.run) == "done"
     loop.close()
     events = log_of(rig)
@@ -215,7 +256,7 @@ def test_a_refused_declaration_is_the_next_attempts_finding(tmp_path: Path) -> N
     reason = ".physgate/completion/declaration.json: a later pass over drive"
     rig = rig_for(tmp_path, changes=FakeChanges(refuse={3: ("declaration", reason)}))
     loop = rig.open()
-    runner.start(loop)
+    begin(loop)
     assert ended(loop.run) == "done"
     loop.close()
     (retry,) = [r for r in rig.dispatcher.requests if (r.subtask_id, r.attempt) == (INTEG, 2)]
@@ -257,7 +298,7 @@ def test_the_completion_owner_lookup_refuses_two_owners_in_the_loop_before_the_l
     # halts with the cause on the record, and no declaration is written.
     rig = rig_for(tmp_path, changes=Patching(monkeypatch))
     loop = rig.open()
-    runner.start(loop)
+    begin(loop)
     assert ended(loop.run) == "halted"
     loop.close()
     events = log_of(rig)
@@ -443,7 +484,7 @@ def test_a_system_scope_that_cannot_be_run_again_halts_before_any_state(
 ) -> None:
     rig = rig_for(tmp_path, gate=RaisingAgain(error))
     loop = rig.open()
-    runner.start(loop)
+    begin(loop)
     assert ended(loop.run) == "halted"
     loop.close()
     events = log_of(rig)
@@ -473,7 +514,7 @@ def test_the_real_gate_gives_one_result_twice_over_one_store(tmp_path: Path) -> 
     gate = RealSystemGate()
     rig = rig_for(tmp_path, gate=gate)
     loop = rig.open()
-    runner.start(loop)
+    begin(loop)
     assert ended(loop.run) == "done"
     loop.close()
     first = gate.integrations[0]
@@ -489,7 +530,7 @@ def test_an_honest_run_reaches_completion_with_the_system_scope_taken_again_and_
     gate = RealSystemGate()
     rig = rig_for(tmp_path, gate=gate)
     loop = rig.open()
-    runner.start(loop)
+    begin(loop)
     assert ended(loop.run) == "done"
     loop.close()
     events = log_of(rig)
@@ -525,7 +566,7 @@ def test_a_journal_past_the_gate_lines_revision_halts_at_completion(tmp_path: Pa
     gate = RealSystemGate()
     rig = rig_for(tmp_path, gate=gate, reviewer=Appending(tmp_path / "store"))
     loop = rig.open()
-    runner.start(loop)
+    begin(loop)
     assert ended(loop.run) == "halted"
     loop.close()
     events = log_of(rig)
@@ -548,7 +589,7 @@ def test_a_kill_between_the_journal_holds_incident_and_its_halt_resumes_to_the_h
         reviewer=Appending(tmp_path / "reference" / "store"),
     )
     loop = reference.open()
-    runner.start(loop)
+    begin(loop)
     assert ended(loop.run) == "halted"
     loop.close()
     rig = rig_for(
@@ -573,8 +614,37 @@ def test_a_kill_between_the_journal_holds_incident_and_its_halt_resumes_to_the_h
 # --- kill points --------------------------------------------------------------------------------
 
 
+def in_the_run(value: Any) -> Any:  # noqa: ANN401
+    """``value`` with a trajectory's path read from the run's directory, a decision's time dropped.
+
+    Neither is the same in two runs of one brief: the person's approve is made at its own time,
+    and each run's sessions are sealed in a directory of its own.
+    """
+    if isinstance(value, str):
+        return (
+            "sessions/" + value.split("/run/sessions/", 1)[1]
+            if "/run/sessions/" in value
+            else value
+        )
+    if isinstance(value, dict):
+        return {k: in_the_run(v) for k, v in value.items() if k != "decided_ts"}
+    if isinstance(value, list | tuple):
+        return [in_the_run(v) for v in value]
+    return value
+
+
 def comparable(events: Sequence[Event]) -> list[dict[str, Any]]:
-    return runner.comparable(events)
+    """The events as two runs of one brief are compared, less what ``in_the_run`` drops."""
+    lines: list[dict[str, Any]] = in_the_run(runner.comparable(events))
+    # The decisions file's seal holds the person's approve with its time: its length is kept.
+    return [
+        {
+            k: v
+            for k, v in line.items()
+            if not (line["kind"] == "decisions_sealed" and k == "sha256")
+        }
+        for line in lines
+    ]
 
 
 def at_the_declaration(event: Event, _: list[Event]) -> bool:
@@ -661,7 +731,7 @@ def test_a_kill_around_the_declaration_resumes_to_the_uninterrupted_tail(
 ) -> None:
     reference = rig_for(tmp_path / "reference")
     loop = reference.open()
-    runner.start(loop)
+    begin(loop)
     assert ended(loop.run) == "done"
     loop.close()
     honest = log_of(reference)

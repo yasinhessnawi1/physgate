@@ -27,7 +27,7 @@ import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_n
 from journal_helper import one_round, plan_digest
 from loop_fakes import FakeGate, FakeReviewer, usage
 from replan_rig import RUBRIC, Step, decompose, item_of
-from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
+from sign_off_rig import declaring
 
 from physgate import roles
 from physgate.orchestrator.design_rounds import RoundEnded, RoundsEnded, RoundStarted, read_journal
@@ -38,10 +38,6 @@ from physgate.orchestrator.record import DecompositionCall, PlanReviewed, Review
 from physgate.orchestrator.replay import RunState
 from physgate.orchestrator.run_config import ModelStrings, RunConfig, load_run_config
 from physgate.orchestrator.trajectory import seal
-
-#: These runs plan a control module, and what is tested is the signals each line gives:
-#: each starts as a run recorded before the sign-off rule table, which owes no sign-off.
-pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
 
@@ -197,7 +193,10 @@ def _downstream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, integration: st
     """The contract rig's run, started from a plan its review passed under ``observe``.
 
     The drive's first attempt disputes sizing's supply and fails the gate; the firmware's first
-    attempt is rejected by its reviewer; integration's system gate gives ``integration``.
+    attempt is rejected by its reviewer; integration's system gate gives ``integration``. Drive is
+    a control module whose person's sign-off is owed (ARCH-130), and the run records decisions
+    and takes none: integration's first declaration names it and is refused by the change check,
+    and its next attempt declares the rest.
     """
     rig = runner.rig_for(
         tmp_path,
@@ -221,7 +220,8 @@ def _downstream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, integration: st
 
     monkeypatch.setattr(rig.changes, "check", disputed_once)
     loop = rig.open()
-    runner.hooked(monkeypatch, loop, declared=(runner.BUDGET, runner.DRIVE, runner.FW))
+    runner.hooked(monkeypatch, loop)
+    declaring(loop, (runner.BUDGET, runner.DRIVE, runner.FW), then=(runner.BUDGET, runner.FW))
     stream = rig.run_dir / "decomposition" / "stdout.jsonl"
     stream.parent.mkdir(parents=True)
     stream.write_text('{"type": "assistant"}\n')
@@ -262,7 +262,7 @@ def test_every_downstream_signal_is_a_line_of_the_reviewed_plan_s_one_log(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, integration: str
 ) -> None:
     run_dir = _downstream(tmp_path, monkeypatch, integration)
-    _, events, state, _ = _fresh(run_dir)
+    _, events, state, items = _fresh(run_dir)
     # One decomposition line, naming the digest its round proposed and its review judged.
     [decomposed] = _of(events, "decomposed")
     [proposed] = _of(events, "plan_proposed")
@@ -284,13 +284,24 @@ def test_every_downstream_signal_is_a_line_of_the_reviewed_plan_s_one_log(
     assert (runner.DRIVE, 1) in rejected and (runner.FW, 1) in rejected
     # Each contract result, the first of each pair marked, and a later one not.
     assert [e.first for e in _of(after, "contract_tested")] == [True, True, True, False]
+    # The control module's sign-off item, raised at its clean merge, and undecided.
+    [raised] = _of(after, "sign_offs_raised")
+    [owed] = [i.item_id for i in raised.raised]
+    assert raised.subtask_id == runner.DRIVE and owed in items
+    assert state.sign_offs_open() == [runner.DRIVE]
     [system] = _of(after, "integration_gate_ran")
     assert system.result.verdict == integration
     if integration == "fail":
         assert _of(after, "integration_escalated")
         assert not _of(after, "module_completed") and not _of(after, "integration_state_issued")
         return
-    [issued] = _of(after, "integration_state_issued")
-    assert issued.subtask_id == runner.INTEG and issued.length > 0
+    # Integration's first attempt, declaring drive, is refused; each window has its own state.
+    assert (runner.INTEG, 1) in rejected
+    [refusal] = [e for e in _of(after, "attempt_rejected") if e.subtask_id == runner.INTEG]
+    assert refusal.finding.source == "declaration"
+    issued = _of(after, "integration_state_issued")
+    assert [(e.subtask_id, e.attempt) for e in issued] == [(runner.INTEG, 1), (runner.INTEG, 2)]
+    assert all(e.length > 0 for e in issued)
     completed = [e.subtask_id for e in _of(after, "module_completed")]
-    assert completed == [runner.BUDGET, runner.DRIVE, runner.FW]
+    assert completed == [runner.BUDGET, runner.FW]
+    assert state.next_step().kind == "escalated"

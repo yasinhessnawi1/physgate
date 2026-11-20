@@ -69,6 +69,7 @@ from physgate.orchestrator.events import read_events
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.ports import ChangeCheck
+from physgate.orchestrator.queue import read_queue
 from physgate.orchestrator.record import DecompositionSummary
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import ModelStrings
@@ -248,20 +249,32 @@ def resumed(
     budget: bool,
     kill: Callable[[Any, list[Any]], bool] | None = None,
     declared: Sequence[str] | None = None,
+    sign: bool = True,
 ) -> str:
-    """A fresh process takes the run over; the step it stopped at, ``killed``, or what escaped."""
+    """A fresh process takes the run over; the step it stopped at, ``killed``, or what escaped.
+
+    The control module's sign-off is owed once it merges, and the run waits for it before the
+    integration call: with ``sign``, a person signs what is open and a next process takes the run
+    on; without it, the run stays at the wait.
+    """
     loop = rig.open()
     said = declared or (WITH_BUDGET if budget else ALONE)
     hooked(monkeypatch, loop, declared=said, kill=kill)
     _layer(loop)
     try:
-        return loop.resume().kind
+        step = loop.resume().kind
     except KilledError:
         return "killed"
     except Exception as exc:  # noqa: BLE001 - what escaped is the finding, asserted as a step
         return f"raised {exc!r}"
     finally:
         loop.close()
+    owed = [one for one in read_queue(rig.run_dir).open_items() if str(one.source) == "sign_off"]
+    if not sign or step != "wait" or not owed:
+        return step
+    for one in owed:
+        decide(rig.run_dir, "approve", item_id=one.item_id)
+    return resumed(rig, monkeypatch, budget=budget, kill=kill, declared=declared, sign=sign)
 
 
 def drive_item(rows: Sequence[dict[str, Any]]) -> str:
@@ -846,6 +859,7 @@ def reopened(
     monkeypatch: pytest.MonkeyPatch,
     *,
     kill: Callable[[Any, list[Any]], bool] | None = None,
+    sign: bool = True,
 ) -> str:
     """Stopped where budget's second attempt starts, a person keeps fw's work: drive reopens.
 
@@ -853,7 +867,7 @@ def reopened(
     """
     assert first_run(rig, monkeypatch, budget=True, plan=REOPENED, kill=_budget_again) == "killed"
     choose(rig.run_dir, "consumer", item_id=CONTRACT_ITEM)
-    return resumed(rig, monkeypatch, budget=True, kill=kill)
+    return resumed(rig, monkeypatch, budget=True, kill=kill, sign=sign)
 
 
 def second_dispatch(rows: Sequence[dict[str, Any]], subtask: str) -> int:
@@ -864,7 +878,8 @@ def test_a_readers_next_attempt_is_held_while_a_producer_reopened_after_it_waits
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = reopenable(tmp_path)
-    step = reopened(rig, monkeypatch)
+    # Nobody signs here: the hold on budget is what is read, with the choice the only decision.
+    step = reopened(rig, monkeypatch, sign=False)
     rows = lines(rig)
     (taken,) = of(rows, "decision_taken")
     assert taken.get("reopens") == DRIVE

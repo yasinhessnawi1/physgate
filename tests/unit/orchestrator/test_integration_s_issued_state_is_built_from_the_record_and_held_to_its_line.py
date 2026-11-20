@@ -26,13 +26,15 @@ import pytest
 import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as runner
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeDispatcher, FakeGate, FakeReviewer, KilledError, Rig, plan
-from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
+from sign_off_rig import declaring
 
 from physgate import roles
 from physgate.orchestrator import integration_state
 from physgate.orchestrator.canaries import canary_seen
+from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.decompose import GATE_MODE_SENTENCES
 from physgate.orchestrator.events import (
+    AttemptRejected,
     ContractTested,
     Event,
     Halted,
@@ -54,12 +56,21 @@ from physgate.orchestrator.plan import CriterionWords
 from physgate.orchestrator.replay import Step, replay
 from physgate.state.schema import NODE_ID_MAX_LENGTH
 
-#: These runs plan a control module, and what is tested is integration's issued state:
-#: each starts as a run recorded before the sign-off rule table, which owes no sign-off.
-pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
-
 INTEG, DRIVE, FW, BUDGET = runner.INTEG, runner.DRIVE, runner.FW, runner.BUDGET
-DECLARED = (DRIVE, FW)
+#: Drive is a control module, whose person's sign-off is owed in each run here (ARCH-130): no
+#: decision is taken on its item, so integration's issued state lists it as owed, and integration
+#: declares the rest, as the change check refuses a declaration that names it.
+DECLARED = (FW,)
+#: The section integration's issued state ends with while drive's sign-off is owed.
+OWED = [
+    "## Owed sign-offs",
+    "",
+    "Each module below owes a person's standing sign-off (ARCH-130): no approve that acts was "
+    "given on the values its latest sign-off item shows. Such a module is not complete in this "
+    "run, and the change check refuses a declaration that names it.",
+    "",
+    f'- Module "{DRIVE}" of the "control" role: its stability margin.',
+]
 WORDS = (CriterionWords(criterion="1", words="The robot balances for 10 s."),)
 
 
@@ -112,6 +123,15 @@ def resumed(
     end = ended(fresh.resume)
     fresh.close()
     return end, read_events(rig.run_dir / "events.jsonl")
+
+
+def owes_drives_sign_off(events: Sequence[Event]) -> None:
+    """The run's record ends escalated, drive not complete, its sign-off owed and named."""
+    state = replay(events)
+    assert state.next_step() == Step(kind="escalated")
+    assert state.sign_offs_open() == [DRIVE]
+    assert "sign_off" in dict(open_preconditions(state, DRIVE))
+    assert DRIVE not in [e.subtask_id for e in events if isinstance(e, ModuleCompleted)]
 
 
 def ended(drive: Callable[[], Step]) -> str:
@@ -340,6 +360,9 @@ def test_the_state_is_written_byte_for_byte_as_the_record_gives_it(
             cut[-1],
             '  - Contributing: criterion "1" of module "drive".',
             "",
+            # Drive's sign-off is owed when integration's window opens: the document says so last.
+            *OWED,
+            "",
         ]
     ).encode("utf-8")
     assert data == expected
@@ -400,16 +423,24 @@ def test_the_line_falls_between_resolve_and_spawn_and_is_what_session_and_review
     assert all(a.integration_state is None for a in rig.reviewer.seen if a.subtask_id != INTEG)
 
 
+@pytest.mark.parametrize("by", ["review", "declaration"], ids=["at review", "at the change check"])
 def test_each_attempt_after_a_rejection_gets_a_line_of_its_own_with_the_same_bytes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, by: str
 ) -> None:
-    rig = runner.rig_for(tmp_path, reviewer=FakeReviewer(verdicts=["pass", "pass", "fail"]))
+    # Integration's first attempt is rejected by its reviewer, or, declaring drive, whose
+    # sign-off is owed, by the change check; its next attempt declares the rest.
+    verdicts = ["pass", "pass", "fail"] if by == "review" else []
+    rig = runner.rig_for(tmp_path, reviewer=FakeReviewer(verdicts=verdicts))
     loop = rig.open()
     runner.hooked(monkeypatch, loop, declared=DECLARED)
+    if by == "declaration":
+        declaring(loop, (DRIVE, *DECLARED), then=DECLARED)
     runner.start(loop, words=WORDS)
     loop.run()
     loop.close()
     events = read_events(rig.run_dir / "events.jsonl")
+    (rejected,) = [e for e in events if isinstance(e, AttemptRejected) and e.subtask_id == INTEG]
+    assert (rejected.attempt, rejected.finding.source) == (1, by)
     lines = issued(events)
     assert [(e.attempt, e.sha256, e.length) for e in lines] == [
         (1, lines[0].sha256, lines[0].length),
@@ -431,9 +462,10 @@ def test_an_infrastructure_retry_of_integrations_session_gets_a_line_of_its_own_
     loop = rig.open()
     runner.hooked(monkeypatch, loop, declared=DECLARED)
     runner.start(loop, words=WORDS)
-    assert ended(loop.run) == "done"
+    assert ended(loop.run) == "escalated"
     loop.close()
     events = read_events(rig.run_dir / "events.jsonl")
+    owes_drives_sign_off(events)
     (retry,) = [e for e in events if isinstance(e, InfraRetryScheduled)]
     assert retry.subtask_id == INTEG
     # The retry opens a window of its own, in the same attempt, and records the same bytes.
@@ -964,7 +996,8 @@ def test_a_kill_before_the_spawn_resumes_to_a_fresh_line_with_the_same_bytes(
     reference, uninterrupted = run(tmp_path / "reference", monkeypatch)
     rig, killed = run(tmp_path / "cut", monkeypatch, kill=CUTS[cut])
     end, events = resumed(rig, monkeypatch)
-    assert end == "done"
+    assert end == "escalated"
+    owes_drives_sign_off(events)
     (resume,) = [e for e in events if isinstance(e, Resumed)]
     assert (resume.subtask_id, resume.point) == (INTEG, "resolve")
     lines = issued(events)
@@ -986,7 +1019,7 @@ def test_a_kill_after_the_session_ended_resumes_with_no_new_line_and_reviews_its
     rig, killed = run(tmp_path, monkeypatch, kill=at_integrations_session_end)
     (line,) = issued(killed)
     end, events = resumed(rig, monkeypatch)
-    assert end == "done"
+    assert end == "escalated"
     assert issued(events) == [line]
     (resume,) = [e for e in events if isinstance(e, Resumed)]
     assert (resume.subtask_id, resume.point) == (INTEG, "verify_reading")
@@ -994,6 +1027,7 @@ def test_a_kill_after_the_session_ended_resumes_with_no_new_line_and_reviews_its
     state = artefact.integration_state
     assert state is not None and (state.sha256, state.length) == (line.sha256, line.length)
     assert [e.subtask_id for e in events if isinstance(e, ModuleCompleted)] == list(DECLARED)
+    owes_drives_sign_off(events)
 
 
 def test_the_bytes_depend_on_the_record_alone(

@@ -23,10 +23,11 @@ from typing import Any
 import pytest
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeDispatcher, FakeReviewer, KilledError, Rig
-from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 from test_a_blocked_review_is_a_review_that_goes_to_a_person import blocked_review
 from test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item import (
     ITEM,
+    SIGN_OFF,
+    decide,
     escaped,
     item_of,
     kinds,
@@ -46,6 +47,7 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
     node,
     rig_for,
     start,
+    unsigned,
 )
 from test_a_queue_decision_acts_at_a_boundary import _layer
 from test_every_merge_path_git_call_is_pinned_or_in_the_store import _git, _target
@@ -53,6 +55,7 @@ from test_every_merge_path_git_call_is_pinned_or_in_the_store import _git, _targ
 from physgate import roles
 from physgate.evaluation.observe.sequence import decisions
 from physgate.orchestrator import decisions as deciding
+from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.dispatch import role_prompt
 from physgate.orchestrator.events import Event, IntegrationGateRan, read_events
@@ -72,11 +75,6 @@ from physgate.orchestrator.replay import replay
 from physgate.orchestrator.trajectory import seal
 from physgate.oslayer.probe import Present
 from physgate.reviewers.packet import person_order_text
-
-#: These runs plan a control module, and what is tested is how a failed contract's items
-#: and reopens hold its completion: each starts as a run
-#: recorded before the sign-off rule table, which owes no sign-off.
-pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 ACTS = {
     "queue_decisions": "act",
@@ -127,7 +125,11 @@ def opened(
     kill: Callable[[Event, list[Event]], bool] | None = None,
     **fields: Any,  # noqa: ANN401 - the rig's own
 ) -> Rig:
-    """The contract rig, run until it stops; fw deviates on ``v`` unless ``fw_volts`` says else."""
+    """The contract rig, run until it stops; fw deviates on ``v`` unless ``fw_volts`` says else.
+
+    In a run that records decisions, integration's attempts after a first one refused leave drive
+    out of ``declared``: drive's sign-off is owed there, as no decision is taken on its item.
+    """
     fields.setdefault("fw_volts", 11)
     fields.setdefault("dispatcher", FakeDispatcher(trajectories=tmp_path / "run" / "sessions"))
     rig = rig_for(tmp_path, **fields)
@@ -136,7 +138,9 @@ def opened(
     rig.diff.writes.update(writes or {})  # type: ignore[attr-defined]
     mend(rig, {FW: MENDED_FW} if mended is None else mended)
     loop = rig.open()
-    hooked(monkeypatch, loop, declared=declared, kill=kill)
+    hooked(
+        monkeypatch, loop, declared=declared, kill=kill, then=None if acts else unsigned(declared)
+    )
     start(loop, sizing=sizing)
     if acts:
         _layer(loop)
@@ -156,8 +160,10 @@ def again(
 ) -> str:
     """A fresh process resumes the run; the step it stopped at, or ``killed``."""
     loop = rig.open()
-    hooked(monkeypatch, loop, declared=declared, kill=kill)
-    if rig.config_overrides.get("queue_decisions") == "act":
+    acts = rig.config_overrides.get("queue_decisions") == "act"
+    then = None if acts else unsigned(declared)
+    hooked(monkeypatch, loop, declared=declared, kill=kill, then=then)
+    if acts:
         _layer(loop)
     try:
         return loop.resume().kind
@@ -189,15 +195,31 @@ def chosen(
     *,
     note: str | None = None,
     kill: Callable[[Event, list[Event]], bool] | None = None,
+    signs: bool = False,
     **kw: Any,  # noqa: ANN401 - opened's own
 ) -> Rig:
+    """The person's choice on the item, taken by a fresh process.
+
+    With ``signs``, where the run then waits, the person signs drive's sign-off item too, and a
+    fresh process takes that: drive is a control module, whose sign-off the integration call
+    waits for in a run that acts (ARCH-130).
+    """
     rig = opened(tmp_path, monkeypatch, **kw)
     choose(rig.run_dir, position, note)
-    said = escaped(
-        lambda: again(rig, monkeypatch, kill=kill, declared=kw.get("declared", DECLARED))
-    )
+    declared = kw.get("declared", DECLARED)
+    stopped: list[str] = []
+    said = escaped(lambda: stopped.append(again(rig, monkeypatch, kill=kill, declared=declared)))
     assert said is None, said
+    if signs and stopped == ["wait"]:
+        said = escaped(lambda: signed(rig, monkeypatch, declared=declared))
+        assert said is None, said
     return rig
+
+
+def signed(rig: Rig, monkeypatch: pytest.MonkeyPatch, declared: Sequence[str] = DECLARED) -> str:
+    """The person approves drive's sign-off item, and a fresh process resumes: where it stops."""
+    decide(rig.run_dir, "approve", item_id=SIGN_OFF)
+    return again(rig, monkeypatch, declared=declared)
 
 
 def of(rows: Sequence[dict[str, Any]], kind: str, **match: Any) -> list[dict[str, Any]]:  # noqa: ANN401
@@ -268,9 +290,15 @@ def test_choosing_a_position_reopens_the_other_module_with_the_interfaces_values
     choose(rig.run_dir, "producer")
     stopped: list[str] = []
     assert escaped(lambda: stopped.append(again(rig, monkeypatch))) is None
-    assert stopped == ["done"]
+    # The reopened fw merged and its pairs pass: the integration call waits for drive's sign-off
+    # alone, which the person then gives, and the run ends.
+    assert stopped == ["wait"]
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    assert state.sign_offs_open() == [DRIVE]
+    assert not state.undecided(ITEM)
+    assert signed(rig, monkeypatch) == "done"
     rows = lines(rig)
-    (taken,) = of(rows, "decision_taken")
+    (taken,) = of(rows, "decision_taken", item_id=ITEM)
     assert (taken["effect"], taken["acts"], taken["why_not"]) == ("reopen", True, None)
     assert taken.get("reopens") == FW
     at = rows.index(taken)
@@ -547,10 +575,13 @@ def test_a_kill_between_the_decision_and_the_reopen_resumes_to_exactly_one(
             e.kind == "contract_tested" and reopened(w)
         ),
     }
-    reference = chosen(tmp_path / "reference", monkeypatch)
+    reference = chosen(tmp_path / "reference", monkeypatch, signs=True)
     rig = chosen(tmp_path / "cut", monkeypatch, kill=kills[cut])
     assert of(lines(rig), "decision_taken"), "the decision was not taken"
-    assert again(rig, monkeypatch) == "done"
+    # Resumed, the run goes on to the wait for drive's sign-off, as the uninterrupted one did; the
+    # person signs, as there.
+    assert again(rig, monkeypatch) == "wait"
+    assert signed(rig, monkeypatch) == "done"
     rows = lines(rig)
     assert len(of(rows, "subtask_reopened")) == 1
     same_lines(rig, reference)
@@ -560,13 +591,15 @@ def test_a_kill_between_the_decision_and_the_reopen_resumes_to_exactly_one(
 def test_a_kill_inside_the_reopened_attempt_resumes_it_with_the_same_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    reference = chosen(tmp_path / "reference", monkeypatch)
+    reference = chosen(tmp_path / "reference", monkeypatch, signs=True)
     rig = chosen(
         tmp_path / "cut",
         monkeypatch,
         kill=lambda e, w: e.kind == "gate_ran" and any(x.kind == "subtask_reopened" for x in w),
     )
-    assert again(rig, monkeypatch) == "done"
+    # Resumed, the run waits for drive's sign-off; the person signs, as in the uninterrupted run.
+    assert again(rig, monkeypatch) == "wait"
+    assert signed(rig, monkeypatch) == "done"
     rows = lines(rig)
     assert len(of(rows, "subtask_reopened")) == 1
     assert [r["subtask_id"] for r in of(rows, "module_completed")] == [DRIVE, FW]
@@ -594,7 +627,8 @@ def test_a_kill_on_the_way_to_a_second_round_resumes_to_the_uninterrupted_lines(
         rig = chosen(tmp_path / kind, monkeypatch, mended={}, kill=after_reopen(kind))
         again(rig, monkeypatch)
         same_lines(rig, reference)
-        assert [i.item_id for i in read_queue(rig.run_dir).items] == [ITEM, f"{ITEM}-r2"]
+        # Drive's sign-off item was listed at its merge, before either contract item.
+        assert [i.item_id for i in read_queue(rig.run_dir).items] == [SIGN_OFF, ITEM, f"{ITEM}-r2"]
 
 
 # --- the worktree, the record, the rerun, completion ---------------------------------------------
@@ -691,16 +725,22 @@ def test_the_contract_is_rerun_after_the_reopened_merge_and_never_marked_first(
 def test_completion_reads_each_pairs_latest_contract_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    rig = chosen(tmp_path, monkeypatch)
+    # The person signs drive's sign-off item where the run waits for it: the contract alone is
+    # what completion then reads.
+    rig = chosen(tmp_path, monkeypatch, signs=True)
     rows = lines(rig)
     assert of(rows, "contract_tested")[0]["result"]["outcome"] == "fail"
     assert "subtask_reopened" in kinds(rows)
     assert [r["subtask_id"] for r in of(rows, "module_completed")] == [DRIVE, FW]
     # Left deviating, the reopened module's retest fails again: completion is withheld.
-    still = chosen(tmp_path / "still", monkeypatch, mended={})
+    still = chosen(tmp_path / "still", monkeypatch, mended={}, signs=True)
     rows = lines(still)
     assert "subtask_reopened" in kinds(rows)
     assert of(rows, "module_completed") == []
+    state = replay(read_events(still.run_dir / "events.jsonl"))
+    assert state.sign_offs_open() == []
+    for module in (DRIVE, FW):
+        assert "contract" in dict(open_preconditions(state, module))
 
 
 # --- the waits ---------------------------------------------------------------------------------
@@ -782,9 +822,11 @@ def test_a_reopen_is_refused_once_the_integration_call_is_on_the_record(
     state = replay(events)
     tested = state.contract_items.get(ITEM)
     assert tested is not None
-    whole = read_events(chosen(tmp_path / "whole", monkeypatch).run_dir / "events.jsonl")
+    # The person signs drive's sign-off item where the run waits for it, so the call is made.
+    whole_rig = chosen(tmp_path / "whole", monkeypatch, signs=True)
+    whole = read_events(whole_rig.run_dir / "events.jsonl")
     calls = [e for e in whole if e.kind == "integration_gate_ran"]
-    reopening = [e for e in whole if e.kind == "decision_taken"]
+    reopening = [e for e in whole if e.kind == "decision_taken" and e.item_id == ITEM]
     assert len(calls) == 1 and len(reopening) == 1
     assert isinstance(calls[0], IntegrationGateRan)
     state.integration = calls[0]
@@ -992,6 +1034,9 @@ def test_a_held_choice_reopens_only_once_it_is_confirmed(
     assert of(rows, "subtask_reopened") == []
     assert len(requests_of(rig, BUDGET)) == 1
     assert refusal(rows) is None
+    # The person signs drive's sign-off item between the processes, where no session's shell
+    # runs, so the integration call it holds is made once the reopened budget merges.
+    decide(rig.run_dir, "approve", item_id=SIGN_OFF)
     resumed = rig.open()
     hooked(monkeypatch, resumed, declared=declared)
     _layer(resumed, present=False)
@@ -1002,7 +1047,7 @@ def test_a_held_choice_reopens_only_once_it_is_confirmed(
     resumed.close()
     assert (said, stopped) == (None, ["done"])
     rows = lines(rig)
-    confirmed = of(rows, "decision_taken")[1]
+    confirmed = of(rows, "decision_taken", item_id=ITEM)[1]
     assert (confirmed["acts"], confirmed["confirmed_by"]) == (True, "operator")
     (reopened,) = of(rows, "subtask_reopened")
     assert rows.index(reopened) == rows.index(confirmed) + 1

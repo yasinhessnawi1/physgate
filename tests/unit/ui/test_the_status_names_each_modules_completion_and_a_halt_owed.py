@@ -22,11 +22,12 @@ from ui_rig import Live, context_over, fake_ui, serving
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "orchestrator"))
 import test_a_completion_rests_on_a_declaration_and_a_system_scope_result_the_record_still_gives as holds  # noqa: E402, E501
 import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as runner  # noqa: E402
-from loop_fakes import FakeGate  # noqa: E402
+from loop_fakes import FakeGate, Rig  # noqa: E402
+from sign_off_rig import declaring  # noqa: E402
 
 from physgate import roles  # noqa: E402
-from physgate.orchestrator import record  # noqa: E402
 from physgate.orchestrator.completion import open_preconditions  # noqa: E402
+from physgate.orchestrator.declaration import Declaration  # noqa: E402
 from physgate.orchestrator.events import Halted, Incident, read_events  # noqa: E402
 from physgate.orchestrator.replay import replay  # noqa: E402
 
@@ -42,8 +43,23 @@ RUNS: dict[str, dict[str, Any]] = {
         "gate": FakeGate(integration_verdict="fail"),
     },
     "gate-off": {"declared": (DRIVE, FW), "gate_mode": "off"},
-    "one-declared": {"declared": (DRIVE,)},
+    "one-declared": {"declared": (FW,)},
 }
+
+
+def _finished(run_dir: Path, *, declared: tuple[str, ...], **fields: Any) -> Rig:  # noqa: ANN401
+    """A run driven to its end, integration declaring ``declared``.
+
+    Told that the control module's sign-off is owed, its next attempt declares every other module.
+    """
+    sizing = fields.pop("sizing", False)
+    rig = runner.rig_for(run_dir, **fields)
+    loop = rig.open()
+    declaring(loop, declared, tuple(m for m in declared if m != DRIVE))
+    runner.start(loop, sizing=sizing, pairs=True)
+    loop.run()
+    loop.close()
+    return rig
 
 
 @pytest.fixture(scope="module")
@@ -53,16 +69,16 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Path]]
     root.mkdir()
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
-        # The runs plan a control module, and the status of the other preconditions is what is
-        # read: each starts as a run recorded before the sign-off rule table, which owes none.
-        monkeypatch.setattr(record, "SIGN_OFF_RULES", None)
         for name, kw in RUNS.items():
-            rig, _ = runner.finished(base / name, monkeypatch, **kw)
+            rig = _finished(base / name, **kw)
             shutil.copytree(rig.run_dir, root / name)
         # A run whose process died between an incident and its halt.
-        rig = holds.rig_for(base / "owed")
-        holds.killed(rig, holds.at_a_completion())
-        runner.rewritten(rig.run_dir / "events.jsonl", holds.rewrite_declaration(modules=[DRIVE]))
+        rig = runner.rig_for(base / "owed")
+        # The control module's sign-off is owed, so a declaration naming it is refused and the
+        # record cannot be made to name it: the line is rewritten to drop the budget instead.
+        rig.changes.declares[INTEG] = Declaration(modules=(BUDGET, FW), sha256="d" * 64)
+        holds.killed(rig, holds.at_a_completion(), sizing=True)
+        runner.rewritten(rig.run_dir / "events.jsonl", holds.rewrite_declaration(modules=[FW]))
         assert holds.take_over(rig, lambda e, _: isinstance(e, Halted)).startswith("raised")
         shutil.copytree(rig.run_dir, root / "owed-halt")
     yield {"root": root, "ui": fake_ui(base / "checkout")}
@@ -94,49 +110,62 @@ def registry(world: dict[str, Path], run: str, subtask: str) -> list[dict[str, s
     return [{"name": n, "reason": r} for n, r in open_preconditions(state, subtask)]
 
 
+def names(one: dict[str, Any]) -> list[str]:
+    return [entry["name"] for entry in one["open"]]
+
+
 def test_the_status_names_each_declared_modules_completion_or_what_withholds_it(
     world: dict[str, Path], live: Live
 ) -> None:
     found = served(live, "complete")
-    assert found["completion"] == {
-        "owner": True,
-        "modules": [
-            {"subtask_id": BUDGET, "sizing": True, "state": "complete", "open": []},
-            {"subtask_id": DRIVE, "sizing": False, "state": "complete", "open": []},
-            {"subtask_id": FW, "sizing": False, "state": "complete", "open": []},
-        ],
-    }
+    # The control module owes a person's sign-off, so integration's declaration leaves it out:
+    # it is not complete, and the status names the sign-off as what is open.
+    drive = module(found, DRIVE)
+    assert (drive["state"], drive["sizing"]) == ("not_declared", False)
+    assert drive["open"] == registry(world, "complete", DRIVE)
+    assert names(drive) == ["sign_off"]
+    assert "owes a person's sign-off" in drive["open"][0]["reason"]
+    assert found["completion"]["owner"] is True
+    assert [m for m in found["completion"]["modules"] if m["subtask_id"] != DRIVE] == [
+        {"subtask_id": BUDGET, "sizing": True, "state": "complete", "open": []},
+        {"subtask_id": FW, "sizing": False, "state": "complete", "open": []},
+    ]
     pair = served(live, "failed-pair")
-    for subtask in (DRIVE, FW):
-        withheld = module(pair, subtask)
-        assert (withheld["state"], withheld["sizing"]) == ("withheld", False)
-        assert withheld["open"] == registry(world, "failed-pair", subtask)
-        # The failed pair withholds both modules, and so does its item, on which no decision is
-        # taken yet.
-        contract, item = withheld["open"]
-        assert contract["name"] == "contract" and "contract result failed" in contract["reason"]
-        assert item["name"] == "open_item" and "has no decision taken" in item["reason"]
+    withheld = module(pair, FW)
+    assert (withheld["state"], withheld["sizing"]) == ("withheld", False)
+    assert withheld["open"] == registry(world, "failed-pair", FW)
+    # The failed pair withholds the module, and so does its item, on which no decision is
+    # taken yet.
+    contract, item = withheld["open"]
+    assert contract["name"] == "contract" and "contract result failed" in contract["reason"]
+    assert item["name"] == "open_item" and "has no decision taken" in item["reason"]
+    # The control module is withheld by the pair as well, and by its sign-off besides.
+    assert module(pair, DRIVE)["open"] == registry(world, "failed-pair", DRIVE)
+    assert names(module(pair, DRIVE)) == ["contract", "open_item", "sign_off"]
     one = served(live, "one-declared")
-    assert (module(one, DRIVE)["state"], module(one, FW)["state"]) == ("complete", "not_declared")
+    assert (module(one, FW)["state"], module(one, DRIVE)["state"]) == ("complete", "not_declared")
 
 
 def test_under_observe_a_failed_system_scope_result_withholds_completion(
     world: dict[str, Path], live: Live
 ) -> None:
     found = served(live, "observe-failed")
-    for subtask in (DRIVE, FW):
-        withheld = module(found, subtask)
-        assert withheld["state"] == "withheld"
-        assert withheld["open"] == registry(world, "observe-failed", subtask)
-        assert [e["name"] for e in withheld["open"]] == ["system_scope"]
-        assert "system-scope result failed" in withheld["open"][0]["reason"]
+    withheld = module(found, FW)
+    assert withheld["state"] == "withheld"
+    assert withheld["open"] == registry(world, "observe-failed", FW)
+    assert names(withheld) == ["system_scope"]
+    assert "system-scope result failed" in withheld["open"][0]["reason"]
+    # The control module is not declared, and its sign-off is open beside the system scope.
+    drive = module(found, DRIVE)
+    assert drive["open"] == registry(world, "observe-failed", DRIVE)
+    assert names(drive) == ["system_scope", "sign_off"]
 
 
 def test_under_off_completion_has_no_system_scope_precondition(live: Live) -> None:
     found = served(live, "gate-off")
-    assert [(m["state"], m["open"]) for m in found["completion"]["modules"]] == [
-        ("complete", []),
-        ("complete", []),
+    assert [(m["subtask_id"], m["state"], names(m)) for m in found["completion"]["modules"]] == [
+        (DRIVE, "not_declared", ["sign_off"]),
+        (FW, "complete", []),
     ]
 
 

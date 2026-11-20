@@ -19,7 +19,6 @@ from typing import Any
 
 import pytest
 from loop_fakes import FakeReviewer, Rig
-from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 from test_a_choice_on_a_failed_contract_reopens_the_other_module import (
     BOTH,
     MENDED_FW,
@@ -27,9 +26,11 @@ from test_a_choice_on_a_failed_contract_reopens_the_other_module import (
     choose,
     of,
     opened,
+    signed,
 )
 from test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item import (
     ITEM,
+    SIGN_OFF,
     escaped,
     lines,
     refusal,
@@ -57,11 +58,6 @@ from physgate.orchestrator.queue import (
 from physgate.orchestrator.replay import RunState, replay
 from physgate.ui import readers
 
-#: These runs plan a control module, and what is tested is how a failed contract's items
-#: and reopens hold its completion: each starts as a run
-#: recorded before the sign-off rule table, which owes no sign-off.
-pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
-
 #: The second pair's item: fw (producer) to drive (consumer) over ``iface.tilt``.
 OTHER = "run-1-contract-2"
 #: Its next round, listed once fw settles and the pair still fails.
@@ -78,9 +74,12 @@ def _sizing_registered(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def reopened(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mended: dict[str, Any] = HALF) -> Rig:
-    """Both of fw's pairs fail and each has an item; a choice on the first reopens fw."""
+    """Both of fw's pairs fail and each has an item; a choice on the first reopens fw.
+
+    Drive is a control module: its clean merge listed its sign-off item before either.
+    """
     rig = opened(tmp_path, monkeypatch, writes={FW: [BOTH_LOW]}, mended={FW: mended})
-    assert [i.item_id for i in read_queue(rig.run_dir).items] == [ITEM, OTHER]
+    assert [i.item_id for i in read_queue(rig.run_dir).items] == [SIGN_OFF, ITEM, OTHER]
     choose(rig.run_dir, "producer")
     assert escaped(lambda: again(rig, monkeypatch)) is None
     return rig
@@ -157,6 +156,10 @@ def test_a_superseded_items_pair_that_holds_at_the_retest_lists_nothing_and_comp
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = reopened(tmp_path, monkeypatch, mended=MENDED_FW)
+    # Nothing but drive's sign-off then holds the integration call; the person signs it.
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    assert state.sign_offs_open() == [DRIVE]
+    assert signed(rig, monkeypatch) == "done"
     rows = lines(rig)
     retests = of(rows, "contract_tested")[2:]
     assert [r["result"]["outcome"] for r in retests] == ["pass", "pass"]
@@ -307,7 +310,9 @@ def test_a_reopen_leaves_an_item_on_a_pair_without_the_reopened_module_open_and_
         writes={BUDGET: [low], FW: [BOTH_LOW]},
         declared=(BUDGET, DRIVE, FW),
     )
-    assert [i.item_id for i in read_queue(rig.run_dir).items] == [on_budget, on_fw, on_back]
+    # Drive's clean merge lists its sign-off item first, then the result it owes fails.
+    items = [i.item_id for i in read_queue(rig.run_dir).items]
+    assert items == [SIGN_OFF, on_budget, on_fw, on_back]
     choose(rig.run_dir, "producer", item_id=on_fw)
     assert escaped(lambda: again(rig, monkeypatch, declared=(BUDGET, DRIVE, FW))) is None
     rows = lines(rig)

@@ -3565,9 +3565,9 @@ class Loop:
         in a halted run, nor where a halt is owed: the halt comes first, and a resume after it.
         """
         state = self.state
-        if state.halted is None and not state.halt_owed() and state.sign_off_due is None:
-            if state.sign_off_after is not None:
-                self._raise_sign_offs()
+        unhalted = state.halted is None and not state.halt_owed()
+        if unhalted and state.sign_off_due is None and state.sign_off_after is not None:
+            self._raise_sign_offs()
 
     def _sign_off_refusal(self, check: ChangeCheck) -> ChangeCheck:
         """``check``, or the declaration's refusal where it names a module whose sign-off is owed.
