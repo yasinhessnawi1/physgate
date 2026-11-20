@@ -235,6 +235,19 @@ jobs:
           PHYSGATE_FULL_VOLUME: /mnt/pg-small
         run: uv run pytest -q -rs -m integration tests --ignore=tests/integration/hooks
 
+      - name: A tool server in a root withheld whole, in real bubblewrap
+        # Its wrapper must be run here, not skipped: the summary line must read exactly
+        # "8 passed", so a skip, an error or a deselect fails the step.
+        if: success() || failure()
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q -rA -m integration \
+            tests/integration/toolenv/test_a_tool_server_in_a_root_withheld_whole_reads_its_worktree_alone_inside_its_wrapper.py \
+            --junitxml="$RUNNER_TEMP/withheld-root-server.xml" | tee "$RUNNER_TEMP/withheld-root-server.txt"
+          grep -c '<skipped' "$RUNNER_TEMP/withheld-root-server.xml" && exit 1 || true
+          tail -n 1 "$RUNNER_TEMP/withheld-root-server.txt" | grep -Eq '^8 passed in [0-9.]+s'
+
       - name: The task author and the blind check on the real binary, in the evaluation environment
         # The runner holds every task to the control scorer, which only the evaluation group
         # installs, so the step above skips this file. Here it must run: a skip fails the step.

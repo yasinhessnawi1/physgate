@@ -57,8 +57,9 @@ NAMES = frozenset({LOGIN_FILE, KEY_FILE, KEY_HELPER})
 CREDENTIAL_VARIABLES = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
 DUMMY = "dummy-not-a-credential"
 #: What the fake starts in its own group as it stops (``writer``): it says its pid, then writes the
-#: login file again and again until it is killed. The fake ends only once the writer has said its
-#: pid, so the writer is running when the stop meets it, however loaded the machine.
+#: login file again and again until it is killed. The fake ends once the writer has said its pid,
+#: so the writer is running when the stop meets it, however loaded the machine; it waits at most
+#: a thousand short sleeps for that, after which the row fails on the missing pid.
 WRITER = """#!/bin/sh
 echo $$ > "$WRITER_PID"
 while :; do
@@ -74,10 +75,14 @@ os.rename(sys.argv[1] + ".part", sys.argv[1])
 time.sleep(600)' "$TOOL_PID" &
 while [ ! -s "$TOOL_PID" ]; do sleep 0.05; done
 login() { printf '%s' '{"dummy": "not-a-credential"}' > "$CLAUDE_CONFIG_DIR/.credentials.json"; }
+wait_for_writer() {
+  i=0
+  while [ ! -s "$WRITER_PID" ] && [ "$i" -lt 1000 ]; do sleep 0.01; i=$((i + 1)); done
+}
 case "$ON_TERM" in
   ignore) trap '' TERM ;;
   rewrite) trap 'login; exit 143' TERM ;;
-  writer) trap '"$WRITER" & while [ ! -s "$WRITER_PID" ]; do sleep 0.01; done; exit 143' TERM ;;
+  writer) trap '"$WRITER" & wait_for_writer; exit 143' TERM ;;
 esac
 login
 : > "$READY"
