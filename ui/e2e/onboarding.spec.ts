@@ -1130,6 +1130,12 @@ test.describe("a trigger other than a plain click makes the calls a click makes"
     await upTo(page, flow, 1);
     await expect(page.locator("#intro-film")).toHaveAttribute("src", "intro-poster.png");
     await expect(page.locator("#skip")).toHaveText("Continue");
+    // The still has loaded first, so a timer its loading starts is already set.
+    const loaded = (img: Element) => {
+      const still = img as HTMLImageElement;
+      return still.complete && still.naturalWidth > 0;
+    };
+    await expect.poll(() => page.locator("#intro-film").evaluate(loaded)).toBe(true);
     // Nothing moves on by itself: long past the film's length, the page is still the welcome.
     await page.clock.runFor(20_000);
     await settle();
