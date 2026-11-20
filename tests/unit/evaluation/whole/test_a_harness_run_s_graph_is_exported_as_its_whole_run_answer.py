@@ -700,6 +700,36 @@ def test_a_run_whose_integration_did_not_merge_is_unfinished_though_only_a_sign_
     assert not out.parent.exists() or list(out.parent.iterdir()) == []
 
 
+def test_a_run_that_records_decisions_and_halted_after_integration_merged_is_unfinished(
+    tmp_path: Path,
+) -> None:
+    # Integration merged and the control module owes only its sign-off, but the run then halted
+    # on an incident: it did not end escalated, and a person looks before anything is read off it.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    raw = (_RECORDED / "records_a_sign_off_owed_alone.jsonl").read_bytes()
+    last = json.loads(raw.splitlines()[-1])
+    envelope = {k: last[k] for k in ("run_id", "gate_mode")} | {"ts": last["ts"]}
+    incident = envelope | {
+        "seq": last["seq"] + 1,
+        "kind": "incident",
+        "subtask_id": None,
+        "cause": "foreign_journal_line",
+        "detail": "a journal line no merge wrote",
+    }
+    halted = envelope | {
+        "seq": last["seq"] + 2,
+        "kind": "halted",
+        "reason": "incident",
+        "detail": "foreign_journal_line",
+    }
+    extra = b"".join(json.dumps(line).encode() + b"\n" for line in (incident, halted))
+    (run / "events.jsonl").write_bytes(raw + extra)
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
+    assert record.sign_offs_owed == ()
+    assert not out.parent.exists() or list(out.parent.iterdir()) == []
+
+
 def test_a_run_that_records_decisions_and_has_not_ended_is_unfinished(tmp_path: Path) -> None:
     # The control module's only open precondition is its sign-off, but integration's own
     # attempt has not merged yet: the graph may hold a change no merge kept.
