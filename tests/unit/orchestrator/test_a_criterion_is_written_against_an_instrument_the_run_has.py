@@ -1,19 +1,22 @@
-"""Every decomposition prompt says a criterion is written against an instrument the run has.
+"""Every decomposition prompt says a criterion is written only against what the run can measure.
 
 A plan once gave firmware acceptance criteria measured "on the board" in a run with no board, so no
 session could produce the evidence and every attempt was rejected for it; plans of earlier runs had
 named a simulator on their own, which is planner variance, not a rule. The plan is written before a
 person says which parts they have, so the prompt takes no board as connected unless the brief says
-so: behaviour on the target is then checked in a simulator of its processor that the run's
-environment has, named in the criterion. The prompt names no simulator product, since it does not
-know which one is installed. The same plan gave firmware no value for its command timeout, its
+so. Without a board, behaviour on the target is checked in a simulator only where the run's
+environment provides one: the prompt promises none, since a run environment may give firmware a
+compiler and no simulator, and it names no product, since it does not know which is installed.
+Otherwise a criterion is written against what can be measured (that the code compiles, its size,
+static checks, tests of its logic on the host), and the specification says behaviour on the target
+is not measured in this run. The same plan gave firmware no value for its command timeout, its
 sensor-fault rule, its reset state, its limits or its bus timeout, so firmware could only end
 blocked; the prompt asks each specification to state every limit, timeout and fault behaviour its
 module must implement, with a value or the node that will carry it.
 
 Both sentences end the paragraph that says how one criterion is written, so a re-plan is told them
-too. The method of verification stays one of the four the review counts: a check in a simulator is
-a test, so the paragraph still names no fifth method.
+too. The method of verification stays one of the four the review counts: a check in a simulator,
+a build or a host test is a test, so the paragraph still names no fifth method.
 """
 
 from __future__ import annotations
@@ -35,16 +38,21 @@ from physgate.orchestrator.decompose import (
 )
 
 INSTRUMENT = (
-    "Write each criterion against an instrument the run's environment has: no board is connected "
-    "unless the brief says so, so behaviour on the target is otherwise checked in a simulator of "
-    "its processor that the run's environment has, named in the criterion."
+    "Write each criterion only against what the run's environment can measure. No board is "
+    "connected unless the brief says so; without one, behaviour on the target is checked in a "
+    "simulator only where the run's environment provides one, and otherwise the criterion is "
+    "written against what can be measured (that the code compiles, its size, static checks, tests "
+    "of its logic on the host) and the specification states that behaviour on the target is not "
+    "measured in this run."
 )
 STATED = (
     "Each module's specification states, with a value or the node that will carry it, every "
     "limit, timeout and fault behaviour the module must implement."
 )
 #: Products the prompt does not know are installed, so it names none of them.
-NOT_NAMED = ("simavr", "avr-gcc", "arduino-cli", "qemu", "renode")
+NOT_NAMED = ("simavr", "avr-gcc", "platformio", "arduino-cli", "qemu", "renode")
+#: Words that would promise the run's environment has a simulator.
+PROMISED = ("a simulator of its processor that", "simulator the run's environment has")
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +68,8 @@ def test_the_sentences_end_the_paragraph_on_a_criterion_s_form() -> None:
         assert words not in CRITERION_FORM_SENTENCE, words
     for product in NOT_NAMED:
         assert product not in CRITERION_FORM_SENTENCE.lower(), product
+    for words in PROMISED:
+        assert words not in CRITERION_FORM_SENTENCE, words
 
 
 @pytest.mark.parametrize("parts", [False, True], ids=["no parts", "parts"])

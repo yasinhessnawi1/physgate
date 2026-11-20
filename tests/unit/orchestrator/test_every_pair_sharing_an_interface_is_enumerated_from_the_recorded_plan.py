@@ -73,7 +73,7 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 #: how one acceptance criterion is written, before which: 7a17a3f1ead9... and e71b13d25dc6...;
 #: and since the same day the sentence saying which quantities go on an interface node, before
 #: which: 4f6211c3a74e... and 0923e7e6198b...; and since 20.11.2026 the sentence saying a
-#: criterion is written against an instrument the run's environment has and that each
+#: criterion is written only against what the run's environment can measure and that each
 #: specification states its limits, timeouts and fault behaviour, before which:
 #: 98ecf178fc9f... and 8fe35572c9e9.... Before the sentence on names with
 #: added words, at 470b3f34: 44f7ed176029...
@@ -82,9 +82,9 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "3e4373e4b48b04d6707c72d6e9b95dadf32bf28bad3f062b16ae671c3639eb2f"
+        "02021140dcf2dd1a0e631239da8b23b98828280740eab527be73a739e3d4547f"
     ),
-    BOTH: "75398732494ada516ea67ab6497436f8d7e0162e4f1db815ab3db1dcb8ae9e76",
+    BOTH: "f3717294a8ceee44adc48bcc1c0a973d458106c6ea0ad3e66a91f1c56a6616fb",
 }
 
 

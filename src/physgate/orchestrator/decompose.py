@@ -798,10 +798,13 @@ SOLUTION_SENTENCE = (
 #: written only against what the run can measure: a plan once asked firmware for timing "measured
 #: on the board" in a run with no board, so no session could ever meet it. The plan is written
 #: before a person says which parts they have, so no board is taken as connected unless the
-#: brief says so, and behaviour on the target is checked in a simulator the run's environment
-#: has, named in the criterion; no simulator is named here, since the prompt does not know which
-#: is installed. A plan that gave a module no value for its timeouts, limits or fault rules left
-#: that module nothing it could build to, so each is stated, as a value or the node carrying it.
+#: brief says so. A run environment may give firmware a compiler and no simulator, so the prompt
+#: promises none: a simulator is used only where the environment provides one, and otherwise a
+#: criterion is held to what can be measured (the build, its size, static checks, host tests),
+#: with behaviour on the target said to be unmeasured. No product is named here, since the prompt
+#: does not know which is installed. A plan that gave a module no value for its timeouts, limits
+#: or fault rules left that module nothing it could build to, so each is stated, as a value or
+#: the node carrying it.
 CRITERION_FORM_SENTENCE = (
     'Write each acceptance criterion as one statement of one thing, in the form "The <module> '
     'shall <verb> <what>, <threshold with its unit and tolerance>, verified by <method>.", '
@@ -811,11 +814,14 @@ CRITERION_FORM_SENTENCE = (
     "holds several figures or conditions (a value and its agreement with another quantity, a "
     "value and a rule for the rest of the module, two margins, a figure and a setting) becomes "
     "one criterion for each, so that each is met or unmet on its own. A goal is written with "
-    '"should", outside the acceptance criteria. Write each criterion against an instrument the '
-    "run's environment has: no board is connected unless the brief says so, so behaviour on the "
-    "target is otherwise checked in a simulator of its processor that the run's environment has, "
-    "named in the criterion. Each module's specification states, with a value or the node that "
-    "will carry it, every limit, timeout and fault behaviour the module must implement."
+    '"should", outside the acceptance criteria. Write each criterion only against what the '
+    "run's environment can measure. No board is connected unless the brief says so; without "
+    "one, behaviour on the target is checked in a simulator only where the run's environment "
+    "provides one, and otherwise the criterion is written against what can be measured (that "
+    "the code compiles, its size, static checks, tests of its logic on the host) and the "
+    "specification states that behaviour on the target is not measured in this run. Each "
+    "module's specification states, with a value or the node that will carry it, every limit, "
+    "timeout and fault behaviour the module must implement."
 )
 
 

@@ -65,8 +65,9 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: interface node only where another module's specification reads it, and is named in each
 #: reader's specification (test_an_interface_quantity_is_read_by_a_module_besides_its_producer);
 #: and, since 20.11.2026, the sentence ending the criterion paragraph saying a criterion is
-#: written against an instrument the run's environment has, a simulator where the brief connects
-#: no board, and that each specification states its limits, timeouts and fault behaviour
+#: written only against what the run's environment can measure (a simulator only where it
+#: provides one, where the brief connects no board), and that each specification states its
+#: limits, timeouts and fault behaviour
 #: (test_a_criterion_is_written_against_an_instrument_the_run_has).
 #: Before the instrument sentence: 11fc062c365c..., ccd58c178193... and 591a7d65fb70....
 #: Before that sentence: 6672229b67f4..., 6219833c8874... and b85194b2c03a....
@@ -79,14 +80,14 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: widening, since 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
 #: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
 PROMPT_SHA256 = {
-    ("control", "firmware"): "c69e8a9e9e72c5b253014ef3c9a33addf08edc17dbc6794b36f99e64e00d7450",
-    ("electrical",): "a8627776d48f14b3396cec460543c02543cc9531cc219133bce9e55ee18ab04f",
+    ("control", "firmware"): "5ad250714df63f68716e1e35bc776bfbb2e8588a4cb0f876fb1d55e12ac279c0",
+    ("electrical",): "5b92ffb708ee324bad1485199ca5bad97f8892d776ca32a565f8f704e84d01e9",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "98825678ceae0c6a88015cc48e9ace263abc34b7604a307f54c3e1159a6e61d2",
+    ): "cd26dec5624c7d59e13aac11be5fc95e471cf56a9c2f1bb08d6fb810273a091e",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -130,11 +131,14 @@ PROMPT = (
     "holds several figures or conditions (a value and its agreement with another quantity, a "
     "value and a rule for the rest of the module, two margins, a figure and a setting) becomes "
     "one criterion for each, so that each is met or unmet on its own. A goal is written with "
-    '"should", outside the acceptance criteria. Write each criterion against an instrument the '
-    "run's environment has: no board is connected unless the brief says so, so behaviour on the "
-    "target is otherwise checked in a simulator of its processor that the run's environment has, "
-    "named in the criterion. Each module's specification states, with a value or the node that "
-    "will carry it, every limit, timeout and fault behaviour the module must implement.\n\n"
+    '"should", outside the acceptance criteria. Write each criterion only against what the '
+    "run's environment can measure. No board is connected unless the brief says so; without "
+    "one, behaviour on the target is checked in a simulator only where the run's environment "
+    "provides one, and otherwise the criterion is written against what can be measured (that "
+    "the code compiles, its size, static checks, tests of its logic on the host) and the "
+    "specification states that behaviour on the target is not measured in this run. Each "
+    "module's specification states, with a value or the node that will carry it, every limit, "
+    "timeout and fault behaviour the module must implement.\n\n"
     # The catalogue's names, from the catalogue: a copy here would hold the test to a list the
     # catalogue no longer keeps. The digests above hold the bytes.
     f"{catalogue_sentence()}\n\n"
