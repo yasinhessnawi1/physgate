@@ -151,6 +151,11 @@ def decision_sentences(
         return None
     if consequence.on_approve == "release":
         approve = "Approving releases the hold, and the plan runs as it stands."
+    elif consequence.on_approve == "sign":
+        approve = (
+            "Approving signs the values this item shows, as shown: the module may then be "
+            "declared complete while they stand, and a later change to them is a new item."
+        )
     elif consequence.on_approve == "merge_attempt":
         sha = consequence.attempt_commit
         commit = "" if sha is None else f" (commit {sha[:12]})"

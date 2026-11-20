@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from physgate.contracts.clause import check_pair
 from physgate.contracts.graph import nodes_at
@@ -66,6 +66,7 @@ from physgate.orchestrator.events import (
     ArbitrationDecided,
     AttemptRejected,
     AttemptReturned,
+    BoundValue,
     CompletionDeclared,
     ContractItemRaised,
     ContractRuled,
@@ -108,6 +109,7 @@ from physgate.orchestrator.events import (
     PartsWriteIntended,
     PlanRejected,
     ProposalsChecked,
+    RaisedItem,
     RaisedPart,
     ReleasedPart,
     Resumed,
@@ -117,6 +119,7 @@ from physgate.orchestrator.events import (
     SessionEnded,
     SessionFinding,
     SessionSpawned,
+    SignOffsRaised,
     Stage,
     StageEntered,
     StatedPart,
@@ -227,6 +230,9 @@ from physgate.orchestrator.queue import (
     raised_again_id,
     read_queue,
     round_stream,
+    sign_off_consequence,
+    sign_off_item,
+    sign_off_item_id,
     stream_parts,
     unavailable_item,
     whole_lines,
@@ -250,6 +256,14 @@ from physgate.orchestrator.replay import (
     why_not_merged,
 )
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
+from physgate.orchestrator.sign_off import (
+    Bound,
+    bound_set,
+    quantities_of,
+    shown,
+    values_sha256,
+    values_text,
+)
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.orchestrator.usage_limit import (
     UsageLimit,
@@ -1113,6 +1127,7 @@ class Loop:
             "follow_up_ended",
             "hold",
             "release",
+            "sign_off",
         ):
             self._record_environment()
         while True:
@@ -1152,6 +1167,9 @@ class Loop:
                 continue
             if step.kind == "reopen":
                 self._reopen()
+                continue
+            if step.kind == "sign_off":
+                self._raise_sign_offs()
                 continue
             if step.kind in ("hold", "release"):
                 self._emit(owed_line(self.state, step.subtask_id or "", self._env()))
@@ -1351,7 +1369,11 @@ class Loop:
         No attempt is in progress here, so an incident names no subtask; its detail does.
         """
         contract = item.source == "contract"
-        whole = item.subtask_id == INTEGRATION or item.source in ("plan_review", "parts")
+        whole = item.subtask_id == INTEGRATION or item.source in (
+            "plan_review",
+            "parts",
+            "sign_off",
+        )
         subtask_id = None if whole or contract else item.subtask_id
         digest = view.digests.get(item.item_id)
         if digest is None:
@@ -1403,6 +1425,8 @@ class Loop:
             if item.source == "plan_review"
             else self.record.parts_item_of(item.item_id)
             if item.source == "parts"
+            else self._sign_off_item_of(item)
+            if item.source == "sign_off"
             else item
         )
         if resolution.verb is not None and rebuilt != item:
@@ -1419,6 +1443,14 @@ class Loop:
             sessions = [s for a in self.state.subtasks[subtask_id].attempts for s in a.ended]
             if not self._sealed_hold(sessions):
                 return False
+        # A signature binds the values its item shows over the streams it links: it is taken only
+        # while every one of them still holds its seal, as a merge is.
+        if (
+            taken.acts
+            and taken.effect == "sign"
+            and not self._sealed_hold(self._signed_sessions(item))
+        ):
+            return False
         # A release dispatches the plan the person approved on a view of the decomposition's
         # stream: it is taken only while that stream still holds the seal the review recorded,
         # as a merge is taken only over sealed streams.
@@ -3448,6 +3480,172 @@ class Loop:
             self.queue.add(self._contract_item_for(tested, item_id, ts=self.log.events[-1].ts))
         self._emit(ContractItemRaised(**self._env(), item_id=item_id))
 
+    # -- a person's standing sign-offs (ARCH-130) -----------------------------------------
+
+    def _latest_nodes(self) -> dict[str, tuple[int, dict[str, Any]]]:
+        """Each node's last journal line at the run's recorded head: its revision and payload."""
+        head = self.state.journal_head
+        latest: dict[str, tuple[int, dict[str, Any]]] = {}
+        for line in self._graph.records_after(0):
+            if line.rev <= head:
+                latest[line.node_id] = (line.rev, dict(line.payload))
+        return latest
+
+    def _raise_sign_offs(self) -> None:
+        """List each sign-off item the clean merge on the record owes, then write its line.
+
+        For each module, in plan order, whose role owes a person's sign-off and that merged
+        anything: an item when the merge was the module's own, or when what the module's sign-off
+        binds is not what its latest item bound (another node, another revision, other values).
+        Each item is listed before the line, once; a process killed between the two lists none
+        twice and writes the line it owed.
+        """
+        due = self.state.sign_off_due or self.state.sign_off_after
+        if due is None or self.state.sign_off_rules is None:
+            msg = "a sign-off step with no clean merge owing its line"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        merged, attempt = due
+        latest = self._latest_nodes()
+        cross = owners_of("cross_nodes")
+        listed = {item.item_id for item in self.queue.items()}
+        wrote = set(self.state.subtasks[merged].attempts[-1].applied)
+        raised: list[RaisedItem] = []
+        for module in self.state.owing_sign_off():
+            bound = bound_set(self.state, module, latest, cross)
+            digest = values_sha256(bound)
+            line = tuple(BoundValue(node_id=b.node_id, revision=b.revision) for b in bound)
+            earlier = self.state.sign_offs_of(module)
+            same = bool(earlier) and (earlier[-1].bound, earlier[-1].values_sha256) == (
+                line,
+                digest,
+            )
+            own = self.state.sign_off_owed(module, merged)
+            if same and not own:
+                continue
+            if not own and not wrote & {b.node_id for b in bound}:
+                # The values moved, and no write of this merge moved them: a journal line the
+                # record does not account for, which no person is asked to sign.
+                detail = (
+                    f"the values module {module}'s sign-off binds changed at the merge of "
+                    f"{merged} attempt {attempt}, which wrote none of them"
+                )
+                self._incident(None, "foreign_journal_line", detail)
+                return
+            round_ = len(earlier) + 1
+            item_id = sign_off_item_id(self.config.run_id, module, round_)
+            if item_id not in listed:
+                self.queue.add(
+                    self._sign_off_item_for(
+                        module, item_id, bound, digest, round_=round_, merged=due,
+                        ts=self.log.events[-1].ts,
+                    )
+                )  # fmt: skip
+            raised.append(
+                RaisedItem(item_id=item_id, module=module, values_sha256=digest, bound=line)
+            )
+        if raised:
+            self._emit(
+                SignOffsRaised(
+                    **self._env(), subtask_id=merged, attempt=attempt, raised=tuple(raised)
+                )
+            )
+
+    def _module_sessions(self, module: str, before: int | None = None) -> list[SessionEnded]:
+        """The sessions of the attempts merged in ``module``'s directory, before line ``before``."""
+        directory = self.state.subtasks[module].plan.module_dir
+        return [
+            attempt.session
+            for subtask_id in self.state.order
+            if self.state.subtasks[subtask_id].plan.module_dir == directory
+            for attempt in self.state.subtasks[subtask_id].attempts
+            if attempt.merged is not None
+            and (before is None or attempt.merged.seq < before)
+            and attempt.session is not None
+        ]
+
+    def _sign_off_item_for(
+        self,
+        module: str,
+        item_id: str,
+        bound: tuple[Bound, ...],
+        digest: str,
+        *,
+        round_: int,
+        merged: tuple[str, int],
+        ts: str,
+        before: int | None = None,
+    ) -> QueueItem:
+        """The item a module's sign-off is listed on, from the record and the graph.
+
+        The one builder, so the item a decision is taken on is held to it whole. Its links are the
+        streams of every attempt merged in the module's directory before its line.
+        """
+        rules = self.state.sign_off_rules
+        sub = self.state.subtasks[module]
+        rule = rules.rule_of(sub.plan.assigned_role) if rules is not None else None
+        if rule is None:
+            msg = "a sign-off item for a module whose role owes none"
+            raise RunStateError(msg, run_dir=str(self.run_dir), module=module)
+        sessions = self._module_sessions(module, before)
+        return sign_off_item(
+            item_id=item_id,
+            run_id=self.config.run_id,
+            module=module,
+            role=sub.plan.assigned_role,
+            signs=rule.signs,
+            merged=merged,
+            own=self.state.subtasks[merged[0]].plan.module_dir == sub.plan.module_dir,
+            values=values_text(bound, digest),
+            checks=rule.checks,
+            quantities=shown(rule, bound),
+            trajectories=tuple(s.trajectory for s in sessions if s.trajectory is not None),
+            round_=round_,
+            ts=ts,
+            consequence=sign_off_consequence() if self._acts() else None,
+        )
+
+    def _sign_off_item_of(self, item: QueueItem) -> QueueItem | None:
+        """The sign-off item the record and the graph build for ``item``'s id; ``None`` if none.
+
+        The values are read again from the journal at the revisions the item's line names, so a
+        line of the journal or the queue rewritten since the raise is no longer the item.
+        """
+        held = self.state.sign_off_lines.get(item.item_id)
+        if held is None:
+            return None
+        line, raised = held
+        wanted = {(value.node_id, value.revision) for value in raised.bound}
+        found = {
+            (one.node_id, one.rev): dict(one.payload)
+            for one in self._graph.records_after(0)
+            if (one.node_id, one.rev) in wanted
+        }
+        if set(found) != wanted:
+            return None
+        bound = tuple(
+            Bound(node_id=node, revision=rev, quantities=quantities_of(found[(node, rev)]))
+            for node, rev in sorted(wanted)
+        )
+        round_ = [i.item_id for i in self.state.sign_offs_of(raised.module)].index(item.item_id)
+        return self._sign_off_item_for(
+            raised.module,
+            item.item_id,
+            bound,
+            values_sha256(bound),
+            round_=round_ + 1,
+            merged=(line.subtask_id, line.attempt),
+            ts=item.ts,
+            before=line.seq,
+        )
+
+    def _signed_sessions(self, item: QueueItem) -> list[SessionEnded]:
+        """The sessions whose streams a sign-off item links, which a signature binds too."""
+        held = self.state.sign_off_lines.get(item.item_id)
+        if held is None:
+            return []
+        line, raised = held
+        return self._module_sessions(raised.module, line.seq)
+
     def _contract_item_for(self, tested: ContractTested, item_id: str, *, ts: str) -> QueueItem:
         """The item a failed contract lists, from the record as it stood at the result.
 
@@ -3798,6 +3996,10 @@ class Loop:
                     **self._env(), subtask_id=subtask_id, attempt=attempt, divergences=named
                 )
             )
+            if not named and self.state.sign_off_after is not None:
+                # The merge's sign-off items, straight after its clean diff: where the log alone
+                # owes one, a process killed before it writes it at its next step.
+                self._raise_sign_offs()
         else:
             # The graph still holds those writes, so it gives the cause; the check's own line,
             # the detail.

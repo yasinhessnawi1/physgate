@@ -70,6 +70,7 @@ from physgate.orchestrator.queue import (
     held_windows_of,
     parses,
     plan_consequence,
+    sign_off_consequence,
     within,
 )
 from physgate.orchestrator.repair import (
@@ -581,6 +582,8 @@ def _effect_of(
             return "merge", None
         if consequence.on_approve == "release":
             return "release", None
+        if consequence.on_approve == "sign":
+            return "sign", None
         return "none", _WHY_NOT[consequence.why_record_only or "legacy"]
     if consequence.on_reject == "record_only":
         return "none", "record_only_source"
@@ -614,6 +617,8 @@ def decision_effect(
         return _contract_effect(state, item, resolution, line_sha256=line_sha256, held=held)
     if item.source == "parts":
         return _parts_effect(item, resolution, line_sha256=line_sha256)
+    if item.source == "sign_off":
+        return _sign_off_effect(state, item, resolution, line_sha256=line_sha256, held=held)
     if item.source == "plan_review" and resolution.verb is None:
         msg = "a plan's item is decided by approve or reject, and this decision is neither"
         raise QueueItemMismatchError(msg, item=item.item_id)
@@ -749,6 +754,85 @@ def _contract_effect(
     return Taken(effect, acts=True, why_not=None, reopens=reopens)
 
 
+def _sign_off_effect(
+    state: RunState,
+    item: QueueItem,
+    resolution: QueueResolution,
+    *,
+    line_sha256: str,
+    held: bool,
+) -> Taken:
+    """What a decision on a sign-off item does: an approve signs its values, a reject records.
+
+    Taken only in a run that acts: one that records decisions takes none on it, so a recorded
+    decision never reads as a signature. A decision written while a session ran without the OS
+    layer is held until an operator confirms it, as every decision that closes an item is. One on
+    an item a later raise superseded records only: the values it shows are no longer the module's.
+
+    Raises:
+        QueueItemMismatchError: the run raised no such item, the item's line changed since it was
+            decided, it states another consequence than the record gives, or the decision is no
+            approve or reject.
+    """
+    if item.item_id not in state.sign_offs:
+        msg = "the run raised no such sign-off item"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    if resolution.verb not in ("approve", "reject") or resolution.shown_sha256 is None:
+        # The writer refuses this line; one that reaches the file anyway is refused here.
+        msg = "a sign-off item is decided by approve or reject, bound to the line shown"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    if resolution.shown_sha256 != line_sha256:
+        msg = "the item's line is not the one the decision was taken on"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    if item.consequence != sign_off_consequence():
+        msg = "the item says another consequence than the run's record gives"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    hold: WhyNot | None = "held_os_layer_off" if held else None
+    if item.item_id in state.superseded:
+        return Taken(effect="none", acts=False, why_not=hold or "superseded")
+    effect, why = _effect_of(sign_off_consequence(), resolution.verb)
+    if hold is not None or why is not None:
+        return Taken(effect=effect, acts=False, why_not=hold or why)
+    return Taken(effect=effect, acts=True, why_not=None)
+
+
+def _require_sign_off_taken(state: RunState, event: DecisionTaken) -> None:
+    """Refuse a decision on a sign-off item that this code could not have taken.
+
+    It is taken in a run that acts, names no subtask, attempt, commit or position, and is an
+    approve or a reject bound to the line shown. An approve signs; a reject records. One on an item
+    a later raise superseded records only, and one written while a session ran without the OS
+    layer is held until an operator confirms it.
+    """
+    named = (event.subtask_id, event.attempt, event.attempt_commit, event.reopens)
+    if not state.acts or named != (None, None, None, None) or event.order_too_long:
+        msg = (
+            "a decision on a sign-off item is taken in a run that acts, and names no subtask, "
+            "attempt, commit or reopen"
+        )
+        raise ValueError(msg)
+    if event.verb not in ("approve", "reject") or event.shown_sha256 is None:
+        msg = "a decision on a sign-off item is an approve or a reject, bound to the line shown"
+        raise ValueError(msg)
+    written_held = within(event.decision_offset, held_windows_of(state.windows))
+    if event.confirmed_by is None and (event.why_not == "held_os_layer_off") != written_held:
+        msg = (
+            "a decision on a sign-off item is held exactly where its line was written while a "
+            "session ran without the OS layer"
+        )
+        raise ValueError(msg)
+    effect, why = _effect_of(sign_off_consequence(), event.verb)
+    if event.item_id in state.superseded:
+        effect, why = "none", "superseded"
+    held = event.why_not == "held_os_layer_off" and event.confirmed_by is None
+    if event.effect != effect or (not held and (event.why_not, event.acts) != (why, why is None)):
+        msg = "a decision on a sign-off item that does other than the record allows"
+        raise ValueError(msg)
+    if held and event.acts:
+        msg = "a held decision on a sign-off item acts only once it is confirmed"
+        raise ValueError(msg)
+
+
 def _reopen_of(state: RunState, tested: ContractTested, position: Position | None) -> str | None:
     """The planning subtask choosing ``position`` reopens, if it reopens one."""
     choice = contract_choices(state, tested).get(position) if position is not None else None
@@ -798,6 +882,9 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
         return
     if event.item_id in state.parts_ids:
         _require_parts_taken(state, event)
+        return
+    if event.item_id in state.sign_offs:
+        _require_sign_off_taken(state, event)
         return
     if state.design_review is not None and event.item_id == state.design_review.held_item:
         _require_plan_taken(state, event)

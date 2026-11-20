@@ -112,6 +112,7 @@ QueueSource = Literal[
     "contract",
     "plan_review",
     "parts",
+    "sign_off",
 ]
 
 
@@ -123,8 +124,8 @@ class _Record(BaseModel):
 
 
 #: What approving an item does: merge the attempt it names, release the run its plan's review
-#: holds, or record the decision only.
-OnApprove = Literal["merge_attempt", "release", "record_only"]
+#: holds, sign the values a sign-off item shows (ARCH-130), or record the decision only.
+OnApprove = Literal["merge_attempt", "release", "sign", "record_only"]
 #: What rejecting an item does: start the next attempt from the note, order the one fix a
 #: blocked review gets, end the subtask, end the run its plan's review holds, or record only.
 OnReject = Literal["retry", "fix", "end_subtask", "end_run", "record_only"]
@@ -239,6 +240,9 @@ class ItemConsequence(BaseModel):
             self.attempt is None or self.attempt_commit is None
         ):
             msg = "an approve that merges names the attempt and the commit it merges"
+            raise ValueError(msg)
+        if self.on_approve == "sign" and (self.attempt, self.attempt_commit) != (None, None):
+            msg = "an approve that signs values is about no one attempt, and names none"
             raise ValueError(msg)
         return self
 
@@ -1275,6 +1279,104 @@ def parts_item(
     )
 
 
+#: What a sign-off item's id is made of beside the run and the module: upper case, which no
+#: subtask id starts with, so it never reads as an escalation's id.
+SIGN_OFF = "SIGNOFF"
+
+
+def sign_off_item_id(run_id: str, module: str, round_: int) -> str:
+    """A sign-off item's id: the run, the marker and the module, and from its second, the round.
+
+    ``module`` is the subtask that planned the module.
+
+    Raises:
+        QueueError: the round is not a positive number, or an id part is not a plain identifier.
+    """
+    if _ID_PART.fullmatch(module) is None:
+        msg = "an item id is made of plain identifiers"
+        raise QueueError(msg, part=module)
+    return item_id_for(run_id, f"{SIGN_OFF}-{module}", round_)
+
+
+def sign_off_consequence() -> ItemConsequence:
+    """What each verb does to a sign-off item: an approve signs its values, a reject records."""
+    return ItemConsequence(
+        attempt=None,
+        attempt_commit=None,
+        on_approve="sign",
+        on_reject="record_only",
+        why_record_only=None,
+        confirmed_indicators=(),
+        scan_hits=(),
+    )
+
+
+def sign_off_item(
+    *,
+    item_id: str,
+    run_id: str,
+    module: str,
+    role: str,
+    signs: str,
+    merged: tuple[str, int],
+    own: bool,
+    values: str,
+    checks: Sequence[str],
+    quantities: tuple[QuantityRef, ...],
+    trajectories: tuple[str, ...],
+    round_: int,
+    ts: str,
+    consequence: ItemConsequence | None,
+) -> QueueItem:
+    """The item a module whose role owes a person's sign-off is listed on, raised by code.
+
+    ``module`` is the subtask that planned it; ``merged`` the subtask and attempt whose merge
+    raised the item, the module's own (``own``) or one that changed the values it binds.
+    ``values`` is every bound value with its node, then their digest, as code renders them; the
+    approve binds them through the line's digest (ARCH-133). In a run that records decisions only
+    the item has no consequence, and says that a decision on it signs nothing.
+
+    Raises:
+        QueueError: no trajectory is linked.
+    """
+    if not trajectories:
+        msg = "a sign-off item links the module's merged work"
+        raise QueueError(msg, item=item_id)
+    again = f" again (round {round_})" if round_ > 1 else ""
+    owed = (
+        f"Module {module} of the {role} role owes a person's sign-off on its {signs}{again} "
+        "before it can be declared complete."
+    )
+    decide = (
+        " Approve to sign the values below as they stand: the module may then be declared "
+        "complete while they stand, and a later change to them asks again. Reject to record "
+        "that you do not sign them: the module stays not complete."
+        if consequence is not None
+        else " This run records decisions only: the module stays not complete, the run ends "
+        "with this item open, and a decision here is recorded and signs nothing."
+    )
+    subtask, attempt = merged
+    why = (
+        f"The module merged its subtask {subtask} at attempt {attempt}."
+        if own
+        else f"Subtask {subtask} merged at attempt {attempt} and changed values this sign-off "
+        "binds."
+    )
+    return QueueItem(
+        item_id=item_id,
+        ts=ts,
+        run_id=run_id,
+        subtask_id=module,
+        source="sign_off",
+        decision_required=owed + decide,
+        artefact_diff=values,
+        triggering_finding="\n".join([why, "What to check:", *checks]),
+        quantities=quantities,
+        trajectories=trajectories,
+        consequence=consequence,
+    )
+
+
 #: The subtask field of a failed contract's item: it is about a pair of modules, not one subtask.
 CONTRACT = "contract"
 
@@ -2305,6 +2407,13 @@ def _decide(dir_fd: int, run_dir: Path, record: QueueResolution, shown: ShownIte
         if record.verb is None and records.items[record.item_id].source == "plan_review":
             # Free text binds to nothing, and would close the one item the run is held on.
             msg = "a plan's item is decided by approve or reject, and free text is neither"
+            raise QueueError(msg, item=record.item_id)
+        if record.verb not in ("approve", "reject") and (
+            records.items[record.item_id].source == "sign_off"
+        ):
+            # Free text binds to nothing and a choice offers nothing, and either would close the
+            # item a module's completion waits on with no signature given.
+            msg = "a sign-off item is decided by approve or reject, and by nothing else"
             raise QueueError(msg, item=record.item_id)
         if record.verb != "choose" and records.items[record.item_id].source == "parts":
             # Neither verb, and no free text, says whether the part is had, made or found, and

@@ -6,7 +6,7 @@ loop dispatch today." A run is held to it at its start
 (:func:`require_registered`): decomposition before its one model call, and the run,
 its resume and the loop before anything is dispatched. Curated content and a
 reviewer's rubric existing for a role do not make it ready: the mechanical role, for
-one, owes a person's sign-off on its sizing, which nothing builds yet. A role is
+one, waits for the tools its sizing is done with. A role is
 added here when everything its dispatch needs is in place, and never before its
 always-loaded reading and its reviewer's promoted rubric exist; or for planning only, so a plan
 may name it while nothing dispatches it (:func:`dispatchable`): mechanical and electrical are

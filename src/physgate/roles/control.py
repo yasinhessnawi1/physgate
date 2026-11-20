@@ -1,9 +1,9 @@
 """Control (ARCH-050): plant model, controller, stability.
 
 First slice: automated, with a human sign-off on stability margin named by the
-architecture table — not yet a mechanism anything here builds (this role's
-first subtasks make no stability-margin claim; tracked for whichever later
-work adds the approval-queue path for it).
+architecture table (ARCH-130). The sign-off is owed by this role, as the rule table in
+``orchestrator/sign_off.py`` names it: code raises an approval-queue item at the merge, and
+the module is not complete until a person's approve of the values it shows acts.
 """
 
 from __future__ import annotations

@@ -824,8 +824,10 @@ Position = Literal["sizing", "domain", "producer", "consumer", "have", "make", "
 #: ends it with nothing dispatched.
 #: ``declare`` and ``find``: a choice on a part's item. The part is one the person has or makes,
 #: and what they stated of it is fixed; or it is sourced and sized as before.
+#: ``sign``: an approve of a sign-off item signs the values it shows (ARCH-130).
 DecisionEffect = Literal[
     "merge",
+    "sign",
     "retry",
     "fix",
     "end_subtask",
@@ -1592,6 +1594,65 @@ class ContractItemRaised(_Event):
     item_id: NonEmptyStr
 
 
+class BoundValue(BaseModel):
+    """One node a sign-off binds, at the revision of the journal that holds its values."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    node_id: NodeIdKey
+    revision: Annotated[int, Field(ge=1)]
+
+
+class RaisedItem(BaseModel):
+    """One sign-off item a merge raised: its id, its module, the values it shows and their nodes.
+
+    ``module`` is the subtask that planned the module. ``bound`` is every node whose values the
+    item shows, sorted by id, each at the journal revision it holds them at; ``values_sha256``
+    is the digest of those values, which an approve binds through the item line's digest.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    item_id: NonEmptyStr
+    module: NonEmptyStr
+    values_sha256: Sha256
+    bound: tuple[BoundValue, ...]
+
+    @model_validator(mode="after")
+    def _sorted_once(self) -> RaisedItem:
+        ids = [value.node_id for value in self.bound]
+        if ids != sorted(set(ids)):
+            msg = "a sign-off names each node it binds once, sorted by id"
+            raise ValueError(msg)
+        return self
+
+
+class SignOffsRaised(_Event):
+    """The sign-off items a clean merge raised, in a run whose first line names the rule table.
+
+    Written straight after the diff of a merge that found nothing, once its items are in the
+    queue: one item for each module whose role owes a person's sign-off (ARCH-130)
+    and that this merge was of, or whose bound values it changed. ``subtask_id`` and ``attempt``
+    are the merge's. A merge that raised none writes no line, so a run with no such module keeps
+    every line it had. Where the log alone says the merge owes an item (the module's own merge,
+    or a write to a node its latest item binds), the line is owed before anything else, and a
+    fresh process writes it after a kill.
+    """
+
+    kind: Literal["sign_offs_raised"] = "sign_offs_raised"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    raised: Annotated[tuple[RaisedItem, ...], Field(min_length=1)]
+
+    @model_validator(mode="after")
+    def _one_item_a_module(self) -> SignOffsRaised:
+        modules = [item.module for item in self.raised]
+        if len(set(modules)) != len(modules):
+            msg = "a merge raises one sign-off item a module at most"
+            raise ValueError(msg)
+        return self
+
+
 class ModuleCompleted(_Event):
     """A module of the plan recorded complete, which merged alone never says (ARCH-051).
 
@@ -1991,6 +2052,7 @@ Event = Annotated[
     | ArbitrationDecided
     | ContractRuled
     | ContractItemRaised
+    | SignOffsRaised
     | ModuleCompleted
     | EnvironmentRecorded
     | InstallChecked

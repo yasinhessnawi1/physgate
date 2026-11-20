@@ -22,15 +22,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.plan import QuantityName
+from physgate.orchestrator.protocols import QuantityRef
+
+if TYPE_CHECKING:
+    from physgate.orchestrator.replay import RunState
 
 #: What a module's sign-off is on: a control loop's stability margin, or a mechanical sizing.
 SignOffKind = Literal["stability_margin", "sizing"]
@@ -198,3 +202,119 @@ class RaisedSignOff:
     item_id: str
     module: str
     values_sha256: str
+
+
+# --- what a module's sign-off binds, and what its item shows --------------------------------
+
+
+@dataclass(frozen=True)
+class Bound:
+    """One node a sign-off binds: its id, the journal revision of its line, and its quantities."""
+
+    node_id: str
+    revision: int
+    quantities: Mapping[str, Mapping[str, Any]]
+
+
+def bound_set(
+    state: RunState,
+    module: str,
+    latest: Mapping[str, tuple[int, Mapping[str, Any]]],
+    cross_owners: Collection[str],
+) -> tuple[Bound, ...]:
+    """What a module's sign-off binds, sorted by node id: the values a person signs.
+
+    Three groups of nodes, each as ``latest`` holds it (node id to its last journal revision and
+    payload, the graph at the run's recorded head):
+
+    - every node last written by a subtask planned in the module's directory, the module's own
+      and any later pass over it;
+    - every cross node whose ``constrains`` name one of those nodes, so the shared quantities
+      sizing writes count when they bound the module;
+    - every interface the module reads in the run's contract pairs, from a module of a role in
+      ``cross_owners``, the roles that own the cross nodes.
+    """
+    directory = state.subtasks[module].plan.module_dir
+    own = {
+        node
+        for node, done in state.written.items()
+        if state.subtasks[done.subtask_id].plan.module_dir == directory
+    }
+    cross = {
+        node
+        for node, (_, payload) in latest.items()
+        if payload.get("domain") == "cross" and own & set(payload.get("constrains", ()))
+    }
+    consumed = {
+        interface
+        for pair in state.contract_pairs or ()
+        if pair.consumer.subtask_id == module and pair.producer.role in cross_owners
+        for interface in pair.interfaces
+    }
+    return tuple(
+        Bound(node_id=node, revision=latest[node][0], quantities=quantities_of(latest[node][1]))
+        for node in sorted((own | cross | consumed) & set(latest))
+    )
+
+
+def quantities_of(payload: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """A node's quantities by name, each as its value and its unit: what a person signs."""
+    held = payload.get("quantities") or {}
+    return {
+        name: {"value": quantity["value"], "unit": quantity["unit"]}
+        for name, quantity in sorted(held.items())
+    }
+
+
+def values_sha256(bound: Sequence[Bound]) -> str:
+    """The digest of the values a sign-off binds: sha256 of their canonical JSON, by node."""
+    values = [{"node_id": b.node_id, "quantities": dict(b.quantities)} for b in bound]
+    canonical = json.dumps(values, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def shown(rule: SignOffRule, bound: Sequence[Bound]) -> tuple[QuantityRef, ...]:
+    """The quantities an item shows: the first three bound, in the row's order of names.
+
+    For each name in the row's order, every bound node that holds a quantity of that name, by node
+    id, in a unit the gate's parser takes.
+    """
+    from physgate.orchestrator.queue import parses
+
+    found: list[QuantityRef] = []
+    for name in rule.shown:
+        for b in bound:
+            held = b.quantities.get(name)
+            if held is None or isinstance(held["value"], bool):
+                continue
+            ref = QuantityRef(node_id=b.node_id, name=name, value=held["value"], unit=held["unit"])
+            if parses(ref):
+                found.append(ref)
+    return tuple(found[:SHOWN])
+
+
+def values_text(bound: Sequence[Bound], digest: str) -> str:
+    """Every value a sign-off binds, with its node and revision, then their digest, as an item says.
+
+    Each part held to its form: a quantity's name where the dispute path's pattern takes it, its
+    value and unit as the gate renders a measure; never a quantity's free-text provenance.
+    """
+    from physgate.orchestrator import integration_state as render
+    from physgate.orchestrator.repair import _quantity_name
+
+    lines = []
+    for b in bound:
+        held = "; ".join(
+            f"{render.q(name) if _quantity_name(name) else 'a quantity with a refused name'} = "
+            f"{render.measure(q['value'], q['unit'])}"
+            for name, q in b.quantities.items()
+        )
+        lines.append(
+            f"Node {render.held(b.node_id)} (revision {b.revision}): {held or 'no quantity'}."
+        )
+    if not lines:
+        lines.append("The module wrote no values, and no value of sizing's bounds it.")
+    return "\n".join(
+        ["The values this sign-off binds, as the design graph holds them:", *lines,
+         f"Their digest: {digest}."]
+    )  # fmt: skip

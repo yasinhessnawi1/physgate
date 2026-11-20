@@ -107,6 +107,7 @@ from physgate.orchestrator.events import (
     PlanProposed,
     PlanRejected,
     ProposalsChecked,
+    RaisedItem,
     Resumed,
     ReviewRan,
     ReviewSkipped,
@@ -114,6 +115,7 @@ from physgate.orchestrator.events import (
     RunStarted,
     SessionEnded,
     SessionSpawned,
+    SignOffsRaised,
     Stage,
     StageEntered,
     StatedPart,
@@ -169,6 +171,7 @@ from physgate.orchestrator.queue import (
     parts_item_id,
     parts_sha256,
     raised_again_id,
+    sign_off_item_id,
 )
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
@@ -329,6 +332,7 @@ class Step:
         "follow_up_ended",
         "hold",
         "release",
+        "sign_off",
         "done",
     ]
     subtask_id: str | None = None
@@ -510,7 +514,8 @@ class RunState:
         #: each contract item was raised for, by item id.
         self.contract_rulings: dict[int, list[ContractRuled]] = {}
         self.contract_items: dict[str, ContractTested] = {}
-        #: Each contract item a reopen superseded, by id: the item whose decision reopened it.
+        #: Each contract item a reopen superseded, by id: the item whose decision reopened it; and
+        #: each sign-off item a later one about its module superseded undecided, by that one's id.
         self.superseded: dict[str, str] = {}
         #: The system requirements the plan allocates to integration, and the brief's own words for
         #: each one given by number, as the decomposition's line records them.
@@ -554,6 +559,13 @@ class RunState:
         #: The sign-off items whose approve acts, in the order each came to act: taken acting, or
         #: held and since confirmed.
         self.signed: list[str] = []
+        #: The clean merge whose sign-off line is owed next, by subtask and attempt, in a run whose
+        #: first line names the rule table, where the log alone says it owes one; the clean merge
+        #: whose diff is the last line, after which a sign-off line may come where the graph says
+        #: one is owed; and each sign-off item's line and its place in it.
+        self.sign_off_due: tuple[str, int] | None = None
+        self.sign_off_after: tuple[str, int] | None = None
+        self.sign_off_lines: dict[str, tuple[SignOffsRaised, RaisedItem]] = {}
 
     # -- following the log -------------------------------------------------------
 
@@ -711,6 +723,12 @@ class RunState:
             return
         if self.pending_reopen is not None and not isinstance(event, Resumed | Incident):
             _refuse("nothing comes between a decision that reopens a subtask and its reopen")
+        if isinstance(event, SignOffsRaised):
+            self._signed_off(event)
+            return
+        if self.sign_off_due is not None and not isinstance(event, Resumed | Incident):
+            _refuse("nothing comes between a clean merge and the line of the sign-offs it raised")
+        self.sign_off_after = None
         if isinstance(event, ContractRuled):
             self._ruled(event)
             return
@@ -971,6 +989,14 @@ class RunState:
                 sub.status = "done"
                 self.merged_at[sub.plan.module_dir] = event.seq
                 self.merged_by[sub.plan.module_dir] = sub.plan.subtask_id
+                if self.sign_off_rules is not None:
+                    merge = (sub.plan.subtask_id, now.number)
+                    self.sign_off_after = merge
+                    if any(
+                        self.sign_off_owed(module, sub.plan.subtask_id)
+                        for module in self.owing_sign_off()
+                    ):
+                        self.sign_off_due = merge
         elif isinstance(event, FollowUpEnded):
             ended = following_up(sub) and self._ended_without_merge(now)
             self._expect(ended and event.why == why_not_merged(now), "a follow-up's end")
@@ -1908,6 +1934,90 @@ class RunState:
             return value.revision == written.revision
         return 1 <= value.revision <= self.base_revision
 
+    def owing_sign_off(self) -> list[str]:
+        """The modules, in plan order, whose role owes a sign-off and that merged anything."""
+        rules = self.sign_off_rules
+        if rules is None:
+            return []
+        return [
+            module
+            for module in self.modules()
+            if rules.rule_of(self.subtasks[module].plan.assigned_role) is not None
+            and self.subtasks[module].plan.module_dir in self.merged_at
+        ]
+
+    def sign_offs_of(self, module: str) -> list[RaisedItem]:
+        """The sign-off items raised about ``module``, oldest first."""
+        return [item for _, item in self.sign_off_lines.values() if item.module == module]
+
+    def sign_off_owed(self, module: str, merged: str) -> bool:
+        """Whether the clean merge of ``merged`` owes ``module`` a sign-off item, as the log says.
+
+        Owed where the merge was in the module's own directory, or wrote a node the module's
+        latest item binds. A merge can also bind new nodes to it (a cross node it wrote that now
+        constrains the module's): the loop raises then too, from the graph, and the line names
+        that node, which explains it (:meth:`_signed_off`).
+        """
+        sub = self.subtasks[merged]
+        if sub.plan.module_dir == self.subtasks[module].plan.module_dir:
+            return True
+        earlier = self.sign_offs_of(module)
+        bound = {value.node_id for value in earlier[-1].bound} if earlier else set()
+        return bool(bound & set(sub.attempts[-1].applied))
+
+    def _bound_revision(self, node_id: str, revision: int) -> bool:
+        """A bound node's revision is the log's: its last recorded write, or the opening's."""
+        written = self.written.get(node_id)
+        if written is not None:
+            return revision == written.revision
+        landed = [rev for node, _, rev in self.parts_landed if node == node_id]
+        if landed:
+            return revision == landed[-1]
+        return 1 <= revision <= self.base_revision
+
+    def _signed_off(self, event: SignOffsRaised) -> None:
+        """Take a clean merge's sign-off line: each item the log owes, and none it cannot explain.
+
+        In plan order, one a module. An item is about a module whose role owes a sign-off and that
+        merged anything; it is owed, or the merge wrote a node it binds; it takes the module's next
+        id; and each node it binds is at the revision the log gives. Every item the log owes is
+        on the line. A module's earlier item that no decision closed is superseded by its new one.
+        """
+        merge = (event.subtask_id, event.attempt)
+        if merge not in (self.sign_off_due, self.sign_off_after):
+            _refuse("a sign-off line follows the clean merge it is about, once")
+        owing = self.owing_sign_off()
+        wrote = set(self.subtasks[event.subtask_id].attempts[-1].applied)
+        modules = [item.module for item in event.raised]
+        if modules != [m for m in owing if m in modules]:
+            _refuse("a sign-off line names modules whose role owes one and that merged, in order")
+        for item in event.raised:
+            named = {value.node_id for value in item.bound}
+            if not (self.sign_off_owed(item.module, event.subtask_id) or wrote & named):
+                _refuse(f"a sign-off item for {item.module!r} that no write of the merge explains")
+            if not all(self._bound_revision(v.node_id, v.revision) for v in item.bound):
+                _refuse("a sign-off item binds a node at a revision the log does not give")
+            if item.item_id != self._sign_off_id(event.run_id, item.module):
+                _refuse(f"a sign-off item with another id than {item.module!r}'s next")
+        missing = [m for m in owing if m not in modules and self.sign_off_owed(m, event.subtask_id)]
+        if missing:
+            _refuse(f"a merge that owed a sign-off item raised none for {', '.join(missing)}")
+        for item in event.raised:
+            earlier = self.sign_offs_of(item.module)
+            if earlier and self.undecided(earlier[-1].item_id):
+                self.superseded[earlier[-1].item_id] = item.item_id
+            self.sign_off_lines[item.item_id] = (event, item)
+            self.sign_offs[item.item_id] = RaisedSignOff(
+                item_id=item.item_id, module=item.module, values_sha256=item.values_sha256
+            )
+        self.sign_off_due = self.sign_off_after = None
+
+    def _sign_off_id(self, run_id: str, module: str) -> str:
+        try:
+            return sign_off_item_id(run_id, module, len(self.sign_offs_of(module)) + 1)
+        except QueueError as exc:
+            _refuse(str(exc))
+
     def _raised(self, event: ContractItemRaised) -> None:
         """Take a contract item: the one the record owes, with the pair's next id."""
         owed = self.owed_item()
@@ -2058,6 +2168,8 @@ class RunState:
             self.confirmed.add(event.item_id)
         else:
             self.taken[event.item_id] = event
+        if event.acts and event.effect == "sign":
+            self.signed.append(event.item_id)
         if event.acts and event.effect == "reopen":
             self.pending_reopen = event
             return
@@ -2593,6 +2705,9 @@ class RunState:
             return Step(kind="halt")
         if self.halted is not None:
             return Step(kind="halted")
+        if self.sign_off_due is not None:
+            subtask_id, attempt = self.sign_off_due
+            return Step(kind="sign_off", subtask_id=subtask_id, attempt=attempt)
         if self.plan_hold() is not None:
             # A run that records only leaves the item open, and ends escalated.
             return Step(kind="wait") if self.acts else Step(kind="escalated")
