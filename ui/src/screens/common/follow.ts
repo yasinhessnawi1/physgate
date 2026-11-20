@@ -47,17 +47,27 @@ export function useFollowedLog(
   const [shown, setShown] = useState<Shown | null>(null);
   // The lines held, by the path they were read from and the read-again count they belong to.
   const held = useRef<{ path: string; n: number; followed: Followed | null } | null>(null);
+  // Whether the run was going when the effect last ran, so the turn to not going is seen.
+  const wasGoing = useRef(going);
 
   useEffect(() => {
     if (path === null) return;
     let live = true;
     let asking = false;
+    // Every read this effect asks is stopped when it ends, not only left to answer unheard.
+    const stopReads = new AbortController();
+    const stopping = wasGoing.current && !going;
+    wasGoing.current = going;
     const fresh = held.current?.path !== path || held.current.n !== n;
     if (fresh) held.current = { path, n, followed: null };
     // A read on a tick is given up before the next tick is due, so reads never pile up.
-    const onTick: ReadOptions = { timeoutMs: Math.max(everyMs - 1_000, 1_000) };
+    const onTick: ReadOptions = {
+      timeoutMs: Math.max(everyMs - 1_000, 1_000),
+      signal: stopReads.signal,
+    };
+    const once: ReadOptions = { timeoutMs: FIRST_READ_MS, signal: stopReads.signal };
 
-    const read = (options: ReadOptions = {}) => {
+    const read = (options: ReadOptions) => {
       if (asking) return;
       asking = true;
       const followed = held.current?.followed ?? null;
@@ -111,18 +121,17 @@ export function useFollowedLog(
     };
 
     // The first read of a path is made at once; after it, only a going run's shown page asks,
-    // on the interval and when it is shown again.
-    if (fresh) read();
-    if (!going) {
-      return () => {
-        live = false;
-      };
-    }
-    const stop = whileShown(() => {
-      read(onTick);
-    }, everyMs);
+    // on the interval and when it is shown again. When the run stops going, its log is read
+    // once more, so the lines it wrote after the last tick are shown without a reload.
+    if (fresh || stopping) read(once);
+    const stop = going
+      ? whileShown(() => {
+          read(onTick);
+        }, everyMs)
+      : () => undefined;
     return () => {
       live = false;
+      stopReads.abort();
       stop();
     };
   }, [path, n, going, everyMs]);

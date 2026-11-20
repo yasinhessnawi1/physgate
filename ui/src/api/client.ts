@@ -26,24 +26,31 @@ function refusalOf(status: number, body: unknown): Refusal {
   return { status, error, context };
 }
 
-async function request(path: string, timeoutMs?: number): Promise<Result<string>> {
-  if (timeoutMs === undefined) return answered(path, undefined);
-  // The whole read, the answer's body included, is given up once the time has passed.
+async function request(path: string, options: ReadOptions = {}): Promise<Result<string>> {
+  const { timeoutMs, signal } = options;
+  if (timeoutMs === undefined && signal === undefined) return answered(path, undefined);
+  // The whole read, the answer's body included, is given up once the time has passed, or when
+  // the caller stops it.
   const stop = new AbortController();
-  const timer = setTimeout(() => {
+  const stopped = () => {
     stop.abort();
-  }, timeoutMs);
+  };
+  signal?.addEventListener("abort", stopped);
+  if (signal?.aborted === true) stop.abort();
+  const timer = timeoutMs === undefined ? undefined : setTimeout(stopped, timeoutMs);
   try {
     return await answered(path, stop.signal);
   } catch (error) {
     if (!stop.signal.aborted) throw error;
-    const seconds = String(Math.round(timeoutMs / 1000));
-    return {
-      ok: false,
-      refusal: { status: 0, error: `the server did not answer within ${seconds} s`, context: {} },
-    };
+    // Stopped by the caller, or else by the time passing.
+    const why =
+      signal?.aborted === true || timeoutMs === undefined
+        ? "the read was stopped"
+        : `the server did not answer within ${String(Math.round(timeoutMs / 1000))} s`;
+    return { ok: false, refusal: { status: 0, error: why, context: {} } };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", stopped);
   }
 }
 
@@ -77,6 +84,8 @@ function guarded<T>(text: string, guard: (value: unknown) => T): Result<T> {
 export interface ReadOptions {
   /** Give the read up, as a refusal, when the server has not answered within this many ms. */
   readonly timeoutMs?: number;
+  /** Stop the read, as a refusal, when this signal is aborted (a page that left the record). */
+  readonly signal?: AbortSignal;
 }
 
 /** One JSON document, held to ``guard``. */
@@ -85,7 +94,7 @@ export async function getJson<T>(
   guard: (value: unknown) => T,
   options: ReadOptions = {},
 ): Promise<Result<T>> {
-  const answer = await request(path, options.timeoutMs);
+  const answer = await request(path, options);
   return answer.ok ? guarded(answer.value, guard) : answer;
 }
 
@@ -95,7 +104,7 @@ export async function getLines<T>(
   guard: (value: unknown) => T,
   options: ReadOptions = {},
 ): Promise<Result<readonly T[]>> {
-  const answer = await request(path, options.timeoutMs);
+  const answer = await request(path, options);
   if (!answer.ok) return answer;
   const lines = answer.value.split("\n").filter((line) => line !== "");
   return guarded(`[${lines.join(",")}]`, (value) => {
