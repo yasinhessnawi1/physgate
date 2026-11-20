@@ -30,7 +30,10 @@ a test that runs the wrapper for real:
   denied places, writes only into the server's own directory.
 - **macOS:** any place's metadata (its name, size and times) and the root's own listing stay
   readable, which looking a path up needs. The content of a denied or unlisted file it can
-  stat is not, nor the listing of any directory outside the list.
+  stat is not, nor the listing of any directory outside the list. Inside a root withheld whole
+  around the session's worktree not even the metadata is: there a server learns nothing of any
+  place but the worktree's own, not whether it is there (its ancestors' metadata is denied too;
+  reaching the worktree needs none of it).
 """
 
 from __future__ import annotations
@@ -285,6 +288,12 @@ def _refuse_roots_inside_denials(
                 raise ContainmentError(msg)
 
 
+#: What Seatbelt names apart from a read of contents: a place's name, size, mode and times, whether
+#: it is there at all, and its extended attributes. Denied by name inside a root withheld whole,
+#: where a rule naming every read would not outrank the metadata allowed everywhere.
+UNSEEN = "file-read-metadata file-test-existence file-read-xattr"
+
+
 #: What a server reads on macOS beyond its own roots: the system's libraries, frameworks and
 #: programs (the loader's shared cache lies beneath ``/System``), and the clock's database.
 MACOS_SYSTEM = (
@@ -390,14 +399,20 @@ def seatbelt_profile(
         spelt = " ".join(f"(subpath {_quoted(p)})" for p in _spellings(path))
         lines.append(f"(deny file-read* {spelt})")
     if opened is not None and excepted is not None:
+        # Nothing of the root withheld whole is looked up either: Seatbelt lets a rule naming an
+        # operation outrank one naming every read, so the metadata allowed everywhere above is
+        # denied there by name. Reaching the worktree needs none of its ancestors' (measured).
+        for root in sorted(withheld):
+            spelt = " ".join(f"(subpath {_quoted(p)})" for p in _spellings(root))
+            lines.append(f"(deny {UNSEEN} {spelt})")
         # The worktree alone, read again inside the root withheld around it; then each denial
         # inside it, denied again, as the session's own policy leaves them denied there.
         spelt = " ".join(f"(subpath {_quoted(p)})" for p in _spellings(excepted))
-        lines.append(f"(allow file-read* {spelt})")
+        lines.append(f"(allow file-read* {UNSEEN} {spelt})")
         for path in sorted(read_denied):
             if _within(os.path.realpath(path), opened):
                 spelt = " ".join(f"(subpath {_quoted(p)})" for p in _spellings(path))
-                lines.append(f"(deny file-read* {spelt})")
+                lines.append(f"(deny file-read* {UNSEEN} {spelt})")
     if devices:
         # No device lies in the server's own directory, so the opening after it reopens none.
         named = " ".join(f'(regex #"{_device_regex(d)}")' for d in devices)

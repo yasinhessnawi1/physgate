@@ -370,3 +370,33 @@ def test_a_session_in_a_root_withheld_whole_without_its_exception_offers_no_serv
     monkeypatch.setattr(containment, "withheld_around_worktree", lambda _c: frozenset())
     with pytest.raises(ContainmentError, match="lies inside"):
         _contain(rig, platform, config)
+
+
+def test_the_macos_profile_denies_the_root_s_metadata_by_name_and_reopens_the_worktree_s(
+    rig: Path,
+) -> None:
+    """A rule naming every read does not outrank the metadata allowed everywhere: named here."""
+    lines = _profile(rig)
+    work, wt = str(rig / "work"), _worktree(rig)
+    corpora = os.path.join(wt, "corpora")
+    ops = ("file-read-metadata", "file-test-existence", "file-read-xattr")
+    everywhere = lines.index("(allow file-read-metadata)")
+    root = [
+        i
+        for i, line in enumerate(lines)
+        if line.startswith("(deny ") and work in _subpaths(line) and all(op in line for op in ops)
+    ]
+    opened = [
+        i
+        for i, line in enumerate(lines)
+        if line.startswith("(allow ") and wt in _subpaths(line) and all(op in line for op in ops)
+    ]
+    again = [
+        i
+        for i, line in enumerate(lines)
+        if line.startswith("(deny ")
+        and corpora in _subpaths(line)
+        and all(op in line for op in ops)
+    ]
+    assert root and opened and again, lines
+    assert everywhere < root[0] < opened[0] < again[0], lines
