@@ -165,7 +165,8 @@ def test_the_item_shows_the_row_s_names_first_every_bound_value_and_their_digest
         assert said in item.artefact_diff
     assert item.artefact_diff.endswith(f"Their digest: {raised.values_sha256}.")
     assert "measured on the loop that runs" in item.triggering_finding
-    assert item.trajectories and all("sess-" in t for t in item.trajectories)
+    # Each stream by the run's own name for it, never by the path it had on the machine.
+    assert item.trajectories == ("sessions/sess-2/stdout.jsonl",)
     words = decision_sentences(item)
     assert words is not None
     assert words["approve"].startswith("Approving signs the values this item shows")

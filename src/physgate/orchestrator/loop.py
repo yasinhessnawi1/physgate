@@ -3598,7 +3598,11 @@ class Loop:
             values=values_text(bound, digest),
             checks=rule.checks,
             quantities=shown(rule, bound),
-            trajectories=tuple(s.trajectory for s in sessions if s.trajectory is not None),
+            # By the run's own names for each stream, never the path it had on the machine: a
+            # record of the run reads the same wherever the run directory is.
+            trajectories=tuple(
+                "/".join(stream_parts(s.session_id)) for s in sessions if s.trajectory is not None
+            ),
             round_=round_,
             ts=ts,
             consequence=sign_off_consequence() if self._acts() else None,
