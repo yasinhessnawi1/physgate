@@ -583,8 +583,8 @@ class _Tally:
     spent: int = 0
     spent_not_in_binary_totals: int = 0
 
-    def counts(self) -> TierCounts:
-        return TierCounts(**vars(self))
+    def counts(self, **coverage: Any) -> TierCounts:  # noqa: ANN401
+        return TierCounts(**vars(self), **coverage)
 
 
 def _working(root: Path, name: str, work: Path) -> Path:
@@ -779,12 +779,14 @@ def run_baseline(
             tally.unscored += 1
     assert pins is not None  # the run set holds at least one trial
     external_set = source if isinstance(source, ExternalSetRecord) else None
+    # The record the plan held each flagged digest to one held-out task with.
+    check = None if isinstance(source, ExternalSetRecord) else _check_of(store, role, source)
     tiers = (
         None
-        if isinstance(source, ExternalSetRecord)
-        # The record the plan held each flagged digest to one held-out task with.
-        else tiers_record(source, said(left_out(_check_of(store, role, source))))
+        if isinstance(source, ExternalSetRecord) or check is None
+        else tiers_record(source, said(left_out(check)))
     )
+    flagged = 0 if check is None else len(check.flagged)
     baseline = BaselineRecord(
         format=1,
         id=round_id,
@@ -795,7 +797,10 @@ def run_baseline(
         pin_set_sha256=pin_set_sha256(pins),
         development=development,
         harness_runs=len({p.entry.run_dir for p in planned}),
-        counts={tier: tallies[tier].counts() for tier in counted},
+        counts={
+            tier: tallies[tier].counts(**_coverage(source, planned, tier, flagged))
+            for tier in counted
+        },
     )
     if external_set is not None:
         write_new(out / EXTERNAL_RECORD, record_bytes(external_set))
@@ -803,6 +808,22 @@ def run_baseline(
         write_new(out / TIERS_RECORD, record_bytes(tiers))
     write_new(out / BASELINE_RECORD, record_bytes(baseline))
     return baseline
+
+
+def _coverage(
+    source: TierSet | ExternalSetRecord, planned: list[Planned], tier: SourceTier, flagged: int
+) -> dict[str, Any]:
+    """How many of ``tier``'s tasks the round ran, of how many, and whether that is all of them.
+
+    Of a version's held-out tier, the ``flagged`` tasks its check flagged are in neither count:
+    the plan ran none of them, and no figure counts them.
+    """
+    if isinstance(source, ExternalSetRecord):
+        of = source.tasks
+    else:
+        of = getattr(source, tier).count - (flagged if tier == "held_out" else 0)
+    covered = len({trial.task.id for trial in planned if trial.tier == tier})
+    return {"covered": covered, "of": of, "whole": covered == of}
 
 
 def _one_trial(
