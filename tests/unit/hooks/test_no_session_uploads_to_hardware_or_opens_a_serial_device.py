@@ -579,6 +579,8 @@ SIMULATED = [
     "cd modules/firmware && avrsim run --elf f.elf --scenario s.json --out t.jsonl | tail -1",
     "/opt/env/avrsim/bin/avrsim run --elf f.elf --scenario s.json --out t.jsonl",
     "timeout 300 avrsim run --elf f.elf --scenario upload.json --out t.jsonl",
+    # The build directory as the session's wiring names it, a word only running decides.
+    'avrsim run --elf "$PLATFORMIO_BUILD_DIR/balboa/firmware.elf" --scenario s.json --out t.jsonl',
 ]
 SIMULATED_UPLOADS = [
     "avrsim run --elf f.elf --scenario s.json --out t.jsonl && pio run -t upload",
