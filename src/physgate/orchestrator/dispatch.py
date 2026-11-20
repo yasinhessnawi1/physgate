@@ -99,6 +99,7 @@ from physgate.orchestrator.held_records import second_names
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.integration_state import STATE_NAME
 from physgate.orchestrator.invocation import (
+    NO_TOOL_SERVERS,
     TRAFFIC_ALLOWED_VERSIONS,
     isolated_env,
     role_argv,
@@ -143,6 +144,15 @@ from physgate.orchestrator.session_files import (
     read_bounded,
 )
 from physgate.orchestrator.stop_signals import track
+from physgate.orchestrator.tool_environment import (
+    changed_while_running,
+    forbidden_places,
+    hold_before_session,
+    sealing_environment,
+    series_environment,
+    session_environment,
+    wire_session,
+)
 from physgate.orchestrator.trajectory import (
     Seal,
     forged_tail,
@@ -153,6 +163,12 @@ from physgate.orchestrator.trajectory import (
 from physgate.orchestrator.usage_limit import account_windows, session_end
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
+from physgate.oslayer.containment import (
+    ContainmentError,
+    ServerLaunch,
+    contained_servers,
+    wrappers,
+)
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
@@ -1591,6 +1607,7 @@ class ClaudeDispatcher:
         credential: Credential,
         review_root: Path,
         quarantine: tuple[str, str, str] | None = None,
+        tool_servers: tuple[ServerLaunch, ...] = (),
     ) -> None:
         """Dispatch attempts of ``run`` with the hooks from ``install_bin``'s installation.
 
@@ -1600,6 +1617,9 @@ class ClaudeDispatcher:
         #: (session id, who, why): the operator's command-line request to set one leftover's
         #: gone stream aside at this resume. Never read from a file a session can write.
         self._quarantine = quarantine
+        #: The tool servers each role session is offered, each in its wrapper; none without the
+        #: OS layer, which is what contains them.
+        self._tool_servers = tool_servers
         self._config = config
         self._run = run
         self._store_root = store_root
@@ -1611,6 +1631,9 @@ class ClaudeDispatcher:
         self._review_root = review_root_path(review_root)
         self._facts: InstallFacts | None = None
         self._os_layer: Present | Absent | None = None
+        #: The scan of the run's tool environment every session is held to, taken around the
+        #: full measure this process made before its first session; ``None`` until then.
+        self._tool_environment_scan: str | None = None
         #: The last stop's leftovers, each with the end it writes once the loop has their findings.
         self._ending: list[tuple[Path, dict[str, Any], bool]] = []
         harness = harness_root()
@@ -1739,6 +1762,12 @@ class ClaudeDispatcher:
             )
             raise InvocationError(msg, why=str(exc)) from exc
         protect += [arg for path in withheld_now for arg in ("--withheld", str(path))]
+        # The run's tool environment: read and run by the session's commands, written by none.
+        recorded_tools = self._config.tool_environment
+        if recorded_tools is not None:
+            protect += [
+                arg for root in recorded_tools.roots for arg in ("--tool-environment-root", root)
+            ]
         # The always-loaded set (cross's standards, the role's own standards and
         # skill) is a subset of required reading, which adds the module spec and every
         # interface contract the specification commit issued (a superset of the ones
@@ -1801,6 +1830,9 @@ class ClaudeDispatcher:
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # The tool servers the session is offered: their admitted tools join its closed
+            # list. None without the OS layer, which alone contains them.
+            *(arg for name in self._offered_servers() for arg in ("--tool-server", name)),
             # Without the layer the session still keeps its temporary files in a directory of
             # its own, never in the one every session of the user shares.
             *(["--temp", str(own_temp)] if temp is None and own_temp is not None else []),
@@ -1823,11 +1855,16 @@ class ClaudeDispatcher:
                 if temp is not None and self._config.network != "open"
                 else []
             ),
-            # The run's named interpreter is linked in the session's own directory, which
-            # the OS layer keeps from shell commands; its directory is opened again.
+            # The run's named interpreter, and the programs of its tool environment, are
+            # linked in the session's own directory, which the OS layer keeps from shell
+            # commands; that directory is opened again.
             *(
                 ["--os-layer-readable", str(sdir / "bin")]
-                if temp is not None and self._config.role_python is not None
+                if temp is not None
+                and (
+                    self._config.role_python is not None
+                    or self._config.tool_environment is not None
+                )
                 else []
             ),
         ]
@@ -1920,6 +1957,20 @@ class ClaudeDispatcher:
         if reported != self._config.claude_version:
             msg = "the binary is not the version this run recorded"
             raise InvocationError(msg, reported=reported, recorded=self._config.claude_version)
+        recorded_tools = self._config.tool_environment
+        if recorded_tools is not None:
+            # Before anything of the session exists: a session never runs on an environment
+            # other than the one the run recorded, and a refusal here leaves nothing behind.
+            self._tool_environment_scan = hold_before_session(
+                recorded_tools,
+                self._tool_environment_scan,
+                forbidden=forbidden_places(
+                    harness=harness_root(),
+                    install=self._install_bin.parent.parent,
+                    run_dir=self._run.run_dir,
+                    target=self._run.repo,
+                ),
+            )
         worktree = self._run.open_subtask(request.subtask_id, request.reopened)
         if self._layer_on():
             # Before anything of the session exists: in a place the sandbox makes writable,
@@ -1966,6 +2017,43 @@ class ClaudeDispatcher:
     def _layer_on(self) -> bool:
         return isinstance(self.os_layer(), Present)
 
+    def _offered_servers(self) -> tuple[str, ...]:
+        """The names of the tool servers a session is offered: none without the OS layer."""
+        if not self._tool_servers or not self._layer_on():
+            return ()
+        return tuple(server.name for server in self._tool_servers)
+
+    def _contained_servers(
+        self, installed: Installed, sdir: Path, own_temp: Path, env: dict[str, str]
+    ) -> tuple[str, tuple[str, ...]]:
+        """The session's tool-server configuration, and the wrappers its servers may name.
+
+        None without the OS layer: a server the binary starts runs outside the sandbox around
+        the session's commands, and only the layer's own programs contain it. Each server's
+        rules come from the session's own configuration, as installed.
+
+        Raises:
+            InvocationError: a server cannot be contained here, so the session is not started.
+        """
+        if not self._offered_servers():
+            return NO_TOOL_SERVERS, ()
+        platform = sys.platform
+        bwrap = shutil.which("bwrap", path=env["PATH"]) if platform.startswith("linux") else None
+        config = SessionConfig.model_validate_json(Path(installed.config).read_bytes())
+        try:
+            servers = contained_servers(
+                config,
+                self._tool_servers,
+                platform=platform,
+                temp_dir=own_temp,
+                profiles_dir=sdir / "servers",
+                bwrap=bwrap,
+            )
+        except ContainmentError as exc:
+            msg = "a tool server cannot be contained here, so the session is not started"
+            raise InvocationError(msg, error=str(exc)) from exc
+        return servers, wrappers(platform, bwrap)
+
     def _run_session(
         self,
         request: SessionRequest,
@@ -1984,9 +2072,6 @@ class ClaudeDispatcher:
         (sdir / "home").mkdir(parents=True, exist_ok=True)
         runtime_paths(worktree, sdir / "home")
         runtime_git_paths(common_dir(self._run.repo), self._config.claude_version)
-        installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
-        # Read before the session starts, while nothing of it can have touched the file.
-        end_check = session_end_command(Path(installed.settings))
         env = isolated_env(
             home=sdir / "home",
             config_dir=sdir / "config",
@@ -1997,9 +2082,29 @@ class ClaudeDispatcher:
             base_url=self._base_url,
             api_key=None,
         )
+        recorded_tools = self._config.tool_environment
+        wired: dict[str, str] = {}
+        if recorded_tools is not None:
+            # Before the installation, so the OS layer's rules name the directory of the
+            # session's programs as it will stand: the interpreter and each program of the
+            # environment by name, and in the session's temporary directory what its tools
+            # need there, all as the environment's own file says.
+            wired = wire_session(
+                recorded_tools, bin_dir=sdir / "bin", temp=own_temp, taken=tuple(env)
+            )
+        installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
+        # Read before the session starts, while nothing of it can have touched the file.
+        end_check = session_end_command(Path(installed.settings))
         env.update(installed.spawn_env)
         recorded_python = self._config.role_python
-        if recorded_python is not None:
+        if recorded_tools is not None:
+            # The environment's interpreter is the session's ``python3``; a run that also
+            # names it as its interpreter names the same one.
+            env = session_environment(env, wired, sdir / "bin")
+            # Its scripts' records name the environment's code once, by the run's roots and
+            # digest, and every other file outside the module by its path.
+            env = series_environment(env, recorded_tools)
+        elif recorded_python is not None:
             # The run's named interpreter, measured again, first on the session's PATH as
             # ``python3``: a directory holding nothing else, so nothing beside it comes too.
             require_same(
@@ -2009,6 +2114,7 @@ class ClaudeDispatcher:
                 install=self._install_bin.parent.parent,
             )
             env["PATH"] = f"{session_bin(sdir, recorded_python)}:{env['PATH']}"
+        tool_servers, contained_by = self._contained_servers(installed, sdir, own_temp, env)
         # On a pin whose sessions carry the catalog and flag traffic, the session's own debug
         # log says what it saw; it is written beside the session's login, in its
         # configuration directory, and read and removed with the credential.
@@ -2028,6 +2134,8 @@ class ClaudeDispatcher:
             max_turns=request.bounds.session_max_turns,
             effort=self._config.effort,
             thinking_display=self._config.thinking_display,
+            tool_servers=tool_servers,
+            wrappers=contained_by,
             debug_file=debug_file,
         )
         stdout = sdir / "stdout.jsonl"
@@ -2149,6 +2257,13 @@ class ClaudeDispatcher:
                     if p not in roots.held and p not in linked
                 ]
                 linked += elsewhere or [f"{path} ({links} names)"]
+        # The tool environment, scanned once more: a change now was made while this session
+        # ran, by a write no layer refused. Nothing it left is then collected or committed.
+        tools_changed = (
+            changed_while_running(self._config.tool_environment, self._tool_environment_scan)
+            if self._config.tool_environment is not None and self._tool_environment_scan is not None
+            else None
+        )
         if (
             ended is None
             or unconfirmed is not None
@@ -2156,6 +2271,7 @@ class ClaudeDispatcher:
             or moved
             or linked
             or unread is not None
+            or tools_changed is not None
         ):
             settled = {
                 "left_running": list(ended.left_running) if ended is not None else [],
@@ -2164,6 +2280,7 @@ class ClaudeDispatcher:
                 "protected_changed": moved,
                 "held_record_names": linked,
                 "protected_unread": unread,
+                "tool_environment_changed": tools_changed,
             }
             # Beside the end record, not in it: a resume still finds the session unended,
             # stops and checks it again, and reads what it spent.
@@ -2171,6 +2288,8 @@ class ClaudeDispatcher:
             msg = (
                 "the session's stop is not confirmed, or the sentinel's check after it "
                 "failed; no git call follows on this attempt"
+                if tools_changed is None
+                else f"{tools_changed}; no git call follows on this attempt"
             )
             raise InvocationError(
                 msg,
@@ -2246,6 +2365,14 @@ class ClaudeDispatcher:
             # The session's own directory holds its home; with the machine's temporary
             # directories these are the places it can write besides its worktree.
             writable_roots=(sdir, *temporary_roots()),
+            # The run's environment, which this session was held to before it started (else it
+            # never started) and after it ended (else nothing reaches here); the roots were
+            # write-denied to it only where the OS layer ran.
+            tool_environment=sealing_environment(
+                self._config.tool_environment,
+                held=self._tool_environment_scan is not None,
+                layer=temp is not None,
+            ),
         )
         # The tripwire on the files no session reads, once more before the attempt is committed:
         # a second name, a changed file or one that cannot be checked refuses the attempt.

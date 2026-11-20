@@ -64,6 +64,7 @@ from physgate.hooks.reasons import SESSION_TEMPS_REASON as SESSION_TEMPS_REASON
 from physgate.hooks.reasons import SESSIONS_REASON as SESSIONS_REASON
 from physgate.hooks.reasons import SHELL_STARTUP_REASON as SHELL_STARTUP_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
+from physgate.hooks.reasons import TOOL_ENVIRONMENT_REASON as TOOL_ENVIRONMENT_REASON
 from physgate.hooks.reasons import WITHHELD_REASON as WITHHELD_REASON
 from physgate.hooks.reasons import WITHHELD_WHOLE_REASON as WITHHELD_WHOLE_REASON
 from physgate.hooks.reasons import series_outbox_reason
@@ -73,6 +74,7 @@ from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.policy import NETWORK_UNENFORCED, sandbox_policy
 from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
 from physgate.oslayer.session_temp import session_temps_root
+from physgate.toolenv.register import load_register, server_tools
 
 WATCHDOG_SECONDS = 5
 HOOK_TIMEOUT_SECONDS = 30
@@ -93,6 +95,18 @@ PROFILE_TOOLS: Mapping[Profile, tuple[str, ...]] = {
     "baseline": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
 }
 
+#: The tool servers each profile's sessions may be offered, by their names in the register.
+#: A role session and the raw agent get the identical set: the environment is the same for
+#: every role, and the comparison is with the same tools. A reviewer and the orchestrator get
+#: none.
+_EVERY_SERVER = tuple(sorted(load_register().servers))
+PROFILE_SERVERS: Mapping[Profile, tuple[str, ...]] = {
+    "role": _EVERY_SERVER,
+    "reviewer": (),
+    "orchestrator": (),
+    "baseline": _EVERY_SERVER,
+}
+
 #: The web tools, which bring in text nobody reviewed.
 WEB_TOOLS = ("WebFetch", "WebSearch")
 #: The tools each profile's settings deny, a second layer beside the tools hook: a deny rule
@@ -101,12 +115,33 @@ WEB_TOOLS = ("WebFetch", "WebSearch")
 #: hook was their only layer, and ``network: none`` binds a session's shell but not its WebFetch
 #: tool. Every profile denies them. A profile made to read the web (a researcher's) would be the
 #: one exception, and would be listed here without them, with its own test.
+#:
+#: The binary's search tool is denied to every profile too. With it on (2.1.322 by default, and
+#: 2.1.301 against the live API host) the binary leaves a tool server's tools out of the request
+#: and tells the model to load them through that tool, which no closed list names; with it
+#: denied the binary offers every server tool directly, on both pins, whatever the environment
+#: says of tool search (measured, 14.11.2026). Nothing is widened: a session reaches no tool it
+#: could not, and each call still reaches the tools hook by its own name.
+TOOL_SEARCH = "ToolSearch"
+_DENIED = (*WEB_TOOLS, TOOL_SEARCH)
 PROFILE_DENIED: Mapping[Profile, tuple[str, ...]] = {
-    "role": WEB_TOOLS,
-    "reviewer": WEB_TOOLS,
-    "orchestrator": WEB_TOOLS,
-    "baseline": WEB_TOOLS,
+    "role": _DENIED,
+    "reviewer": _DENIED,
+    "orchestrator": _DENIED,
+    "baseline": _DENIED,
 }
+
+
+def session_tool_search() -> Literal["offered", "denied"]:
+    """Whether the sessions' settings deny the binary's search tool, as a run records it.
+
+    Read from :data:`PROFILE_DENIED`, never from a run's parameters: ``denied`` while every
+    profile denies it. What a pin sends depends on it (the search tool's beta flag on 2.1.322),
+    so a run's manifest reads the defaults measured for the setting the run recorded.
+    """
+    every = all(TOOL_SEARCH in denied for denied in PROFILE_DENIED.values())
+    return "denied" if every else "offered"
+
 
 #: The events on which Claude Code applies a tool matcher.
 _TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure"}
@@ -143,6 +178,11 @@ class InstallRequest(BaseModel):
     #: sentinel must not put them back. Only the layers that refuse a write before
     #: it happens protect them.
     extra_protected_refuse_only: tuple[AbsolutePath, ...] = ()
+    #: The roots of the run's recorded tool environment: read and run by the session's
+    #: commands, written by none. Far too large to put back, so only the layers that refuse a
+    #: write before it happens protect them; the dispatcher refuses the next session if any
+    #: entry changed.
+    tool_environment_roots: tuple[AbsolutePath, ...] = ()
     #: The run's directory of every session's own directory (its ``sessions/``), which holds
     #: each session's login, captured stream, settings and hook records. Refused to every write;
     #: for a role or baseline session refused to every read of the hooks too, its own home
@@ -231,6 +271,10 @@ class InstallRequest(BaseModel):
     #: spawn does. A session that gets the reaper is refused without it: its reaper could
     #: never prove its fence, and every command would be refused.
     spawns_with_canary: bool = False
+    #: The tool servers the session is offered, by their names in the tool-server register.
+    #: Their admitted tools join the session's closed list; only a profile whose server set
+    #: names them may be offered them (:data:`PROFILE_SERVERS`).
+    tool_servers: tuple[str, ...] = ()
     #: Whether the session is held to the harness's design discipline: ``off`` is an ablation
     #: run's arm (see :data:`DISCIPLINE_HOOKS` and :func:`build_config`), for a role session only.
     #: The installer command takes it only for a run whose recorded configuration says so.
@@ -508,6 +552,24 @@ def _design_discipline(worktree: Path) -> tuple[str, ...]:
     )
 
 
+def _tools_allowed(request: InstallRequest) -> tuple[str, ...]:
+    """The profile's list, and the admitted tools of the servers the session is offered.
+
+    Raises:
+        ValueError: a server is named twice, is not in the register, or is not one the
+            profile may be offered.
+    """
+    servers = request.tool_servers
+    if len(set(servers)) != len(servers):
+        msg = f"a tool server is named twice: {sorted(servers)}"
+        raise ValueError(msg)
+    for server in servers:
+        if server not in PROFILE_SERVERS[request.profile]:
+            msg = f"a {request.profile} session may not be offered the tool server {server!r}"
+            raise ValueError(msg)
+    return (*PROFILE_TOOLS[request.profile], *server_tools(load_register(), servers))
+
+
 def _withheld_inside_the_harness(request: InstallRequest) -> str | None:
     """Why a place of the run's that no session reads lies in the harness checkout, if one does.
 
@@ -717,6 +779,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             ),
         )
         reads.setdefault(path, "shell_denied")
+    for path in request.tool_environment_roots:
+        # Refused and never put back, and left open to every read: the session's commands run
+        # the interpreter and the build tools there and import its libraries.
+        protected.setdefault(path, (TOOL_ENVIRONMENT_REASON, "none"))
     read_exceptions: dict[str, tuple[str, ...]] = {}
     if request.sessions_root is not None:
         sessions = request.sessions_root
@@ -861,7 +927,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         required_reading=() if request.hooks == "off" else tuple(sorted(request.required_reading)),
         always_loaded=() if request.hooks == "off" else tuple(sorted(request.always_loaded)),
         token_ceiling=request.token_ceiling,
-        tools_allowed=tuple(sorted(PROFILE_TOOLS[request.profile])),
+        tools_allowed=tuple(sorted(_tools_allowed(request))),
         installation=installation,
         watchdog_seconds=WATCHDOG_SECONDS,
         hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,

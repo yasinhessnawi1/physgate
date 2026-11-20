@@ -1,0 +1,25 @@
+{
+  "programs": {
+    "pio": "venv/bin/pio",
+    "platformio": "venv/bin/platformio"
+  },
+  "directories": ["pio-core", "matplotlib"],
+  "links": {
+    "pio-core/platforms": "platformio/platforms",
+    "pio-core/packages": "platformio/packages",
+    "pio-core/lib": "platformio/lib"
+  },
+  "variables": {
+    "PLATFORMIO_CORE_DIR": "{temp}/pio-core",
+    "PLATFORMIO_BUILD_DIR": "{temp}/pio-build",
+    "PLATFORMIO_WORKSPACE_DIR": "{temp}/pio-workspace",
+    "PLATFORMIO_CACHE_DIR": "{temp}/pio-cache",
+    "PLATFORMIO_SETTING_ENABLE_TELEMETRY": "no",
+    "PLATFORMIO_SETTING_CHECK_PLATFORMIO_INTERVAL": "36500",
+    "PLATFORMIO_SETTING_CHECK_PRUNE_SYSTEM_THRESHOLD": "0",
+    "PLATFORMIO_NO_ANSI": "true",
+    "PLATFORMIO_DISABLE_PROGRESSBAR": "true",
+    "MPLBACKEND": "Agg",
+    "MPLCONFIGDIR": "{temp}/matplotlib"
+  }
+}

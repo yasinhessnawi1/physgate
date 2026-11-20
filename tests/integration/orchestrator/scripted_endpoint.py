@@ -99,6 +99,31 @@ class Recorded:
     #: The beta flags the request named, sorted, and its context management, as sent.
     anthropic_beta: tuple[str, ...] = ()
     context_management: dict[str, Any] | None = None
+    #: The tools the request names for loading on demand: each tool entry marked
+    #: ``defer_loading``, and each name the binary lists in its text as reachable through the
+    #: search step. A tool deferred so is offered too, only not in the tools list.
+    deferred_tools: tuple[str, ...] = ()
+
+
+#: How the binary lists the tools it defers behind its search step, in the conversation's text
+#: (measured on 2.1.322, and on 2.1.301 with tool search turned on): one name a line after this.
+_DEFERRED_LISTING = re.compile(
+    r"deferred tools are now available via ToolSearch\..*?calling them:\n(.*?)</system-reminder>",
+    re.DOTALL,
+)
+
+
+def deferred_tools(body: dict[str, Any]) -> tuple[str, ...]:
+    """The tools ``body`` defers: marked ``defer_loading``, or listed for the search step."""
+    marked = {t.get("name", "") for t in body.get("tools") or [] if t.get("defer_loading")}
+    text = "\n".join(_text_of(m.get("content")) for m in body.get("messages") or [])
+    listed = {
+        name.strip()
+        for block in _DEFERRED_LISTING.findall(text)
+        for name in block.splitlines()
+        if name.strip()
+    }
+    return tuple(sorted(marked | listed))
 
 
 def _text_of(content: Any) -> str:  # noqa: ANN401 - the Messages API's own content shape
@@ -476,6 +501,7 @@ class FakeMessagesApi:
                     thinking=body.get("thinking"),
                     anthropic_beta=_betas(headers),
                     context_management=body.get("context_management"),
+                    deferred_tools=deferred_tools(body),
                 )
             )
         if "error" in reply:

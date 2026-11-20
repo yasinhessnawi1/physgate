@@ -100,7 +100,8 @@ def test_a_key_the_run_configuration_does_not_know_is_refused() -> None:
 
 
 def test_a_run_at_what_every_earlier_run_ran_with_keeps_its_recorded_bytes() -> None:
-    config = _config(harness=CLEAN_HARNESS)
+    # As every earlier run ran: the search tool offered.
+    config = _config(harness=CLEAN_HARNESS, tool_search="offered")
     assert isinstance(config, RunConfig), config
     assert not set(BEFORE) & set(json.loads(config.canonical_bytes()))
     assert config.sha256() == DIGEST_BEFORE_THE_FLAGS
@@ -109,7 +110,8 @@ def test_a_run_at_what_every_earlier_run_ran_with_keeps_its_recorded_bytes() -> 
 def test_a_run_recorded_before_the_flags_reads_as_it_ran_with_its_digest_unchanged(
     tmp_path: Path,
 ) -> None:
-    config = _config(harness=CLEAN_HARNESS)
+    # As every earlier run ran: the search tool offered.
+    config = _config(harness=CLEAN_HARNESS, tool_search="offered")
     assert isinstance(config, RunConfig), config
     path = tmp_path / "run.json"
     write_run_config(path, config)

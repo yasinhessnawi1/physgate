@@ -53,6 +53,7 @@ from physgate.orchestrator.exceptions import EscalationBackendError, GitError, R
 from physgate.orchestrator.git import GitBinary, git
 from physgate.orchestrator.role_python import RolePython
 from physgate.oslayer.probe import Absent, OsLayerState, Present
+from physgate.toolenv.record import ToolEnvironment
 
 
 class _Frozen(BaseModel):
@@ -307,6 +308,19 @@ def harness_state(root: Path | None) -> HarnessState:
 ThinkingDisplay = Literal["summarized", "omitted"]
 
 
+class ToolServers(_Frozen):
+    """The tool servers a run's sessions are offered, as the register named them at the start."""
+
+    #: The servers each profile's sessions are offered, by their names in the register: the
+    #: role profile's (every role, sizing and integration among them) and the raw agent's.
+    profiles: dict[Literal["role", "baseline"], tuple[str, ...]]
+    #: The most one answer of a server may hold, in tokens, as every session is told
+    #: (``MAX_MCP_OUTPUT_TOKENS``). Left unset, a remote flag of the binary could move it.
+    max_output_tokens: int = Field(gt=0)
+    #: The register's digest: every tool, argument and launch the run was configured with.
+    register_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 #: What a run recorded before each of these fields existed reads as, and what a run at that
 #: value leaves out of its recorded form, so every earlier run's digest still names it.
 BEFORE_THE_SWITCH: dict[str, str | bool] = {
@@ -451,6 +465,23 @@ class RunConfig(_Frozen):
     #: enforceable here"). ``None`` for ``open``, and for a run recorded before the field
     #: existed or whose OS layer was not measured.
     network_enforced: bool | None
+    #: The tool environment role sessions compute and build with, as measured when the run was
+    #: configured (``toolenv.record.measure``): the interpreter, every distribution and native
+    #: tool with its version, the roots, and one digest over every file. The parameters name
+    #: the interpreter, the roots and the tools, or nothing. Held to this record before every
+    #: session. ``None`` for a run that names none, which is what a run recorded before the
+    #: field existed did, and reads so.
+    tool_environment: ToolEnvironment | None
+    #: The tool servers its sessions are offered, recorded when the run names a tool
+    #: environment and taken from the register, never from the parameters. ``None`` for a run
+    #: that names none, which is what a run recorded before the field existed did.
+    tool_servers: ToolServers | None
+    #: Whether the sessions' settings deny the binary's search tool, read from the harness's
+    #: deny lists when the run is configured, never from the parameters. Denied, the binary
+    #: offers every tool directly; offered, it holds tools back behind the search step and, on
+    #: 2.1.322, sends that step's beta flag, so the defaults a run's manifest carries follow it.
+    #: ``offered`` for a run recorded before the field existed, which is what its sessions had.
+    tool_search: Literal["offered", "denied"]
     #: The Claude Code binary the run executes, measured when it is configured and again each
     #: time it is driven: the same version string can name other bytes on another platform, or
     #: after a replacement. ``None`` only on a run recorded before the field existed.
@@ -471,6 +502,29 @@ class RunConfig(_Frozen):
             raise ValueError(msg) from None
         if row.status != "ships":
             msg = f"the escalation backend {row.name!r} is {row.status} and cannot be bound"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _one_interpreter_is_the_sessions_python(self) -> RunConfig:
+        # Both would be put on a session's path as its Python; two that differ leave it to
+        # the order of two lines which one a session's records were computed with.
+        if (
+            self.tool_environment is not None
+            and self.role_python is not None
+            and self.role_python.path != self.tool_environment.interpreter
+        ):
+            msg = (
+                "role_python names an interpreter other than the tool environment's; a run "
+                "that names a tool environment names its interpreter there, or the same one"
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _tool_servers_start_from_the_tool_environment(self) -> RunConfig:
+        if self.tool_servers is not None and self.tool_environment is None:
+            msg = "tool_servers are started from the run's tool environment, and it names none"
             raise ValueError(msg)
         return self
 
@@ -585,9 +639,10 @@ class RunConfig(_Frozen):
         ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``,
         ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off``, ``parts_on_hand``
         and ``review_compaction`` when ``off``, ``reviewers`` when ``paired``, ``skills`` and
-        ``hooks`` when ``on``, ``ablation`` when ``False``, and ``binary`` and ``account`` when
-        ``None``, so their recorded digests still name them. A run that names a binding always
-        records it, so the binding is part of its manifest id.
+        ``hooks`` when ``on``, ``ablation`` when ``False``, ``tool_environment`` and
+        ``tool_servers`` when ``None``, ``tool_search`` when ``offered``, and ``binary`` and
+        ``account`` when ``None``, so their recorded digests still name them. A run that names a
+        binding always records it, so the binding is part of its manifest id.
         """
         exclude = set()
         if self.thinking_display == "omitted":
@@ -620,6 +675,12 @@ class RunConfig(_Frozen):
             exclude.add("account")
         if self.design_review == "off":
             exclude.add("design_review")
+        if self.tool_environment is None:
+            exclude.add("tool_environment")
+        if self.tool_servers is None:
+            exclude.add("tool_servers")
+        if self.tool_search == "offered":
+            exclude.add("tool_search")
         if self.parts_on_hand == "off":
             exclude.add("parts_on_hand")
         if self.review_compaction == "off":
@@ -755,6 +816,12 @@ def load_run_config(path: Path) -> RunConfig:
         ("account", None),
         # Recorded before the field existed: no plan was reviewed.
         ("design_review", "off"),
+        # Recorded before the field existed: no tool environment was named.
+        ("tool_environment", None),
+        # Recorded before the field existed: no session was offered a tool server.
+        ("tool_servers", None),
+        # Recorded before the field existed: the sessions' settings left the search tool offered.
+        ("tool_search", "offered"),
         # Recorded before the field existed: nothing was asked about parts.
         ("parts_on_hand", "off"),
         # Recorded before the field existed: every reviewer ran with compaction switched off.

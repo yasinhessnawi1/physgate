@@ -4,13 +4,22 @@ A file named to the binary with ``--mcp-config`` was one a sandboxed command cou
 on 2.1.301 (fixed in a later version). The harness names none: a session's tools are the
 binary's own, offered and refused by the hooks. Held here on the arguments of every kind
 of session, so a later change that names one has to meet this row.
+
+The tool layer gives every session ``--strict-mcp-config`` and its configuration inline, as the
+argument's own text: with no tool server, the empty configuration. Inline text is no file a
+command could change, so the row holds every MCP word to exactly that.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from physgate.orchestrator.invocation import decomposition_argv, reviewer_argv, role_argv
+from physgate.orchestrator.invocation import (
+    NO_TOOL_SERVER_ARGS,
+    decomposition_argv,
+    reviewer_argv,
+    role_argv,
+)
 
 SPAWN_ARGS = ("--setting-sources", "", "--settings", "/s/settings.json")
 
@@ -59,4 +68,6 @@ def test_no_argument_of_any_session_names_an_mcp_configuration() -> None:
     # With and without the debug file a later pin's sessions carry.
     for debug_file in (None, Path("/s/config/debug.log")):
         for argv in _every_argv(debug_file):
-            assert not [word for word in argv if "mcp" in word.lower()], argv
+            named = [word for word in argv if "mcp" in word.lower()]
+            assert named == list(NO_TOOL_SERVER_ARGS), argv
+            assert not [w for w in named if w.startswith(("/", ".", "~", "@"))], argv
