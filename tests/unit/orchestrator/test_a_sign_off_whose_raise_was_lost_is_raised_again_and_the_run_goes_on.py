@@ -122,6 +122,13 @@ def _again(events: list[Event]) -> list[SignOffRaisedAgain]:
     return [e for e in events if isinstance(e, SignOffRaisedAgain)]
 
 
+def _one_again(events: list[Event]) -> SignOffRaisedAgain:
+    """The one sign-off raised again: a row with none, or two, fails on the assertion."""
+    found = _again(events)
+    assert len(found) == 1, f"{len(found)} sign-offs raised again, not one"
+    return found[0]
+
+
 def test_a_lost_raise_is_raised_again_at_the_next_clean_merge_and_the_run_goes_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -132,7 +139,7 @@ def test_a_lost_raise_is_raised_again_at_the_next_clean_merge_and_the_run_goes_o
     # Integration's clean merge finds the control module's values moved with no item for them,
     # raises its sign-off again on them, and the run goes on to its end.
     assert not [e for e in events if isinstance(e, Incident)]
-    (again,) = _again(events)
+    again = _one_again(events)
     assert (again.found, again.subtask_id, again.raised.item_id) == ("merge", INTEG, SECOND)
     assert LOAD in {v.node_id for v in again.raised.bound}
     assert step.kind == "escalated"
@@ -165,7 +172,7 @@ def test_a_raise_lost_at_integration_s_merge_is_raised_again_before_the_completi
         _resumed_without_asking(rig, monkeypatch)
     events, step = _resumed_without_asking(rig, monkeypatch)
     assert not [e for e in events if isinstance(e, Incident)]
-    (again,) = _again(events)
+    again = _one_again(events)
     assert (again.found, again.subtask_id, again.raised.item_id) == ("completion", INTEG, SECOND)
     # Raised where the control module's completion line was owed, instead of that line.
     after = events[again.seq + 1]
@@ -200,7 +207,7 @@ def test_a_process_killed_after_listing_the_item_raised_again_writes_its_line_on
     step = loop.resume()
     loop.close()
     events = read_events(tmp_path / "events.jsonl")
-    (again,) = _again(events)
+    again = _one_again(events)
     assert again.raised.item_id == SECOND
     assert [i.item_id for i in read_queue(tmp_path).items].count(SECOND) == 1
     assert step.kind == "escalated"
@@ -248,7 +255,7 @@ def test_replay_refuses_a_sign_off_raised_again_on_the_values_its_latest_item_sh
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     events = _raised_again_at_the_merge(tmp_path, monkeypatch)
-    (again,) = _again(events)
+    again = _one_again(events)
     first = next(e for e in lines(events) if e.raised[0].item_id == FIRST).raised[0]
     same = again.raised.model_copy(
         update={"bound": first.bound, "values_sha256": first.values_sha256}
@@ -274,7 +281,7 @@ def test_replay_refuses_a_sign_off_raised_again_where_the_loop_cannot_find_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fields: dict[str, Any], reason: str
 ) -> None:
     events = _raised_again_at_the_merge(tmp_path, monkeypatch)
-    (again,) = _again(events)
+    again = _one_again(events)
     refused(rewritten(events, again.seq, **fields), reason)
 
 
@@ -282,7 +289,7 @@ def test_replay_refuses_a_sign_off_raised_again_at_a_revision_the_log_does_not_g
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     events = _raised_again_at_the_merge(tmp_path, monkeypatch)
-    (again,) = _again(events)
+    again = _one_again(events)
     raised = json.loads(again.raised.model_dump_json())
     raised["bound"][0]["revision"] = 99
     refused(rewritten(events, again.seq, raised=raised), "a revision the log does not give")
@@ -292,7 +299,7 @@ def test_replay_refuses_a_sign_off_raised_again_with_another_id_than_the_module_
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     events = _raised_again_at_the_merge(tmp_path, monkeypatch)
-    (again,) = _again(events)
+    again = _one_again(events)
     raised = json.loads(again.raised.model_dump_json())
     raised["item_id"] = FIRST
     refused(rewritten(events, again.seq, raised=raised), "another id")
@@ -528,7 +535,7 @@ def test_a_person_s_decision_on_a_sign_off_raised_again_in_a_run_that_acts(
     why_not: str | None,
 ) -> None:
     rig, events, step = _raised_again_where_nothing_was_listed(tmp_path, monkeypatch)
-    (again,) = _again(events)
+    again = _one_again(events)
     assert (again.found, again.subtask_id, again.raised.item_id) == ("merge", INTEG, SECOND)
     # The run acts, but the call is behind it: the run ends escalated with the item open, and
     # the item says what a reject does there, as the record gives it at the raise.
