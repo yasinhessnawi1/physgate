@@ -131,16 +131,19 @@ void loop() {
   }
 }
 """
-#: One second of board time for each fixture. The timing fixture's wheels turn for the first
-#: half second only (+5 and -2.5 motor revolutions a second, 12 counts each), so the counts it
-#: prints after that are known exactly: +30 and -15.
+#: Board time for each fixture. The sketch starts 65 ms after power-on (the fuses' start-up
+#: time) and the Arduino core then waits some 10 ms for the PLL before setup(), so the first
+#: updates come back to back; the timing fixture runs two seconds so that its mean period is the
+#: 10 ms schedule within the tolerance. Its wheels turn for half a second from 0.2 s, once
+#: encoders.init() has run (+5 and -2.5 motor revolutions a second, 12 counts each), so the
+#: counts it prints after that are known exactly: +30 and -15.
 BALBOA_SCENARIO = {"avrsim_scenario": 1, "duration_s": 1.0}
 TIMING_SCENARIO = {
     "avrsim_scenario": 1,
-    "duration_s": 1.0,
+    "duration_s": 2.0,
     "encoders": {
-        "left_rev_s": [[0, 5], [0.5, 5], [0.5001, 0]],
-        "right_rev_s": [[0, -2.5], [0.5, -2.5], [0.5001, 0]],
+        "left_rev_s": [[0, 0], [0.2, 0], [0.2001, 5], [0.7, 5], [0.7001, 0]],
+        "right_rev_s": [[0, 0], [0.2, 0], [0.2001, -2.5], [0.7, -2.5], [0.7001, 0]],
     },
     "probes": [{"symbol": "update", "period_s": 0.01}],
 }

@@ -118,3 +118,22 @@ def test_a_held_bus_is_released_only_by_nine_scl_clocks_driven_with_the_interfac
         "eight": held,
         "nine": [1, True] if release == "scl_pulses" else held,
     }
+
+
+def test_a_held_bus_is_released_by_nine_clocks_of_scl_as_an_open_drain_line_too() -> None:
+    # Bus recovery clocks SCL; an open-drain master drives it low and releases it to the
+    # board's pull-up (DDR set with PORT low, then DDR cleared). A clock is SCL's level rising,
+    # whatever raises it.
+    found = _board(
+        [{"kind": "sda_held", "release": "scl_pulses", "start_s": 0, "end_s": 1}],
+        """
+        const sda = () => (cpu.readData(REG.PIND) >> 1) & 1;
+        const clocks = (n) => { for (let i = 0; i < n; i += 1) {
+          cpu.writeData(REG.DDRD, 0x01); cpu.writeData(REG.DDRD, 0x00); } };
+        at(0.1); cpu.writeData(REG.PORTD, 0x00);
+        clocks(8); const eight = sda();
+        clocks(1);
+        console.log(JSON.stringify({ eight, nine: [sda(), bus.start()] }));
+        """,
+    )
+    assert found == {"eight": 0, "nine": [1, True]}

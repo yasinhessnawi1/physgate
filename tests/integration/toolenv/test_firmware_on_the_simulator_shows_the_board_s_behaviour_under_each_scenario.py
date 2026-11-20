@@ -139,6 +139,8 @@ void loop() {
 """
 
 RATE = 0.5  # rad/s
+#: The sketch's first instruction after power-on: the fuses' start-up time, 14CK + 65 ms.
+START = round(0.065 * F) + 14
 #: The gyroscope's y counts at 1000 dps (35 mdps a count), and the command the bench derives.
 GYRO_Y = round(math.degrees(RATE) * 1000 / 35)
 COMMAND = int(GYRO_Y / 8)
@@ -174,10 +176,15 @@ def test_the_sensor_is_read_at_its_full_scale_and_the_motors_driven_from_it(
     env, elf = bench
     summary, trace = simulate(env, elf, scenario(), tmp_path)
     lines = _lines(summary)
-    assert lines[0] == "RESET:1"  # power-on: PORF
+    # Power-on: the bootloader clears PORF (and BORF) before the sketch (Caterina.c main()).
+    assert lines[0] == "RESET:0"
     assert lines[-1] == f"G:{GYRO_Y} X:{round(1000 / 0.061)} A:0 L:0 R:0"
     assert summary["imu"]["registers_written"] == {"CTRL1_XL": 0x40, "CTRL2_G": 0x58}
-    assert summary["imu"]["gyro_samples_read"] >= 99
+    # The sketch starts 65 ms after power-on and the gyroscope then turns on for 80 ms
+    # (AN4682 Table 16): of some 92 updates, the first ones find no sample or an invalid one,
+    # which the summary counts.
+    assert summary["imu"]["gyro_samples_read"] >= 85
+    assert summary["imu"]["invalid_samples_read"]["gyro"] >= 1
     # OCR1A and OCR1B carry the command; Timer1 in phase- and frequency-correct mode to 400.
     assert summary["motors"]["left"]["last"] == COMMAND
     assert summary["motors"]["right"]["max"] == COMMAND
@@ -190,31 +197,44 @@ def test_the_sensor_is_read_at_its_full_scale_and_the_motors_driven_from_it(
     assert not [
         e for e in trace if e["type"] == "pin" and e["pin"] in ("PB1", "PB2") and e["value"]
     ]
-    # The update runs at 100 Hz, and the sample it reads reaches the motors within a period.
+    # The update runs at 100 Hz from the sketch's start, 65 ms after power-on.
     update = summary["probes"]["update"]
-    assert update["entries"] >= 99
-    assert update["period_cycles"]["mean"] == pytest.approx(F / 100, rel=0.01)
-    # Lateness is against the first entry's schedule. The first comes a few milliseconds of
-    # setup() after millis() 0, so the later ones, due on millis(), are that much early, and
-    # millis() steps by 1.024 ms; none is late by more than that step.
+    assert update["entries"] >= 90
+    entries = [e["c"] for e in trace if e["type"] == "probe" and e["symbol"] == "update"]
+    steady = entries[5:]
+    assert (steady[-1] - steady[0]) / (len(steady) - 1) == pytest.approx(F / 100, rel=0.001)
+    # Lateness is against the first entry's schedule. millis() counts from init(), and before
+    # setup() the core waits for the PLL's lock (some 10 ms here), so the first updates are due
+    # at once and come back to back, the later ones that much early; millis() steps by
+    # 1.024 ms, and none is late by more than that step.
     late = update["lateness_cycles"]
-    assert -_cycle(0.005) <= late["min"] <= late["max"] <= _cycle(0.0011)
+    assert -_cycle(0.015) <= late["min"] <= late["max"] <= _cycle(0.0011)
     period = update["period_cycles"]
-    # The second entry comes that setup offset sooner after the first; the rest a period apart.
-    assert _cycle(0.005) <= period["min"] <= period["max"] <= _cycle(0.0111)
+    assert 0 < period["min"] <= period["max"] <= _cycle(0.0111)
     duration = update["duration_cycles"]
     assert update["entries"] - 1 <= duration["count"] <= update["entries"]
     assert 0 < duration["min"] <= duration["max"] < F / 100
-    delay = summary["input_to_output_cycles"]
-    assert delay["count"] >= 99 and 0 < delay["max"] < F / 100
+    # The bound runs from the oldest sample read since each compare register's last write, the
+    # accelerometer's included: at 104 Hz up to 9.6 ms old when read, and the 12-byte read at
+    # 100 kHz takes some 1.1 ms more.
+    delay = summary["input_to_output"]
+    assert delay["upper_bound_cycles"]["count"] >= 2 * 85
+    assert 0 < delay["upper_bound_cycles"]["max"] < _cycle(1 / 104 + 0.0015)
+    assert delay["newest_sample_cycles"]["max"] <= delay["upper_bound_cycles"]["max"]
     # What ran, and the stack it took.
     vectors = summary["vectors"]
-    assert vectors["TIMER0_OVF"]["count"] == pytest.approx(F / 64 / 256, abs=2)
+    assert vectors["TIMER0_OVF"]["count"] == pytest.approx((F - START) / 64 / 256, abs=2)
     assert vectors["TWI"]["count"] > 0 and vectors["USART1_UDRE"]["count"] > 0
-    assert all(v["max"] >= v["min"] > 0 for v in vectors.values())
+    assert all(
+        v["inclusive_cycles"]["max"] >= v["exclusive_cycles"]["min"] > 0 for v in vectors.values()
+    )
     assert 0 < summary["stack"]["max_depth_bytes"] < 2560
     assert summary["stack"]["headroom_bytes"] > 0
-    assert summary["resets"] == [{"cycle": 0, "cause": "power_on"}]
+    assert summary["resets"] == [
+        {"cycle": 0, "cause": "power_on", "sketch_start_cycle": START, "mcusr_at_sketch_start": 0}
+    ]
+    # Ordinary Arduino firmware touches nothing the rig does not model.
+    assert summary["unmodelled"] == {} and summary["timing_evaluable"] is True
 
 
 def test_the_motor_outputs_are_not_driven_high_from_reset_until_the_firmware_commands_them(
@@ -247,10 +267,11 @@ def test_encoders_buttons_and_the_battery_are_read_as_the_board_wires_them(
         elf,
         scenario(
             encoders={
-                "left_rev_s": [[0, 2], [0.5, 2], [0.5001, 0]],
-                "right_rev_s": [[0, -1], [0.5, -1], [0.5001, 0]],
+                # From 0.1 s, once encoders.init() has run (the sketch starts at 65 ms).
+                "left_rev_s": [[0, 0], [0.1, 0], [0.1001, 2], [0.6, 2], [0.6001, 0]],
+                "right_rev_s": [[0, 0], [0.1, 0], [0.1001, -1], [0.6, -1], [0.6001, 0]],
             },
-            buttons=[{"button": "A", "start_s": 0.62, "end_s": 0.78}],
+            buttons=[{"button": "A", "start_s": 0.72, "end_s": 0.88}],
             battery_v=7.2,
         ),
         tmp_path,
@@ -276,11 +297,15 @@ def test_wheels_turning_steadily_are_counted_edge_by_edge_for_the_whole_run(
     encoders = {"left_rev_s": [[0, 50]], "right_rev_s": [[0, -50]]}
     summary, _ = simulate(env, elf, scenario(encoders=encoders, usb_sof=sof), tmp_path)
     assert summary["encoders"]["counts"] == {"left": 600, "right": -600}
-    # Every edge after setup() enabled the two interrupts, a few milliseconds in, is one.
-    assert 595 <= summary["vectors"]["PCINT0"]["count"] <= 600
-    assert 595 <= summary["vectors"]["INT6"]["count"] <= 600
+    # Every edge after setup() enabled the two interrupts is one: the sketch starts at 65 ms and
+    # setup() waits some 10 ms for the PLL first, so the edges of the first 75 to 90 ms are not
+    # seen (on the board neither).
+    for vector in ("PCINT0", "INT6"):
+        assert 540 <= summary["vectors"][vector]["count"] <= 555
+    # The bench prints every tenth update, so its last line is at most 100 ms (60 edges) old.
     left, right = (int(word[2:]) for word in _lines(summary)[-1].split()[-2:])
-    assert 590 <= left <= 600 and -600 <= right <= -590
+    seen = summary["vectors"]["PCINT0"]["count"], summary["vectors"]["INT6"]["count"]
+    assert seen[0] - 60 <= left <= seen[0] and -seen[1] <= right <= -seen[1] + 60
 
 
 def test_a_sensor_that_stops_acknowledging_stops_the_motors_and_they_restart_after(
@@ -348,7 +373,8 @@ def test_a_main_program_stalled_with_interrupts_off_is_reset_by_the_watchdog(
     # in the update before the stall.
     assert _cycle(0.3 + 0.064 - 0.011) <= resets[1]["cycle"] <= _cycle(0.3 + 0.064)
     lines = _lines(summary)
-    assert lines.count("RESET:1") == 1 and "RESET:8" in lines  # WDRF after the reset
+    # On the board the bootloader clears WDRF before the sketch reads MCUSR: both starts read 0.
+    assert lines.count("RESET:0") == 2
     (event,) = summary["events"]
     assert event["kind"] == "stall"
     assert event["motors_off_cycle"] == resets[1]["cycle"]
@@ -362,7 +388,7 @@ def test_a_main_program_stalled_with_interrupts_off_is_reset_by_the_watchdog(
     # After the reset the firmware runs again and drives the motors.
     assert summary["motors"]["left"]["last"] == COMMAND
     # No interrupt ran in the stall either: Timer0 lost the overflows of its 64 ms or more.
-    assert summary["vectors"]["TIMER0_OVF"]["count"] <= round(0.95 * F / 64 / 256)
+    assert summary["vectors"]["TIMER0_OVF"]["count"] <= round(0.95 * (F - 2 * START) / 64 / 256)
 
 
 def test_a_main_program_stalled_with_interrupts_on_misses_updates_while_timers_still_count(
@@ -375,11 +401,15 @@ def test_a_main_program_stalled_with_interrupts_on_misses_updates_while_timers_s
     assert [r["cause"] for r in summary["resets"]] == ["power_on"]
     update = summary["probes"]["update"]
     assert update["period_cycles"]["max"] >= _cycle(0.04)
-    assert update["lateness_cycles"]["max"] >= _cycle(0.03)
+    # Against the first entry's schedule the updates run up to the start-up offset early (some
+    # 13 ms, the PLL's lock before setup()); the stall makes the next one 40 ms late against
+    # its own due time, that offset less.
+    late = update["lateness_cycles"]
+    assert late["max"] >= _cycle(0.02) and late["max"] - late["min"] >= _cycle(0.03)
     # The updates it missed are caught up back to back, each measured against its own due
     # time, so none is earlier than the setup offset the unstalled run shows.
-    assert update["lateness_cycles"]["min"] >= -_cycle(0.005)
-    assert summary["vectors"]["TIMER0_OVF"]["count"] == pytest.approx(F / 64 / 256, abs=2)
+    assert late["min"] >= -_cycle(0.015)
+    assert summary["vectors"]["TIMER0_OVF"]["count"] == pytest.approx((F - START) / 64 / 256, abs=2)
 
 
 def test_start_of_frame_interrupts_are_a_load_only_when_asked_for(
@@ -389,8 +419,9 @@ def test_start_of_frame_interrupts_are_a_load_only_when_asked_for(
     without, _ = simulate(env, elf, scenario(duration_s=0.5), tmp_path / "without")
     with_sof, _ = simulate(env, elf, scenario(duration_s=0.5, usb_sof=True), tmp_path / "with")
     assert "USB_GEN" not in without["vectors"]
-    # One frame a millisecond once the firmware has attached, a few milliseconds in.
-    assert 480 <= with_sof["vectors"]["USB_GEN"]["count"] <= 500
+    # One frame a millisecond once the firmware has attached: after the 65 ms start-up and the
+    # PLL's 10 ms lock, some 77 ms in.
+    assert 410 <= with_sof["vectors"]["USB_GEN"]["count"] <= 430
 
 
 def test_a_probe_the_elf_does_not_hold_is_refused_and_nothing_is_written(
@@ -462,7 +493,7 @@ def test_a_short_stall_with_interrupts_off_loses_the_timer_ticks_it_held_off(
         ),
         tmp_path,
     )
-    assert summary["resets"] == [{"cycle": 0, "cause": "power_on"}]
+    assert [r["cause"] for r in summary["resets"]] == ["power_on"]
     assert _lines(summary)[-1] == f"G:{GYRO_Y} X:{round(1000 / 0.061)} A:0 L:0 R:0"
     assert summary["motors"]["left"]["last"] == COMMAND
     entries = [e["c"] for e in trace if e["type"] == "probe" and e["symbol"] == "update"]

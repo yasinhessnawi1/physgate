@@ -65,7 +65,7 @@ def test_the_version_line_is_answered_from_an_empty_environment_at_the_root(tmp_
     launcher = _environment(tmp_path / "env")
     done = _version(launcher)
     assert done.returncode == 0, done.stderr
-    assert done.stdout == f"avrsim 0.1.0 avr8js 0.21.1 node {_node_version()}\n"
+    assert done.stdout == f"avrsim 0.2.0 avr8js 0.21.1 node {_node_version()}\n"
 
 
 def test_the_launcher_is_found_through_the_link_a_session_s_search_path_names(
@@ -80,7 +80,7 @@ def test_the_launcher_is_found_through_the_link_a_session_s_search_path_names(
     for named in (session_bin / "avrsim", tmp_path / "session" / "again"):
         done = _version(named)
         assert done.returncode == 0, done.stderr
-        assert done.stdout.startswith("avrsim 0.1.0 avr8js 0.21.1 node ")
+        assert done.stdout.startswith("avrsim 0.2.0 avr8js 0.21.1 node ")
 
 
 def test_the_same_environment_at_another_root_is_the_same_environment(tmp_path: Path) -> None:
@@ -88,7 +88,7 @@ def test_the_same_environment_at_another_root_is_the_same_environment(tmp_path: 
     (tmp_path / "first").rename(tmp_path / "second")
     done = _version(tmp_path / "second" / "avrsim" / "bin" / "avrsim")
     assert done.returncode == 0, done.stderr
-    assert done.stdout.startswith("avrsim 0.1.0 ")
+    assert done.stdout.startswith("avrsim 0.2.0 ")
 
 
 def test_no_node_on_the_search_path_is_taken_in_place_of_the_environment_s(tmp_path: Path) -> None:

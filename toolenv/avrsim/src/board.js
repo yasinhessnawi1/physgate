@@ -15,7 +15,11 @@
 //   at 0x1E.
 // - Battery: VBAT / 3 on ADC6 (A1), read against AVCC = 5 V (readBatteryMillivolts).
 // - Motors, observed: left PWM on PB6 (OC1B) with direction PB2, right PWM on PB5 (OC1A) with
-//   direction PB1 (Balboa32U4Motors.cpp: PWM_L 10, PWM_R 9, DIR_L 16, DIR_R 15).
+//   direction PB1 (Balboa32U4Motors.cpp: PWM_L 10, PWM_R 9, DIR_L 16, DIR_R 15). Each PWM pin is
+//   a DRV8838's EN input: EN low brakes the motor whatever PH is (TI DRV8838 datasheet, Table
+//   7-2 "DRV8838 Device Logic"). EN has a 100 kOhm pull-down (RPD); a pin left as an input with
+//   its 20 to 50 kOhm pull-up on reads high through that divider (VIH is at most 0.5 VCC), so
+//   EN is high when the pin drives high or is an input pulled up, and low otherwise.
 // - Any other pin with its pull-up enabled reads high; with none it reads low.
 
 import { LIS3MDL, LIS3MDL_ADDRESS, LSM6DS33, LSM6DS33_ADDRESS } from './imu.js';
@@ -57,7 +61,8 @@ const cyclesAt = (s) => Math.round(s * FREQUENCY_HZ);
 export class Balboa32U4 {
   /**
    * @param {object} scenario a read scenario (scenario.js)
-   * @param {{onImuWrite?: Function, onInput?: Function}} observers
+   * @param {{onImuWrite?: Function, onInput?: Function, onUnmodelled?: Function,
+   *   onOutputRead?: Function}} observers
    */
   constructor(scenario, observers = {}) {
     this.scenario = scenario;
@@ -70,6 +75,8 @@ export class Balboa32U4 {
       raw: (t) => this.rawAt(t),
       faults: faultsAt('lsm6ds33'),
       onWrite: observers.onImuWrite,
+      onUnmodelled: observers.onUnmodelled,
+      onOutputRead: observers.onOutputRead,
     });
     this.lis3mdl = new LIS3MDL({ faults: faultsAt('lis3mdl') });
     this.devices = new Map([
@@ -83,15 +90,24 @@ export class Balboa32U4 {
     }
     this.buttons = scenario.buttons;
     this.sclPulses = 0;
+    this.sclLevel = 1;
+    // The chip's TWI asks `held()` before each byte: with SDA held low it settles the bits on
+    // the bus itself (mcu.js TimedTWI), and the board answers only when SDA is free.
     this.bus = {
+      held: () => this.sdaHeld(),
       start: () => !this.sdaHeld(),
       stop: () => {
+        if (this.sdaHeld()) return false; // SDA cannot rise: no STOP condition
+        this.selected = null;
+        return true;
+      },
+      lost: () => {
         this.selected = null;
       },
       connect: (address, write) => {
         const t = this.now();
         const device = this.devices.get(address);
-        if (!device || this.sdaHeld() || !device.acknowledges(t)) {
+        if (!device || !device.acknowledges(t)) {
           this.selected = null;
           return false;
         }
@@ -100,7 +116,7 @@ export class Balboa32U4 {
         return true;
       },
       write: (value) => (this.selected ? this.selected.write(value, this.now()) : false),
-      read: () => (this.selected && !this.sdaHeld() ? this.selected.read(this.now()) : this.sdaHeld() ? 0 : 0xff),
+      read: () => (this.sdaHeld() ? 0 : this.selected ? this.selected.read(this.now()) : 0xff),
     };
   }
 
@@ -132,7 +148,7 @@ export class Balboa32U4 {
       if (fault.kind === 'nack' && fault.device === device) state.nack = true;
       if (device !== 'lsm6ds33') continue;
       if (fault.kind === 'stale') state.stale_since = fault.start_s;
-      if (fault.kind === 'saturated') state.saturated = fault.sensor;
+      if (fault.kind === 'saturated') state.saturated = { sensor: fault.sensor, axes: fault.axes };
     }
     return state;
   }
@@ -168,18 +184,24 @@ export class Balboa32U4 {
         }
       };
       port.addListener(pullUps);
-      if (letter === SCL[0]) port.addListener((value, previous) => this.sclEdge(value, previous));
+      if (letter === SCL[0]) port.addListener(() => this.sclEdge());
     }
+    this.sclLevel = 1;
     chip.adc.channelValues[BATTERY_CHANNEL] = this.scenario.battery_v / 3;
     this.applyInputs(true);
   }
 
-  /** Bus recovery: nine SCL clocks driven by the firmware as a port pin, the interface off. */
-  sclEdge(value, previous) {
+  /** Bus recovery: nine SCL clocks with the interface off. A clock is a rise of SCL's level,
+   * whatever makes it: the pin driven high, or released (DDR cleared) to the board's pull-up, as
+   * an open-drain line is clocked. */
+  sclEdge() {
     const bit = 1 << SCL[1];
     const { data } = this.chip.cpu;
-    if (!(value & bit) || previous & bit) return;
-    if (data[REG.TWCR] & 0x04 || !(data[REG.DDRD] & bit)) return;
+    const port = this.chip.ports[SCL[0]];
+    const level = data[REG.DDRD] & bit ? port.lastValue & bit : 1; // the board holds SCL up
+    const rose = level && !this.sclLevel;
+    this.sclLevel = level ? 1 : 0;
+    if (!rose || data[REG.TWCR] & 0x04) return;
     const held = this.faults.find(
       (fault) => fault.kind === 'sda_held' && !fault.released && fault.release === 'scl_pulses' && this.active(fault),
     );

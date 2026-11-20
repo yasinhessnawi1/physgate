@@ -93,7 +93,7 @@ export const REG = Object.freeze({
   TCCR0A: 0x44, TCCR0B: 0x45, TCNT0: 0x46, OCR0A: 0x47, OCR0B: 0x48,
   PLLCSR: 0x49,
   SPCR: 0x4c, SPSR: 0x4d, SPDR: 0x4e,
-  ACSR: 0x50, PLLFRQ: 0x52, SMCR: 0x53, MCUSR: 0x54,
+  ACSR: 0x50, PLLFRQ: 0x52, SMCR: 0x53, MCUSR: 0x54, MCUCR: 0x55,
   SPL: 0x5d, SPH: 0x5e, SREG: 0x5f,
   WDTCSR: 0x60, CLKPR: 0x61,
   PCICR: 0x68, EICRA: 0x69, EICRB: 0x6a, PCMSK0: 0x6b,
@@ -254,9 +254,15 @@ const EEPROM = {
   writeCycles: 28_800,
 };
 
-// MCUSR's reset flags.
+// MCUSR's reset flags (datasheet "MCUSR - MCU Status Register").
 export const MCUSR_PORF = 0x01;
+export const MCUSR_EXTRF = 0x02;
+export const MCUSR_BORF = 0x04;
 export const MCUSR_WDRF = 0x08;
+
+/** The PLL's lock time. The datasheet ("PLLCSR", PLOCK) gives only "about several ms"; the rig
+ * takes 10 ms, the long end of that reading, so a start-up that waits on PLOCK is not shortened. */
+export const PLL_LOCK_CYCLES = FREQUENCY_HZ / 100;
 
 /** The four-cycle interrupt response for a part with a two-byte program counter, of which avr8js
  * counts two (datasheet "Interrupt Response Time"). */
@@ -268,22 +274,33 @@ const RESPONSE_CYCLES_MISSING = 2;
  * avr8js's TWI hands each bus step to an event handler and completes when the handler says. This
  * one completes each step after the time the bus takes for it at the configured rate, f_SCL =
  * f_CPU / (16 + 2 * TWBR * 4^TWPS) (datasheet "Bit Rate Generator Unit"): a START or a STOP one
- * SCL period, an address or data byte nine (eight bits and the acknowledge). What answers on the
- * bus is the board's (`bus` below); a START the bus cannot give (SDA held low) never completes.
- * Changes from avr8js, each to the datasheet's TWI: TWINT is not set after a STOP; TWINT is not
- * cleared by the vector's execution, only by writing a one to it, so its interrupt is a level;
- * writing a zero to TWINT leaves it set; and clearing TWEN ends whatever the interface was doing,
- * a START waiting for the bus included.
+ * SCL period, an address or data byte nine (eight bits and the acknowledge), counted from the
+ * TWCR write that began the step. What answers on the bus is the board's (`bus` below). Changes
+ * from avr8js, each to the datasheet's TWI:
+ *
+ * - TWCR is 0 at reset ("TWCR", initial value 0x00); TWSR's status bits are read-only (only TWPS
+ *   is written).
+ * - TWINT is not set after a STOP; TWINT is not cleared by the vector's execution, only by
+ *   writing a one to it, so its interrupt is a level; writing a zero to TWINT leaves it set; and
+ *   clearing TWEN ends whatever the interface was doing, a START waiting for the bus included.
+ * - With SDA held low by a device: a START never completes (TWSTA: the TWI waits for the bus to
+ *   be free); a STOP cannot be sent, so TWSTO stays set until SDA is released; and a master
+ *   sending a 1 (an address or data bit, or a NOT ACK) loses arbitration, status 0x38 ("Arbitration
+ *   lost in SLA+W or data bytes" / "in SLA+R or NOT ACK bit"), while a 0 sent or an ACK reads back
+ *   as itself. The loss is reported when the byte's nine bit periods are over.
  */
 class TimedTWI extends AVRTWI {
   constructor(cpu, bus, onTransfer) {
     super(cpu, TWI, FREQUENCY_HZ);
     this.TWI.constant = true;
+    cpu.data[REG.TWCR] = 0; // avr8js sets TWINT at construction; the part's TWCR resets to 0
     this.bus = bus;
     this.onTransfer = onTransfer;
     this.pending = null;
+    this.stepFrom = 0;
     const twi = this;
     const enabled = () => !!(cpu.data[REG.TWCR] & 0x04);
+    const held = () => !!(twi.bus.held && twi.bus.held());
     this.eventHandler = {
       start(repeated) {
         if (!enabled()) return;
@@ -291,41 +308,54 @@ class TimedTWI extends AVRTWI {
       },
       stop() {
         if (!enabled()) return;
-        twi.later(1, () => {
-          twi.bus.stop();
+        const attempt = () => {
+          if (twi.bus.stop() === false) {
+            twi.stepFrom = twi.cpu.cycles;
+            twi.later(1, attempt); // SDA held: no STOP can be sent; TWSTO stays set
+            return;
+          }
           twi.completeStop();
-        });
+        };
+        twi.later(1, attempt);
       },
       connectToSlave(address, write) {
         if (!enabled()) return;
         twi.later(9, () => {
-          const ack = twi.bus.connect(address, write);
+          if (held() && (address << 1) | (write ? 0 : 1)) return twi.lost({ kind: 'address', address, write });
+          const ack = held() || twi.bus.connect(address, write);
           twi.onTransfer({ kind: 'address', address, write, ack });
-          twi.completeConnect(ack);
+          return twi.completeConnect(ack);
         });
       },
       writeByte(value) {
         if (!enabled()) return;
         twi.later(9, () => {
-          const ack = twi.bus.write(value);
+          if (held() && value) return twi.lost({ kind: 'write', value });
+          const ack = held() || twi.bus.write(value);
           twi.onTransfer({ kind: 'write', value, ack });
-          twi.completeWrite(ack);
+          return twi.completeWrite(ack);
         });
       },
       readByte(ack) {
         if (!enabled()) return;
         twi.later(9, () => {
+          if (held() && !ack) return twi.lost({ kind: 'read', value: 0, ack });
           const value = twi.bus.read(ack);
           twi.onTransfer({ kind: 'read', value, ack });
-          twi.completeRead(value);
+          return twi.completeRead(value);
         });
       },
     };
     const write = cpu.writeHooks[REG.TWCR];
     cpu.writeHooks[REG.TWCR] = (value, old, addr, mask) => {
       if (!(value & 0x04)) this.abort();
+      if (value & 0x80) this.stepFrom = cpu.cycles;
       if (!write(value, old, addr, mask)) cpu.data[REG.TWCR] = value & ~0x80;
       if (!(value & 0x80) && old & 0x80) cpu.data[REG.TWCR] |= 0x80;
+      return true;
+    };
+    cpu.writeHooks[REG.TWSR] = (value, old) => {
+      cpu.data[REG.TWSR] = (old & 0xf8) | (value & 0x03); // TWS7:3 read-only, bit 2 reserved
       return true;
     };
   }
@@ -335,13 +365,22 @@ class TimedTWI extends AVRTWI {
     return 16 + 2 * this.cpu.data[REG.TWBR] * this.prescaler;
   }
 
+  /** Run `step` `bits` SCL periods after the TWCR write that began it (avr8js hands the step on
+   * one cycle after that write). */
   later(bits, step) {
     const run = () => {
       this.pending = null;
       step();
     };
     this.pending = run;
-    this.cpu.addClockEvent(run, bits * this.cyclesPerBit);
+    this.cpu.addClockEvent(run, this.stepFrom + bits * this.cyclesPerBit - this.cpu.cycles);
+  }
+
+  lost(transfer) {
+    this.bus.lost?.();
+    this.onTransfer({ ...transfer, ack: false, arbitration_lost: true });
+    this.busy = false;
+    this.updateStatus(0x38);
   }
 
   abort() {
@@ -362,8 +401,10 @@ class TimedTWI extends AVRTWI {
  * The watchdog (datasheet "Watchdog Timer"), with safety level 1 (WDTON unprogrammed).
  *
  * - The counter runs from the 128 kHz oscillator, nominally; a time-out comes after 2K << WDP
- *   oscillator cycles (WDP3..0 = 0 is 16 ms, 9 is 8 s), restarted by WDR and when the timer is
- *   enabled or its prescaler changed.
+ *   oscillator cycles (WDP3..0 = 0 is 16 ms, 9 is 8 s), counted again from WDR and from the
+ *   timer's enabling. A change of WDP keeps the count: the new period runs from the last restart,
+ *   so a shorter one already passed times out at once (datasheet "WDTCSR", the note to WDP: "a
+ *   change in the WDP bits can result in a time-out when switching to a shorter time-out period").
  * - WDE may be set at any time; clearing it or changing WDP needs the timed sequence: WDCE and
  *   WDE written as one in one operation, then within four cycles the new WDE and WDP with WDCE
  *   clear. WDIE is free to write; WDIF is cleared by writing a one, or by the vector.
@@ -387,6 +428,7 @@ class Watchdog {
     };
     this.changeUntil = -1;
     this.timeout = 0;
+    this.started = 0;
     // Never taken off the clock's queue while it runs: avr8js reuses a removed entry for the
     // next one added, and would drop it when the running one returns.
     this.scheduled = false;
@@ -405,7 +447,7 @@ class Watchdog {
       return true;
     };
     if (cpu.data[REG.MCUSR] & MCUSR_WDRF) cpu.data[REG.WDTCSR] = 0x08;
-    this.schedule();
+    if (this.running) this.restart();
   }
 
   get running() {
@@ -440,12 +482,17 @@ class Watchdog {
     if (cpu.data[REG.MCUSR] & MCUSR_WDRF) next |= 0x08;
     cpu.data[REG.WDTCSR] = next;
     cpu.updateInterruptEnable(this.interrupt, next);
-    if (this.running && (!wasRunning || (next & 0x27) !== oldPrescaler)) this.restart();
+    if (this.running && !wasRunning) {
+      this.restart();
+      return;
+    }
+    if ((next & 0x27) !== oldPrescaler) this.timeout = this.started + this.period;
     this.schedule();
   }
 
   restart() {
-    this.timeout = this.cpu.cycles + this.period;
+    this.started = this.cpu.cycles;
+    this.timeout = this.started + this.period;
     this.schedule();
   }
 
@@ -453,8 +500,7 @@ class Watchdog {
     if (this.scheduled) this.cpu.clearClockEvent(this.expire);
     this.scheduled = false;
     if (!this.running) return;
-    if (this.timeout <= this.cpu.cycles) this.timeout = this.cpu.cycles + this.period;
-    this.cpu.addClockEvent(this.expire, this.timeout - this.cpu.cycles);
+    this.cpu.addClockEvent(this.expire, this.timeout - this.cpu.cycles); // at once if passed
     this.scheduled = true;
   }
 
@@ -467,8 +513,7 @@ class Watchdog {
       return;
     }
     if (wdtcsr & 0x40) cpu.setInterruptFlag(this.interrupt);
-    this.timeout = cpu.cycles + this.period;
-    this.schedule();
+    this.restart();
   }
 
   /** The vector's execution clears WDIF (avr8js does that) and, in interrupt-and-reset mode,
@@ -481,8 +526,8 @@ class Watchdog {
 /**
  * The USB controller with no host (datasheet "USB Controller").
  *
- * Its registers store what is written, with these behaviours: the PLL sets PLOCK a fixed time
- * after PLLE is set (the rig's 100 us, not a datasheet figure) and clears it with PLLE; UDINT's
+ * Its registers store what is written, with these behaviours: the PLL sets PLOCK PLL_LOCK_CYCLES
+ * after PLLE is set and clears it with PLLE; UDINT's
  * flags can only be cleared by software, by writing a zero; USB_GEN is a level, pending while
  * any flag in UDINT has its enable in UDIEN. No host means no bus reset, no enumeration and no
  * data: VBUS reads 0. Start-of-frame interrupts at 1 kHz can be switched on as a load (`sof`),
@@ -509,7 +554,7 @@ class Usb {
     cpu.writeHooks[REG.PLLCSR] = (value, old) => {
       const locked = old & 0x01;
       cpu.data[REG.PLLCSR] = (value & ~0x01) | (value & 0x02 ? locked : 0);
-      if (value & 0x02 && !(old & 0x02)) cpu.addClockEvent(this.lock, FREQUENCY_HZ / 10_000);
+      if (value & 0x02 && !(old & 0x02)) cpu.addClockEvent(this.lock, PLL_LOCK_CYCLES);
       if (!(value & 0x02)) cpu.clearClockEvent(this.lock);
       return true;
     };
@@ -560,15 +605,32 @@ class Usb {
   }
 }
 
-/** Register ranges the chip keeps as plain storage: a write to one is listed in the summary. */
-export const UNMODELLED = Object.freeze({
-  timer4: [REG.TIFR4, REG.TIMSK4, REG.TCNT4, REG.TC4H, REG.TCCR4A, REG.TCCR4B, REG.TCCR4C,
-    REG.TCCR4D, REG.TCCR4E, REG.OCR4A, REG.OCR4B, REG.OCR4C, REG.OCR4D, REG.DT4],
-  spi: [REG.SPCR, REG.SPSR, REG.SPDR],
-  analog_comparator: [REG.ACSR],
-  usb_endpoint_data: [REG.UEDATX],
-  sleep_mode_register: [REG.SMCR],
-}); // prettier-ignore
+/**
+ * What the chip keeps as plain storage, or does not do, reported each time firmware uses it.
+ *
+ * A write that only configures a part the firmware never uses is not a use: the Arduino core's
+ * init() clocks Timer4 and sets its PWM bits in every sketch, with no output connected and no
+ * interrupt enabled, and that is not reported. Each entry below is a use, counted each time:
+ *
+ * - `timer4`: Timer4 clocked (TCCR4B CS4) with an interrupt enabled (TIMSK4) or a compare output
+ *   connected (COM4A/B in TCCR4A, COM4D in TCCR4C), written as such; or a read of TCNT4, TC4H or
+ *   TIFR4, a count that does not count here.
+ * - `input_capture`: ICIE1 or ICIE3 (TIMSKn bit 5) set; avr8js captures nothing.
+ * - `vector_relocation`: IVSEL set in MCUCR; the rig's vectors stay at 0.
+ * - `pull_up_disable`: PUD set in MCUCR; the ports' pull-ups stay as PORT gives them.
+ * - `adc_auto_trigger`: ADATE set with ADEN in ADCSRA; avr8js converts only on ADSC.
+ * - `adc_mux5`: a conversion started with MUX5 set (ADC8..13, the temperature sensor).
+ * - `clock_prescaler`: CLKPR's CLKPS written non-zero; the rig runs at 16 MHz whatever it says.
+ * - `spi`: SPDR written, or SPCR written with SPE set.
+ * - `analog_comparator`: ACSR read, or written with ACIE set.
+ * - `usb_endpoint_data`: UEDATX read or written (no host: no endpoint has data).
+ * - The rig adds `sleep` (a SLEEP executed with SMCR's SE set) and `spm_instruction`.
+ */
+export const UNMODELLED_FEATURES = Object.freeze([
+  'timer4', 'input_capture', 'vector_relocation', 'pull_up_disable', 'adc_auto_trigger',
+  'adc_mux5', 'clock_prescaler', 'spi', 'analog_comparator', 'usb_endpoint_data', 'sleep',
+  'spm_instruction',
+]); // prettier-ignore
 
 /**
  * One ATmega32U4 from reset.
@@ -631,17 +693,46 @@ export class ATmega32U4 {
 
   watchUnmodelled(report) {
     const { cpu } = this;
-    for (const [what, addresses] of Object.entries(UNMODELLED)) {
-      for (const address of addresses) observeWrite(cpu, address, () => report(what));
+    const { data } = cpu;
+    const timer4Used = () =>
+      !!(data[REG.TCCR4B] & 0x0f) &&
+      !!(data[REG.TIMSK4] & 0xe4 || data[REG.TCCR4A] & 0xf0 || data[REG.TCCR4C] & 0x0c);
+    for (const address of [REG.TIMSK4, REG.TCCR4A, REG.TCCR4B, REG.TCCR4C]) {
+      observeWrite(cpu, address, () => timer4Used() && report('timer4'));
     }
-    observeWrite(cpu, REG.CLKPR, () => {
-      // The rig runs at 16 MHz whatever the prescaler: a write that changes it is listed.
-      if ((cpu.data[REG.CLKPR] & 0x0f) !== 0) report('clock_prescaler');
+    for (const address of [REG.TCNT4, REG.TC4H, REG.TIFR4]) observeRead(cpu, address, () => report('timer4'));
+    for (const address of [REG.TIMSK1, REG.TIMSK3]) {
+      observeWrite(cpu, address, (value) => value & 0x20 && report('input_capture'));
+    }
+    observeWrite(cpu, REG.MCUCR, (value) => {
+      if (value & 0x02) report('vector_relocation');
+      if (value & 0x10) report('pull_up_disable');
     });
     observeWrite(cpu, REG.ADCSRA, (value) => {
-      if (value & 0x40 && cpu.data[REG.ADCSRB] & 0x20) report('adc_mux5');
+      if ((value & 0xa0) === 0xa0) report('adc_auto_trigger');
+      if (value & 0x40 && data[REG.ADCSRB] & 0x20) report('adc_mux5');
     });
+    observeWrite(cpu, REG.CLKPR, () => {
+      // The rig runs at 16 MHz whatever the prescaler: a write that changes it is listed.
+      if ((data[REG.CLKPR] & 0x0f) !== 0) report('clock_prescaler');
+    });
+    observeWrite(cpu, REG.SPDR, () => report('spi'));
+    observeWrite(cpu, REG.SPCR, (value) => value & 0x40 && report('spi'));
+    observeWrite(cpu, REG.ACSR, (value) => value & 0x08 && report('analog_comparator'));
+    observeRead(cpu, REG.ACSR, () => report('analog_comparator'));
+    observeWrite(cpu, REG.UEDATX, () => report('usb_endpoint_data'));
+    observeRead(cpu, REG.UEDATX, () => report('usb_endpoint_data'));
   }
+}
+
+/** Run `observe()` after every read of `address`, whatever the register gives. */
+export function observeRead(cpu, address, observe) {
+  const previous = cpu.readHooks[address];
+  cpu.readHooks[address] = (addr) => {
+    const value = previous ? previous(addr) : cpu.data[addr];
+    observe(value);
+    return value;
+  };
 }
 
 /** Run `observe(value)` after every write to `address`, whatever the register does with it. */

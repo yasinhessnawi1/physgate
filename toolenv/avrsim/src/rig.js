@@ -3,15 +3,27 @@
 // Measurements are taken from the CPU as it runs, never from the firmware's own reports:
 //
 // - an interrupt's execution time is the cycles from the CPU's acceptance of it (the cycle count
-//   before the vector is entered, the interrupt response included) to the end of its RETI;
-//   nested interrupts are counted in the one they interrupted as well as in their own;
+//   before the vector is entered, the interrupt response of four cycles included: the 32U4's
+//   program counter is two bytes, so its pushes and RETI's pops are two, not the datasheet's
+//   three-byte figure of five) to the end of its RETI. Both are given: inclusive, with the
+//   interrupts that nested in it, and exclusive, without them. An interrupt left without a RETI
+//   (its return address taken off the stack by anything else) is counted as such and dropped;
+// - after SEI and after RETI one more instruction runs before a pending interrupt is taken
+//   (datasheet "Interrupt Response Time" and the SEI example);
 // - the stack's high-water mark is the least stack pointer after any instruction;
 // - a probe is a function symbol of the ELF: an entry is the CPU arriving at its address, its
-//   return the RET (or RETI) executed at the stack depth it was entered at;
+//   return the RET (or RETI) executed at the stack depth it was entered at; its statistics start
+//   again at each reset and are given per reset as well as over the run;
 // - a PWM output's period and high time are taken between the pin's own edges while a timer's
 //   compare unit drives it;
-// - the motors are off while the firmware's last writes to both OCR1A and OCR1B are 0 (as they
-//   are from reset): that the PWM pins then stay low is the timer's, shown by the PWM edges.
+// - the motors are off while both DRV8838 enable inputs (PB5 and PB6) are low, from their pins'
+//   levels (board.js), for at least `motors_off_hold_s` without a break; the compare registers'
+//   zero is kept beside it as `ocr_zero_cycle`, which is not the motors' state;
+// - the input-to-output delay is bounded from the sensor reads and the compare writes the rig
+//   sees: it cannot see which sample a command was computed from (see `inputToOutput`).
+//
+// The board's reset path (`RESET_PATH`): after any reset the internal reset is stretched by the
+// start-up time the fuses give, and the A-Star 32U4 bootloader then runs before the sketch.
 
 import { avrInstruction } from 'avr8js';
 
@@ -22,10 +34,14 @@ import {
   EEPROM_BYTES,
   EEPROMMemoryBackend,
   FREQUENCY_HZ,
+  MCUSR_BORF,
+  MCUSR_EXTRF,
   MCUSR_PORF,
   MCUSR_WDRF,
+  PLL_LOCK_CYCLES,
   RAMEND,
   REG,
+  UNMODELLED_FEATURES,
   VECTORS,
   VECTOR_TABLE_WORDS,
   observeWrite,
@@ -37,7 +53,9 @@ const F_RETI = 2;
 const F_PROBE = 4;
 const F_SLEEP = 8;
 const F_SPM = 16;
+const F_SEI = 32;
 const OP_RET = 0x9508;
+const OP_SEI = 0x9478;
 const OP_RETI = 0x9518;
 const OP_SLEEP = 0x9588;
 const OP_SPM = 0x95e8;
@@ -45,6 +63,66 @@ const OP_SPM_Z = 0x95f8;
 const MAX_USART_TEXT = 64 << 10;
 /** How late a timer-driven edge can be stamped: the longest instruction, four cycles. */
 export const EDGE_RESOLUTION_CYCLES = 4;
+
+/**
+ * The start-up time after a reset: the Balboa's A-Star 32U4 low fuse is 0xFF (Pololu a-star
+ * boards.txt, a-star32U4.bootloader.low_fuses), CKSEL0 = 1 and SUT1..0 = 11, a crystal with
+ * slowly rising power, whose "Additional Delay from Reset" is 14CK + 65 ms (datasheet Table 6-4;
+ * 65 ms the typical 8K watchdog-oscillator cycles at 5 V, Table 6-2). It follows every reset,
+ * power-on and watchdog alike ("Reset Sources", "Watchdog Reset": the delay timer counts tTOUT).
+ */
+export const START_UP_CYCLES = Math.round(0.065 * FREQUENCY_HZ) + 14;
+/** The bootloader's own .data, which its start-up copies to 0x0100..0x01CD before main(), and its
+ * .bss, zeroed at 0x01CE..0x01E3 (Pololu a-star bootloaders/caterina/Caterina-A-Star.map; the
+ * bytes are Caterina-A-Star.hex at 0x7F2A..0x7FF7). */
+const BOOT_DATA = Uint8Array.from(Buffer.from(
+  '4341544552494e4100000800000000000008011201100102000008fb1f010101000201000109023e00020100' +
+  '80320904000001020201000524001001042402040524060001070582030800ff09040100020a000000070504' +
+  '0210000107058302100001040309043c0350006f006c006f006c007500200041002d00530074006100720020' +
+  '003300320055003400200042006f006f0074006c006f0061006400650072000000260350006f006c006f006c' +
+  '007500200043006f00720070006f0072006100740069006f006e00000000', 'hex'));
+const BOOT_BSS = [0x01ce, 0x01e4];
+/** The word the bootloader reads and zeroes at every start (Caterina.c: bootKeyPtr 0x0800), and
+ * the key that, found there after a watchdog reset, keeps it running. */
+const BOOT_KEY_ADDRESS = 0x0800;
+const BOOT_KEY = 0x7777;
+/** The bootloader's own session when it runs: it leaves after its Timeout counter passes 8000
+ * (TIMEOUT_PERIOD), one count per Timer1 compare at OCR1A 250 with clk/64, each at least 251
+ * timer counts of 64 cycles; a lower bound, its interrupt latency not counted. */
+export const BOOT_SESSION_CYCLES = 8001 * 251 * 64;
+
+/** What the summary says of the reset path, each point the documents leave open read the way
+ * that does not flatter firmware. */
+const RESET_PATH = {
+  'a-star': [
+    'start-up delay after every reset: 14CK + 65 ms (low fuse 0xFF, datasheet Table 6-4)',
+    'the bootloader runs first (Pololu: "The bootloader always runs first immediately after the AVR is reset"): ' +
+      'it clears PORF, EXTRF and WDRF in MCUSR (and BORF after a power-on), disables the watchdog, zeroes the word ' +
+      'at 0x0800 and overwrites 0x0100..0x01E3 with its own data, then starts the sketch with Timer1 stopped, ' +
+      'PORTB0 and PORTD5 set (its RX and TX LEDs off) and PORTC7 clear (Caterina.c main() and StartSketch()): ' +
+      'the sketch cannot tell a watchdog reset from MCUSR',
+    'the bootloader\'s own instructions before the sketch (some thousands of cycles by its code) are not counted',
+    'its stack (from 0x0AFF down, a few bytes on this path) is not written: the sketch\'s own stack lies there',
+    'a watchdog reset with 0x7777 at 0x0800 keeps the bootloader running for its timeout, taken as its lower bound ' +
+      `${BOOT_SESSION_CYCLES} cycles; the USB, PLL and LED state it leaves is not modelled`,
+    `the PLL's lock is taken as ${PLL_LOCK_CYCLES} cycles (datasheet: "about several ms")`,
+  ],
+  none: [
+    'start-up delay after every reset: 14CK + 65 ms (low fuse 0xFF, datasheet Table 6-4)',
+    'no bootloader: the sketch reads MCUSR as the reset left it; after a watchdog reset WDRF holds the watchdog on ' +
+      'at 16 ms, its count started when the delay ends',
+    `the PLL's lock is taken as ${PLL_LOCK_CYCLES} cycles (datasheet: "about several ms")`,
+  ],
+};
+
+/** What the input-to-output figures are, as the summary names them. */
+const INPUT_TO_OUTPUT_DEFINITION =
+  'per write of OCR1A or OCR1B: the cycles from the instant the oldest LSM6DS33 sample (gyroscope or ' +
+  'accelerometer, any byte) read since the previous write of the same register was taken, to the write ' +
+  '(upper_bound_cycles); and from the newest such sample (newest_sample_cycles). A write with no read since ' +
+  'the previous one is measured from the reads before that one. The rig sees reads and writes, not which ' +
+  'data a command was computed from: upper_bound_cycles bounds the delay only for a command computed from ' +
+  'what was read since that register was last written.';
 
 export class RigError extends Error {}
 
@@ -62,6 +140,13 @@ function add(s, value) {
 function report(s) {
   if (!s.count) return { count: 0 };
   return { count: s.count, min: s.min, max: s.max, mean: s.total / s.count };
+}
+
+function merge(into, s) {
+  into.count += s.count;
+  into.min = Math.min(into.min, s.min);
+  into.max = Math.max(into.max, s.max);
+  into.total += s.total;
 }
 
 const toSeconds = (cycles) => cycles / FREQUENCY_HZ;
@@ -120,6 +205,7 @@ export class Rig {
       else if (word === OP_RETI) this.flags[pc] |= F_RETI;
       else if (word === OP_SLEEP) this.flags[pc] |= F_SLEEP;
       else if (word === OP_SPM || word === OP_SPM_Z) this.flags[pc] |= F_SPM;
+      else if (word === OP_SEI) this.flags[pc] |= F_SEI;
     });
     this.probes = new Map();
     for (const probe of scenario.probes) {
@@ -142,11 +228,8 @@ export class Rig {
         symbol: probe.symbol,
         period: probe.period_s === null ? null : probe.period_s * FREQUENCY_HZ,
         open: [],
-        first: null,
-        last: null,
-        periods: stats(),
-        durations: stats(),
-        lateness: stats(),
+        epochs: [],
+        epoch: null,
       });
     }
     const heap = elf.symbols.get('__heap_start') ?? elf.symbols.get('_end');
@@ -155,20 +238,29 @@ export class Rig {
     if (elf.eeprom) this.eeprom.memory.set(elf.eeprom);
 
     this.vectors = new Map();
+    this.unwound = {};
     this.frames = [];
     this.minSp = RAMEND;
     this.resets = [];
     this.unmodelled = {};
     this.ocr = { OCR1A: { value: 0, writes: 0, max: 0 }, OCR1B: { value: 0, writes: 0, max: 0 } };
+    this.ocrTimeline = [[0, true]];
+    this.enables = { left: false, right: false };
     this.offTimeline = [[0, true]];
+    this.hold = Math.round(scenario.motors_off_hold_s * FREQUENCY_HZ);
     this.pwm = {};
     this.usart = { bytes: 0, text: '' };
     this.imuWrites = {};
-    this.gyroReady = null;
     this.lastGyroSeen = null;
     this.ddrSeen = {};
-    this.inputToOutput = stats();
-    this.twi = { addresses: 0, nacks: 0, bytes: 0 };
+    // Per compare register: the instants (s) of the samples read since its last write, and of
+    // the last such batch.
+    const window = () => ({ oldest: Infinity, newest: -Infinity, last: null });
+    this.reads = { OCR1A: window(), OCR1B: window() };
+    this.inputToOutput = { upper: stats(), newest: stats() };
+    this.releaseAt = -1;
+    this.bootSession = false;
+    this.twi = { addresses: 0, nacks: 0, arbitration_lost: 0, bytes: 0 };
     this.board = new Balboa32U4(scenario, {
       onImuWrite: (register, value) => {
         const name = lsm6Name(register);
@@ -178,8 +270,26 @@ export class Rig {
       onInput: (what, t, value) => {
         if (scenario.trace.input_edges) this.trace.event(this.chip.cpu.cycles, { type: 'input', what, value });
       },
+      onUnmodelled: (what) => this.noteUnmodelled(what),
+      onOutputRead: (sensor, instant) => {
+        for (const window of Object.values(this.reads)) {
+          if (instant < window.oldest) window.oldest = instant;
+          if (instant > window.newest) window.newest = instant;
+        }
+      },
     });
     this.chip = null;
+  }
+
+  noteUnmodelled(what) {
+    const cycle = this.chip ? this.chip.cpu.cycles : 0;
+    const entry = this.unmodelled[what];
+    if (entry) {
+      entry.count += 1;
+      return;
+    }
+    this.unmodelled[what] = { first_cycle: cycle, count: 1 };
+    this.trace.event(cycle, { type: 'unmodelled', what });
   }
 
   build(mcusr, carried, cause) {
@@ -190,22 +300,34 @@ export class Rig {
       sof: this.scenario.usb_sof,
       bus: this.board.bus,
       onTransfer: (transfer) => this.transfer(transfer),
-      onUnmodelled: (what) => {
-        if (!(what in this.unmodelled)) {
-          this.unmodelled[what] = chip.cpu.cycles;
-          this.trace.event(chip.cpu.cycles, { type: 'unmodelled', what });
-        }
-      },
+      onUnmodelled: (what) => this.noteUnmodelled(what),
     });
     this.chip = chip;
     const { cpu } = chip;
-    this.resets.push({ cycle: cpu.cycles, cause });
+    this.resets.push({ cycle: cpu.cycles, cause, sketch_start_cycle: null, mcusr_at_sketch_start: null });
     this.trace.event(cpu.cycles, { type: 'reset', cause });
+    // The internal reset is stretched by the start-up time; then the reset path (`release`).
+    this.releaseAt = cpu.cycles + START_UP_CYCLES;
+    this.bootSession = false;
     for (const name of ['OCR1A', 'OCR1B']) this.ocr[name].value = 0;
-    this.motorsChanged(cpu.cycles);
+    this.ocrChanged(cpu.cycles);
     this.frames = [];
     this.ddrSeen = {};
-    for (const probe of this.probes.values()) probe.open = [];
+    for (const probe of this.probes.values()) {
+      probe.open = [];
+      if (probe.epoch && probe.epoch.entries) probe.epochs.push(probe.epoch);
+      probe.epoch = { reset: this.resets.length - 1, entries: 0, first: null, last: null,
+        periods: stats(), durations: stats(), lateness: stats() }; // prettier-ignore
+    }
+    // The motors' enable inputs, from the pins' levels: high when driven high or pulled up.
+    const pb = chip.ports.B;
+    const enables = (value) => {
+      this.enables.right = !!(value & (1 << MOTOR_PINS.right.pwm[1]));
+      this.enables.left = !!(value & (1 << MOTOR_PINS.left.pwm[1]));
+      this.motorsChanged(cpu.cycles);
+    };
+    pb.addListener((value) => enables(value));
+    enables(pb.lastValue);
 
     const compare = { OCR1A: [REG.OCR1AL, 'nextOcrA'], OCR1B: [REG.OCR1BL, 'nextOcrB'] };
     for (const [name, [address, field]] of Object.entries(compare)) {
@@ -216,11 +338,8 @@ export class Rig {
         entry.writes += 1;
         if (value > entry.max) entry.max = value;
         this.trace.event(cpu.cycles, { type: 'ocr', register: name, value });
-        if (this.gyroReady !== null) {
-          add(this.inputToOutput, cpu.cycles - Math.round(this.gyroReady * FREQUENCY_HZ));
-          this.gyroReady = null;
-        }
-        this.motorsChanged(cpu.cycles);
+        this.inputToOutputAt(name, cpu.cycles);
+        this.ocrChanged(cpu.cycles);
       });
     }
     const timerRegisters = {
@@ -250,7 +369,8 @@ export class Rig {
 
   transfer(transfer) {
     const cycle = this.chip.cpu.cycles;
-    if (transfer.kind === 'address') {
+    if (transfer.arbitration_lost) this.twi.arbitration_lost += 1;
+    else if (transfer.kind === 'address') {
       this.twi.addresses += 1;
       if (!transfer.ack) this.twi.nacks += 1;
     } else {
@@ -259,16 +379,41 @@ export class Rig {
     this.trace.event(cycle, { type: 'twi', ...transfer });
     const ready = this.board.lsm6.lastGyroReady;
     if (transfer.kind === 'read' && ready !== null && ready !== this.lastGyroSeen) {
-      this.lastGyroSeen = this.board.lsm6.lastGyroReady;
-      this.gyroReady = this.lastGyroSeen;
-      this.trace.event(cycle, { type: 'imu_sample', sensor: 'gyro', ready_cycle: Math.round(this.gyroReady * FREQUENCY_HZ) });
+      this.lastGyroSeen = ready;
+      this.trace.event(cycle, { type: 'imu_sample', sensor: 'gyro', ready_cycle: Math.round(ready * FREQUENCY_HZ) });
     }
   }
 
+  /** A write of a compare register: its input-to-output figures (INPUT_TO_OUTPUT_DEFINITION). */
+  inputToOutputAt(name, cycle) {
+    const window = this.reads[name];
+    let batch = null;
+    if (window.oldest !== Infinity) batch = [window.oldest, window.newest];
+    else batch = window.last;
+    window.oldest = Infinity;
+    window.newest = -Infinity;
+    if (!batch) return;
+    window.last = batch;
+    add(this.inputToOutput.upper, cycle - Math.round(batch[0] * FREQUENCY_HZ));
+    add(this.inputToOutput.newest, cycle - Math.round(batch[1] * FREQUENCY_HZ));
+  }
+
+  ocrChanged(cycle) {
+    const zero = this.ocr.OCR1A.value === 0 && this.ocr.OCR1B.value === 0;
+    const last = this.ocrTimeline[this.ocrTimeline.length - 1];
+    if (last[1] !== zero) this.ocrTimeline.push([cycle, zero]);
+  }
+
   motorsChanged(cycle) {
-    const off = this.ocr.OCR1A.value === 0 && this.ocr.OCR1B.value === 0;
+    const off = !this.enables.left && !this.enables.right;
     const last = this.offTimeline[this.offTimeline.length - 1];
-    if (last[1] !== off) this.offTimeline.push([cycle, off]);
+    if (last[0] === cycle) {
+      // Two changes in one cycle: the later one stands.
+      last[1] = off;
+      if (this.offTimeline.length > 1 && this.offTimeline[this.offTimeline.length - 2][1] === off) this.offTimeline.pop();
+    } else if (last[1] !== off) {
+      this.offTimeline.push([cycle, off]);
+    }
   }
 
   pins(letter, port, value, previous) {
@@ -351,10 +496,17 @@ export class Rig {
         stallShown = stallIndex;
         this.trace.event(now, { type: 'stall', interrupts: stall.interrupts, until: stall.end });
       }
-      this.execute(limit, stall);
+      if (now < this.releaseAt) {
+        // Held in reset: nothing runs until the start-up time is over.
+        cpu.cycles = Math.min(limit, this.releaseAt);
+        if (cpu.cycles === this.releaseAt) this.release();
+      } else {
+        this.execute(limit, stall);
+      }
       if (this.chip.resetRequest) {
         const cause = this.chip.resetRequest;
-        const mcusr = (cause === 'watchdog' ? MCUSR_WDRF : MCUSR_PORF) | (this.chip.cpu.data[REG.MCUSR] & ~0x08);
+        // A reset sets its own flag and leaves the others, which only a written zero clears.
+        const mcusr = (cause === 'watchdog' ? MCUSR_WDRF : MCUSR_PORF) | this.chip.cpu.data[REG.MCUSR];
         this.build(mcusr, this.chip.carried(), cause);
         if (stall) stalledByReset = stallIndex;
       }
@@ -362,6 +514,52 @@ export class Rig {
     }
     this.trace.flush();
     return this.summary(end);
+  }
+
+  /** The end of the start-up time: the board's reset path, then the sketch from its vector. */
+  release() {
+    const { cpu, watchdog } = this.chip;
+    const { data } = cpu;
+    const entry = this.resets[this.resets.length - 1];
+    this.releaseAt = -1;
+    if (this.scenario.bootloader === 'a-star' && !this.bootSession) {
+      // Caterina.c: the C start-up copies its .data and clears its .bss, then main().
+      data.set(BOOT_DATA, 0x100);
+      data.fill(0, BOOT_BSS[0], BOOT_BSS[1]);
+      const key = data[BOOT_KEY_ADDRESS] | (data[BOOT_KEY_ADDRESS + 1] << 8);
+      data[BOOT_KEY_ADDRESS] = 0;
+      data[BOOT_KEY_ADDRESS + 1] = 0;
+      const flags = data[REG.MCUSR];
+      data[REG.MCUSR] = flags & ~(MCUSR_PORF | MCUSR_EXTRF | MCUSR_WDRF);
+      data[REG.WDTCSR] = 0; // wdt_disable(), WDRF already clear
+      watchdog.schedule();
+      if (flags & MCUSR_PORF) {
+        data[REG.MCUSR] &= ~MCUSR_BORF;
+      } else if (!(flags & MCUSR_EXTRF) && flags & MCUSR_WDRF && key === BOOT_KEY) {
+        // The bootloader's own session, until its timeout; then MCUSR = 0 and the sketch.
+        data[REG.MCUSR] = 0;
+        entry.bootloader_session_cycles = BOOT_SESSION_CYCLES;
+        this.noteUnmodelled('bootloader_session');
+        this.bootSession = true;
+        this.releaseAt = cpu.cycles + BOOT_SESSION_CYCLES;
+        return;
+      }
+    }
+    if (this.scenario.bootloader === 'a-star') {
+      // StartSketch(): Timer1 stopped and cleared (as it is from reset on this path), the vectors
+      // back at 0, the LEDs off: L (PC7) low, TX (PD5) and RX (PB0) high.
+      data[REG.MCUCR] = 0;
+      cpu.writeData(REG.PORTC, data[REG.PORTC] & ~0x80);
+      cpu.writeData(REG.PORTD, data[REG.PORTD] | 0x20);
+      cpu.writeData(REG.PORTB, data[REG.PORTB] | 0x01);
+    } else if (watchdog.running) {
+      watchdog.restart(); // WDRF holds it on; its count starts as the delay ends
+    }
+    data[REG.SREG] &= 0x7f;
+    cpu.pc = 0;
+    entry.sketch_start_cycle = cpu.cycles;
+    entry.mcusr_at_sketch_start = data[REG.MCUSR];
+    this.trace.event(cpu.cycles, { type: 'sketch_start', mcusr: data[REG.MCUSR] });
   }
 
   /** Execute until `limit` cycles, a reset, or the stall's end. */
@@ -392,7 +590,8 @@ export class Rig {
       const flag = flags[pc];
       if (flag) {
         if (flag & F_PROBE) this.probeEntry(pc, cpu);
-        if (flag & (F_SLEEP | F_SPM)) this.unmodelledInstruction(flag);
+        if (flag & F_SLEEP && data[REG.SMCR] & 0x01) this.noteUnmodelled('sleep');
+        if (flag & F_SPM) this.noteUnmodelled('spm_instruction');
         if (flag & (F_RET | F_RETI)) {
           const sp = data[93] | (data[94] << 8);
           avrInstruction(cpu);
@@ -405,19 +604,27 @@ export class Rig {
       }
       const sp = data[93] | (data[94] << 8);
       if (sp < minSp) minSp = sp;
+      // An interrupt whose return address is no longer on the stack has been left without RETI.
+      while (this.frames.length && sp > this.frames[this.frames.length - 1].sp) this.unwind();
       const after = cpu.pc;
-      cpu.tick();
+      if (flag & (F_SEI | F_RETI)) {
+        // The next instruction runs before any pending interrupt is taken.
+        const sreg = data[95];
+        data[95] = sreg & 0x7f;
+        cpu.tick();
+        if (!chip.resetRequest) data[95] = (data[95] & 0x7f) | (sreg & 0x80);
+      } else {
+        cpu.tick();
+      }
       if (cpu.pc !== after && !chip.resetRequest) this.entered(after);
     }
     this.minSp = minSp;
   }
 
-  unmodelledInstruction(flag) {
-    const what = flag & F_SLEEP ? 'sleep_instruction' : 'spm_instruction';
-    if (!(what in this.unmodelled)) {
-      this.unmodelled[what] = this.chip.cpu.cycles;
-      this.trace.event(this.chip.cpu.cycles, { type: 'unmodelled', what });
-    }
+  unwind() {
+    const frame = this.frames.pop();
+    const name = vectorName(frame.vector);
+    this.unwound[name] = (this.unwound[name] ?? 0) + 1;
   }
 
   /** An interrupt was accepted: the CPU now stands at its vector. */
@@ -430,7 +637,7 @@ export class Rig {
     if (vector === VECTORS.WDT) this.chip.watchdog.vectored();
     const sp = cpu.data[93] | (cpu.data[94] << 8);
     if (sp < this.minSp) this.minSp = sp;
-    this.frames.push({ vector, start, sp });
+    this.frames.push({ vector, start, sp, nested: 0 });
   }
 
   returned(flag, spBefore) {
@@ -440,10 +647,13 @@ export class Rig {
       const name = vectorName(frame.vector);
       let s = this.vectors.get(name);
       if (!s) {
-        s = stats();
+        s = { inclusive: stats(), exclusive: stats() };
         this.vectors.set(name, s);
       }
-      add(s, cpu.cycles - frame.start);
+      const inclusive = cpu.cycles - frame.start;
+      add(s.inclusive, inclusive);
+      add(s.exclusive, inclusive - frame.nested);
+      if (this.frames.length) this.frames[this.frames.length - 1].nested += inclusive;
     }
     if (!this.probes.size) return;
     for (const probe of this.probes.values()) {
@@ -451,7 +661,7 @@ export class Rig {
       if (open && open.sp === spBefore) {
         probe.open.pop();
         const duration = cpu.cycles - open.entry;
-        add(probe.durations, duration);
+        add(probe.epoch.durations, duration);
         this.trace.event(open.entry, { type: 'probe', symbol: probe.symbol, cycles: duration });
       }
     }
@@ -462,18 +672,24 @@ export class Rig {
     const entry = cpu.cycles;
     const sp = cpu.data[93] | (cpu.data[94] << 8);
     probe.open.push({ entry, sp });
-    if (probe.last !== null) add(probe.periods, entry - probe.last);
-    if (probe.first === null) probe.first = entry;
+    const epoch = probe.epoch;
+    if (epoch.last !== null) add(epoch.periods, entry - epoch.last);
+    if (epoch.first === null) epoch.first = entry;
     if (probe.period) {
-      // The n-th entry is due n periods after the first: an entry missed makes the later ones late.
-      add(probe.lateness, entry - (probe.first + probe.periods.count * probe.period));
+      // The n-th entry since the reset is due n periods after its first: an entry missed makes
+      // the later ones late.
+      add(epoch.lateness, entry - (epoch.first + epoch.entries * probe.period));
     }
-    probe.last = entry;
+    epoch.entries += 1;
+    epoch.last = entry;
   }
 
   summary(end) {
     const vectors = {};
-    for (const name of [...this.vectors.keys()].sort()) vectors[name] = report(this.vectors.get(name));
+    for (const name of [...this.vectors.keys()].sort()) {
+      const v = this.vectors.get(name);
+      vectors[name] = { count: v.inclusive.count, inclusive_cycles: report(v.inclusive), exclusive_cycles: report(v.exclusive) };
+    }
     const pwm = {};
     for (const name of Object.keys(this.pwm).sort()) {
       const pin = this.pwm[name];
@@ -487,17 +703,30 @@ export class Rig {
     }
     const probes = {};
     for (const probe of this.probes.values()) {
+      const epochs = [...probe.epochs, ...(probe.epoch && probe.epoch.entries ? [probe.epoch] : [])];
+      const all = { periods: stats(), durations: stats(), lateness: stats() };
+      for (const epoch of epochs) for (const key of Object.keys(all)) merge(all[key], epoch[key]);
+      const shown = (epoch) => ({
+        reset_index: epoch.reset,
+        entries: epoch.entries,
+        first_entry_cycle: epoch.first,
+        period_cycles: report(epoch.periods),
+        duration_cycles: report(epoch.durations),
+        lateness_cycles: probe.period ? report(epoch.lateness) : null,
+      });
       probes[probe.symbol] = {
-        entries: probe.periods.count + (probe.first === null ? 0 : 1),
-        first_entry_cycle: probe.first,
-        period_cycles: report(probe.periods),
-        duration_cycles: report(probe.durations),
-        lateness_cycles: probe.period ? report(probe.lateness) : null,
+        entries: epochs.reduce((n, epoch) => n + epoch.entries, 0),
+        first_entry_cycle: epochs.length ? epochs[0].first : null,
+        period_cycles: report(all.periods),
+        duration_cycles: report(all.durations),
+        lateness_cycles: probe.period ? report(all.lateness) : null,
         nominal_period_cycles: probe.period,
+        by_reset: epochs.map(shown),
       };
     }
     const events = [];
-    const push = (kind, cycle, extra = {}) => events.push({ kind, cycle, ...extra, ...this.motorsOffAfter(cycle) });
+    const push = (kind, cycle, extra = {}) =>
+      events.push({ kind, cycle, ...extra, ...this.motorsOffAfter(cycle, end), ocr_zero_cycle: this.ocrZeroAfter(cycle) });
     this.scenario.faults.forEach((fault, i) =>
       push(`fault:${fault.kind}`, Math.round(fault.start_s * FREQUENCY_HZ), { index: i }),
     );
@@ -513,14 +742,26 @@ export class Rig {
         writes: entry.writes, max: entry.max, last: entry.value }; // prettier-ignore
     };
     const { cpu, timer1 } = this.chip;
+    const features = new Set(UNMODELLED_FEATURES);
+    const untimed = Object.keys(this.unmodelled).filter((what) => features.has(what)).sort();
+    const unmodelled = {};
+    for (const what of Object.keys(this.unmodelled).sort()) unmodelled[what] = this.unmodelled[what];
     return {
       board: { model: BOARD, version: BOARD_VERSION },
       frequency_hz: FREQUENCY_HZ,
       simulated_cycles: cpu.cycles,
       simulated_s: toSeconds(cpu.cycles),
       scenario_end_cycle: end,
+      reset_path: {
+        bootloader: this.scenario.bootloader,
+        start_up_cycles: START_UP_CYCLES,
+        pll_lock_cycles: PLL_LOCK_CYCLES,
+        readings: RESET_PATH[this.scenario.bootloader],
+      },
       resets: this.resets,
+      interrupt_response_cycles: 4,
       vectors,
+      vectors_left_without_reti: this.unwound,
       stack: {
         min_sp: this.minSp,
         ramend: RAMEND,
@@ -529,6 +770,13 @@ export class Rig {
         headroom_bytes: this.heapStart === null ? null : this.minSp - this.heapStart,
       },
       motors: { left: motor('left'), right: motor('right') },
+      motors_off_rule: {
+        enable_pins: [MOTOR_PINS.right.pwmName, MOTOR_PINS.left.pwmName],
+        hold_cycles: this.hold,
+        definition:
+          'off while both DRV8838 EN inputs are low (an output driven low, or an input without its pull-up) for ' +
+          'hold_cycles without a break; an interval cut short by the end of the run is not counted',
+      },
       timer1: { icr1: timer1.icr, wgm: timer1.WGM, tccr1a: cpu.data[REG.TCCR1A], tccr1b: cpu.data[REG.TCCR1B] },
       pwm,
       probes,
@@ -538,29 +786,49 @@ export class Rig {
         whoami_reads: this.board.lsm6.counts.whoami_reads,
         gyro_samples_read: this.board.lsm6.counts.gyro_samples_read,
         accel_samples_read: this.board.lsm6.counts.accel_samples_read,
+        invalid_samples_read: this.board.lsm6.counts.invalid_samples_read,
+        invalid_sample_value:
+          'a sample the part takes while turning on or settling (AN4682 Tables 12, 16, 17) has no documented value; ' +
+          'the rig gives 0 counts on every axis',
       },
-      input_to_output_cycles: report(this.inputToOutput),
+      input_to_output: {
+        definition: INPUT_TO_OUTPUT_DEFINITION,
+        upper_bound_cycles: report(this.inputToOutput.upper),
+        newest_sample_cycles: report(this.inputToOutput.newest),
+      },
       twi: this.twi,
       encoders: { edges: this.board.encoderEdges(), counts: this.board.encoderCounts() },
       usart1: { bytes: this.usart.bytes, text: this.usart.text, text_truncated: this.usart.bytes > this.usart.text.length },
-      unmodelled: this.unmodelled,
+      unmodelled,
+      timing_evaluable: untimed.length === 0,
+      timing_not_evaluable_because: untimed,
       trace: { lines: this.trace.lines, truncated_at_cycle: this.trace.truncatedAt },
     };
   }
 
-  /** The first cycle at or after `cycle` at which the motors are off, and how long they stay so. */
-  motorsOffAfter(cycle) {
+  /** The first cycle at or after `cycle` from which both motor enables stay low for the hold, and
+   * the cycle they next rise (null: not before the run's end). */
+  motorsOffAfter(cycle, end) {
     const timeline = this.offTimeline;
+    for (let i = 0; i < timeline.length; i += 1) {
+      const [from, off] = timeline[i];
+      const until = i + 1 < timeline.length ? timeline[i + 1][0] : null;
+      if (!off || (until !== null && until <= cycle)) continue;
+      const start = Math.max(from, cycle);
+      if ((until ?? end) - start < this.hold) continue;
+      return { motors_off_cycle: start, motors_off_delay_s: toSeconds(start - cycle), motors_off_until_cycle: until };
+    }
+    return { motors_off_cycle: null, motors_off_delay_s: null, motors_off_until_cycle: null };
+  }
+
+  /** The first cycle at or after `cycle` at which the last writes to OCR1A and OCR1B are both 0. */
+  ocrZeroAfter(cycle) {
+    const timeline = this.ocrTimeline;
     let i = 0;
     while (i + 1 < timeline.length && timeline[i + 1][0] <= cycle) i += 1;
-    let off = null;
-    if (timeline[i][1]) off = cycle;
-    else if (i + 1 < timeline.length) off = timeline[i + 1][0];
-    if (off === null) return { motors_off_cycle: null, motors_off_delay_s: null, motors_off_until_cycle: null };
-    let j = i;
-    while (j + 1 < timeline.length && timeline[j + 1][0] <= off) j += 1;
-    const until = j + 1 < timeline.length ? timeline[j + 1][0] : null;
-    return { motors_off_cycle: off, motors_off_delay_s: toSeconds(off - cycle), motors_off_until_cycle: until };
+    if (timeline[i][1]) return cycle;
+    for (let j = i + 1; j < timeline.length; j += 1) if (timeline[j][1]) return timeline[j][0];
+    return null;
   }
 }
 

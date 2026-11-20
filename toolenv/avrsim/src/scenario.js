@@ -29,6 +29,11 @@ const DEVICES = new Set(['lsm6ds33', 'lis3mdl']);
 const SENSORS = new Set(['gyro', 'accel', 'both']);
 const BUTTONS = new Set(['A', 'B', 'C']);
 const RELEASES = new Set(['end', 'scl_pulses']);
+const AXES = ['x', 'y', 'z'];
+const BOOTLOADERS = new Set(['a-star', 'none']);
+/** How long both motor enables must stay low for the motors to count as off, by default: longer
+ * than a PWM period at 50 Hz or faster, so the low part of a PWM wave is never "off". */
+const DEFAULT_MOTORS_OFF_HOLD_S = 0.02;
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -149,12 +154,19 @@ function faults(value, duration) {
     const where = `faults[${i}]`;
     if (!isObject(item)) throw new ScenarioError(where, 'it is not an object');
     const kind = oneOf(item.kind, `${where}.kind`, FAULT_KINDS);
-    const fields = { nack: ['device'], sda_held: ['release'], stale: [], saturated: ['sensor'] }[kind];
+    const fields = { nack: ['device'], sda_held: ['release'], stale: [], saturated: ['sensor', 'axes'] }[kind];
     only(item, where, ['kind', 'start_s', 'end_s', ...fields], ['kind', 'start_s', 'end_s', ...fields]);
     const fault = { kind, ...interval(item, where, duration) };
     if (kind === 'nack') fault.device = oneOf(item.device, `${where}.device`, DEVICES);
     if (kind === 'sda_held') fault.release = oneOf(item.release, `${where}.release`, RELEASES);
-    if (kind === 'saturated') fault.sensor = oneOf(item.sensor, `${where}.sensor`, SENSORS);
+    if (kind === 'saturated') {
+      fault.sensor = oneOf(item.sensor, `${where}.sensor`, SENSORS);
+      const axes = list(item.axes, `${where}.axes`, 3);
+      if (!axes.length) throw new ScenarioError(`${where}.axes`, 'it names no axis');
+      axes.forEach((axis, j) => oneOf(axis, `${where}.axes[${j}]`, new Set(AXES)));
+      if (new Set(axes).size !== axes.length) throw new ScenarioError(`${where}.axes`, 'it names an axis twice');
+      fault.axes = AXES.filter((axis) => axes.includes(axis));
+    }
     return fault;
   });
   noOverlap(items, 'faults', (fault) => `${fault.kind}:${fault.device ?? ''}`);
@@ -180,7 +192,7 @@ export function readScenario(text) {
   }
   const top = [
     'avrsim_scenario', 'duration_s', 'imu', 'encoders', 'faults', 'buttons', 'stalls',
-    'usb_sof', 'battery_v', 'probes', 'markers', 'trace',
+    'usb_sof', 'battery_v', 'probes', 'markers', 'trace', 'bootloader', 'motors_off_hold_s',
   ]; // prettier-ignore
   only(raw, 'the scenario', top, ['avrsim_scenario', 'duration_s']);
   if (raw.avrsim_scenario !== SCENARIO_VERSION) {
@@ -224,6 +236,13 @@ export function readScenario(text) {
   }
   scenario.usb_sof = raw.usb_sof ?? false;
   scenario.battery_v = raw.battery_v === undefined ? 7.2 : number(raw.battery_v, 'battery_v', { min: 0, max: 15 });
+  // The board's reset path: the A-Star 32U4 bootloader the Balboa ships with, unless the
+  // scenario names "none" (a chip programmed without it).
+  scenario.bootloader = raw.bootloader === undefined ? 'a-star' : oneOf(raw.bootloader, 'bootloader', BOOTLOADERS);
+  scenario.motors_off_hold_s =
+    raw.motors_off_hold_s === undefined
+      ? DEFAULT_MOTORS_OFF_HOLD_S
+      : number(raw.motors_off_hold_s, 'motors_off_hold_s', { min: 1e-4, max: duration });
 
   const symbols = new Set();
   scenario.probes = list(raw.probes ?? [], 'probes', MAX_PROBES).map((item, i) => {

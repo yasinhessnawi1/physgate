@@ -47,6 +47,8 @@ def test_the_least_scenario_is_filled_in_with_a_still_board_and_nothing_injected
         "probes": [],
         "markers": [],
         "trace": {"input_edges": False, "max_lines": 2_000_000},
+        "bootloader": "a-star",
+        "motors_off_hold_s": 0.02,
     }
 
 
@@ -64,7 +66,13 @@ def test_every_part_a_scenario_can_hold_is_read_as_given() -> None:
             {"kind": "nack", "device": "lis3mdl", "start_s": 0.1, "end_s": 0.2},
             {"kind": "sda_held", "release": "scl_pulses", "start_s": 0.3, "end_s": 0.4},
             {"kind": "stale", "start_s": 0.15, "end_s": 0.5},
-            {"kind": "saturated", "sensor": "both", "start_s": 0.6, "end_s": 0.7},
+            {
+                "kind": "saturated",
+                "sensor": "both",
+                "axes": ["z", "x"],
+                "start_s": 0.6,
+                "end_s": 0.7,
+            },
         ],
         buttons=[
             {"button": "A", "start_s": 0.1, "end_s": 0.2},
@@ -76,13 +84,16 @@ def test_every_part_a_scenario_can_hold_is_read_as_given() -> None:
         probes=[{"symbol": "update", "period_s": 0.01}, {"symbol": "_Z4stepv"}],
         markers=[{"name": "tilt_beyond", "t_s": 1.2}],
         trace={"input_edges": True, "max_lines": 10},
+        bootloader="none",
+        motors_off_hold_s=0.005,
     )
     read = _read(scenario)["ok"]
     assert read["imu"]["raw"] == [{"t_s": 1.5, "gyro": [1, -2, 3], "accel": [16384, 0, -1]}]
     assert read["encoders"] == {"left": [[0, 5]], "right": [[0, -2.5], [1, 0]]}
     assert [f["kind"] for f in read["faults"]] == ["nack", "nack", "sda_held", "stale", "saturated"]
     assert read["faults"][2]["release"] == "scl_pulses"
-    assert read["faults"][4]["sensor"] == "both"
+    assert (read["faults"][4]["sensor"], read["faults"][4]["axes"]) == ("both", ["x", "z"])
+    assert (read["bootloader"], read["motors_off_hold_s"]) == ("none", 0.005)
     assert read["stalls"] == [{"start_s": 0.8, "end_s": 0.9, "interrupts": False}]
     assert read["probes"] == [
         {"symbol": "update", "period_s": 0.01},
@@ -204,9 +215,54 @@ REFUSED: list[tuple[str, object, str]] = [
     ),
     (
         "a saturation of an unknown sensor",
-        _base(faults=[{"kind": "saturated", "sensor": "magnet", "start_s": 0, "end_s": 1}]),
+        _base(
+            faults=[
+                {"kind": "saturated", "sensor": "magnet", "axes": ["y"], "start_s": 0, "end_s": 1}
+            ]
+        ),
         "faults[0].sensor",
     ),
+    # An over-range clips the axis that is over its range (LSM6DS33 datasheet, FS): a saturation
+    # names its axes.
+    (
+        "a saturation naming no axes",
+        _base(faults=[{"kind": "saturated", "sensor": "gyro", "start_s": 0, "end_s": 1}]),
+        "faults[0].axes",
+    ),
+    (
+        "a saturation of an empty list of axes",
+        _base(
+            faults=[{"kind": "saturated", "sensor": "gyro", "axes": [], "start_s": 0, "end_s": 1}]
+        ),
+        "faults[0].axes",
+    ),
+    (
+        "a saturation of an unknown axis",
+        _base(
+            faults=[
+                {"kind": "saturated", "sensor": "gyro", "axes": ["w"], "start_s": 0, "end_s": 1}
+            ]
+        ),
+        "faults[0].axes[0]",
+    ),
+    (
+        "a saturation naming an axis twice",
+        _base(
+            faults=[
+                {
+                    "kind": "saturated",
+                    "sensor": "gyro",
+                    "axes": ["y", "y"],
+                    "start_s": 0,
+                    "end_s": 1,
+                }
+            ]
+        ),
+        "faults[0].axes",
+    ),
+    ("an unknown bootloader", _base(bootloader="caterina"), "bootloader"),
+    ("a hold of zero", _base(motors_off_hold_s=0), "motors_off_hold_s"),
+    ("a hold past the run", _base(motors_off_hold_s=2), "motors_off_hold_s"),
     (
         "too many faults",
         _base(
@@ -301,7 +357,13 @@ def test_faults_of_different_kinds_may_overlap_and_presses_of_different_buttons_
         _base(
             faults=[
                 {"kind": "stale", "start_s": 0.1, "end_s": 0.5},
-                {"kind": "saturated", "sensor": "gyro", "start_s": 0.2, "end_s": 0.6},
+                {
+                    "kind": "saturated",
+                    "sensor": "gyro",
+                    "axes": ["y"],
+                    "start_s": 0.2,
+                    "end_s": 0.6,
+                },
                 {"kind": "nack", "device": "lsm6ds33", "start_s": 0.2, "end_s": 0.6},
                 {"kind": "nack", "device": "lis3mdl", "start_s": 0.3, "end_s": 0.7},
             ],

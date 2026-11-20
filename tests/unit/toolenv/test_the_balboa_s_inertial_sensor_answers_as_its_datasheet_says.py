@@ -4,7 +4,9 @@ The board model's inertial sensor is a register file with a sub-address pointer,
 with every bus step. What firmware reads from it is the scenario's motion at the sensor's own
 sample instants, scaled by the full scale the firmware configured, through the Balboa library's
 own axis convention (the balancing example's angle rate is +g.y, its angle atan2(a.z, a.x)).
-Each fault the scenario can inject changes exactly what it names.
+Each fault the scenario can inject changes exactly what it names. What the part does while it
+turns on and settles, and how a read spanning a sample's update is put together, follow ST's
+LSM6DS33 datasheet (DocID025725) and its application note AN4682 (DocID027736).
 """
 
 from __future__ import annotations
@@ -21,8 +23,11 @@ const imu = await import(`${SRC}/imu.js`);
 const writes = [];
 const motion = (t) => ({ pitch_rad: %(pitch)s, pitch_rate_rad_s: %(rate)s });
 const faults = (t) => (%(faults)s);
+const unmodelled = [];
+const instants = [];
 const sensor = new imu.LSM6DS33({ motion, raw: (t) => (%(raw)s), faults,
-  onWrite: (r, v, t) => writes.push([r, v]) });
+  onWrite: (r, v, t) => writes.push([r, v]), onUnmodelled: (what) => unmodelled.push(what),
+  onOutputRead: (which, instant) => instants.push([which, instant * 208]) });
 const write = (register, values, t) => {
   sensor.begin(true); sensor.write(register, t); for (const v of values) sensor.write(v, t);
 };
@@ -98,19 +103,20 @@ def test_the_accelerometer_reads_gravity_along_x_upright_and_along_z_at_a_right_
 def test_an_output_is_the_sample_taken_at_its_own_instant_and_data_ready_says_when_one_is_new() -> (
     None
 ):
-    # 208 Hz from t = 0: sample k is taken at k / 208. The pitch rate rises with time, so the
-    # value read tells which instant was sampled.
+    # 208 Hz from t = 0: sample k is taken at k / 208 (well after the turn-on). The pitch rate
+    # rises with time, so the value read tells which instant was sampled.
     found = _run(
         """
         write(0x11, [0x58], 0);
+        read(0x22, 6, 29.5 / 208);
         const status = (t) => read(0x1e, 1, t)[0] & 0x02;
-        const before = status(0.999 / 208);
-        const after = status(1.001 / 208);
+        const before = status(29.999 / 208);
+        const after = status(30.001 / 208);
         const y = (t) => { const g = read(0x22, 6, t); return int16(g[2], g[3]); };
-        const first = y(1.5 / 208);
-        const cleared = status(1.6 / 208);
-        const again = status(2.01 / 208);
-        const second = y(2.5 / 208);
+        const first = y(30.5 / 208);
+        const cleared = status(30.6 / 208);
+        const again = status(31.01 / 208);
+        const second = y(31.5 / 208);
         out({ before, after, first, cleared, again, second });
         """,
         rate="t * 100",
@@ -122,30 +128,77 @@ def test_an_output_is_the_sample_taken_at_its_own_instant_and_data_ready_says_wh
     assert found == {
         "before": 0,
         "after": 2,
-        "first": counts(1 / 208),
+        "first": counts(30 / 208),
         "cleared": 0,
         "again": 2,
-        "second": counts(2 / 208),
+        "second": counts(31 / 208),
     }
 
 
-def test_a_burst_read_takes_one_sample_and_auto_increment_can_be_switched_off() -> None:
+def test_with_bdu_0_a_read_spanning_an_update_mixes_two_samples_and_with_bdu_1_it_cannot() -> None:
+    # Datasheet Table 50, CTRL3_C BDU: "0: continuous update; 1: output registers not updated
+    # until MSB and LSB have been read"; AN4682 section 3.4: BDU keeps an axis' two bytes to one
+    # sample, while "X and Y can be read at T1 and Z sampled at T2". The rate is t * 4000 rad/s at
+    # 2000 dps, so samples 40 and 41 differ by more than one count of the high byte.
     found = _run(
         """
-        write(0x11, [0x58], 0);
-        sensor.begin(true); sensor.write(0x24, 0); sensor.begin(false);
-        const lo = sensor.read(1 + 0.5 / 208);   // OUTY_L_G of the sample taken at t = 1 ...
-        const hi = sensor.read(10);              // ... and its high byte, read much later
-        write(0x12, [0x00], 11);                 // CTRL3_C: IF_INC off
-        const same = read(0x0f, 3, 11);
-        out({ burst: [lo, hi], same, ctrl3: read(0x12, 1, 12)[0] });
+        write(0x11, [0x5c], 0);                      // 208 Hz, 2000 dps
+        const span = (bdu) => {
+          write(0x12, [bdu ? 0x44 : 0x04], 0);
+          sensor.begin(true); sensor.write(0x22, 0); sensor.begin(false);
+          const t = (k) => k / 208;
+          const x = [sensor.read(t(40.5)), sensor.read(t(40.5))];     // X pair, sample 40
+          const yLow = sensor.read(t(40.9));                          // Y low byte: sample 40
+          const yHigh = sensor.read(t(41.1));                         // Y high byte after 41
+          const z = [sensor.read(t(41.2)), sensor.read(t(41.2))];     // Z pair, sample 41
+          return { x, y: [yLow, yHigh], z };
+        };
+        const continuous = span(false), blocked = span(true);
+        write(0x12, [0x00], 50);                     // IF_INC off
+        const same = read(0x0f, 3, 50);
+        out({ continuous, blocked, same, ctrl3: read(0x12, 1, 51)[0] });
         """,
-        rate="t",
+        rate="t * 100",
     )
-    counts = round(math.degrees(1) * 1000 / 35)
-    assert found["burst"] == [counts & 0xFF, counts >> 8]
+
+    def counts(k: int) -> int:
+        return round(math.degrees(k / 208 * 100) * 1000 / 70) & 0xFFFF
+
+    y40, y41 = counts(40), counts(41)
+    assert y40 >> 8 != y41 >> 8
+    assert found["continuous"]["y"] == [y40 & 0xFF, y41 >> 8]  # torn: two samples' bytes
+    assert found["blocked"]["y"] == [y40 & 0xFF, y40 >> 8]  # held to sample 40's pair
+    for case in ("continuous", "blocked"):  # the other axes update either way
+        assert found[case]["x"] == [0, 0] and found[case]["z"] == [0, 0]
     assert found["same"] == [0x69, 0x69, 0x69]
     assert found["ctrl3"] == 0x00
+
+
+def test_with_bdu_1_an_axis_read_only_by_its_low_byte_keeps_its_sample_until_the_high_one() -> None:
+    found = _run(
+        """
+        write(0x11, [0x5c], 0); write(0x12, [0x44], 0);
+        const low = (t) => { sensor.begin(true); sensor.write(0x24, t); sensor.begin(false);
+          return sensor.read(t); };
+        const high = (t) => { sensor.begin(true); sensor.write(0x25, t); sensor.begin(false);
+          return sensor.read(t); };
+        const a = low(40.5 / 208), b = low(45.5 / 208);   // the pair is held at sample 40
+        const h = high(46.5 / 208);                      // its high byte frees it
+        const c = low(47.5 / 208);
+        out({ a, b, h, c });
+        """,
+        rate="t * 100",
+    )
+
+    def counts(k: int) -> int:
+        return round(math.degrees(k / 208 * 100) * 1000 / 70) & 0xFFFF
+
+    assert found == {
+        "a": counts(40) & 0xFF,
+        "b": counts(40) & 0xFF,
+        "h": counts(40) >> 8,
+        "c": counts(47) & 0xFF,
+    }
 
 
 def test_a_stale_sensor_holds_its_last_sample_and_never_says_data_is_ready() -> None:
@@ -172,18 +225,38 @@ def test_a_stale_sensor_holds_its_last_sample_and_never_says_data_is_ready() -> 
     assert found["readyAfter"] == 2
 
 
-def test_a_saturated_sensor_reads_the_end_of_its_range_with_the_true_sign() -> None:
-    found = _run(
-        """
-        write(0x11, [0x58], 0); write(0x10, [0x40], 0);
-        const g = read(0x22, 6, 0.1); const a = read(0x28, 6, 0.1);
-        const axes = (b) => [0, 2, 4].map((i) => int16(b[i], b[i + 1]));
-        out({ gyro: axes(g), accel: axes(a) });
-        """,
-        rate="-0.2",
-        faults="{ nack: false, stale_since: null, saturated: 'gyro' }",
+def test_a_saturated_axis_reads_the_end_of_its_range_with_its_input_s_sign_and_no_other_does() -> (
+    None
+):
+    # Datasheet "Mechanical characteristics", FS: an output clips at full scale on the axis that is
+    # over its range. The fault names its sensor and axes; only those clip.
+    def saturated(sensor: str, axes: list[str]) -> Any:
+        return _run(
+            """
+            write(0x11, [0x58], 0); write(0x10, [0x40], 0);
+            const g = read(0x22, 6, 0.2); const a = read(0x28, 6, 0.2);
+            const axes = (b) => [0, 2, 4].map((i) => int16(b[i], b[i + 1]));
+            out({ gyro: axes(g), accel: axes(a) });
+            """,
+            rate="-0.2",
+            pitch="Math.PI / 6",
+            faults="{ nack: false, stale_since: null, saturated: "
+            + json.dumps({"sensor": sensor, "axes": axes})
+            + " }",
+        )
+
+    y = round(math.degrees(-0.2) * 1000 / 35)
+    ax, az = (
+        round(math.cos(math.pi / 6) * 1000 / 0.061),
+        round(math.sin(math.pi / 6) * 1000 / 0.061),
     )
-    assert found == {"gyro": [32767, -32768, 32767], "accel": [round(1000 / 0.061), 0, 0]}
+    assert saturated("gyro", ["y"]) == {"gyro": [0, -32768, 0], "accel": [ax, 0, az]}
+    assert saturated("gyro", ["x", "y"]) == {"gyro": [32767, -32768, 0], "accel": [ax, 0, az]}
+    assert saturated("accel", ["z"]) == {"gyro": [0, y, 0], "accel": [ax, 0, 32767]}
+    assert saturated("both", ["y", "z"]) == {
+        "gyro": [0, -32768, 32767],
+        "accel": [ax, 32767, 32767],
+    }
 
 
 def test_a_nack_fault_is_the_part_not_acknowledging_while_it_lasts() -> None:
@@ -322,7 +395,12 @@ def test_the_status_register_shows_each_new_sample_and_the_counts_each_sample_re
     # sample newer than the one read at 0.5 s; those at 0.51 and 0.52 s each find a new one.
     assert found == {
         "status": 0x07,
-        "counts": {"whoami_reads": 0, "gyro_samples_read": 3, "accel_samples_read": 3},
+        "counts": {
+            "whoami_reads": 0,
+            "gyro_samples_read": 3,
+            "accel_samples_read": 3,
+            "invalid_samples_read": {"gyro": 0, "accel": 0},
+        },
     }
 
 
@@ -342,3 +420,125 @@ def test_the_magnetometer_s_address_increments_only_with_its_top_bit_set() -> No
         """
     )
     assert found == {"plain": [1, 1], "incremented": [1, 2]}
+
+
+def test_the_gyroscope_takes_no_sample_in_its_80_ms_turn_on_and_its_first_ones_are_invalid() -> (
+    None
+):
+    # AN4682 Table 16: power-down to an active mode, 80 ms at most; Table 17: at 208 Hz two
+    # samples to discard after it and after any ODR change (four at 1.66 kHz). Sample k is at
+    # k / 208 s: none before 80 ms (k < 17); 17 and 18 invalid (read as 0); 19 the first valid.
+    found = _run(
+        """
+        write(0x11, [0x58], 0);
+        const status = (t) => read(0x1e, 1, t)[0] & 0x02;
+        const y = (t) => { const g = read(0x22, 6, t); return int16(g[2], g[3]); };
+        const k = (n) => (n + 0.5) / 208;
+        const turningOn = [status(k(16)), y(k(16))];
+        const discarded = [status(k(17)), y(k(17)), status(k(18)), y(k(18))];
+        const valid = [status(k(19)), y(k(19))];
+        const invalidAfterOn = { ...sensor.counts.invalid_samples_read };
+        write(0x11, [0x88], 1);                       // 1.66 kHz: an ODR change
+        const m = (n) => 1 + (n + 0.5) / 1660;
+        const changed = [1, 2, 3, 4, 5].map((n) => y(m(n)));
+        out({ turningOn, discarded, valid, invalidAfterOn, changed,
+              invalid: sensor.counts.invalid_samples_read });
+        """,
+        rate="0.5",
+    )
+    y = round(math.degrees(0.5) * 1000 / 35)
+    assert found["turningOn"] == [0, 0]
+    assert found["discarded"] == [2, 0, 2, 0]
+    assert found["valid"] == [2, y]
+    assert found["invalidAfterOn"] == {"gyro": 2, "accel": 0}
+    assert found["changed"] == [0, 0, 0, 0, y]
+    assert found["invalid"] == {"gyro": 6, "accel": 0}
+
+
+def test_data_ready_is_masked_for_the_samples_to_discard_when_drdy_mask_is_set() -> None:
+    # AN4682 section 2.7.1: with CTRL4_C's DRDY_MASK set, "data-ready signals are masked until
+    # the settling of the sensor filters is completed".
+    found = _run(
+        """
+        write(0x13, [0x08], 0); write(0x11, [0x58], 0);
+        const status = (t) => read(0x1e, 1, t)[0] & 0x02;
+        out([16, 17, 18, 19].map((n) => status((n + 0.5) / 208)));
+        """
+    )
+    assert found == [0, 0, 0, 2]
+
+
+def test_the_accelerometer_discards_table_12_s_samples_in_high_performance_mode_only() -> None:
+    # AN4682 Table 12 (high-performance mode): at 104 Hz with the bandwidth the ODR sets (50 Hz,
+    # datasheet Table 45) two samples are discarded; with XL_BW_SCAL_ODR and BW_XL = 400 Hz one.
+    # In normal mode (CTRL6_C XL_HM_MODE set, 104 Hz) the first sample is correct (Table 11).
+    def first_three(setup: str) -> Any:
+        return _run(
+            setup
+            + """
+            const x = (t) => { const a = read(0x28, 6, t); return int16(a[0], a[1]); };
+            out([1, 2, 3].map((n) => x((n + 0.5) / 104)));
+            """
+        )
+
+    g = round(1000 / 0.061)
+    assert first_three("write(0x10, [0x40], 0);") == [0, 0, g]
+    assert first_three("write(0x13, [0x80], 0); write(0x10, [0x40], 0);") == [0, g, g]
+    assert first_three("write(0x15, [0x10], 0); write(0x10, [0x40], 0);") == [g, g, g]
+
+
+def test_data_ready_clears_only_when_a_high_byte_of_the_sensor_s_outputs_is_read() -> None:
+    # AN4682 section 3.3: "The interrupt is reset when the higher part of one of the enabled
+    # channels has been read (29h, 2Bh, 2Dh for the accelerometer; 23h, 25h, 27h for the
+    # gyroscope)."
+    found = _run(
+        """
+        write(0x11, [0x58], 0);
+        const status = (t) => read(0x1e, 1, t)[0] & 0x02;
+        const t = 30.5 / 208;
+        read(0x22, 1, t); read(0x24, 1, t); read(0x26, 1, t);   // the low bytes only
+        const afterLow = status(t);
+        read(0x25, 1, t);                                       // one high byte
+        out({ afterLow, afterHigh: status(t), counted: sensor.counts.gyro_samples_read });
+        """
+    )
+    assert found == {"afterLow": 2, "afterHigh": 0, "counted": 1}
+
+
+def test_a_register_the_model_does_not_act_on_is_reported_when_written_away_from_its_reset() -> (
+    None
+):
+    # Modelled: ODR and FS, BDU, IF_INC, SW_RESET, XL_BW_SCAL_ODR, DRDY_MASK, XL_HM_MODE,
+    # G_HM_MODE. Everything else written from its reset value (CTRL9_XL and CTRL10_C reset to
+    # 38h) is the firmware relying on behaviour the rig does not show.
+    found = _run(
+        """
+        write(0x18, [0x38], 0); write(0x19, [0x38], 0);      // reset values: nothing
+        write(0x13, [0x88], 0); write(0x15, [0x10], 0);      // modelled bits: nothing
+        write(0x16, [0x80], 0);
+        write(0x13, [0x40], 0);                              // SLEEP_G
+        write(0x14, [0x01], 0);                              // CTRL5_C: self-test
+        write(0x12, [0x06], 0);                              // BLE
+        write(0x17, [0x80], 0);                              // CTRL8_XL: LPF2
+        out(unmodelled);
+        """
+    )
+    assert found == [
+        "lsm6ds33:CTRL4_C",
+        "lsm6ds33:CTRL5_C",
+        "lsm6ds33:CTRL3_C",
+        "lsm6ds33:CTRL8_XL",
+    ]
+
+
+def test_each_output_byte_read_is_told_with_the_instant_its_sample_was_taken() -> None:
+    # What the rig's input-to-output bound is measured from: the sample's own instant k / ODR,
+    # never the time of the read.
+    found = _run(
+        """
+        write(0x11, [0x58], 0); write(0x10, [0x50], 0);      // both at 208 Hz
+        read(0x23, 1, 30.7 / 208); read(0x29, 1, 31.2 / 208);
+        out(instants.map(([w, k]) => [w, Math.round(k * 1000) / 1000]));
+        """
+    )
+    assert found == [["gyro", 30], ["accel", 31]]
