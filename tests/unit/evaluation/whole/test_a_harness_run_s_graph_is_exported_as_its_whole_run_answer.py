@@ -1,13 +1,20 @@
 """A harness run's whole-run answer is exported from its design-state graph, by name, never guessed.
 
 The graph is built here through the store's own writer, in a temporary run directory laid out
-as the orchestrator lays one out (the canonical store at ``<run>/store``). The contract's names
-and units below are this test's own statement, written apart from the module, so a name the
-module reads differently is a red row here rather than a silent agreement.
+as the orchestrator lays one out (the canonical store at ``<run>/store``, the event log at
+``<run>/events.jsonl``). The contract's names and units below are this test's own statement,
+written apart from the module, so a name the module reads differently is a red row here rather
+than a silent agreement.
+
+The two event logs under ``recorded_runs`` were recorded from the loop over its fakes (two
+electrical modules and integration): in ``finished`` integration declared both modules complete
+and both completion lines were written; in ``unfinished`` it declared one, so the run ended with
+a module never recorded complete.
 """
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import importlib
 import importlib.util
@@ -25,6 +32,7 @@ from physgate.state.store import Store
 
 _MODULE = "physgate.evaluation.whole.export"
 _RUN4 = Path(__file__).resolve().parents[2] / "gate" / "run4" / "plan_interfaces.json"
+_RECORDED = Path(__file__).resolve().parent / "recorded_runs"
 
 Values = dict[str, tuple[float | int, str]]
 
@@ -107,10 +115,16 @@ def _node(
     }
 
 
-def _run(tmp_path: Path, *nodes: dict[str, Any]) -> Path:
+def _events(run: Path, recorded: str = "finished") -> None:
+    """The run's event log, one of the recorded runs'."""
+    (run / "events.jsonl").write_bytes((_RECORDED / f"{recorded}.jsonl").read_bytes())
+
+
+def _run(tmp_path: Path, *nodes: dict[str, Any], recorded: str = "finished") -> Path:
     """A run directory whose canonical store holds ``nodes``, each written by its owner."""
     run = Path(os.path.realpath(tmp_path)) / "run"
     (run / "store").mkdir(parents=True)
+    _events(run, recorded)
     store = Store(run / "store")
     try:
         for node in nodes:
@@ -255,6 +269,7 @@ def test_a_graph_with_no_structure_complete_says_what_each_lacks(tmp_path: Path)
 def test_an_empty_graph_is_no_answer_at_revision_zero(tmp_path: Path) -> None:
     run = Path(os.path.realpath(tmp_path)) / "run"
     (run / "store").mkdir(parents=True)
+    _events(run)
     record, out = _export(run, tmp_path)
     assert record.status == "contract_lost"
     assert record.revision == 0
@@ -293,7 +308,7 @@ def test_a_name_two_nodes_disagree_on_is_ambiguous_and_nothing_is_written(
     assert not out.exists()
 
 
-def test_a_disagreement_on_a_name_the_chosen_structure_does_not_read_is_still_ambiguous(
+def test_a_disagreement_on_a_name_no_whole_structure_reads_is_listed_and_does_not_refuse(
     tmp_path: Path,
 ) -> None:
     controller, parameters = _split(FEEDBACK, PARAMETERS)
@@ -301,8 +316,45 @@ def test_a_disagreement_on_a_name_the_chosen_structure_does_not_read_is_still_am
     two = _node("firmware.native_b", {"angle_response": (12, "1")}, owner="firmware")
     run = _run(tmp_path, controller, parameters, one, two)
     record, out = _export(run, tmp_path)
-    assert record.status == "ambiguous"
+    assert record.status == "exported"
+    assert record.structure == "state_feedback"
     assert record.conflicts == {"angle_response": ("firmware.native_a", "firmware.native_b")}
+    assert "angle_response" not in json.loads(out.read_bytes())["controller"]
+
+
+def test_a_disagreement_on_a_setting_is_ambiguous(tmp_path: Path) -> None:
+    controller, parameters = _split(FEEDBACK, PARAMETERS)
+    other = _node("drivetrain.motor", {"pwm_frequency": (10000, "Hz")}, owner="sizing")
+    run = _run(tmp_path, controller, parameters, other)
+    record, out = _export(run, tmp_path)
+    assert record.status == "ambiguous"
+    assert record.conflicts == {"pwm_frequency": ("drivetrain.motor", "firmware.loop_timing")}
+    assert not out.exists()
+
+
+def test_a_disagreement_on_an_optional_name_the_chosen_structure_reads_is_ambiguous(
+    tmp_path: Path,
+) -> None:
+    controller, parameters = _split({**RISING, **DECAY}, PARAMETERS)
+    other = _node("firmware.leak", {"angle_decay_per_update": (0.998, "1")}, owner="firmware")
+    run = _run(tmp_path, controller, parameters, other)
+    record, out = _export(run, tmp_path)
+    assert record.status == "ambiguous"
+    assert set(record.conflicts) == {"angle_decay_per_update"}
+    assert not out.exists()
+
+
+def test_a_disagreement_on_a_name_of_a_structure_otherwise_whole_is_ambiguous(
+    tmp_path: Path,
+) -> None:
+    # Without the disagreement both structures would be whole, so which one the firmware
+    # runs would be in doubt; the export must not resolve it by dropping the conflicted name.
+    controller, parameters = _split({**FEEDBACK, **NATIVE}, {**PARAMETERS, **SENSITIVITY})
+    other = _node("firmware.native_b", {"angle_response": (12, "1")}, owner="firmware")
+    run = _run(tmp_path, controller, parameters, other)
+    record, out = _export(run, tmp_path)
+    assert record.status == "ambiguous"
+    assert record.conflicts == {"angle_response": ("balance.controller", "firmware.native_b")}
     assert not out.exists()
 
 
@@ -403,6 +455,7 @@ def test_the_same_graph_is_exported_to_the_same_bytes(tmp_path: Path) -> None:
 def test_a_run_with_no_store_is_refused_not_scored(tmp_path: Path) -> None:
     run = Path(os.path.realpath(tmp_path)) / "run"
     run.mkdir()
+    _events(run)
     with pytest.raises(_module().ExportError, match="store"):
         _export(run, tmp_path)
 
@@ -455,3 +508,105 @@ def test_the_reference_run_s_plan_as_written_exports_no_answer_and_says_why(
     assert "encoder_counts_per_wheel_revolution" in record.missing.get("parameters", ())
     for structure in STRUCTURES:
         assert "sensor_delay" in record.missing.get(structure, ())
+
+
+def test_a_run_that_did_not_record_every_module_complete_is_no_answer(tmp_path: Path) -> None:
+    # The graph alone would export; the run ended with a module never recorded complete, so
+    # its graph may hold a change no merge kept.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="unfinished")
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
+    assert record.sha256 is None
+    assert not out.exists()
+
+
+def test_a_run_with_no_event_log_is_refused_not_scored(tmp_path: Path) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    (run / "events.jsonl").unlink()
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        _export(run, tmp_path)
+    assert isinstance(caught.value, _module().ExportError)
+    assert "event log" in str(caught.value)
+
+
+def test_a_run_whose_event_log_no_run_could_have_written_is_refused(tmp_path: Path) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    log = run / "events.jsonl"
+    log.write_bytes(log.read_bytes() + b'{"seq": 0}\n')
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        _export(run, tmp_path)
+    assert isinstance(caught.value, _module().ExportError)
+    assert "event log" in str(caught.value)
+
+
+def _tree(root: Path) -> list[tuple[str, bool, int, bytes, int]]:
+    """Every entry under ``root``: its path, whether a directory, size, bytes and mtime."""
+    rows = []
+    for path in sorted(root.rglob("*")):
+        info = path.lstat()
+        body = b"" if path.is_dir() else path.read_bytes()
+        rows.append(
+            (str(path.relative_to(root)), path.is_dir(), info.st_size, body, info.st_mtime_ns)
+        )
+    return rows
+
+
+def test_the_run_directory_is_left_byte_for_byte_as_it_was(tmp_path: Path) -> None:
+    # A torn last line and a stray file are what opening a store would repair and move aside.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    journal = run / "store" / "journal.jsonl"
+    journal.write_bytes(journal.read_bytes() + b'{"rev": 3, "op": "wri')
+    (run / "store" / "stray.json").write_text("{}")
+    before = _tree(run)
+    record, _ = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert _tree(run) == before
+
+
+def test_a_place_the_answer_cannot_be_made_is_an_export_error(tmp_path: Path) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    blocker = Path(os.path.realpath(tmp_path)) / "blocker"
+    blocker.write_text("a file, not a directory")
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        _module().export_whole_run(run, blocker / "answers" / "whole_run.json")
+    assert isinstance(caught.value, _module().ExportError)
+
+
+@pytest.mark.parametrize("inside", ["store", "run", "nested"])
+def test_the_answer_is_never_written_inside_the_run_it_was_exported_from(
+    tmp_path: Path, inside: str
+) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    out = {
+        "store": run / "store" / "whole_run.json",
+        "run": run / "whole_run.json",
+        "nested": run / "answers" / "whole_run.json",
+    }[inside]
+    before = _tree(run)
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        _module().export_whole_run(run, out)
+    assert isinstance(caught.value, _module().ExportError)
+    assert _tree(run) == before
+
+
+def test_a_write_that_fails_leaves_nothing_at_the_answer_s_name_or_beside_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
+    out.parent.mkdir()
+
+    def half_then_full_disk(fd: int, raw: bytes) -> None:
+        os.write(fd, raw[: len(raw) // 2])
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+    module = _module()
+    monkeypatch.setattr(module, "_write_all", half_then_full_disk, raising=False)
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        module.export_whole_run(run, out)
+    assert isinstance(caught.value, module.ExportError)
+    assert list(out.parent.iterdir()) == []
+    monkeypatch.undo()
+    record = module.export_whole_run(run, out)
+    assert record.status == "exported"
+    assert record.sha256 == hashlib.sha256(out.read_bytes()).hexdigest()

@@ -6,6 +6,7 @@ draft's with their ranges collapsed to points except where a row ranges one on p
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib
 import importlib.util
@@ -135,10 +136,13 @@ def _native(**over: int) -> dict[str, Any]:
 
 
 def _answer(controller: dict[str, Any] | None = None, **over: Any) -> dict[str, Any]:
+    """An answer whose analysed controller is the firmware's own, unless ``over`` says else."""
+    controller = controller or _feedback()
     doc: dict[str, Any] = {
         "form": "whole_run",
         "version": 2,
-        "controller": controller or _feedback(),
+        "controller": controller,
+        "analysed_controller": copy.deepcopy(controller),
         "parameters": {
             "update_rate": _m(100, "Hz"),
             "gyro_output_data_rate": _m(208, "Hz"),
@@ -219,6 +223,8 @@ def test_each_static_criterion_fails_on_its_own_setting_alone(
 ) -> None:
     doc = _answer()
     doc[path[0]][path[1]] = value
+    if path[0] == "controller":  # the analysed controller is the firmware's, changed alike
+        doc["analysed_controller"][path[1]] = value
     record = _judge(tmp_path, doc, STATIC_SPECS)
     assert {n for n, r in _rows(record).items() if r["verdict"] == "fail"} == {fails}
     assert record["outcome"] == "fail"
@@ -234,7 +240,7 @@ def test_the_native_command_limit_is_read_through_the_answer_s_full_scale(tmp_pa
 @pytest.mark.parametrize(
     ("controller", "analysed", "verdict"),
     [
-        (_feedback(), None, "pass"),
+        (_feedback(), None, "unscored"),
         (_feedback(), _feedback(), "pass"),
         (_native(), _native(), "pass"),
         (
@@ -267,10 +273,29 @@ def test_the_same_coefficients_means_the_numbers_as_written(
     tmp_path: Path, controller: dict[str, Any], analysed: dict[str, Any] | None, verdict: str
 ) -> None:
     doc = _answer(controller)
-    if analysed is not None:
+    if analysed is None:
+        del doc["analysed_controller"]
+    else:
         doc["analysed_controller"] = analysed
     row = _rows(_judge(tmp_path, doc, STATIC_SPECS[-1:]))["same"]
     assert row["verdict"] == verdict, row
+
+
+def test_an_answer_stating_no_analysed_controller_is_not_judged_on_the_same_coefficients(
+    tmp_path: Path,
+) -> None:
+    # The criterion compares the firmware's controller with the one the analysis was shown
+    # for; an answer that states only one gives nothing to compare, so it is not judged
+    # either way, whichever arm wrote it.
+    doc = _answer()
+    del doc["analysed_controller"]
+    record = _judge(tmp_path, doc, STATIC_SPECS)
+    row = _rows(record)["same"]
+    assert row["verdict"] == "unscored"
+    assert row["measured"] is None
+    assert "no analysed controller" in row["reason"]
+    assert {n for n, r in _rows(record).items() if r["verdict"] != "pass"} == {"same"}
+    assert record["outcome"] == "unscored"
 
 
 def test_controllers_in_different_structures_are_not_compared_through_a_conversion(

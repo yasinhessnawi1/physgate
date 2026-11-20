@@ -17,6 +17,10 @@ from physgate.evaluation.whole.scenario import WholeDesignScenario, WholeDesignT
 from physgate.state.store import Store
 
 _FROZEN = Path(__file__).resolve().parents[2] / "src/physgate/evaluation/whole/plant_v0.json"
+#: A run's event log, recorded from the loop over its fakes, with every module recorded complete.
+_FINISHED = (
+    Path(__file__).resolve().parents[1] / "unit/evaluation/whole/recorded_runs/finished.jsonl"
+)
 
 #: The reference kit's balancing example as its code writes it, and the kit's settings.
 NATIVE = {
@@ -105,6 +109,7 @@ def _both(
     base = Path(os.path.realpath(tmp_path))
     run = base / "run"
     (run / "store").mkdir(parents=True)
+    (run / "events.jsonl").write_bytes(_FINISHED.read_bytes())
     store = Store(run / "store")
     try:
         for node in (
@@ -142,7 +147,12 @@ def test_the_kit_s_design_exported_from_a_graph_is_judged_as_the_same_answer_by_
     exported, by_hand = _both(tmp_path, PARAMETERS)
     assert exported["answer_valid"] is True
     assert exported["structure"] == "native_incremental_rising_offset"
-    assert {r["name"] for r in exported["specs"] if r["verdict"] != "pass"} == set()
+    # The export states no analysed controller, so the same-coefficients criterion is not
+    # judged, exactly as it is not for the same answer by hand.
+    rows = {r["name"]: r for r in exported["specs"]}
+    assert {n for n, r in rows.items() if r["verdict"] != "pass"} == {"same"}
+    assert rows["same"]["verdict"] == "unscored"
+    assert exported["outcome"] == "unscored"
     assert exported == by_hand
 
 
