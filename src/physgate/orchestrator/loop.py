@@ -42,6 +42,7 @@ from physgate.orchestrator.arbitration import (
 from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.change_sets import change_history, integration_history
 from physgate.orchestrator.common import PLANNED_ID_MAX_LENGTH, SUBTASK_PATTERN, utc_now
+from physgate.orchestrator.completion import sign_off_open
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decisions import (
     SCANNED_SOURCES,
@@ -55,7 +56,7 @@ from physgate.orchestrator.decisions import (
     scan_hits_of,
     source_of,
 )
-from physgate.orchestrator.declaration import DeclarationError
+from physgate.orchestrator.declaration import DECLARATION_PATH, DeclarationError
 from physgate.orchestrator.decompose import contracts_of
 from physgate.orchestrator.dispute import DISPUTES_DIR, UNRECORDABLE, disputer_problem
 from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
@@ -1112,6 +1113,7 @@ class Loop:
         # A process whose first step is one of those may still spawn one, after a decision it
         # takes or the call it makes: that session's line is recorded before it, once
         # (:meth:`_session`).
+        self._raise_owed_at_start()
         first = self.state.next_step().kind
         if first not in (
             "done",
@@ -2743,12 +2745,14 @@ class Loop:
         self._stage(subtask_id, attempt, "implement")
         # Only the cross-nodes owner's opening pass follows its interfaces.
         follows = self.state.follows(subtask_id) if role in owners_of("cross_nodes") else None
-        check = self._recordable(
-            subtask_id,
-            attempt,
-            self._changes.check(
-                subtask_id, session.attempt_commit, role, series=session.series, follows=follows
-            ),
+        check = self._sign_off_refusal(
+            self._recordable(
+                subtask_id,
+                attempt,
+                self._changes.check(
+                    subtask_id, session.attempt_commit, role, series=session.series, follows=follows
+                ),
+            )
         )
         self._emit(
             ProposalsChecked(
@@ -3550,6 +3554,77 @@ class Loop:
                 )
             )
 
+    def _raise_owed_at_start(self) -> None:
+        """The sign-off line a clean merge may owe, asked of the graph where the log ends at it.
+
+        The log alone owes the line where the merge was the module's own or wrote a node its
+        latest item binds (``sign_off_due``, the next step). A merge that bound a new node to a
+        module (a cross node it wrote that now constrains the module's) owes one only by the
+        graph: a process killed between that merge's clean diff and its line leaves the diff the
+        last line, and this process asks the graph before it writes any line of its own.
+        """
+        if self.state.sign_off_after is not None and self.state.sign_off_due is None:
+            self._raise_sign_offs()
+
+    def _sign_off_refusal(self, check: ChangeCheck) -> ChangeCheck:
+        """``check``, or the declaration's refusal where it names a module whose sign-off is owed.
+
+        In either mode: such a module is not complete in this run, and integration's next attempt
+        is told which module to leave out, by name (ARCH-130).
+        """
+        declared = check.declaration
+        if check.refused_by is not None or declared is None:
+            return check
+        owed = self.state.sign_offs_open()
+        named = [module for module in declared.modules if module in owed]
+        if not named:
+            return check
+        why = "; ".join(
+            f"it names module {module!r}, whose "
+            f"{(sign_off_open(self.state, module) or '').removeprefix('its ')}"
+            for module in named
+        )
+        reason = (
+            f"{DECLARATION_PATH}: {why}. A module whose sign-off is owed is not complete in this "
+            "run: declare the others, and leave it out."
+        )
+        return check.model_copy(
+            update={
+                "refused_by": "declaration",
+                "reason": reason,
+                "subject": DECLARATION_PATH,
+                "declaration": None,
+                "disputes": (),
+            }
+        )
+
+    def _sign_off_holds(self, module: str) -> bool:
+        """What a module's sign-off binds, read again from the graph, is what its latest item bound.
+
+        Before its completion line, for a module whose role owes a sign-off: the nodes, their
+        revisions and the values' digest, as the graph at the run's recorded head gives them. The
+        log alone cannot see a cross node newly constraining the module's, so a raise missed there
+        would leave an approve of older values counting; a difference halts the run instead, and
+        no completion is written over it.
+        """
+        if module not in self.state.owing_sign_off():
+            return True
+        earlier = self.state.sign_offs_of(module)
+        bound = bound_set(self.state, module, self._latest_nodes(), owners_of("cross_nodes"))
+        line = tuple(BoundValue(node_id=b.node_id, revision=b.revision) for b in bound)
+        if earlier and (earlier[-1].bound, earlier[-1].values_sha256) == (
+            line,
+            values_sha256(bound),
+        ):
+            return True
+        latest = earlier[-1].item_id if earlier else "none"
+        detail = (
+            f"what module {module}'s sign-off binds, as the graph gives it, is not what its latest "
+            f"item {latest} bound"
+        )
+        self._incident(None, "foreign_journal_line", detail)
+        return False
+
     def _module_sessions(self, module: str, before: int | None = None) -> list[SessionEnded]:
         """The sessions of the attempts merged in ``module``'s directory, before line ``before``."""
         directory = self.state.subtasks[module].plan.module_dir
@@ -3721,7 +3796,7 @@ class Loop:
         if why is not None:
             self._incident(None, "duty_breach", f"subtask {integration}: {why}")
             return
-        if not self._record_holds(integration):
+        if not self._record_holds(integration) or not self._sign_off_holds(step.subtask_id):
             return
         attempt = self.state.subtasks[integration].attempts[-1].number
         self._emit(

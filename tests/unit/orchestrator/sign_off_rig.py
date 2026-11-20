@@ -73,11 +73,30 @@ def layer(loop: Loop) -> None:
     )
 
 
-def declaring(loop: Loop, modules: Sequence[str]) -> None:
-    """Have integration's attempts declare ``modules``, as the change check reads them."""
+def declaring(
+    loop: Loop, modules: Sequence[str], then: Sequence[str] | None = (ELECTRICAL,)
+) -> None:
+    """Have integration's attempts declare ``modules``, as the change check reads them.
+
+    With ``then``, every attempt after integration's first declares ``then`` instead: an
+    integration told by the change check that a module's sign-off is owed leaves it out.
+    """
     changes = loop._changes  # noqa: SLF001 - the rig's checker
     assert isinstance(changes, FakeChanges)
     changes.declares[INTEG] = Declaration(modules=tuple(modules), sha256=DIGEST)
+    if then is None:
+        return
+    check = changes.check
+    seen: list[str] = []
+
+    def checked(subtask_id: str, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        if subtask_id == INTEG:
+            if seen:
+                changes.declares[INTEG] = Declaration(modules=tuple(then), sha256=DIGEST)
+            seen.append(subtask_id)
+        return check(subtask_id, *args, **kwargs)
+
+    changes.check = checked  # type: ignore[method-assign]
 
 
 def finished(
@@ -87,12 +106,16 @@ def finished(
     declared: Sequence[str] = (CONTROL, ELECTRICAL),
     gate: FakeGate | None = None,
     acts: bool = False,
+    then: Sequence[str] | None = (ELECTRICAL,),
     **fields: Any,
 ) -> list[Event]:
-    """The run of ``plan`` driven to its end, integration declaring ``declared``; its lines."""
+    """The run of ``plan`` driven to its end, integration declaring ``declared``; its lines.
+
+    An attempt of integration after its first declares ``then`` (:func:`declaring`).
+    """
     rig = rig_for(tmp_path, acts=acts, gate=gate or FakeGate(), **fields)
     loop = rig.open()
-    declaring(loop, declared)
+    declaring(loop, declared, then)
     loop.start(list(plan))
     if acts:
         layer(loop)

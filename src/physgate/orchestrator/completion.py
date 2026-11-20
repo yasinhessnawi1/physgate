@@ -144,6 +144,15 @@ PRECONDITIONS: tuple[Precondition, ...] = (
 )
 
 
+def sign_off_open(state: RunState, module: str) -> str | None:
+    """Why ``module``'s sign-off is owed, or ``None``: the ``sign_off`` entry, asked alone.
+
+    Where the integration call waits, a declaration is checked, the issued state is written and
+    the run's end is named, as before a completion line.
+    """
+    return _sign_off(state, module)
+
+
 def open_preconditions(state: RunState, module: str) -> tuple[tuple[str, str], ...]:
     """Every registered precondition open for ``module``, in the registry's order, with why.
 

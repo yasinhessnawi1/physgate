@@ -23,6 +23,7 @@ from physgate.gate.catalogue import kind_of
 from physgate.orchestrator import completion, record
 from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.events import (
+    CompletionDeclared,
     DiffChecked,
     Event,
     ModuleCompleted,
@@ -57,7 +58,7 @@ def completed(events: list[Event], module: str) -> ModuleCompleted:
         gate_mode=last.gate_mode,
         subtask_id=module,
         declared_by=INTEG,
-        attempt=1,
+        attempt=replay(events).subtasks[INTEG].attempts[-1].number,
     )
 
 
@@ -169,7 +170,7 @@ def test_the_registry_asks_the_sign_off_last() -> None:
 def test_a_control_module_that_merged_is_withheld_while_no_person_signed(tmp_path: Path) -> None:
     events = finished(tmp_path)
     state = replay(events)
-    # Both merged and both were declared; the electrical one owes no sign-off and is complete.
+    # Both merged; the electrical one owes no sign-off and is complete.
     assert {s: state.subtasks[s].status for s in (CONTROL, ELECTRICAL)} == {
         CONTROL: "done",
         ELECTRICAL: "done",
@@ -179,10 +180,16 @@ def test_a_control_module_that_merged_is_withheld_while_no_person_signed(tmp_pat
     assert list(why) == ["sign_off"]
     assert "stability margin owes a person's sign-off" in why["sign_off"]
     assert open_preconditions(state, ELECTRICAL) == ()
-    # A completion line written past it is refused, by the same registry.
+    # Integration's first declaration named both, and the change check refused it for the control
+    # module; the one that merged names the electrical module alone.
+    (declared,) = [e for e in events if isinstance(e, CompletionDeclared)]
+    assert declared.modules == (ELECTRICAL,)
+    # A completion line written past it is refused.
     with pytest.raises(CorruptEventLogError) as caught:
         replay([*events, completed(events, CONTROL)])
-    assert "sign_off: its stability margin owes" in str(caught.value.context["reason"])
+    assert "is not a module the merged attempt declared complete" in str(
+        caught.value.context["reason"]
+    )
 
 
 def test_a_module_that_merged_nothing_owes_no_sign_off_yet(tmp_path: Path) -> None:

@@ -30,6 +30,7 @@ from sign_off_rig import (
     JournalGraph,
     journal_rig,
     journal_start,
+    layer,
     plant,
 )
 from test_a_queue_decision_acts_at_a_boundary import decide
@@ -116,8 +117,8 @@ def test_the_module_s_own_clean_merge_raises_one_item_and_the_others_raise_none(
 ) -> None:
     events, graph = driven(tmp_path)
     # One line, straight after the control module's clean diff. Sizing merged before it had
-    # merged anything, and the electrical module's and integration's merges changed nothing it
-    # binds: no line follows them.
+    # merged anything, and the electrical module's merge changed nothing it binds: no line
+    # follows them. No decision is taken, so the run waits before the integration call.
     (line,) = lines(events)
     before = events[line.seq - 1]
     assert isinstance(before, DiffChecked)
@@ -274,26 +275,52 @@ def test_an_item_that_is_not_the_one_the_record_builds_halts_its_decision(tmp_pa
 def test_a_closing_pass_that_moves_a_bound_value_raises_again_and_the_signature_stops_counting(
     tmp_path: Path,
 ) -> None:
-    events, _ = driven(
-        tmp_path,
-        closing=True,
-        during={3: approving(tmp_path)},
-        graph_writes={CLOSING: [[plant(mass=0.41)]]},
-    )
-    raised = [(e.subtask_id, [i.item_id for i in e.raised]) for e in lines(events)]
+    rig, graph = journal_rig(tmp_path)
+    graph.writes[CLOSING] = [[plant(mass=0.41)]]
+    rig.dispatcher.during[3] = approving(tmp_path)
+    loop = journal_start(rig, closing=True)
+    step = loop.run()
+    loop.close()
+    events = read_events(tmp_path / "events.jsonl")
     second, third = (sign_off_item_id("run-1", CONTROL, n) for n in (2, 3))
     # The closing pass changed the plant's mass, which constrains the control loop: a second
-    # item; the follow-up it owed the control module merged again: a third, which supersedes the
-    # second, on which no decision was taken.
-    assert (CLOSING, [second]) in raised
-    assert raised.index((CLOSING, [second])) < raised.index((CONTROL, [third]))
+    # item, and the integration call waits for a decision on it.
+    assert [(e.subtask_id, [i.item_id for i in e.raised]) for e in lines(events)] == [
+        (CONTROL, [FIRST]),
+        (CLOSING, [second]),
+    ]
+    assert step.kind == "wait"
     state = replay(events)
-    assert state.superseded[second] == third
     assert state.signed == [FIRST]
     # The approve was of the first values, and the module's latest item shows others.
-    assert state.sign_offs[FIRST].values_sha256 != state.sign_offs[third].values_sha256
-    assert CONTROL not in completions(events)
-    assert f"queue item {third} shows" in dict(open_preconditions(state, CONTROL))["sign_off"]
+    assert state.sign_offs[FIRST].values_sha256 != state.sign_offs[second].values_sha256
+    assert f"queue item {second} shows" in dict(open_preconditions(state, CONTROL))["sign_off"]
+    # The person signs the second; the follow-up the closing pass owed the control module merges
+    # again on the same values: a third item, which the second's approve already signs.
+    decide(tmp_path, "approve", "the margins hold with the new mass", item_id=second)
+    again = rig.open()
+    layer(again)
+    assert again.resume().kind == "done"
+    again.close()
+    events = read_events(tmp_path / "events.jsonl")
+    assert [(e.subtask_id, [i.item_id for i in e.raised]) for e in lines(events)][2:] == [
+        (CONTROL, [third])
+    ]
+    state = replay(events)
+    assert state.signed == [FIRST, second]
+    assert state.sign_offs[second].values_sha256 == state.sign_offs[third].values_sha256
+    assert completions(events) == [CONTROL, ELECTRICAL]
+
+
+def test_a_later_item_supersedes_the_module_s_item_no_decision_closed(tmp_path: Path) -> None:
+    events, _ = driven(tmp_path, closing=True, graph_writes={CLOSING: [[plant(mass=0.41)]]})
+    second = sign_off_item_id("run-1", CONTROL, 2)
+    state = replay(events)
+    assert state.superseded == {FIRST: second}
+    # What it showed is no longer the module's: it holds no wait, and the second does.
+    assert not state.undecided(FIRST)
+    assert state.undecided(second)
+    assert state.next_step().kind == "wait"
 
 
 def test_a_process_killed_after_the_item_is_listed_writes_its_line_once(
@@ -314,8 +341,6 @@ def test_a_process_killed_after_the_item_is_listed_writes_its_line_once(
     loop.close()
     assert [i.item_id for i in read_queue(tmp_path).items] == [FIRST]
     again: Loop = rig.open()
-    from sign_off_rig import layer
-
     layer(again)
     again.run()
     again.close()

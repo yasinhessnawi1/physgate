@@ -866,10 +866,13 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
         ):
             msg = "a confirmation follows a held decision, once"
             raise ValueError(msg)
+        # A sign-off item a later raise superseded while its decision was held: what it showed is
+        # no longer the module's, so the confirmation of the same decision records only.
+        lapsed = event.item_id in state.sign_offs and event.item_id in state.superseded
         if (event.verb, event.position, event.effect, event.decision_offset) != (
             earlier.verb,
             earlier.position,
-            earlier.effect,
+            "none" if lapsed else earlier.effect,
             earlier.decision_offset,
         ):
             msg = "a confirmation is of the decision that was held"

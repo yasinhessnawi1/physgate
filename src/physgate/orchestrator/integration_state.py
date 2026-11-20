@@ -11,7 +11,9 @@ the run's event log alone, before integration's session is spawned (ARCH-051):
 - each module pair the plan names, in the recorded order: its first contract result, labelled
   first, and its latest result, or that no result exists for it;
 - the system requirements the plan allocates to integration, with the brief's own words for each
-  one the plan gives by number, so a bare number never stands for a requirement.
+  one the plan gives by number, so a bare number never stands for a requirement;
+- where any is owed, each module whose person's sign-off is owed (ARCH-130), which integration
+  does not declare complete. A state with none owed has no such section, and keeps its bytes.
 
 **It is state, never a message** (ARCH-040). Quoting a string keeps it from making a heading, not
 from carrying an instruction, so the document renders nothing but:
@@ -104,6 +106,11 @@ REQUIREMENTS_HEAD = (
     "contribute to it: one the plan gives by the brief's criterion number, with the brief's own "
     "words for it; one it gives in words, by its place in integration's specification, which "
     "quotes it."
+)
+SIGN_OFFS_HEAD = (
+    "Each module below owes a person's standing sign-off (ARCH-130): no approve that acts was "
+    "given on the values its latest sign-off item shows. Such a module is not complete in this "
+    "run, and the change check refuses a declaration that names it."
 )
 #: Why a joined node fails a clause, in the harness's words.
 WHY: dict[str, str] = {
@@ -325,6 +332,24 @@ def _requirements(state: RunState) -> list[str]:
     return lines
 
 
+def _sign_offs(state: RunState) -> list[str]:
+    """Each module whose sign-off is owed, by its subtask, its role and what it owes; else none.
+
+    What it owes is the rule table's own words for it, of the version the run's first line names.
+    """
+    rules = state.sign_off_rules
+    lines: list[str] = []
+    for module in state.sign_offs_open():
+        role = state.subtasks[module].plan.assigned_role
+        rule = rules.rule_of(role) if rules is not None else None
+        signs = f"its {rule.signs}" if rule is not None else "its sign-off"
+        lines.append(
+            f"- Module {_held(module, SUBTASK_PATTERN, PLANNED_ID_MAX_LENGTH, REFUSED_SUBTASK)} of "
+            f"the {_held(role, ROLE_PATTERN, PLANNED_ID_MAX_LENGTH, REFUSED_ROLE)} role: {signs}."
+        )
+    return [SIGN_OFFS_HEAD, "", *lines] if lines else []
+
+
 def issued_state(state: RunState) -> bytes:
     """Integration's issued state, built from the run's record alone, as the session reads it."""
     mode, subtask = state.gate_mode, state.completion_subtask
@@ -362,5 +387,9 @@ def issued_state(state: RunState) -> bytes:
         "",
         *_requirements(state),
     ]
+    owed = _sign_offs(state)
+    if owed:
+        # Only where one is owed, so every state issued with none keeps its bytes.
+        lines.extend(["", "## Owed sign-offs", "", *owed])
     text = "\n".join(piece for line in lines for piece in cut_line(line)) + "\n"
     return text.encode("utf-8")

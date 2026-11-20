@@ -42,7 +42,7 @@ from physgate.orchestrator.common import (
     SUBTASK_PATTERN,
     GateMode,
 )
-from physgate.orchestrator.completion import open_preconditions
+from physgate.orchestrator.completion import open_preconditions, sign_off_open
 from physgate.orchestrator.decisions import require_taken, values_chosen
 from physgate.orchestrator.escalation import (
     REGISTER,
@@ -1638,6 +1638,13 @@ class RunState:
         places = [modules.index(module) for module in event.modules]
         if places != sorted(set(places)):
             _refuse("a completion declaration names each module once, in plan order")
+        for module in event.modules:
+            # The change check refuses it, in either mode: such a module is not complete.
+            why = sign_off_open(self, module)
+            if why is not None:
+                _refuse(
+                    f"a completion declaration names {module!r}, whose {why.removeprefix('its ')}"
+                )
         now.declaration = event
 
     def _disputed(self, sub: SubtaskState, now: AttemptState, event: DisputeRecorded) -> None:
@@ -1949,6 +1956,29 @@ class RunState:
     def sign_offs_of(self, module: str) -> list[RaisedItem]:
         """The sign-off items raised about ``module``, oldest first."""
         return [item for _, item in self.sign_off_lines.values() if item.module == module]
+
+    def sign_offs_open(self) -> list[str]:
+        """The modules, in plan order, whose sign-off is owed: the ``sign_off`` precondition open.
+
+        Each one's role owes a person's sign-off and it merged anything, and no approve that acts
+        was given on the values its latest item shows (:func:`completion.sign_off_open`).
+        """
+        return [m for m in self.owing_sign_off() if sign_off_open(self, m) is not None]
+
+    def _sign_off_waits(self) -> bool:
+        """In a run that acts, a module whose sign-off is owed and whose latest item is undecided.
+
+        A decision a person can still take would close it. One whose latest item a decision closed
+        without signing (a reject, which records only) has ended not complete, and holds no wait;
+        nor does one with no item on the record, which no decision can close.
+        """
+        if not self.acts:
+            return False
+        for module in self.sign_offs_open():
+            raised = self.sign_offs_of(module)
+            if raised and self.undecided(raised[-1].item_id):
+                return True
+        return False
 
     def sign_off_owed(self, module: str, merged: str) -> bool:
         """Whether the clean merge of ``merged`` owes ``module`` a sign-off item, as the log says.
@@ -2401,6 +2431,8 @@ class RunState:
             _refuse("the integration call is made once")
         if self._contract_item_open():
             _refuse("the integration call waits while a contract item is undecided")
+        if self._sign_off_waits():
+            _refuse("the integration call waits while a sign-off item is undecided")
         skip = event if isinstance(event, IntegrationGateSkipped) else None
         skips = skip is not None and skip.reason == "plan_rejected"
         if skips or self.plan_rejected is not None:
@@ -2734,7 +2766,9 @@ class RunState:
             return Step(kind="wait", subtask_id=held)
         ran = self.integration
         if ran is None:
-            return Step(kind="wait") if self._contract_item_open() else Step(kind="integrate")
+            # A person's decision still to come on a failed contract's item, or on a sign-off owed.
+            waits = self._contract_item_open() or self._sign_off_waits()
+            return Step(kind="wait") if waits else Step(kind="integrate")
         blocked = (
             isinstance(ran, IntegrationGateRan)
             and ran.result.verdict == "fail"
@@ -2751,7 +2785,8 @@ class RunState:
             owed = self.owed_completion()
             if owed is not None:
                 return Step(kind="complete", subtask_id=owed)
-        return Step(kind="done")
+        # A module whose sign-off is owed is not complete, and the run ends naming it (ARCH-130).
+        return Step(kind="escalated") if self.sign_offs_open() else Step(kind="done")
 
     def owed_halt(self) -> Incident | None:
         """The incident on the record with no halt after it, whose halt comes next, if any.
