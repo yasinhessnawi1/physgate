@@ -29,6 +29,9 @@ ENV_2_1_301 = {
     "DISABLE_TELEMETRY": "1",
     "DISABLE_ERROR_REPORTING": "1",
     "DISABLE_GROWTHBOOK": "1",
+    # The one variable the tool layer adds on every pin: the bound on one tool server's
+    # answer, at the binary's own default, so that a remote flag cannot move it.
+    "MAX_MCP_OUTPUT_TOKENS": "25000",
 }
 
 #: The variables the provider documents as turning feature-flag fetching off (read 11.11.2026).

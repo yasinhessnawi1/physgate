@@ -76,6 +76,15 @@ mechanisms deny the reads differently, each measured on Claude Code 2.1.301:
 A platform with neither mechanism gets no policy at all: building one refuses, rather than
 leaving the outbox readable.
 
+**No command opens a board's device.** A board on USB appears as a serial device, and an
+upload, a flash and a serial monitor all open one; a programmer may open a USB or HID node
+directly. The hooks refuse the commands that say so; a program that builds the device's name
+as it runs, or starts the upload itself, says nothing they can read. So each platform's
+devices of that kind (the hooks' own table of them) are denied to every command of the
+session, to read and to write: without the read denial a read-only open of a serial device
+succeeded inside the sandbox (measured on macOS), which is all a serial monitor needs. On
+macOS a USB device is not a file and no rule here names it.
+
 **The file tools are left to the hooks.** No ``Read`` permission rule is written:
 Claude Code applies such a rule before any hook runs, so a refused tool call would
 be refused without the hooks' reason and without a line in their log, the record
@@ -95,6 +104,7 @@ from typing import Any, Literal
 
 from physgate.hooks.config import ExperimentRule, SessionConfig
 from physgate.hooks.graph import COMPLETION_DIR, DISPUTES_DIR, PROPOSALS_DIR
+from physgate.hooks.hardware import BOARD_DEVICES
 from physgate.hooks.reasons import SESSION_TEMPS_REASON, WITHHELD_WHOLE_REASON
 
 #: What the OS layer does with each path field of the session configuration.
@@ -233,6 +243,7 @@ def sandbox_policy(
     # And the worktree, where it lies in a root withheld whole: named as the home is, so the layer
     # that denies the root around it keeps it writable as the working directory always is.
     own_writes += (config.worktree,) if around else ()
+    devices = board_devices(platform)
     settings: dict[str, Any] = {
         "sandbox": {
             "enabled": True,
@@ -242,8 +253,8 @@ def sandbox_policy(
             "excludedCommands": [],
             "filesystem": {
                 "allowWrite": _spelled(home, *own_writes, *shared_temp),
-                "denyWrite": _spelled(*deny_write, *claude_temp),
-                "denyRead": _spelled(*read_denied, *claude_temp),
+                "denyWrite": _spelled(*deny_write, *claude_temp, *devices),
+                "denyRead": _spelled(*read_denied, *claude_temp, *devices),
                 "allowRead": _spelled(*allow_read),
             },
         },
@@ -251,6 +262,12 @@ def sandbox_policy(
     if network == "none":
         settings["sandbox"]["network"] = offline_block()
     return OsPolicy(settings=settings, absent_named=tuple(sorted(absent_named)))
+
+
+def board_devices(platform: str) -> tuple[str, ...]:
+    """A board's devices no command on ``platform`` opens, as the patterns the sandbox reads."""
+    key = "linux" if platform.startswith("linux") else platform
+    return tuple(BOARD_DEVICES.get(key, ()))
 
 
 def _spelled(*paths: str) -> list[str]:

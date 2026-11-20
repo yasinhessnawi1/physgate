@@ -38,6 +38,7 @@ from physgate.evaluation.inject.runner import CONFIG_NAME as INSTRUMENT_CONFIG_N
 from physgate.evaluation.inject.runner import CONTROLS_DIRNAME as INSTRUMENT_CONTROLS_DIRNAME
 from physgate.evaluation.inject.runner import InstrumentConfig
 from physgate.gate.exceptions import GateError
+from physgate.hooks.settings import session_tool_search
 from physgate.knowledge.library import LibraryError, read_library, skill_files
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.orchestrator import binaries
@@ -132,6 +133,12 @@ from physgate.orchestrator.stop_signals import (
     driving,
     on_stop_signals,
     remove_left_credentials,
+)
+from physgate.orchestrator.tool_environment import (
+    forbidden_places,
+    measure_named,
+    recorded_servers,
+    server_launches,
 )
 from physgate.orchestrator.waiting import (
     EXIT_WAITING_FOR_LIMIT,
@@ -630,6 +637,19 @@ def _config(args: argparse.Namespace, credential: Credential | None) -> RunConfi
             raise RunConfigError(msg)
         measured = measure_role_python(named, probe=probe_interpreter, harness=_harness_root())
         params = {**params, "role_python": measured}
+    if params.get("tool_environment") is not None:
+        # Measured, never taken from the parameters: only the interpreter's path, the roots
+        # and the native tools' paths are theirs to name.
+        measured_tools = measure_named(
+            params["tool_environment"],
+            forbidden=forbidden_places(
+                harness=_harness_root(),
+                install=None,
+                run_dir=args.run_dir.resolve(),
+                target=args.target.resolve(),
+            ),
+        )
+        params = {**params, "tool_environment": measured_tools.model_dump(mode="json")}
     fields = {
         **params,
         "run_id": args.run_id,
@@ -644,7 +664,16 @@ def _config(args: argparse.Namespace, credential: Credential | None) -> RunConfi
         "os_layer": layer.model_dump(),
         # And so whether it enforces the network the parameters ask for.
         "network_enforced": network_enforced(str(params.get("network")), layer),
+        # Taken from the register, never from the parameters: the servers a run naming a tool
+        # environment offers its sessions, the bound on one answer, and the register's digest.
+        "tool_servers": (
+            recorded_servers().model_dump(mode="json")
+            if params.get("tool_environment") is not None
+            else None
+        ),
         "binary": binary.model_dump(),
+        # Read from the deny the sessions' settings carry, never from the parameters.
+        "tool_search": session_tool_search(),
     }
     if "account" in params:
         # Runs may be spread over several accounts: the parameters name the one this run draws
@@ -1039,6 +1068,9 @@ def _drive_run(
             credential=credential,
             review_root=review_root,
             quarantine=quarantine,
+            # Each role session's tool servers, as the run recorded them; offered only where
+            # the OS layer contains them.
+            tool_servers=server_launches(config),
         )
         loop = Loop(
             config=config,

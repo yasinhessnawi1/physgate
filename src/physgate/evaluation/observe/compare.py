@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Any, get_args
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -68,6 +68,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.toolenv.record import ToolEnvironment
 
 #: Refused when they differ, in the order they are named: what answered the run, then what it
 #: was asked and from where. Each kind of model string has its own entry.
@@ -91,6 +92,14 @@ DRIFT: tuple[str, ...] = (
     # Compared as :func:`compared_held_out`: the protected tiers' digests, not every root's,
     # and whether each role root's withheld and work roots were named.
     "held_out_sha256",
+    # The tools the sessions had: the environment as measured (its interpreter, libraries,
+    # roots and manifest digest) and the servers each profile was offered from the register. A
+    # run with tools and one without were not asked the same thing.
+    "tool_environment",
+    "tool_servers",
+    # Whether the sessions were denied the binary's search tool: denied, every tool is offered
+    # directly; offered, tools are held back behind the search step.
+    "tool_search",
 )
 
 #: Reported when they differ, never refused: what an ablation varies on purpose.
@@ -268,6 +277,42 @@ def compared_held_out(
     return compared_digests(config), named_beside_tiers(config)
 
 
+def normal_tool_environment(environment: ToolEnvironment | None) -> dict[str, Any] | None:
+    """A tool environment's record with each path relative to the root that holds it.
+
+    Two machines running the same environment place it at other roots, so absolute paths are
+    not identity: what is compared is the digest over every file, the counts, the
+    interpreter's version, every distribution and every tool's version, and where each path
+    lies inside the environment. A path outside every root is another program, kept as named.
+    Two runs (:func:`drift`) and the two arms of a per-role pair are held to this one form.
+    """
+    if environment is None:
+        return None
+    roots = [PurePosixPath(root) for root in environment.roots]
+
+    def where(path: str) -> str:
+        for index, root in enumerate(roots):
+            if PurePosixPath(path).is_relative_to(root):
+                return f"{index}:{PurePosixPath(path).relative_to(root)}"
+        return path
+
+    return {
+        "interpreter": where(environment.interpreter),
+        "resolved": where(environment.resolved),
+        "python_version": environment.python_version,
+        "prefix": where(environment.prefix),
+        "distributions": [d.model_dump() for d in environment.distributions],
+        "native_tools": [
+            {**t.model_dump(), "path": where(t.path), "resolved": where(t.resolved)}
+            for t in environment.native_tools
+        ],
+        "roots": len(roots),
+        "manifest_digest": environment.manifest_digest,
+        "entries": environment.entries,
+        "total_bytes": environment.total_bytes,
+    }
+
+
 def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
     """Every field of :data:`DRIFT` the candidate does not share with the baseline, by path.
 
@@ -280,7 +325,11 @@ def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
         mine, theirs = _at(baseline, path), _at(candidate, path)
         if path == "held_out_sha256":
             mine, theirs = compared_held_out(baseline), compared_held_out(candidate)
-        if isinstance(mine, dict) and isinstance(theirs, dict):
+        if path == "tool_environment":
+            mine, theirs = normal_tool_environment(mine), normal_tool_environment(theirs)
+            if mine != theirs:
+                drifted.append(path)
+        elif isinstance(mine, dict) and isinstance(theirs, dict):
             drifted += [
                 f"{path}.{key}"
                 for key in sorted(mine.keys() | theirs.keys())

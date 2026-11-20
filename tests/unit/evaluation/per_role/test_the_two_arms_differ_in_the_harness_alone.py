@@ -18,6 +18,7 @@ import pytest
 from pydantic import BaseModel
 from task_fixtures import own_task
 
+from physgate.evaluation.observe.compare import drift, normal_tool_environment
 from physgate.evaluation.per_role.arms.compare import (
     RAW_PINS,
     RUN_FIELDS,
@@ -45,6 +46,7 @@ from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig
 from physgate.orchestrator.usage_limit import UsageLimit
 from physgate.oslayer.probe import Absent, Present
+from physgate.toolenv.record import Distribution, ToolEnvironment
 
 TASK = parse_task(json.dumps(own_task()).encode())
 MODEL = "claude-opus-5-5"
@@ -90,6 +92,8 @@ def _config(**changes: Any) -> RunConfig:
         os_layer=LAYER.model_dump(),
         network="none",
         network_enforced=True,
+        tool_servers=None,
+        tool_search="denied",
         # As the command records them: the bytes it measured, and the account by its name
         # and the fingerprint of the credential it was given.
         binary={"sha256": "d" * 64, "platform": "linux-x64"},
@@ -186,6 +190,9 @@ def _pins(**changes: Any) -> dict[str, Any]:
         "os_layer": LAYER.model_dump(mode="json"),
         "role_python": None,
         "thinking_display": config.thinking_display,
+        "tool_environment": None,
+        "tool_servers": None,
+        "tool_search": "denied",
     }
     pins.update(changes)
     return pins
@@ -272,8 +279,8 @@ def test_a_harness_run_given_another_brief_is_named(tmp_path: Path) -> None:
 
 def test_a_pin_the_comparison_does_not_know_is_named(tmp_path: Path) -> None:
     """A pin added to the raw arm without a decision here is a difference, not a pass."""
-    assert _found(tmp_path, pins=_pins(tool_servers="none")) == [
-        "tool_servers: the raw arm recorded a pin no comparison knows"
+    assert _found(tmp_path, pins=_pins(reviewers="paired")) == [
+        "reviewers: the raw arm recorded a pin no comparison knows"
     ]
 
 
@@ -524,6 +531,223 @@ def test_a_harness_run_that_is_not_clean_or_not_reportable_is_named(
     assert sorted(f.split(":", 1)[0] for f in found) == named
 
 
+ENVIRONMENT = ToolEnvironment(
+    interpreter="/opt/tools/env/bin/python3",
+    resolved="/opt/tools/env/bin/python3.12",
+    python_version="3.12.9",
+    prefix="/opt/tools/env",
+    distributions=(Distribution(name="control", version="0.10.1"),),
+    native_tools=(),
+    roots=("/opt/tools/env",),
+    manifest_digest="a" * 64,
+    entries=1,
+    total_bytes=0,
+).model_dump(mode="json")
+SERVERS = {
+    "profiles": {"role": ["control"], "baseline": ["control"]},
+    "max_output_tokens": 25000,
+    "register_sha256": "b" * 64,
+}
+#: The run fields of the tool layer: what the sessions computed and built with, the servers
+#: they were offered, and whether the binary's search tool held those servers back.
+TOOL_FIELDS = ("tool_environment", "tool_servers", "tool_search")
+
+
+def _tooled(tmp_path: Path, config: dict[str, Any] | None = None, **pins: Any) -> list[str]:
+    """A harness run that named a tool environment and servers, against a raw arm's pins."""
+    given = {"tool_environment": ENVIRONMENT, "tool_servers": SERVERS}
+    run = _harness_run(tmp_path, config=_config(**{**given, **(config or {})}))
+    raw = _raw_dir(tmp_path, pins=_pins(**{**given, **pins}))
+    return differences(run, raw, role="control", task=TASK)
+
+
+def test_arms_given_the_same_tool_environment_and_servers_differ_in_nothing(
+    tmp_path: Path,
+) -> None:
+    """Both arms computed and built with the same tools and were offered the same servers."""
+    assert _tooled(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "pin",
+    [
+        {"tool_environment": None},
+        {"tool_environment": {**ENVIRONMENT, "manifest_digest": "c" * 64}},
+        {"tool_environment": {**ENVIRONMENT, "roots": ["/opt/tools/other"]}},
+        {"tool_environment": {**ENVIRONMENT, "native_tools": [], "entries": 2}},
+        {"tool_servers": None},
+        {"tool_servers": {**SERVERS, "register_sha256": "d" * 64}},
+        {"tool_servers": {**SERVERS, "profiles": {"role": ["control"], "baseline": []}}},
+        {"tool_servers": {**SERVERS, "max_output_tokens": 1000}},
+        {"tool_search": "offered"},
+    ],
+    ids=[
+        "no environment",
+        "other digest",
+        "other roots",
+        "other entries",
+        "no servers",
+        "other register",
+        "other servers",
+        "other bound",
+        "search tool offered",
+    ],
+)
+def test_a_raw_arm_given_other_tools_than_the_harness_run_is_named(
+    tmp_path: Path, pin: dict[str, Any]
+) -> None:
+    name = next(iter(pin))
+    assert [f.split(":", 1)[0] for f in _tooled(tmp_path, **pin)] == [name]
+
+
+def test_a_raw_arm_given_tools_the_harness_run_did_not_name_is_named(tmp_path: Path) -> None:
+    found = differences(
+        _harness_run(tmp_path),
+        _raw_dir(tmp_path, pins=_pins(tool_environment=ENVIRONMENT, tool_servers=SERVERS)),
+        role="control",
+        task=TASK,
+    )
+    assert [f.split(":", 1)[0] for f in found] == ["tool_environment", "tool_servers"]
+
+
+def _placed(root: str, **changes: Any) -> dict[str, Any]:
+    """One tool environment as measured where it lies at ``root``: its paths move with it."""
+    environment = {
+        "interpreter": f"{root}/bin/python3",
+        "resolved": f"{root}/bin/python3.12",
+        "python_version": "3.12.9",
+        "prefix": root,
+        "distributions": [{"name": "control", "version": "0.10.1"}],
+        "native_tools": [_pio(root, "6.1.18")],
+        "roots": [root],
+        "manifest_digest": "a" * 64,
+        "entries": 2,
+        "total_bytes": 10,
+    }
+    environment.update(changes)
+    return ToolEnvironment.model_validate_json(json.dumps(environment)).model_dump(mode="json")
+
+
+def _pio(root: str, version: str) -> dict[str, str]:
+    return {
+        "name": "pio",
+        "path": f"{root}/bin/pio",
+        "resolved": f"{root}/lib/platformio/pio",
+        "version": version,
+    }
+
+
+HERE, THERE = "/opt/tools/env", "/home/runner/work/tools"
+
+#: Each way the raw arm's environment, at another root, is not the harness run's environment.
+NOT_THE_SAME = {
+    "other digest": _placed(THERE, manifest_digest="c" * 64),
+    "other entries": _placed(THERE, entries=3),
+    "other bytes": _placed(THERE, total_bytes=11),
+    "other interpreter version": _placed(THERE, python_version="3.12.8"),
+    "other distribution": _placed(THERE, distributions=[{"name": "control", "version": "0.10.2"}]),
+    "other tool version": _placed(THERE, native_tools=[_pio(THERE, "6.1.17")]),
+    "interpreter elsewhere in the root": _placed(THERE, interpreter=f"{THERE}/bin/python"),
+    "interpreter outside the root": _placed(THERE, resolved="/usr/bin/python3.12"),
+    "a second root": _placed(THERE, roots=[THERE, "/home/runner/work/more"]),
+}
+
+
+def test_the_same_environment_at_another_root_is_the_same_environment(tmp_path: Path) -> None:
+    """Absolute paths are not identity: the arms ran the same environment at two roots."""
+    found = _tooled(tmp_path, {"tool_environment": _placed(HERE)}, tool_environment=_placed(THERE))
+    assert found == []
+
+
+@pytest.mark.parametrize("other", NOT_THE_SAME.values(), ids=NOT_THE_SAME.keys())
+def test_another_environment_at_another_root_is_named(
+    tmp_path: Path, other: dict[str, Any]
+) -> None:
+    found = _tooled(tmp_path, {"tool_environment": _placed(HERE)}, tool_environment=other)
+    assert [f.split(":", 1)[0] for f in found] == ["tool_environment"]
+
+
+def test_a_path_under_another_of_its_roots_is_another_environment(tmp_path: Path) -> None:
+    """Of two roots, which one holds a path is part of where the path lies."""
+    mine = _placed(HERE, roots=[HERE, f"{HERE}-more"])
+    theirs = _placed(THERE, roots=[THERE, f"{THERE}-more"], interpreter=f"{THERE}-more/bin/python3")
+    found = _tooled(tmp_path, {"tool_environment": mine}, tool_environment=theirs)
+    assert [f.split(":", 1)[0] for f in found] == ["tool_environment"]
+    harness = _config(tool_environment=mine, tool_servers=SERVERS)
+    assert "tool_environment" in drift(
+        harness, _config(tool_environment=theirs, tool_servers=SERVERS)
+    )
+
+
+def test_a_raw_record_that_does_not_read_as_an_environment_is_named(tmp_path: Path) -> None:
+    """The normal form itself, written as the raw arm's pin, is no environment the arm ran."""
+    normal = normal_tool_environment(ToolEnvironment.model_validate_json(json.dumps(ENVIRONMENT)))
+    found = _tooled(tmp_path, tool_environment=normal)
+    assert [f.split(":", 1)[0] for f in found] == ["tool_environment"]
+
+
+@pytest.mark.parametrize(
+    "other",
+    [_placed(HERE), _placed(THERE), *NOT_THE_SAME.values()],
+    ids=["same root", "another root", *NOT_THE_SAME.keys()],
+)
+def test_the_arms_and_two_runs_hold_an_environment_to_the_same_normal_form(
+    tmp_path: Path, other: dict[str, Any]
+) -> None:
+    """Two arms are the same environment exactly where two runs do not drift on it."""
+    harness = _config(tool_environment=_placed(HERE), tool_servers=SERVERS)
+    candidate = _config(tool_environment=other, tool_servers=SERVERS)
+    drifted = "tool_environment" in drift(harness, candidate)
+    found = _tooled(tmp_path, {"tool_environment": _placed(HERE)}, tool_environment=other)
+    assert ("tool_environment" in [f.split(":", 1)[0] for f in found]) == drifted
+
+
+def test_sessions_offered_the_search_tool_are_no_pair_for_sessions_denied_it(
+    tmp_path: Path,
+) -> None:
+    """A harness run recorded while the search tool was offered held its servers' tools back."""
+    run = _harness_run(tmp_path, config=_config(tool_search="offered"))
+    found = differences(run, _raw_dir(tmp_path), role="control", task=TASK)
+    assert found == ["tool_search: the harness ran with 'offered', the raw arm with 'denied'"]
+
+
+def _before_the_tool_pins() -> dict[str, Any]:
+    pins = _pins()
+    for name in TOOL_FIELDS:
+        del pins[name]
+    return pins
+
+
+@pytest.mark.parametrize(
+    ("config", "named"),
+    [
+        ({"tool_search": "offered"}, []),
+        ({"tool_search": "denied"}, ["tool_search"]),
+        (
+            {"tool_search": "offered", "tool_environment": ENVIRONMENT, "tool_servers": SERVERS},
+            ["tool_environment", "tool_servers"],
+        ),
+    ],
+    ids=["a run of its time", "a run that denied the search tool", "a run with tools"],
+)
+def test_a_raw_record_written_before_the_tool_pins_reads_as_given_none_and_offered_search(
+    tmp_path: Path, config: dict[str, Any], named: list[str]
+) -> None:
+    """A raw arm recorded before these pins was given no tools and offered the search tool."""
+    run = _harness_run(tmp_path, config=_config(**config))
+    found = differences(
+        run, _raw_dir(tmp_path, pins=_before_the_tool_pins()), role="control", task=TASK
+    )
+    assert [f.split(":", 1)[0] for f in found] == named
+
+
+def test_the_tool_layer_s_records_are_compared_field_by_field() -> None:
+    """Both arms must have had the same tools: no field of the tool layer's records is left out."""
+    classes = {name: kind for name, kind in RUN_FIELDS.items() if name.split(".")[0] in TOOL_FIELDS}
+    assert classes and set(classes.values()) == {"compared"}
+    assert set(TOOL_FIELDS) <= RAW_PINS
+
+
 def test_both_arms_canaries_are_compared_as_digests(tmp_path: Path) -> None:
     """The raw arm looked for the canaries the harness run looked for, or the pair is named."""
     run = _harness_run(tmp_path, config=_config(held_out_canaries=[CANARY]))
@@ -681,8 +905,9 @@ def test_every_required_field_is_one_the_comparison_checks() -> None:
 def test_each_compared_nested_field_is_in_what_the_raw_arm_is_held_to(parent: str) -> None:
     """A nested field classed compared is a key of the expected pin, so it is compared in fact.
 
-    Read over a run with each form a nested model may take (the OS layer present and absent),
-    so every member of a union is seen.
+    Read over a run with each form a nested model may take (the OS layer present and absent,
+    a tool environment and servers named), so every member of a union is seen; a field nested
+    deeper (a tool environment's distributions' names) is a key at its own path.
     """
     configs = [
         _config(role_python=_PYTHON.model_dump(mode="json")),
@@ -691,14 +916,32 @@ def test_each_compared_nested_field_is_in_what_the_raw_arm_is_held_to(parent: st
             network_enforced=False,
             reportable=False,
         ),
+        _config(tool_environment=_placed(HERE), tool_servers=SERVERS),
     ]
-    keys = {key for config in configs for key in _expected(config, "control", TASK)[parent] or {}}
+    keys = {
+        key
+        for config in configs
+        for key in _key_paths(_expected(config, "control", TASK)[parent] or {})
+    }
     compared = {
         p.split(".", 1)[1]
         for p, kind in RUN_FIELDS.items()
         if p.startswith(f"{parent}.") and kind == "compared"
     }
     assert compared and compared <= keys, (parent, compared, keys)
+
+
+def _key_paths(value: Any, prefix: str = "") -> set[str]:  # noqa: ANN401 - a pin as recorded
+    """Every key of ``value`` by its dotted path, through mappings and the items of lists."""
+    if isinstance(value, dict):
+        found: set[str] = set()
+        for key, inner in value.items():
+            found.add(prefix + key)
+            found |= _key_paths(inner, f"{prefix}{key}.")
+        return found
+    if isinstance(value, list):
+        return {path for item in value for path in _key_paths(item, prefix)}
+    return set()
 
 
 class _HeldBoundsCompared(RunBounds):

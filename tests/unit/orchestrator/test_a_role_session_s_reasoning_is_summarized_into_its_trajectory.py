@@ -45,6 +45,8 @@ def test_a_run_recorded_before_the_field_reads_as_omitted_with_its_digest_unchan
         "binary",
         "account",
         "design_review",
+        "tool_environment",
+        "tool_servers",
         "parts_on_hand",
         "review_compaction",
         "reviewers",

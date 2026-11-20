@@ -176,6 +176,8 @@ def test_a_run_recorded_before_the_field_loads_and_keeps_its_bytes(tmp_path: Pat
         "binary",
         "account",
         "design_review",
+        "tool_environment",
+        "tool_servers",
         "parts_on_hand",
         "review_compaction",
         "reviewers",
@@ -260,6 +262,9 @@ def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
         "max_output_tokens": 64000,
         "thinking_display": "summarized",
         "role_python": None,
+        "tool_environment": None,
+        "tool_servers": None,
+        "tool_search": "denied",
         "escalation_backend": "rules",
         "queue_decisions": "record",
         # The stand-in binary predates the layer's pin: allowed absent, for development.

@@ -33,6 +33,7 @@ PARAMS = {
     "max_output_tokens": 64000,
     "thinking_display": "summarized",
     "role_python": None,
+    "tool_environment": None,
     "escalation_backend": "rules",
     "queue_decisions": "record",
     # The stand-in binary predates the OS layer's pin, so the layer is absent here.
@@ -284,6 +285,9 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
                     "git_binary": {"path": "/usr/local/bin/git", "version": "2.54.0"},
                     "os_layer": None,
                     "network_enforced": None,
+                    # Taken from the register, and null for a run naming no tool environment.
+                    "tool_servers": None,
+                    "tool_search": "denied",
                     # Measured by the command, never taken from the parameters: the
                     # parameters name the account, the command adds its fingerprint.
                     "binary": None,

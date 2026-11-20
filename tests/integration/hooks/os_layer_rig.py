@@ -120,6 +120,7 @@ def run_session(
     aborts_fail: bool = True,
     network: Literal["open", "none"] = "open",
     reaper: bool = True,
+    tool_environment: tuple[str, ...] = (),
     switches: Mapping[str, str] | None = None,
     hooks: Hooks = "on",
     fields: Mapping[str, Any] | None = None,
@@ -133,7 +134,8 @@ def run_session(
 
     The session is spawned as the dispatcher spawns one, its pid exported as the survivor
     reaper's canary. ``reaper`` off leaves the reaper out of the session's environment: the
-    red control of the test that it stops what a command left running.
+    red control of the test that it stops what a command left running. ``tool_environment``
+    names the roots of a run's tool environment, as the dispatcher gives them to the installer.
     ``switches`` replaces the pin's own environment switches, for a row that measures what
     one of them does.
     ``hooks`` installs the session with the design discipline on or off, an ablation run's arm;
@@ -160,6 +162,7 @@ def run_session(
         temp_dir=None if layer else str(layout.temp.resolve()),
         os_layer_network=network,
         spawns_with_canary=True,
+        tool_environment_roots=tool_environment,
         hooks=hooks,
     )
     request = InstallRequest(**(request_fields | dict(fields or {})))

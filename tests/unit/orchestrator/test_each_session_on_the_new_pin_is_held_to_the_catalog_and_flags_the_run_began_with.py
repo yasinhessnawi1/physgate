@@ -61,7 +61,7 @@ def _argv(debug_file: Path | None = None) -> list[str]:
         max_turns=40,
         effort="high",
         thinking_display="summarized",
-        **({} if debug_file is None else {"debug_file": debug_file}),
+        debug_file=debug_file,
     )
 
 
@@ -74,6 +74,11 @@ ARGV_BEFORE = [
     "",
     "--settings",
     "/s.json",
+    # The tool layer's: no tool server but the ones the harness names, given inline, never a
+    # file; with none named, the empty configuration.
+    "--strict-mcp-config",
+    "--mcp-config",
+    '{"mcpServers":{}}',
     "--output-format",
     "stream-json",
     "--verbose",

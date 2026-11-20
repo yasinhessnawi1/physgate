@@ -29,17 +29,21 @@ from physgate.oslayer.policy import sandbox_policy
 #: Each profile kind, without the OS layer and with it, and the digest of what it was installed
 #: with before the options.
 BEFORE = {
-    ("role", False): "f8f71a2a34af0ad12177dd325170a1f3e72710e4039d3ba96103f489d0f84251",
-    ("reviewer", False): "3b2eb0d2326b0a7f56e8e81909b6e9595cdb5c470715b15280a68981475c448b",
-    ("orchestrator", False): "800ac5b48e5a17c7f826c29f0eb139f1afbe42a65b556df75df7c21d7ebd4a1d",
-    ("baseline", False): "69c7151686244ca906d90bcfb742c39a3fe4f478aa9f0a1f71eee56389ed4307",
+    # The tool layer changed every profile's installation in three ways and no other: the
+    # hardware hook joins the pre-tool hooks, the binary's search tool joins the denied tools,
+    # and both platforms' OS-layer profiles deny a board's device nodes to reads and writes.
+    ("role", False): "8ccf40333bc9f4997eebd716e844ece36bbcaed335f3871d01582af942e1cab0",
+    ("reviewer", False): "528293ed5df81d0cfa2caae6ee93c1aef720547363c1d4d931ad00a33033bdd9",
+    ("orchestrator", False): "f7e0e166765180f88e69aa16f6d935c4e0fc3491203f3f6eb256cab3da86f283",
+    ("baseline", False): "87cdeea9100250047725118e68657b34be30678e26c4c70196e1582d4af28a52",
     # Inside the layer the configuration now says so (``"os_layer": true``), so that a command's
     # read of the harness checkout is left to the layer there and refused where it is absent.
-    # That key is the only change from the digests taken before the options.
-    ("role", True): "d59f4e7ae7bcca2a7c0fcb2d18aa751857e3f568a3d6306a724853b4196151eb",
-    ("reviewer", True): "87cda4c5a1f00139c62616cf73093bd31aede175173e3abc5e863b884ff020a1",
-    ("orchestrator", True): "079ef308e0296f25884a74816781c3102e5dd69a6be36bc7420f88ca32fdaa1f",
-    ("baseline", True): "9c59fe55db2d04be298af79f078814e4c5809376dd6ea4d7ff367e1fd6b2a798",
+    # That key is the only change from the digests taken before the options, beside the tool
+    # layer's three.
+    ("role", True): "2fe3e0d860a5f68ccccc768b91753de5731b286dd31d8f27485743cc4afa81fa",
+    ("reviewer", True): "55cf8e9700589ad314013f69d2f48838d739f4ad3407bdb39c81df1985ff5085",
+    ("orchestrator", True): "67eca92534d15416e50eea1225b46aec83da91801ac7ec301e40abc4a57498d8",
+    ("baseline", True): "c2e4df8d02c479a185b6307f51552569a9c1183b09b80e975969b224e72ffc96",
 }
 PLACEHOLDER = "<rig>"
 
