@@ -592,6 +592,87 @@ def test_a_module_whose_sign_off_is_owed_with_another_precondition_open_is_unfin
     assert not out.exists()
 
 
+def _record_of(out: Path) -> Path:
+    """Where the export's record of an answer at ``out`` is: beside it, named after it."""
+    return out.parent / f"{out.name}.record.json"
+
+
+def test_the_record_beside_the_answer_names_each_sign_off_owed_and_the_answer_s_digest(
+    tmp_path: Path,
+) -> None:
+    # The scorer reads the answer alone, and the answer of a run that ended owing a sign-off is
+    # byte for byte the answer of a signed one: the record beside it is where that shows.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_a_sign_off_owed")
+    record, out = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert sorted(p.name for p in out.parent.iterdir()) == sorted([out.name, _record_of(out).name])
+    written = json.loads(_record_of(out).read_bytes())
+    assert written["answer"] == out.name
+    assert written["answer_sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
+    assert written["status"] == "exported"
+    assert written["structure"] == "state_feedback"
+    assert written["taken_from"] == {k: list(v) for k, v in record.taken_from.items()}
+    assert written["taken_from"]["update_rate"] == ["firmware.loop_timing"]
+    assert written["left_out"] == list(record.left_out)
+    assert written["sign_offs_owed"] == ["c1"]
+    assert "c1" in written["sign_off"] or "sign_offs_owed" in written["sign_off"]
+    assert "no person" in written["sign_off"].lower()
+    assert "raw agent" in written["sign_off"]
+
+
+def test_the_record_of_a_run_that_owes_no_sign_off_says_none_is_owed(tmp_path: Path) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="acts_signed")
+    _, out = _export(run, tmp_path)
+    written = json.loads(_record_of(out).read_bytes())
+    assert written["sign_offs_owed"] == []
+    assert written["sign_off"] is None
+    assert written["answer_sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize(
+    "recorded",
+    ["unfinished", "acts_waiting_on_a_sign_off", "records_a_sign_off_owed_and_a_failed_call"],
+)
+def test_an_export_that_is_not_exported_writes_no_record(tmp_path: Path, recorded: str) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
+    assert not out.parent.exists() or list(out.parent.iterdir()) == []
+
+
+def test_an_ambiguous_graph_writes_no_record(tmp_path: Path) -> None:
+    other = _node("drivetrain.motor", {"command_limit": (0.5, "1")}, owner="sizing")
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), other)
+    record, out = _export(run, tmp_path)
+    assert record.status == "ambiguous"
+    assert not out.parent.exists() or list(out.parent.iterdir()) == []
+
+
+@pytest.mark.parametrize("left", ["file", "link", "directory"])
+def test_the_record_is_never_written_over_or_through_what_is_at_its_name_nor_the_answer(
+    tmp_path: Path, left: str
+) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
+    out.parent.mkdir()
+    target = Path(os.path.realpath(tmp_path)) / "elsewhere.json"
+    target.write_text("untouched")
+    at = _record_of(out)
+    if left == "file":
+        at.write_text("earlier")
+    elif left == "link":
+        at.symlink_to(target)
+    else:
+        at.mkdir()
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        _module().export_whole_run(run, out)
+    assert isinstance(caught.value, _module().ExportError)
+    assert target.read_text() == "untouched"
+    assert [p.name for p in out.parent.iterdir()] == [at.name]
+    if left == "file":
+        assert at.read_text() == "earlier"
+
+
 def test_a_run_whose_integration_did_not_merge_is_unfinished_though_only_a_sign_off_is_open(
     tmp_path: Path,
 ) -> None:
@@ -747,3 +828,32 @@ def test_a_new_name_that_cannot_be_made_leaves_nothing_at_the_answer_s_name(
         module.export_whole_run(run, out)
     assert isinstance(caught.value, module.ExportError)
     assert list(out.parent.iterdir()) == []
+
+
+def test_a_record_that_cannot_be_put_in_place_takes_the_answer_put_before_it_away(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The answer is renamed into place first; the record's rename then fails. An answer with
+    # no record beside it would read as one that owes nothing, so neither is left.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_a_sign_off_owed")
+    out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
+    module = _module()
+    replace = os.replace
+    renamed: list[str] = []
+
+    def answer_then_no_space(src: str, dst: object) -> None:
+        if renamed:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        replace(src, dst)  # type: ignore[arg-type]
+        renamed.append(str(dst))
+
+    monkeypatch.setattr(module.os, "replace", answer_then_no_space)
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        module.export_whole_run(run, out)
+    assert isinstance(caught.value, module.ExportError)
+    assert renamed == [str(out)]
+    assert list(out.parent.iterdir()) == []
+    monkeypatch.undo()
+    record = module.export_whole_run(run, out)
+    assert record.status == "exported"
+    assert _record_of(out).exists()
