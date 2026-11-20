@@ -40,7 +40,15 @@ export type QueueSource = (typeof SOURCES)[number];
  * ``sign``: a sign-off item, whose approve signs the values it shows (ARCH-130).
  */
 export const ON_APPROVE = ["merge_attempt", "release", "sign", "record_only"] as const;
-export const ON_REJECT = ["retry", "fix", "end_subtask", "end_run", "record_only"] as const;
+/** ``reopen_fix``: a sign-off item, whose reject orders the module's one fix (ARCH-130). */
+export const ON_REJECT = [
+  "retry",
+  "fix",
+  "end_subtask",
+  "end_run",
+  "reopen_fix",
+  "record_only",
+] as const;
 export const WHY_RECORD_ONLY = [
   "gate",
   "change_check",

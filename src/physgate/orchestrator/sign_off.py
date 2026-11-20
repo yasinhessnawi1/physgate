@@ -39,6 +39,15 @@ if TYPE_CHECKING:
 #: What a module's sign-off is on: a control loop's stability margin, or a mechanical sizing.
 SignOffKind = Literal["stability_margin", "sizing"]
 
+#: What rejecting a module's sign-off item does, and why it only records where it does.
+#: ``reopen``: the module's one fix, outside its repair budget. ``used``: that fix was already
+#: ordered in this run, once per module. ``spent``: the module has no attempt left to fix at, as
+#: its last was its one fix after a blocked review or the run's last attempt number.
+#: ``closed``: the module is not merged now (reopened, or its last attempt ended unmerged), or
+#: the integration call is on the record, after which nothing about a module but integration's
+#: follows.
+SignOffReject = Literal["reopen", "used", "spent", "closed"]
+
 _RoleName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$")]
 
 #: The most names a row lists in its order of showing, and the most an item shows (ARCH-130).
@@ -202,6 +211,8 @@ class RaisedSignOff:
     item_id: str
     module: str
     values_sha256: str
+    #: What a reject of it does, as the record gave it where it was raised and the item says it.
+    reject: SignOffReject = "reopen"
 
 
 # --- what a module's sign-off binds, and what its item shows --------------------------------

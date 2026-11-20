@@ -122,17 +122,28 @@ def test_a_run_that_acts_waits_before_the_integration_call_until_a_person_decide
     assert completions(events) == [CONTROL, ELECTRICAL]
 
 
-def test_a_reject_ends_the_wait_and_the_run_ends_escalated_naming_the_sign_off(
+def rejected_twice(rig: Rig, *, acts: bool = True) -> tuple[list[Event], Step]:
+    """The run driven to its end with the control module's sign-off rejected each time asked.
+
+    In a run that acts the first reject orders the module's one fix; once it merged, the person
+    rejects its item too, which records only. A run that records decisions takes neither.
+    """
+    rig.dispatcher.during[3] = approving(rig.run_dir, verb="reject")
+    events, step = drive(rig, acts=acts)
+    if not acts:
+        return events, step
+    assert step.kind == "wait"
+    decide(rig.run_dir, "reject", "the margins are on the loop that runs", item_id=SECOND)
+    return resume(rig)
+
+
+def test_a_reject_of_the_fixed_module_ends_the_wait_and_the_run_ends_escalated_naming_it(
     tmp_path: Path,
 ) -> None:
     rig, _ = journal_rig(tmp_path)
-    rig.dispatcher.during[3] = approving(tmp_path, verb="reject")
-    loop = journal_start(rig)
-    step = loop.run()
-    loop.close()
-    events = read_events(tmp_path / "events.jsonl")
-    # The reject records only, so no approve can come: the call is made, the control module is not
-    # complete, and the run ends escalated with its sign-off named.
+    events, step = rejected_twice(rig)
+    # The second reject records only, so no approve can come: the call is made, the control
+    # module is not complete, and the run ends escalated with its sign-off named.
     assert len(calls(events)) == 1
     assert completions(events) == [ELECTRICAL]
     assert step.kind == "escalated"
@@ -140,7 +151,7 @@ def test_a_reject_ends_the_wait_and_the_run_ends_escalated_naming_the_sign_off(
     assert state.next_step() == Step(kind="escalated")
     assert state.sign_offs_open() == [CONTROL]
     printed, status = printed_step(step.kind, state)
-    assert printed == {"step": "escalated", "sign_offs_owed": f"{CONTROL} (item {FIRST})"}
+    assert printed == {"step": "escalated", "sign_offs_owed": f"{CONTROL} (item {SECOND})"}
     assert status == 1
 
 
@@ -197,12 +208,8 @@ def test_a_declaration_naming_a_module_whose_sign_off_is_owed_is_refused_by_name
     tmp_path: Path, acts: bool
 ) -> None:
     rig, _ = journal_rig(tmp_path, acts=acts)
-    # In a run that acts the control module's item is rejected, so its sign-off stays owed.
-    rig.dispatcher.during[3] = approving(tmp_path, verb="reject")
-    loop = journal_start(rig, acts=acts)
-    loop.run()
-    loop.close()
-    events = read_events(tmp_path / "events.jsonl")
+    # In a run that acts the control module's items are rejected, so its sign-off stays owed.
+    events, _ = rejected_twice(rig, acts=acts)
     checks = [e for e in events if isinstance(e, ProposalsChecked) and e.subtask_id == INTEG]
     assert [(c.attempt, c.refused_by, c.subject) for c in checks] == [
         (1, "declaration", DECLARATION_PATH),

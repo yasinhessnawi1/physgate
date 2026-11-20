@@ -39,7 +39,7 @@ from physgate.orchestrator.arbitration import (
     arbitrate,
     dispute_standing,
 )
-from physgate.orchestrator.budget import infra_retry_delay
+from physgate.orchestrator.budget import ATTEMPT_LIMIT, infra_retry_delay
 from physgate.orchestrator.change_sets import change_history, integration_history
 from physgate.orchestrator.common import PLANNED_ID_MAX_LENGTH, SUBTASK_PATTERN, utc_now
 from physgate.orchestrator.completion import sign_off_open
@@ -54,6 +54,8 @@ from physgate.orchestrator.decisions import (
     item_consequence,
     person_order,
     scan_hits_of,
+    sign_off_order,
+    sign_off_reject,
     source_of,
 )
 from physgate.orchestrator.declaration import DECLARATION_PATH, DeclarationError
@@ -121,6 +123,7 @@ from physgate.orchestrator.events import (
     SessionEnded,
     SessionFinding,
     SessionSpawned,
+    SignOffFixEnded,
     SignOffsRaised,
     Stage,
     StageEntered,
@@ -260,6 +263,7 @@ from physgate.orchestrator.replay import (
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
 from physgate.orchestrator.sign_off import (
     Bound,
+    SignOffReject,
     bound_set,
     quantities_of,
     shown,
@@ -1128,6 +1132,7 @@ class Loop:
             "parts",
             "reopen",
             "follow_up_ended",
+            "sign_off_fix_ended",
             "hold",
             "release",
             "sign_off",
@@ -1188,6 +1193,13 @@ class Loop:
                 why = why_not_merged(self.state.subtasks[step.subtask_id].attempts[-1])
                 self._emit(
                     FollowUpEnded(
+                        **self._env(), subtask_id=step.subtask_id, attempt=step.attempt, why=why
+                    )
+                )
+            elif step.kind == "sign_off_fix_ended":
+                why = why_not_merged(self.state.subtasks[step.subtask_id].attempts[-1])
+                self._emit(
+                    SignOffFixEnded(
                         **self._env(), subtask_id=step.subtask_id, attempt=step.attempt, why=why
                     )
                 )
@@ -1404,7 +1416,13 @@ class Loop:
                 ).attempt_commit
         try:
             taken = decision_effect(
-                self.state, item, resolution, line_sha256=digest, scan_hits=scan, held=held
+                self.state,
+                item,
+                resolution,
+                line_sha256=digest,
+                scan_hits=scan,
+                held=held,
+                sign_off_fits=lambda note: self._sign_off_fix_fits(item.item_id, note),
             )
         except QueueItemMismatchError as exc:
             self._incident(None, "queue_item_mismatch", f"{exc}: {exc.context}")
@@ -1706,6 +1724,11 @@ class Loop:
         if previous.merged is not None and followed is not None and followed.attempt == attempt:
             told = self._follow_up_order(followed)  # the follow-up's one attempt
             return told.instruction, told
+        fixed = sub.sign_off_fixed
+        if previous.merged is not None and fixed is not None and fixed.attempt == attempt:
+            # The one fix a rejected sign-off ordered: told the values not signed and the note.
+            fix = self._sign_off_fix_order(fixed.item_id or "", previous.number)
+            return fix.instruction, fix
         reopened = sub.reopened
         if (
             previous.merged is not None
@@ -1763,6 +1786,7 @@ class Loop:
             "fix_after_arbitration",
             "contract_conform",
             "follow_up",
+            "sign_off_fix",
         ):
             return order.instruction
         attempts = self.state.subtasks[subtask_id].attempts
@@ -1918,7 +1942,7 @@ class Loop:
             kind="fix"
             if inner is not None
             and (
-                inner.kind in ("fix_after_block", "fix_after_arbitration")
+                inner.kind in ("fix_after_block", "fix_after_arbitration", "sign_off_fix")
                 or (inner.kind == "contract_conform" and sub.attempts[-1].fix)
             )
             else "attempt",
@@ -3655,11 +3679,13 @@ class Loop:
         merged: tuple[str, int],
         ts: str,
         before: int | None = None,
+        reject: SignOffReject | None = None,
     ) -> QueueItem:
         """The item a module's sign-off is listed on, from the record and the graph.
 
         The one builder, so the item a decision is taken on is held to it whole. Its links are the
-        streams of every attempt merged in the module's directory before its line.
+        streams of every attempt merged in the module's directory before its line. ``reject`` is
+        what its reject does as the record gave it at the raise; by default, as it gives it now.
         """
         rules = self.state.sign_off_rules
         sub = self.state.subtasks[module]
@@ -3668,6 +3694,7 @@ class Loop:
             msg = "a sign-off item for a module whose role owes none"
             raise RunStateError(msg, run_dir=str(self.run_dir), module=module)
         sessions = self._module_sessions(module, before)
+        said = reject if reject is not None else sign_off_reject(self.state, module)
         return sign_off_item(
             item_id=item_id,
             run_id=self.config.run_id,
@@ -3686,8 +3713,63 @@ class Loop:
             ),
             round_=round_,
             ts=ts,
-            consequence=sign_off_consequence() if self._acts() else None,
+            consequence=sign_off_consequence(said) if self._acts() else None,
+            reject=said,
         )
+
+    def _sign_off_bound(self, item_id: str) -> tuple[Bound, ...] | None:
+        """What the sign-off item ``item_id`` binds, read again from the journal.
+
+        At the revisions its line names; ``None`` where the run raised no such item or the journal
+        lacks a line.
+        """
+        held = self.state.sign_off_lines.get(item_id)
+        if held is None:
+            return None
+        wanted = {(value.node_id, value.revision) for value in held[1].bound}
+        found = {
+            (one.node_id, one.rev): dict(one.payload)
+            for one in self._graph.records_after(0)
+            if (one.node_id, one.rev) in wanted
+        }
+        if set(found) != wanted:
+            return None
+        return tuple(
+            Bound(node_id=node, revision=rev, quantities=quantities_of(found[(node, rev)]))
+            for node, rev in sorted(wanted)
+        )
+
+    def _sign_off_fix_order(self, item_id: str, merged_at: int) -> PersonOrder:
+        """The order the one fix a reject of ``item_id`` ordered is given: the values it showed.
+
+        Raises:
+            RunStateError: the journal no longer holds what the item bound, or the reject has no
+                note on the record.
+        """
+        bound = self._sign_off_bound(item_id)
+        taken = self.state.taken.get(item_id)
+        if bound is None or taken is None:
+            msg = "a sign-off fix whose item's values or reject the record does not give"
+            raise RunStateError(msg, run_dir=str(self.run_dir), item=item_id)
+        try:
+            return sign_off_order(
+                item_id, merged_at, values_text(bound, values_sha256(bound)), taken.note
+            )
+        except ValueError as exc:
+            raise RunStateError(str(exc), run_dir=str(self.run_dir), item=item_id) from None
+
+    def _sign_off_fix_fits(self, item_id: str, note: str | None) -> bool:
+        """Whether the fix a reject of ``item_id`` with ``note`` orders is read whole by review.
+
+        What the reviewer is told quotes the order, and the order quotes the values.
+        """
+        bound = self._sign_off_bound(item_id)
+        raised = self.state.sign_offs.get(item_id)
+        if bound is None or raised is None or note is None:
+            return False
+        merged_at = self.state.subtasks[raised.module].attempts[-1].number
+        values = values_text(bound, values_sha256(bound))
+        return fits_one_read(person_order_text(sign_off_order(item_id, merged_at, values, note)))
 
     def _sign_off_item_of(self, item: QueueItem) -> QueueItem | None:
         """The sign-off item the record and the graph build for ``item``'s id; ``None`` if none.
@@ -3696,21 +3778,10 @@ class Loop:
         line of the journal or the queue rewritten since the raise is no longer the item.
         """
         held = self.state.sign_off_lines.get(item.item_id)
-        if held is None:
+        bound = self._sign_off_bound(item.item_id)
+        if held is None or bound is None:
             return None
         line, raised = held
-        wanted = {(value.node_id, value.revision) for value in raised.bound}
-        found = {
-            (one.node_id, one.rev): dict(one.payload)
-            for one in self._graph.records_after(0)
-            if (one.node_id, one.rev) in wanted
-        }
-        if set(found) != wanted:
-            return None
-        bound = tuple(
-            Bound(node_id=node, revision=rev, quantities=quantities_of(found[(node, rev)]))
-            for node, rev in sorted(wanted)
-        )
         round_ = [i.item_id for i in self.state.sign_offs_of(raised.module)].index(item.item_id)
         return self._sign_off_item_for(
             raised.module,
@@ -3721,6 +3792,7 @@ class Loop:
             merged=(line.subtask_id, line.attempt),
             ts=item.ts,
             before=line.seq,
+            reject=self.state.sign_offs[item.item_id].reject,
         )
 
     def _signed_sessions(self, item: QueueItem) -> list[SessionEnded]:
@@ -3828,7 +3900,8 @@ class Loop:
         """What sizing's closing pass owed the domain modules on the record up to ``events``.
 
         Candidates are the domain modules that merged with an attempt left to reopen at: one
-        that merged on its fix has none, and the propagation check judges its nodes as written.
+        that merged on its fix, or at the last attempt number, has none, and the propagation check
+        judges its nodes as written.
         A module whose order its reviewer could not read whole is owed none either: the check
         judges its edges as they stand. With ``every``, each done domain module's edges, owed or
         not: what the integration item names.
@@ -3845,6 +3918,8 @@ class Loop:
             and sub.plan.module_dir != directory
             and (every or sub.attempts[-1].merged is not None)
             and (every or not any(a.fix for a in sub.attempts))
+            # A module at the last attempt number has none to reopen at: after a sign-off's fix.
+            and (every or sub.attempts[-1].number < ATTEMPT_LIMIT)
         }
         _, change_sets = change_history(events)
         head = max((r for c in change_sets for r in c.revisions), default=0)

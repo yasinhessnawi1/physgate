@@ -93,6 +93,7 @@ from physgate.orchestrator.protocols import (
     SpecDefect,
 )
 from physgate.orchestrator.repair import Finding, Writer, held_line
+from physgate.orchestrator.sign_off import SignOffReject
 from physgate.orchestrator.trajectory import Seal, seal
 from physgate.reviewers.scan import ScanHit
 from physgate.state.exceptions import RecordMovedError
@@ -127,8 +128,9 @@ class _Record(BaseModel):
 #: holds, sign the values a sign-off item shows (ARCH-130), or record the decision only.
 OnApprove = Literal["merge_attempt", "release", "sign", "record_only"]
 #: What rejecting an item does: start the next attempt from the note, order the one fix a
-#: blocked review gets, end the subtask, end the run its plan's review holds, or record only.
-OnReject = Literal["retry", "fix", "end_subtask", "end_run", "record_only"]
+#: blocked review gets, end the subtask, end the run its plan's review holds, order the one fix
+#: of a module whose sign-off item it is (ARCH-130), or record only.
+OnReject = Literal["retry", "fix", "end_subtask", "end_run", "reopen_fix", "record_only"]
 #: Why approving an item records only. ``gate``, ``change_check`` and ``reading``: an automated
 #: check refused the attempt, and a person overrides the reviewer alone. ``indicator_in_history``:
 #: a review of some attempt of the subtask confirmed a reward-hacking indicator.
@@ -1284,6 +1286,28 @@ def parts_item(
 SIGN_OFF = "SIGNOFF"
 
 
+#: What a reject of a sign-off item does, as the item says it, by the record's reason.
+_SIGN_OFF_REJECT: Mapping[SignOffReject, str] = {
+    "reopen": (
+        "Reject, saying why in your note, to order the module's one fix: a session of its role "
+        "is told your note and these values, and is gated and reviewed as any attempt. If it "
+        "merges you are asked to sign again; if not, the module stays not complete."
+    ),
+    "used": (
+        "Reject to record that you do not sign them: the module stays not complete. Its one fix "
+        "after a rejected sign-off was ordered already in this run."
+    ),
+    "spent": (
+        "Reject to record that you do not sign them: the module stays not complete. It has no "
+        "attempt left to fix them at."
+    ),
+    "closed": (
+        "Reject to record that you do not sign them: the module stays not complete. It is not "
+        "merged now, or the integration call was made, so no fix can be ordered."
+    ),
+}
+
+
 def sign_off_item_id(run_id: str, module: str, round_: int) -> str:
     """A sign-off item's id: the run, the marker and the module, and from its second, the round.
 
@@ -1298,13 +1322,16 @@ def sign_off_item_id(run_id: str, module: str, round_: int) -> str:
     return item_id_for(run_id, f"{SIGN_OFF}-{module}", round_)
 
 
-def sign_off_consequence() -> ItemConsequence:
-    """What each verb does to a sign-off item: an approve signs its values, a reject records."""
+def sign_off_consequence(reject: SignOffReject) -> ItemConsequence:
+    """What each verb does to a sign-off item: an approve signs its values.
+
+    A reject orders the module's one fix where ``reject`` is ``reopen``, and records only otherwise.
+    """
     return ItemConsequence(
         attempt=None,
         attempt_commit=None,
         on_approve="sign",
-        on_reject="record_only",
+        on_reject="reopen_fix" if reject == "reopen" else "record_only",
         why_record_only=None,
         confirmed_indicators=(),
         scan_hits=(),
@@ -1327,6 +1354,7 @@ def sign_off_item(
     round_: int,
     ts: str,
     consequence: ItemConsequence | None,
+    reject: SignOffReject = "reopen",
 ) -> QueueItem:
     """The item a module whose role owes a person's sign-off is listed on, raised by code.
 
@@ -1334,7 +1362,8 @@ def sign_off_item(
     raised the item, the module's own (``own``) or one that changed the values it binds.
     ``values`` is every bound value with its node, then their digest, as code renders them; the
     approve binds them through the line's digest (ARCH-133). In a run that records decisions only
-    the item has no consequence, and says that a decision on it signs nothing.
+    the item has no consequence, and says that a decision on it signs nothing. In one that acts,
+    ``reject`` is what a reject does, and the item says why where it records only.
 
     Raises:
         QueueError: no trajectory is linked.
@@ -1349,8 +1378,8 @@ def sign_off_item(
     )
     decide = (
         " Approve to sign the values below as they stand: the module may then be declared "
-        "complete while they stand, and a later change to them asks again. Reject to record "
-        "that you do not sign them: the module stays not complete."
+        "complete while they stand, and a later change to them asks again. "
+        + _SIGN_OFF_REJECT[reject]
         if consequence is not None
         else " This run records decisions only: the module stays not complete, the run ends "
         "with this item open, and a decision here is recorded and signs nothing."

@@ -154,7 +154,7 @@ def test_the_item_shows_the_row_s_names_first_every_bound_value_and_their_digest
     (item,) = [i for i in read_queue(tmp_path).items if i.source == "sign_off"]
     raised = lines(events)[0].raised[0]
     assert (item.item_id, item.subtask_id) == (FIRST, CONTROL)
-    assert item.consequence == sign_off_consequence()
+    assert item.consequence == sign_off_consequence("reopen")
     assert "owes a person's sign-off on its stability margin" in item.decision_required
     # At most three, in the row's order of names: phase margin before gain margin.
     assert [(q.node_id, q.name) for q in item.quantities] == [
@@ -187,14 +187,22 @@ def test_an_approve_that_acts_signs_and_the_module_is_then_complete(tmp_path: Pa
     assert completions(events) == [CONTROL, ELECTRICAL]
 
 
-def test_a_reject_records_only_and_the_module_stays_not_complete(tmp_path: Path) -> None:
+def test_a_reject_reopens_the_module_and_it_is_not_complete_until_its_next_item_is_signed(
+    tmp_path: Path,
+) -> None:
     events, _ = driven(tmp_path, during={3: approving(tmp_path, verb="reject")})
     (taken,) = [e for e in events if isinstance(e, DecisionTaken)]
-    assert (taken.effect, taken.acts, taken.why_not) == ("none", False, "record_only_source")
+    assert (taken.effect, taken.acts, taken.why_not, taken.reopens) == (
+        "reopen",
+        True,
+        None,
+        CONTROL,
+    )
     state = replay(events)
     assert state.signed == []
-    assert completions(events) == [ELECTRICAL]
+    assert completions(events) == []
     assert "sign_off" in dict(open_preconditions(state, CONTROL))
+    assert state.undecided(sign_off_item_id("run-1", CONTROL, 2))
 
 
 def test_a_run_that_records_decisions_takes_none_on_it_and_the_module_stays_not_complete(

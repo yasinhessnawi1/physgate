@@ -846,10 +846,11 @@ DecisionEffect = Literal[
 #: the scan before review found one no review judged. ``not_bound``: a decision that names no
 #: verb, or no view. ``legacy_item``: an item that says nothing of what a verb does.
 #: ``held_os_layer_off``: written while a session ran without the OS layer, so its own shell
-#: could have written it; it acts once the operator confirms it. ``order_too_long``: a choice that
-#: would reopen a module whose order its reviewer could not read whole. ``superseded``: a
-#: decision on a contract item another item's reopen superseded, since what it said is no longer
-#: true.
+#: could have written it; it acts once the operator confirms it. ``order_too_long``: a choice,
+#: or a reject of a sign-off item, that would reopen a module whose order its reviewer could not
+#: read whole. ``superseded``: a decision on a contract item another item's reopen superseded, or
+#: on a sign-off item a later one superseded or whose fix the record no longer allows, since what
+#: it said is no longer true.
 WhyNot = Literal[
     "record_only_source",
     "last_rejection_automated",
@@ -1049,6 +1050,20 @@ class FollowUpEnded(_Event):
     """
 
     kind: Literal["follow_up_ended"] = "follow_up_ended"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    why: FollowUpWhy
+
+
+class SignOffFixEnded(_Event):
+    """The one fix a rejected sign-off ordered ended without a merge: no retry, and no item follows.
+
+    The module's earlier merge stands, so its subtask is done again; its sign-off stays owed, so it
+    is not complete, and the run ends escalated naming it (ARCH-130). ``why`` is what ended the
+    attempt.
+    """
+
+    kind: Literal["sign_off_fix_ended"] = "sign_off_fix_ended"
     subtask_id: NonEmptyStr
     attempt: Attempt
     why: FollowUpWhy
@@ -2041,6 +2056,7 @@ Event = Annotated[
     | SubtaskReopened
     | AttemptReturned
     | FollowUpEnded
+    | SignOffFixEnded
     | NoFollowUpOwed
     | DispatchHeld
     | DispatchReleased

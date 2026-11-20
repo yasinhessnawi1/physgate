@@ -43,7 +43,7 @@ from physgate.orchestrator.common import (
     GateMode,
 )
 from physgate.orchestrator.completion import open_preconditions, sign_off_open
-from physgate.orchestrator.decisions import require_taken, values_chosen
+from physgate.orchestrator.decisions import require_taken, sign_off_reject, values_chosen
 from physgate.orchestrator.escalation import (
     REGISTER,
     TO_THE_QUEUE,
@@ -116,6 +116,7 @@ from physgate.orchestrator.events import (
     RunStarted,
     SessionEnded,
     SessionSpawned,
+    SignOffFixEnded,
     SignOffsRaised,
     Stage,
     StageEntered,
@@ -297,6 +298,9 @@ class SubtaskState:
     reopened: SubtaskReopened | None = None
     #: The follow-up sizing's closing pass owed the subtask, once taken.
     followed_up: SubtaskReopened | None = None
+    #: The one fix a person's reject of the module's sign-off item reopened it for, once taken:
+    #: once per module per run (ARCH-130).
+    sign_off_fixed: SubtaskReopened | None = None
 
     def judged(self) -> set[int]:
         """The attempts whose streams a review judged: its own, and the earlier ones it was given.
@@ -331,6 +335,7 @@ class Step:
         "return",
         "reopen",
         "follow_up_ended",
+        "sign_off_fix_ended",
         "hold",
         "release",
         "sign_off",
@@ -357,6 +362,12 @@ def following_up(sub: SubtaskState, attempt: int | None = None) -> bool:
     """Whether ``attempt`` (by default the subtask's last) is the follow-up the record owes it."""
     number = attempt if attempt is not None else sub.attempts[-1].number if sub.attempts else 0
     return sub.followed_up is not None and sub.followed_up.attempt == number
+
+
+def sign_off_fixing(sub: SubtaskState, attempt: int | None = None) -> bool:
+    """Whether ``attempt`` (by default the subtask's last) is a rejected sign-off's one fix."""
+    number = attempt if attempt is not None else sub.attempts[-1].number if sub.attempts else 0
+    return sub.sign_off_fixed is not None and sub.sign_off_fixed.attempt == number
 
 
 def _verdict(gate: GateRan | GateSkipped | None) -> Outcome | None:
@@ -1017,6 +1028,19 @@ class RunState:
                 review_result=_review_outcome(stands),
                 follow_up_gate_result=_verdict(now.gate),
                 follow_up_review_result=_review_outcome(now),
+            )
+        elif isinstance(event, SignOffFixEnded):
+            ended = sign_off_fixing(sub) and self._ended_without_merge(now)
+            self._expect(ended and event.why == why_not_merged(now), "a sign-off fix's end")
+            sub.status = "done"
+            # The merge the fix reopened stands again, with its results; the fix's are its lines.
+            standing = sub.sign_off_fixed.merge_commit if sub.sign_off_fixed else None
+            stands = next(a for a in sub.attempts if a.merged and a.merged.merge_commit == standing)
+            self._ledger(
+                sub.plan.subtask_id,
+                merge_commit=standing,
+                gate_result=_verdict(stands.gate),
+                review_result=_review_outcome(stands),
             )
         elif isinstance(event, EscalationDecided):
             self._decided(sub, now, event)
@@ -2075,7 +2099,11 @@ class RunState:
                 self.superseded[earlier[-1].item_id] = item.item_id
             self.sign_off_lines[item.item_id] = (event, item)
             self.sign_offs[item.item_id] = RaisedSignOff(
-                item_id=item.item_id, module=item.module, values_sha256=item.values_sha256
+                item_id=item.item_id,
+                module=item.module,
+                values_sha256=item.values_sha256,
+                # What its reject does, as the loop listed it: from the record as it stands here.
+                reject=sign_off_reject(self, item.module),
             )
         self.sign_off_due = self.sign_off_after = None
 
@@ -2193,7 +2221,7 @@ class RunState:
         if self.escalation_backend is None:
             _refuse("a decision line in a log whose run names no escalation backend")
         due = self._ended_without_merge(now) and now.decided is None and not now.fix
-        due = due and not following_up(sub)
+        due = due and not following_up(sub) and not sign_off_fixing(sub)
         self._expect(due and now.cursor in ("decide", "review", "gate"), "an escalation decision")
         decision = event.decision
         if decision.backend_id != self.escalation_backend:
@@ -2271,7 +2299,9 @@ class RunState:
         """Take a reopen: the one the taken decision before it ordered, of the record's merge.
 
         The subtask takes its next attempt, or its one fix after its last, in a fresh worktree;
-        its earlier merge stays on the record.
+        its earlier merge stays on the record. A reopen a sign-off item's reject ordered is the
+        module's one fix after a rejected sign-off, outside its repair budget, and never the one
+        fix a blocked review orders.
         """
         if event.cause is not None:
             self._follow_up(event)
@@ -2301,10 +2331,13 @@ class RunState:
                 self.superseded[item_id] = pending.item_id
         sub.status = "active"
         sub.next_resolve = event.attempt
-        sub.fix_next = last.number == REPAIR_BUDGET
         self.worktrees_handled.discard(event.subtask_id)
         sub.reopens += 1
-        sub.reopened = event
+        if event.item_id in self.sign_offs:
+            sub.sign_off_fixed = event
+        else:
+            sub.fix_next = last.number == REPAIR_BUDGET
+            sub.reopened = event
         self._ledger(event.subtask_id, reset=True, reopened_by=event.item_id)
         self.pending_reopen = None
 
@@ -2541,7 +2574,12 @@ class RunState:
         if not sub.attempts or sub.attempts[-1].number != attempt:
             if any(a.fix for a in sub.attempts):
                 _refuse("the fix a person ordered is a subtask's last attempt")
-            if attempt > REPAIR_BUDGET and not sub.fix_next and not following_up(sub, attempt):
+            if (
+                attempt > REPAIR_BUDGET
+                and not sub.fix_next
+                and not following_up(sub, attempt)
+                and not sign_off_fixing(sub, attempt)
+            ):
                 _refuse("an attempt past the repair budget is only the fix a person ordered")
             sub.attempts.append(AttemptState(number=attempt, fix=sub.fix_next))
             sub.fix_next = False
@@ -2869,6 +2907,8 @@ class RunState:
             return Step("end_subtask", subtask_id, now.number)
         if following_up(sub) and self._ended_without_merge(now):
             return Step("follow_up_ended", subtask_id, now.number)
+        if sign_off_fixing(sub) and self._ended_without_merge(now):
+            return Step("sign_off_fix_ended", subtask_id, now.number)
         if now.merged is not None and sub.next_resolve is not None:
             return Step("attempt", subtask_id, sub.next_resolve, "resolve")  # reopened
         if now.approved is not None:

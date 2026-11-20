@@ -57,6 +57,13 @@ _REJECT: dict[OnReject, str] = {
     ),
     "end_subtask": "Rejecting ends the subtask as rejected. Nothing of it is merged.",
     "end_run": "Rejecting ends the run with no module dispatched.",
+    "reopen_fix": (
+        "Rejecting orders the module's one fix after a rejected sign-off by a fresh session of "
+        "its role, told your note and the values shown, and gated and reviewed as any attempt. "
+        "If it merges, you are asked to sign its values again; if not, the module stays not "
+        "complete. If your note makes the order too long to review, nothing is reopened and the "
+        "decision is only recorded."
+    ),
     "record_only": "",
 }
 
