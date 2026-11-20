@@ -119,7 +119,8 @@ jobs:
         pin:
           - { rig: claude-code, version: "2.1.301" }
           - { rig: claude-code-2.1.322, version: "2.1.322" }
-    timeout-minutes: 45
+    # A leg takes up to about 40 minutes on a hosted runner; the limit leaves room for a slow one.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
