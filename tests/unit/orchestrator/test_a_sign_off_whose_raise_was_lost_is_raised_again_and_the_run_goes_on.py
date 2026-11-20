@@ -326,10 +326,7 @@ def test_the_decision_sequence_names_a_sign_off_raised_again_and_where_it_was_fo
 
     _raised_again_at_the_merge(tmp_path, monkeypatch)
     raw = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
-    (again,) = [s for s in sequence.decisions(raw) if s["step"] == "sign_off_raised_again"]
-    assert (again["found"], again["subtask_id"], again["item_id"], again["module"]) == (
-        "merge",
-        INTEG,
-        SECOND,
-        CONTROL,
-    )
+    found = [s for s in sequence.decisions(raw) if s["step"] == "sign_off_raised_again"]
+    assert [(s["found"], s["subtask_id"], s["item_id"], s["module"]) for s in found] == [
+        ("merge", INTEG, SECOND, CONTROL)
+    ]

@@ -123,6 +123,17 @@ def test_a_run_that_acts_waits_before_the_integration_call_until_a_person_decide
     assert completions(events) == [CONTROL, ELECTRICAL]
 
 
+def test_replay_of_a_run_waiting_on_a_sign_off_owes_the_wait_not_the_integration_call() -> None:
+    # A run that acts, recorded where it waits: every module merged, the control module's item
+    # undecided, and the integration step found no follow-up owed.
+    recorded = Path(__file__).resolve().parents[1] / "evaluation" / "whole" / "recorded_runs"
+    events = read_events(recorded / "acts_waiting_on_a_sign_off.jsonl")
+    state = replay(events)
+    assert state.sign_offs_open() == [CONTROL]
+    assert calls(events) == []
+    assert state.next_step() == Step(kind="wait")
+
+
 def rejected_twice(rig: Rig, *, acts: bool = True) -> tuple[list[Event], Step]:
     """The run driven to its end with the control module's sign-off rejected each time asked.
 
