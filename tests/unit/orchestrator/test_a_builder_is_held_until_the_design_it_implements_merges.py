@@ -44,10 +44,11 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
     side,
 )
 from test_a_queue_decision_acts_at_a_boundary import _layer, decide
+from test_design_pairs_are_read_from_the_plan_and_recorded_before_any_dispatch import balancer
 
 from physgate import roles
 from physgate.contracts.pairs import ContractPair
-from physgate.orchestrator.design_pairs import DesignPair
+from physgate.orchestrator.design_pairs import DesignPair, plan_design_pairs
 from physgate.orchestrator.design_wait import held_builders, open_holds
 from physgate.orchestrator.events import read_events
 from physgate.orchestrator.loop import Loop
@@ -78,8 +79,11 @@ def _sizing_registered(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
 
 
-def begin(loop: Loop, *, design: bool = True) -> None:
-    """drive, then fw, then integration; fw builds what drive designs where ``design`` is set."""
+def begin(loop: Loop, *, design: bool = True, pairs: tuple[DesignPair, ...] = (DESIGN,)) -> None:
+    """drive, then fw, then integration; fw builds what drive designs where ``design`` is set.
+
+    ``pairs`` are the design pairs the opening records where ``design`` is set.
+    """
     plan = [entry(DRIVE, "control", "drive"), entry(FW, "firmware", "fw")]
     plan.append(entry(INTEG, "integration", "integration"))
     requirement = '{"requirement": "1", "contributing": [{"module": "drive", "criterion": "1"}]}'
@@ -95,7 +99,7 @@ def begin(loop: Loop, *, design: bool = True) -> None:
         interface_consumers=(InterfaceConsumers(interface="iface.tilt", consumers=("drive",)),),
         system_requirements=(SystemRequirement.model_validate_json(requirement),),
         contract_pairs=(P_TILT,),
-        design_pairs=(DESIGN,) if design else None,
+        design_pairs=pairs if design else None,
     )
     loop.record.start(plan, decomposed=summary)
 
@@ -123,12 +127,13 @@ def first_run(
     monkeypatch: pytest.MonkeyPatch,
     *,
     design: bool = True,
+    pairs: tuple[DesignPair, ...] = (DESIGN,),
     kill: Callable[[Any, list[Any]], bool] | None = None,
 ) -> str:
     """The first process, until it stops: the step it stopped at, ``killed``, or what escaped."""
     loop = rig.open()
     hooked(monkeypatch, loop, declared=(DRIVE, FW), kill=kill)
-    begin(loop, design=design)
+    begin(loop, design=design, pairs=pairs)
     if rig.config_overrides.get("queue_decisions") == "act":
         _layer(loop)
     try:
@@ -259,6 +264,58 @@ def test_the_designer_merged_after_an_approve_and_the_builder_then_runs_on_its_m
     assert merged_when_fw_spawned == [[DRIVE]]
     assert open_holds(replay(read_events(rig.run_dir / "events.jsonl"))) == []
     assert held_builders(replay(read_events(rig.run_dir / "events.jsonl"))) == {}
+    assert refusal(rows) is None
+
+
+#: The last run's two specifications, cut to the words that say one module runs what the other
+#: designs: control's own node, which firmware's specification names as the design it implements.
+CONTROL_SPEC = (
+    "Design the balance controller. The firmware module implements the design. It runs after "
+    "this module and reads the design from the node this module writes.\n\n"
+    "## Design node written by this module\n`control.balance_design` (domain control, owner "
+    "control) is this module's own node. It holds every coefficient of the controller the "
+    "firmware is to run. The firmware module's acceptance criteria compare the firmware with "
+    "this node.\n\n## Acceptance criteria\n\n1. It holds.\n"
+)
+FIRMWARE_SPEC = (
+    "Run the balance controller designed by the control module. This module implements the "
+    "design on `control.balance_design` and designs no controller of its own.\n"
+    "- Produces `firmware.loop_io`.\n"
+    "- Reads `control.balance_design` (from control) as merged: controller coefficients.\n\n"
+    "## Acceptance criteria\n\n1. The coefficients the firmware runs equal those on "
+    "`control.balance_design` as merged.\n"
+)
+
+
+def test_the_last_run_s_plan_holds_firmware_while_control_waits_and_runs_it_on_control_s_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The pair is read from the plan's own words, as the decomposition reads it, not written in.
+    plan = balancer(control=CONTROL_SPEC, firmware=FIRMWARE_SPEC)
+    subtask = {"sizing": "sizing-000000", "control": DRIVE, "firmware": FW}
+    found = plan_design_pairs(plan, subtask, ("sizing", "control", "firmware"))
+    assert found == (DesignPair(designer=DRIVE, builder=FW, nodes=("control.balance_design",)),)
+    rig = rigged(tmp_path)
+    # Control is rejected three times and goes to a person: firmware is held, never dispatched.
+    assert first_run(rig, monkeypatch, pairs=found) == "wait"
+    rows = lines(rig)
+    (held,) = of(rows, "builder_held")
+    assert (held["subtask_id"], held["designer"], held["nodes"]) == (
+        FW,
+        DRIVE,
+        ["control.balance_design"],
+    )
+    assert (held["why"], held["item_id"]) == ("escalated", drive_item(rows))
+    assert requests_of(rig, FW) == []
+    assert of(rows, "stage_entered", subtask_id=FW) == []
+    # A person approves: control merges, and only then is firmware let go and dispatched.
+    decide(rig.run_dir, "approve", item_id=drive_item(rows))
+    assert resumed(rig, monkeypatch) == "done"
+    rows = lines(rig)
+    (released,) = of(rows, "builder_released")
+    merge = index_of(rows, "merged", subtask_id=DRIVE)
+    assert merge < rows.index(released) < dispatched_at(rows, FW)
+    assert [r.subtask_id for r in rig.dispatcher.requests] == [DRIVE] * 3 + [FW, INTEG]
     assert refusal(rows) is None
 
 
