@@ -169,6 +169,17 @@ def test_under_off_completion_has_no_system_scope_precondition(live: Live) -> No
     ]
 
 
+@pytest.mark.parametrize("run", ["complete", "one-declared"])
+def test_the_status_says_the_run_records_decisions_and_names_each_sign_off_owed(
+    live: Live, run: str
+) -> None:
+    # The runs record decisions: none acts, and the control module's sign-off stays owed.
+    found = served(live, run)
+    assert found["acts"] is False
+    assert found["sign_offs_owed"] == [DRIVE]
+    assert found["next_step"]["kind"] == "escalated"
+
+
 def test_a_run_owing_a_halt_says_so(world: dict[str, Path], live: Live) -> None:
     events = read_events(world["root"] / "owed-halt" / "events.jsonl")
     assert isinstance(events[-1], Incident)

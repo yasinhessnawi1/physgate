@@ -36,7 +36,7 @@ import { type Row, rowsOf } from "../common/rows";
 import { runBase, runKey, runSource, useLabels, useRunList } from "../common/runs";
 import { phaseOf, standingOf } from "../../words/standing";
 import { NoRunsYet } from "./NoRunsYet";
-import { type RunEnd, runEnd, waitingFor } from "./runEnd";
+import { type RunEnd, recordedEnd, runEnd, waitingFor } from "./runEnd";
 import {
   activeRun,
   homeOrder,
@@ -160,7 +160,7 @@ export function statusWords(read: RunRead | undefined, stale?: Stale) {
     // A log that could not be read cannot show a run complete: it is not claimed.
     if (!read.events.ok) return <span className="pg-status">Ended · its log was not read</span>;
     const open = waitingFor(read.queue.ok ? read.queue.value.open : null, status.superseded);
-    end = runEnd(read.events.value, open, status.completion);
+    end = runEnd(read.events.value, open, status.completion, recordedEnd(status));
   }
   const standing = standingOf(status, end);
   return (

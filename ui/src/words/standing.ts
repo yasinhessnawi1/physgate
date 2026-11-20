@@ -62,6 +62,8 @@ export function phaseOf(status: RunStatus): Phase {
   if (status.halted !== null || status.kind === "halted")
     return status.halted?.reason === "usage_limit" ? "waiting-limit" : "halted";
   if (status.kind === "done") return "done";
+  // A run that records decisions acts on none: its escalated end waits on no one, and has ended.
+  if (status.kind === "escalated" && status.acts === false) return "done";
   // The loop returns at these steps: nothing runs until a person decides and the run is resumed.
   if (status.kind === "wait" || status.kind === "escalated") return "waiting-person";
   if (silentTooLong(status)) return "stopped";
@@ -109,11 +111,29 @@ export function moduleName(subtask: string): string {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${String(n)} ${n === 1 ? one : many}`;
 
+/** A list of module names in words: "a", "a and b", "a, b and c". */
+function namesWords(modules: readonly string[]): string {
+  const names = modules.map(moduleName);
+  return names.length < 2
+    ? names.join("")
+    : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1] ?? ""}`;
+}
+
+/** How a run that records decisions and ended escalated ended: nothing waits on a person. */
+export function recordedEndSentence(owed: readonly string[]): string {
+  const base =
+    "Ended: this run recorded its decisions and acted on none, so nothing waits for you.";
+  if (owed.length === 0) return base;
+  const which = owed.length === 1 ? "module still owes" : "modules still owe";
+  return `${base} The ${namesWords(owed)} ${which} a person's sign-off.`;
+}
+
 /** How an ended run ended, in one short sentence. */
 export function endSentence(end: RunEnd): string {
   if (end.kind === "complete") return "Complete: every module is declared complete.";
   if (end.kind === "all-merged")
     return "Ended: every subtask merged and the whole-design gate passed.";
+  if (end.recorded !== null) return recordedEndSentence(end.recorded);
   if (end.waiting !== null && end.waiting > 0)
     return `Ended with ${plural(end.waiting, "decision")} still waiting for a person.`;
   if (end.announced !== null && end.announced !== end.planned)
@@ -177,7 +197,11 @@ export function standingOf(status: RunStatus, end: RunEnd | null): Standing {
         detail: status.owedHalt === null ? null : `Halt owed · ${status.owedHalt.cause}`,
       };
     case "done":
-      if (end === null) return { phase, word: null, sentence: "Ended.", detail: null };
+      if (end === null) {
+        const sentence =
+          status.kind === "escalated" ? recordedEndSentence(status.signOffsOwed ?? []) : "Ended.";
+        return { phase, word: null, sentence, detail: null };
+      }
       return {
         phase,
         word: end.kind === "complete" ? "Complete" : "Ended",

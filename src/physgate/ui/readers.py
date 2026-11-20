@@ -364,7 +364,8 @@ def _silence_bound(last: object, bounds: RunBounds) -> float | None:
 def status(context: Context, params: Mapping[str, str]) -> Response:
     """Where the run stands: the loop's next step, a halt owed or taken, and each completion.
 
-    Also each subtask that waits for sizing's closing pass, and each contract item a reopen
+    Also whether the run acts on a person's decisions, the modules whose sign-off is owed, in
+    plan order, each subtask that waits for sizing's closing pass, and each contract item a reopen
     superseded with the item whose decision reopened its module, as replay holds them; and when
     the log last wrote, this server's clock, and the longest a living run goes without a line
     after that one (:func:`_silence_bound`). A page tells from the three a run whose process
@@ -392,6 +393,10 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             if owed is None
             else {"cause": owed.cause, "subtask_id": owed.subtask_id, "detail": owed.detail},
             "completion": _completion(state),
+            # Whether a person's decision acts in this run: in one that records decisions only,
+            # an escalated end waits on no one, and the modules whose sign-off is owed are named.
+            "acts": state.acts,
+            "sign_offs_owed": state.sign_offs_open(),
             "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
             "superseded": dict(state.superseded),
             "last_line_at": None if last is None else last.ts,

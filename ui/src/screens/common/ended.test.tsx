@@ -7,7 +7,7 @@ import { RunStanding } from "../../design/components/status/RunStanding";
 import { standingOf } from "../../words/standing";
 import type { RunRead } from "../home/data";
 import { statusWords } from "../home/Home";
-import type { RunEnd } from "../home/runEnd";
+import { type RunEnd, recordedEnd, runEnd, runEndWords } from "../home/runEnd";
 
 const BASE: RunStatus = {
   kind: "done",
@@ -35,6 +35,7 @@ const WITHHELD: RunEnd = {
   announced: 5,
   gate: "not-run",
   setAside: 1,
+  recorded: null,
 };
 
 describe("every ended or halted run says why, in one short plain sentence", () => {
@@ -91,5 +92,84 @@ describe("every ended or halted run says why, in one short plain sentence", () =
     expect(html).toContain("every retry was used");
     expect(html).toContain("<details");
     expect(html).toContain("attempt 2: retries ran out");
+  });
+
+  it("a run that records decisions and ended escalated waits on no one, and names each sign-off owed", () => {
+    const control = {
+      subtask: "control-c2599c",
+      sizing: false,
+      state: "not_declared" as const,
+      open: [{ name: "sign_off", reason: "its stability margin owes a person's sign-off" }],
+    };
+    const status: RunStatus = {
+      ...BASE,
+      kind: "escalated",
+      acts: false,
+      signOffsOwed: ["control-c2599c"],
+      completion: { owner: true, modules: [control] },
+    };
+    // The sign-off item is open in the queue, and no decision on it acts.
+    const end = runEnd([], 1, status.completion, recordedEnd(status));
+    const s = standingOf(status, end);
+    expect(s.phase).toBe("done");
+    expect(s.word).toBe("Ended");
+    expect(s.sentence).toBe(
+      "Ended: this run recorded its decisions and acted on none, so nothing waits for you. " +
+        "The control module still owes a person's sign-off.",
+    );
+    expect(runEndWords(end)).toBe(
+      "Ended · decisions recorded, none acted on · sign-off owed: control-c2599c",
+    );
+    for (const said of [s.sentence ?? "", s.detail ?? "", runEndWords(end)]) {
+      expect(said).not.toMatch(/waiting for (you|a person)/i);
+      expect(said).not.toContain("Waiting for a person's decision");
+    }
+    // Before its log and queue are read, the status alone says the same.
+    expect(standingOf(status, null).sentence).toBe(s.sentence);
+  });
+
+  it("two sign-offs owed are named together; none owed says only that nothing acted", () => {
+    const status: RunStatus = {
+      ...BASE,
+      kind: "escalated",
+      acts: false,
+      signOffsOwed: ["control-c2599c", "chassis-0a1b2c"],
+    };
+    expect(standingOf(status, null).sentence).toContain(
+      "The control and chassis modules still owe a person's sign-off.",
+    );
+    const none: RunStatus = { ...status, signOffsOwed: [] };
+    expect(standingOf(none, null).sentence).toBe(
+      "Ended: this run recorded its decisions and acted on none, so nothing waits for you.",
+    );
+  });
+
+  it("a run that acts and ended escalated still waits for a person", () => {
+    const status: RunStatus = { ...BASE, kind: "escalated", acts: true, signOffsOwed: ["c1"] };
+    expect(standingOf(status, null).phase).toBe("waiting-person");
+    expect(recordedEnd(status)).toBeNull();
+    // A server that does not say whether decisions act is read as before.
+    expect(standingOf({ ...BASE, kind: "escalated" }, null).phase).toBe("waiting-person");
+  });
+
+  it("Home's list says the run ended with its decisions recorded, never that it waits for you", () => {
+    const status: RunStatus = {
+      ...BASE,
+      kind: "escalated",
+      acts: false,
+      signOffsOwed: ["control-c2599c"],
+    };
+    const read = {
+      run: { root: 0, name: "r", runId: "r", error: null },
+      status: { ok: true, value: status },
+      config: { ok: false, refusal: { error: "x" } },
+      events: { ok: true, value: [] },
+      queue: { ok: true, value: { open: [], decided: [] } },
+    } as unknown as RunRead;
+    const html = renderToStaticMarkup(<>{statusWords(read)}</>);
+    expect(html).toContain("recorded its decisions and acted on none");
+    expect(html).toContain("still owes a person&#x27;s sign-off");
+    expect(html).not.toContain("Waiting for you");
+    expect(html).not.toContain("waiting for you");
   });
 });

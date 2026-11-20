@@ -9,7 +9,9 @@
  * "All merged · gate passed". A warn is not a pass here:
  * the harness itself accepts only "pass" (outside observe mode) as clearing the whole-design gate.
  * Anything else is "Ended", with what is left, and a module's completion withheld is named with
- * the server's own reasons. Counts are a view over the records, never a verdict.
+ * the server's own reasons. A run that records decisions only and ended escalated waits on no
+ * one, whatever its queue holds: no decision acts there, and the sign-offs owed are named instead.
+ * Counts are a view over the records, never a verdict.
  */
 import type { RunEvent } from "../../api/events";
 import type { QueueItem } from "../../api/queue";
@@ -34,6 +36,11 @@ export type RunEnd =
       readonly gate: IntegrationGate;
       /** Subtasks the log set aside for a person. */
       readonly setAside: number;
+      /**
+       * In a run that records decisions and ended escalated, the modules whose sign-off is owed:
+       * no decision acts there, so nothing waits for a person. ``null`` for any other run.
+       */
+      readonly recorded: readonly string[] | null;
     };
 
 /** A module not complete with nothing open: why, by the state the server read. */
@@ -55,11 +62,23 @@ export function waitingFor(
   return open === null ? null : open.filter((i) => !Object.hasOwn(superseded, i.itemId)).length;
 }
 
-/** ``openItems`` is what waits for a person (``waitingFor``), or ``null`` when the queue could not be read. */
+/**
+ * The modules whose sign-off is owed where the run records decisions only and ended escalated,
+ * or ``null`` for any other run: there a person's decision acts, or the run has not ended so.
+ */
+export function recordedEnd(status: RunStatus): readonly string[] | null {
+  return status.kind === "escalated" && status.acts === false ? (status.signOffsOwed ?? []) : null;
+}
+
+/**
+ * ``openItems`` is what waits for a person (``waitingFor``), or ``null`` when the queue could not be
+ * read; ``recorded``, what ``recordedEnd`` gives.
+ */
 export function runEnd(
   events: readonly RunEvent[],
   openItems: number | null,
   completion: RunStatus["completion"],
+  recorded: readonly string[] | null = null,
 ): RunEnd {
   const planned = new Set(events.flatMap((e) => (e.kind === "subtask_planned" ? [e.subtask] : [])));
   const merged = new Set(events.flatMap((e) => (e.kind === "merged" ? [e.subtask] : [])));
@@ -100,6 +119,7 @@ export function runEnd(
     announced: count,
     gate,
     setAside: setAside.size,
+    recorded,
   };
 }
 
@@ -107,6 +127,10 @@ export function runEnd(
 export function runEndWords(end: RunEnd): string {
   if (end.kind === "complete") return "Complete";
   if (end.kind === "all-merged") return "All merged · gate passed";
+  if (end.recorded !== null)
+    return end.recorded.length === 0
+      ? "Ended · decisions recorded, none acted on"
+      : `Ended · decisions recorded, none acted on · sign-off owed: ${end.recorded.join(", ")}`;
   if (end.waiting !== null && end.waiting > 0)
     return `Ended · ${String(end.waiting)} waiting for you`;
   if (end.announced !== null && end.announced !== end.planned)

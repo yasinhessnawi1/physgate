@@ -16,7 +16,7 @@ import type { Source } from "../../design/components/data/source";
 import { orderRuns, type RunLabel, runLabels } from "../../words/runs";
 import { queueListing } from "../../api/queue";
 import { type Phase, phaseOf, type Standing, standingOf } from "../../words/standing";
-import { runEnd, waitingFor } from "../home/runEnd";
+import { recordedEnd, runEnd, waitingFor } from "../home/runEnd";
 import { useJson, useLines, useLiveJson } from "./read";
 import { useResult } from "./useResult";
 
@@ -138,7 +138,7 @@ export function useChosenRun(query: URLSearchParams): ChosenRun {
   // Read again while the page is open, so a run that stops, or goes on, is seen without a reload.
   const status = useLiveJson(base === null ? null : `${base}/status`, runStatus);
   // An ended run's words need its log and queue: read only for a run that has ended.
-  const ended = status.result?.ok === true && status.result.value.kind === "done";
+  const ended = status.result?.ok === true && phaseOf(status.result.value) === "done";
   const endEvents = useLines(ended && base !== null ? `${base}/events` : null, runEvent);
   const endQueue = useJson(ended && base !== null ? `${base}/queue` : null, queueListing);
   const standing = useMemo(() => {
@@ -147,11 +147,12 @@ export function useChosenRun(query: URLSearchParams): ChosenRun {
     const events = endEvents.result;
     const queue = endQueue.result;
     const end =
-      value.kind === "done" && events?.ok === true && queue !== null
+      phaseOf(value) === "done" && events?.ok === true && queue !== null
         ? runEnd(
             events.value,
             waitingFor(queue.ok ? queue.value.open : null, value.superseded),
             value.completion,
+            recordedEnd(value),
           )
         : null;
     return standingOf(value, end);

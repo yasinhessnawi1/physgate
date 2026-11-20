@@ -194,6 +194,13 @@ export interface RunStatus {
    * line, where a stage with no bound of its own (the physics gate) may be running.
    */
   readonly silenceBoundS?: number | null;
+  /**
+   * Whether a person's decision acts in this run; ``false`` in one that records decisions only,
+   * where an escalated end waits on no one. Absent where the server did not say.
+   */
+  readonly acts?: boolean;
+  /** The modules whose sign-off is owed, in plan order. */
+  readonly signOffsOwed?: readonly string[];
 }
 
 function moduleCompletion(value: unknown): ModuleCompletion {
@@ -262,6 +269,10 @@ export function runStatus(value: unknown): RunStatus {
         : text(s.last_line_at, "a time"),
     silentS: silenceOf(s.last_line_at, s.server_now),
     silenceBoundS: secondsSent(s.silence_bound_s),
+    ...(s.acts === undefined ? {} : { acts: flag(s.acts, "whether decisions act") }),
+    signOffsOwed: list(s.sign_offs_owed ?? [], "the sign-offs owed").map((m) =>
+      text(m, "a module"),
+    ),
   };
 }
 
