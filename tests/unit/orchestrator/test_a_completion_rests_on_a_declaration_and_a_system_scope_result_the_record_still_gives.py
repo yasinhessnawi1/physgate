@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,6 @@ from loop_fakes import (
     passing_gate_result,
 )
 from sign_off_rig import layer
-from test_a_queue_decision_acts_at_a_boundary import decide
 from test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line import (
     at_integrations_resolve,
     ended,
@@ -71,6 +71,13 @@ from physgate.orchestrator.protocols import (
     ReviewResult,
     RunningGateMode,
 )
+from physgate.orchestrator.queue import (
+    PersonDecision,
+    ShownItem,
+    read_queue,
+    record_decision,
+    statuses_now,
+)
 from physgate.orchestrator.replay import replay
 from physgate.oslayer.probe import Present
 from physgate.roles import CrossCuttingRole
@@ -96,6 +103,9 @@ def declared(*modules: str, sha256: str = DIGEST) -> Declaration:
 
 #: The control module, which owes a person's sign-off before it is complete.
 CONTROL_SIGN_OFF = f"run-1-SIGNOFF-{DRIVE}"
+#: When the person approves it, in every run of the brief: two runs' decisions files then hold
+#: the same bytes, and the seal over them is compared whole.
+APPROVED_AT = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
 
 
 def signed_while_fw_runs(rig: Rig) -> None:
@@ -106,7 +116,19 @@ def signed_while_fw_runs(rig: Rig) -> None:
     """
 
     def approve() -> None:
-        decide(rig.run_dir, "approve", item_id=CONTROL_SIGN_OFF)
+        view = read_queue(rig.run_dir)
+        shown = ShownItem(
+            item_sha256=view.digests[CONTROL_SIGN_OFF],
+            trajectories=statuses_now(rig.run_dir, CONTROL_SIGN_OFF),
+        )
+        record_decision(
+            rig.run_dir,
+            CONTROL_SIGN_OFF,
+            person=PersonDecision(verb="approve", note=None),
+            resolved_by="yasin",
+            shown=shown,
+            clock=lambda: APPROVED_AT,
+        )
 
     rig.dispatcher.during[2] = approve
 
@@ -615,10 +637,11 @@ def test_a_kill_between_the_journal_holds_incident_and_its_halt_resumes_to_the_h
 
 
 def in_the_run(value: Any) -> Any:  # noqa: ANN401
-    """``value`` with a trajectory's path read from the run's directory, a decision's time dropped.
+    """``value`` with a trajectory's path read from the run's directory.
 
-    Neither is the same in two runs of one brief: the person's approve is made at its own time,
-    and each run's sessions are sealed in a directory of its own.
+    Each run's sessions are sealed in a directory of its own. The person's approve is made at one
+    time in every run (:data:`APPROVED_AT`), so its line and the decisions file's seal are compared
+    as written.
     """
     if isinstance(value, str):
         return (
@@ -627,7 +650,7 @@ def in_the_run(value: Any) -> Any:  # noqa: ANN401
             else value
         )
     if isinstance(value, dict):
-        return {k: in_the_run(v) for k, v in value.items() if k != "decided_ts"}
+        return {k: in_the_run(v) for k, v in value.items()}
     if isinstance(value, list | tuple):
         return [in_the_run(v) for v in value]
     return value
@@ -636,15 +659,7 @@ def in_the_run(value: Any) -> Any:  # noqa: ANN401
 def comparable(events: Sequence[Event]) -> list[dict[str, Any]]:
     """The events as two runs of one brief are compared, less what ``in_the_run`` drops."""
     lines: list[dict[str, Any]] = in_the_run(runner.comparable(events))
-    # The decisions file's seal holds the person's approve with its time: its length is kept.
-    return [
-        {
-            k: v
-            for k, v in line.items()
-            if not (line["kind"] == "decisions_sealed" and k == "sha256")
-        }
-        for line in lines
-    ]
+    return lines
 
 
 def at_the_declaration(event: Event, _: list[Event]) -> bool:

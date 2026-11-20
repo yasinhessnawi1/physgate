@@ -39,6 +39,7 @@ from test_a_sign_off_item_is_raised_by_code_at_every_clean_merge_that_owes_one i
     completions,
     lines,
     refused,
+    rewritten,
 )
 
 from physgate.orchestrator.declaration import DECLARATION_PATH
@@ -431,3 +432,82 @@ def test_a_run_halted_at_a_merge_s_sign_off_line_is_not_asked_again_by_the_next_
     events = read_events(tmp_path / "events.jsonl")
     assert len(events) == before
     assert len([e for e in events if isinstance(e, Incident)]) == 1
+
+
+def _held_on_the_latest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Rig:
+    """A run whose control module's one item a person approved while a session ran unconfined.
+
+    The session ran without the OS layer, so the approve is held; no later item supersedes it.
+    """
+    monkeypatch.setattr(Loop, "_require_os_layer", lambda self: None)
+    rig, _ = journal_rig(tmp_path)
+    rig.dispatcher.during[3] = approving(tmp_path)
+    loop = journal_start(rig, acts=False)
+    _layer(loop, present=False)
+    assert loop.run().kind == "wait"
+    loop.close()
+    return rig
+
+
+def test_a_held_approve_on_the_latest_item_holds_the_wait_until_confirmed_then_signs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = _held_on_the_latest(tmp_path, monkeypatch)
+    events = read_events(tmp_path / "events.jsonl")
+    (held,) = [e for e in events if isinstance(e, DecisionTaken)]
+    assert (held.item_id, held.effect, held.acts) == (FIRST, "sign", False)
+    state = replay(events)
+    # Held is not decided: the wait stands, after the line that no follow-up is owed.
+    assert state.undecided(FIRST)
+    assert state.signed == []
+    assert state.next_step() == Step(kind="wait")
+    assert calls(events) == []
+    resumed = rig.open()
+    _layer(resumed, present=False)
+    step = resumed.resume(confirm=(FIRST,), confirmed_by="operator")
+    resumed.close()
+    events = read_events(tmp_path / "events.jsonl")
+    confirmed = [e for e in events if isinstance(e, DecisionTaken)][1]
+    assert (confirmed.effect, confirmed.acts, confirmed.why_not) == ("sign", True, None)
+    assert replay(events).signed == [FIRST]
+    assert step.kind == "done"
+    assert completions(events) == [CONTROL, ELECTRICAL]
+
+
+def test_replay_refuses_a_confirmation_of_a_held_approve_that_does_other_than_its_item_allows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = _held_on_the_latest(tmp_path, monkeypatch)
+    resumed = rig.open()
+    _layer(resumed, present=False)
+    resumed.resume(confirm=(FIRST,), confirmed_by="operator")
+    resumed.close()
+    events = read_events(tmp_path / "events.jsonl")
+    confirmed = [e for e in events if isinstance(e, DecisionTaken)][1]
+    # The item was not superseded: a confirmation that records only, as a lapsed one does, is
+    # not the decision that was held.
+    lapsed = {"effect": "none", "acts": False, "why_not": "superseded"}
+    refused(rewritten(events, confirmed.seq, **lapsed), "a confirmation is of the decision")
+
+
+def test_replay_refuses_a_confirmation_that_signs_an_item_a_later_raise_superseded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Loop, "_require_os_layer", lambda self: None)
+    rig, graph = journal_rig(tmp_path)
+    graph.writes[CLOSING] = [[plant(mass=0.41)]]
+    rig.dispatcher.during[3] = approving(tmp_path)
+    loop = journal_start(rig, closing=True, acts=False)
+    _layer(loop, present=False)
+    assert loop.run().kind == "wait"
+    loop.close()
+    resumed = rig.open()
+    _layer(resumed, present=False)
+    resumed.resume(confirm=(FIRST,), confirmed_by="operator")
+    resumed.close()
+    events = read_events(tmp_path / "events.jsonl")
+    confirmed = [e for e in events if isinstance(e, DecisionTaken)][1]
+    assert confirmed.why_not == "superseded"
+    # Signing what the module no longer holds is refused, however the line says it.
+    signs = {"effect": "sign", "acts": True, "why_not": None}
+    refused(rewritten(events, confirmed.seq, **signs), "a confirmation is of the decision")
