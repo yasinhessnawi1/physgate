@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 from arbitration_runs import refusal
-from loop_fakes import FakeGate, FakeReviewer
+from loop_fakes import FakeGate, FakeReviewer, KilledError
 from sign_off_rig import (
     CLOSING,
     CONTROL,
@@ -39,8 +39,12 @@ from test_a_sign_off_item_is_raised_by_code_at_every_clean_merge_that_owes_one i
 )
 from test_a_sign_off_owed_holds_the_integration_call_and_refuses_a_declaration_of_its_module import (  # noqa: E501
     calls,
-    drive,
-    resume,
+)
+from test_a_sign_off_owed_holds_the_integration_call_and_refuses_a_declaration_of_its_module import (  # noqa: E501
+    drive as _drive,
+)
+from test_a_sign_off_owed_holds_the_integration_call_and_refuses_a_declaration_of_its_module import (  # noqa: E501
+    resume as _resume,
 )
 
 from physgate.orchestrator.escalation import TO_THE_QUEUE, bind
@@ -59,6 +63,7 @@ from physgate.orchestrator.events import (
     SubtaskReopened,
     read_events,
 )
+from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.protocols import PersonOrder
 from physgate.orchestrator.queue import QueueItem, read_queue, sign_off_item_id
 from physgate.orchestrator.queue_words import decision_sentences
@@ -67,6 +72,31 @@ from physgate.orchestrator.replay import Step, replay
 from physgate.reviewers.packet import fits_one_read, person_order_text
 
 NOTE = "the phase margin is taken on the loop before the filter"
+
+
+def _whole(run: Any) -> tuple[list[Event], Step]:  # noqa: ANN401
+    """What ``run`` returns; a run that raises, as a refused line does, fails on an assertion."""
+    raised: Exception | None = None
+    try:
+        return run()  # type: ignore[no-any-return]
+    except KilledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - every escape is a run that did not end
+        raised = exc
+    assert raised is None, f"the run raised {raised!r}"
+    raise AssertionError  # pragma: no cover - for the type checker
+
+
+def drive(rig: Any, **kw: Any) -> tuple[list[Event], Step]:  # noqa: ANN401
+    """The run driven by a fresh process to the step it ends at."""
+    return _whole(lambda: _drive(rig, **kw))
+
+
+def resume(rig: Any, **kw: Any) -> tuple[list[Event], Step]:  # noqa: ANN401
+    """The run taken over by a fresh process and driven to the step it ends at."""
+    return _whole(lambda: _resume(rig, **kw))
+
+
 SECOND = sign_off_item_id("run-1", CONTROL, 2)
 THIRD = sign_off_item_id("run-1", CONTROL, 3)
 FOURTH = sign_off_item_id("run-1", CONTROL, 4)
@@ -348,13 +378,29 @@ def test_a_module_fixed_at_the_last_attempt_number_is_owed_no_follow_up(tmp_path
 # --- where the record no longer allows the fix the item said --------------------------------
 
 
+def stopped_after_its_decision(monkeypatch: pytest.MonkeyPatch, item_id: str) -> None:
+    """Every loop stops straight after it writes the decision taken on ``item_id``.
+
+    So what that decision did is read from the record as written, before any later line.
+    """
+    emit = Loop._emit  # noqa: SLF001 - wrapped, never replaced
+
+    def stops(self: Loop, event: Event) -> None:
+        emit(self, event)
+        if isinstance(event, DecisionTaken) and event.item_id == item_id:
+            raise KilledError
+
+    monkeypatch.setattr(Loop, "_emit", stops)
+
+
 def test_a_reject_taken_while_its_module_is_reopened_by_its_follow_up_records_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig, graph = journal_rig(tmp_path)
     _closing_moves_the_plant(graph)
     loop = journal_start(rig, closing=True)
-    emit = loop._emit  # noqa: SLF001 - the loop's own writer
+    stopped_after_its_decision(monkeypatch, SECOND)
+    emit = loop._emit  # noqa: SLF001 - the loop's own writer, stopping after the decision
 
     def rejects_after_the_follow_up(event: Event) -> None:
         emit(event)
@@ -362,7 +408,8 @@ def test_a_reject_taken_while_its_module_is_reopened_by_its_follow_up_records_on
             decide(tmp_path, "reject", NOTE, item_id=SECOND)
 
     monkeypatch.setattr(loop, "_emit", rejects_after_the_follow_up)
-    step = loop.run()
+    with pytest.raises(KilledError):
+        loop.run()
     loop.close()
     events = read_events(tmp_path / "events.jsonl")
     # The item said a reject orders the fix; the follow-up reopened the module before the decision
@@ -372,11 +419,16 @@ def test_a_reject_taken_while_its_module_is_reopened_by_its_follow_up_records_on
     (follow_up,) = reopens(events)
     assert follow_up.seq < decision.seq
     assert (decision.effect, decision.acts, decision.why_not) == ("none", False, "superseded")
+    monkeypatch.undo()
+    events, step = resume(rig)
     assert step.kind == "wait"
-    replay(events)
+    assert [r.cause for r in reopens(events)] == ["follow_up"]
+    assert refusal(events) is None
 
 
-def test_a_reject_after_its_module_s_follow_up_ended_unmerged_records_only(tmp_path: Path) -> None:
+def test_a_reject_after_its_module_s_follow_up_ended_unmerged_records_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Sizing, the control module, the electrical, the closing pass pass the gate; the follow-up
     # does not. The module's earlier merge stands, and its latest item is the closing pass's.
     rig, graph = journal_rig(tmp_path, gate=FakeGate(verdicts=["pass"] * 4 + ["fail"]))
@@ -386,14 +438,37 @@ def test_a_reject_after_its_module_s_follow_up_ended_unmerged_records_only(tmp_p
     assert step.kind == "wait"
     assert item(tmp_path, SECOND).consequence is not None
     decide(tmp_path, "reject", NOTE, item_id=SECOND)
-    events, step = resume(rig)
+    stopped_after_its_decision(monkeypatch, SECOND)
+    with pytest.raises(KilledError):
+        resume(rig)
+    events = read_events(tmp_path / "events.jsonl")
     # Its item said a reject orders the fix; the module's last attempt is unmerged now, so none
     # can be reopened from it, and the reject records only.
     (decision,) = taken(events, SECOND)
     assert (decision.effect, decision.acts, decision.why_not) == ("none", False, "superseded")
+    monkeypatch.undo()
+    events, step = resume(rig)
     assert [r.cause for r in reopens(events)] == ["follow_up"]
     assert step.kind == "escalated"
     assert refusal(events) is None
+    # A follow-up's end is no fix's end, though it ended the same way.
+    (end,) = [e for e in events if isinstance(e, FollowUpEnded)]
+    as_fix = SignOffFixEnded.model_validate({**end.model_dump(), "kind": "sign_off_fix_ended"})
+    assert "a sign-off fix's end" in (refusal([as_fix if e is end else e for e in events]) or "")
+
+
+def test_replay_refuses_a_fix_s_end_for_the_follow_up_after_the_fix(tmp_path: Path) -> None:
+    # The fix merges at the second attempt; the follow-up after the closing pass, the third,
+    # does not. Its end is the follow-up's: the fix was the second attempt alone.
+    rig, graph = journal_rig(tmp_path, gate=FakeGate(verdicts=["pass"] * 5 + ["fail"]))
+    _closing_moves_the_plant(graph)
+    rig.dispatcher.during[3] = rejecting(tmp_path)
+    events, _ = drive(rig, closing=True)
+    assert merged_at(events, CONTROL) == [1, 2]
+    (end,) = [e for e in events if isinstance(e, FollowUpEnded)]
+    assert end.attempt == 3
+    as_fix = SignOffFixEnded.model_validate({**end.model_dump(), "kind": "sign_off_fix_ended"})
+    assert "a sign-off fix's end" in (refusal([as_fix if e is end else e for e in events]) or "")
 
 
 def test_a_reject_whose_fix_order_no_read_shows_whole_records_only(
