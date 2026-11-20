@@ -446,13 +446,20 @@ def test_a_short_stall_with_interrupts_off_loses_the_timer_ticks_it_held_off(
     bench: tuple[Path, Path], tmp_path: Path
 ) -> None:
     env, elf = bench
-    # 30 ms, inside the watchdog's 64 ms: nothing runs, then the firmware goes on. TOV0 holds
-    # one overflow, so of the 29 that came in the stall one is served and millis() stays some
-    # 28 ms behind: every later update is that much later than its schedule.
+    # Two stalls of 30 ms, each inside the watchdog's 64 ms: nothing runs, then the firmware goes
+    # on. TOV0 holds one overflow, so of the 29 that came in a stall one is served and millis()
+    # falls some 28 ms behind each time: every later update is that much later than its
+    # schedule. (Two stalls, so that one landing where the firmware already holds interrupts
+    # off, as millis() does while it reads its count, cannot by itself make the row pass.)
     summary, trace = simulate(
         env,
         elf,
-        scenario(stalls=[{"start_s": 0.3, "end_s": 0.33, "interrupts": False}]),
+        scenario(
+            stalls=[
+                {"start_s": 0.3001, "end_s": 0.3301, "interrupts": False},
+                {"start_s": 0.6003, "end_s": 0.6303, "interrupts": False},
+            ]
+        ),
         tmp_path,
     )
     assert summary["resets"] == [{"cycle": 0, "cause": "power_on"}]
@@ -461,4 +468,4 @@ def test_a_short_stall_with_interrupts_off_loses_the_timer_ticks_it_held_off(
     entries = [e["c"] for e in trace if e["type"] == "probe" and e["symbol"] == "update"]
     first, last = entries[0], entries[-1]
     behind = last - (first + (len(entries) - 1) * F / 100)
-    assert _cycle(0.02) <= behind <= _cycle(0.03), behind / F
+    assert _cycle(0.04) <= behind <= _cycle(0.06), behind / F
