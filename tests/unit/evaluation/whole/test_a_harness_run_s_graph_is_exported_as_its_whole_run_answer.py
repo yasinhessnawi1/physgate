@@ -631,3 +631,20 @@ def test_an_answer_name_taken_while_the_answer_is_written_is_left_as_it_was_take
     assert isinstance(caught.value, module.ExportError)
     assert out.read_text() == "theirs"
     assert [p.name for p in out.parent.iterdir()] == ["whole_run.json"]
+
+
+def test_a_new_name_that_cannot_be_made_leaves_nothing_at_the_answer_s_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
+    module = _module()
+
+    def no_space(*_: object, **__: object) -> tuple[int, str]:
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+    monkeypatch.setattr(module.tempfile, "mkstemp", no_space)
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        module.export_whole_run(run, out)
+    assert isinstance(caught.value, module.ExportError)
+    assert list(out.parent.iterdir()) == []
