@@ -442,18 +442,23 @@ def test_an_encoder_s_count_is_the_integral_of_its_rate_profile(
     assert summary["encoders"]["edges"]["left"] == 239
 
 
-def test_a_short_stall_with_interrupts_off_only_delays_what_was_due(
+def test_a_short_stall_with_interrupts_off_loses_the_timer_ticks_it_held_off(
     bench: tuple[Path, Path], tmp_path: Path
 ) -> None:
     env, elf = bench
-    # 5 ms, well inside the watchdog's 64 ms: nothing runs, and afterwards the firmware goes on.
-    summary, _ = simulate(
-        env, elf, scenario(stalls=[{"start_s": 0.3, "end_s": 0.305, "interrupts": False}]), tmp_path
+    # 30 ms, inside the watchdog's 64 ms: nothing runs, then the firmware goes on. TOV0 holds
+    # one overflow, so of the 29 that came in the stall one is served and millis() stays some
+    # 28 ms behind: every later update is that much later than its schedule.
+    summary, trace = simulate(
+        env,
+        elf,
+        scenario(stalls=[{"start_s": 0.3, "end_s": 0.33, "interrupts": False}]),
+        tmp_path,
     )
     assert summary["resets"] == [{"cycle": 0, "cause": "power_on"}]
-    update = summary["probes"]["update"]
-    assert update["entries"] >= 99
-    assert update["period_cycles"]["max"] >= _cycle(0.005)
     assert _lines(summary)[-1] == f"G:{GYRO_Y} X:{round(1000 / 0.061)} A:0 L:0 R:0"
     assert summary["motors"]["left"]["last"] == COMMAND
-    assert 0 < summary["stack"]["max_depth_bytes"] < 2560
+    entries = [e["c"] for e in trace if e["type"] == "probe" and e["symbol"] == "update"]
+    first, last = entries[0], entries[-1]
+    behind = last - (first + (len(entries) - 1) * F / 100)
+    assert _cycle(0.02) <= behind <= _cycle(0.03), behind / F
