@@ -114,6 +114,8 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         "max_output_tokens": 64000,
         "thinking_display": "summarized",
         "role_python": None,
+        "tool_environment": None,
+        "tool_servers": None,
         "git_binary": None,
         "escalation_backend": "rules",
         "queue_decisions": "record",
@@ -123,6 +125,8 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         "skills": "on",
         "hooks": "on",
         "ablation": False,
+        # What the sessions' settings do today: the search tool is denied.
+        "tool_search": "denied",
         "design_review": "off",
         "parts_on_hand": "off",
         "review_compaction": "off",

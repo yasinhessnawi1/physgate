@@ -177,6 +177,7 @@ jobs:
           tests/integration/hooks/test_the_os_layer_refuses_no_ordinary_command.py
           tests/integration/hooks/test_a_shell_command_cannot_write_the_proposals_inside_the_os_layer.py
           tests/integration/hooks/test_the_proposals_deny_holds_on_more_routes.py
+          tests/integration/hooks/test_no_session_writes_the_tool_environment_through_the_real_tool_path.py
           tests/integration/hooks/test_the_holes_closed_after_2_1_301_are_measured_inside_the_os_layer_on_each_pin.py
           tests/integration/hooks/test_what_each_pin_s_runtime_makes_in_the_git_directory_inside_the_os_layer.py
           tests/integration/hooks/test_what_changed_around_a_shell_command_after_2_1_301_is_measured_on_each_pin.py
@@ -226,12 +227,33 @@ jobs:
         # suite measures the checkout once at its start, and a run a row resumes in a
         # process of its own measures it again, so a file written there between the two
         # reads as a different harness.
+        # The ablation arms' rows are left out here and run in the step below, which counts them.
         if: success() || failure()
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
           PHYSGATE_OSLAYER_REPORT: ${{ runner.temp }}/oslayer-report
           PHYSGATE_FULL_VOLUME: /mnt/pg-small
-        run: uv run pytest -q -rs -m integration tests --ignore=tests/integration/hooks
+        run: >
+          uv run pytest -q -rs -m integration tests --ignore=tests/integration/hooks
+          --ignore=tests/integration/orchestrator/test_a_pairwise_set_of_ablation_arms_runs_through_the_command_on_the_real_binary.py
+
+      - name: A pairwise set of ablation arms on the real binary, inside the OS layer
+        # The layer and the binary are both here: the variable turns a missing layer or a missing
+        # binary into a failure, no row may be skipped, and the summary line must read exactly
+        # "10 passed" (nine arms and the row that proves they hold every pair of values).
+        if: success() || failure()
+        env:
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_OSLAYER_REPORT: ${{ runner.temp }}/oslayer-report
+          PHYSGATE_REQUIRE_OS_LAYER: "1"
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q -rA -m integration \
+            tests/integration/orchestrator/test_a_pairwise_set_of_ablation_arms_runs_through_the_command_on_the_real_binary.py \
+            --junitxml="$RUNNER_TEMP/ablation-arms.xml" | tee "$RUNNER_TEMP/ablation-arms.txt"
+          grep -c '<skipped' "$RUNNER_TEMP/ablation-arms.xml" && exit 1 || true
+          tail -n 1 "$RUNNER_TEMP/ablation-arms.txt" | grep -Eq '^10 passed in [0-9.]+s'
 
       - name: The task author and the blind check on the real binary, in the evaluation environment
         # The runner holds every task to the control scorer, which only the evaluation group

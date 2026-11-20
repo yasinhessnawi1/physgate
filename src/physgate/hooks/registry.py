@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from physgate.hooks import (
     git_ops,
     graph,
+    hardware,
     os_abort,
     paths,
     reading,
@@ -36,6 +37,7 @@ REGISTRY: Mapping[str, HookSpec] = {
         paths.HOOK,
         shell_paths.HOOK,
         git_ops.HOOK,
+        hardware.HOOK,
         graph.HOOK,
         reading.HOOK,
         token_ceiling.HOOK,

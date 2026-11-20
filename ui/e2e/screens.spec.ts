@@ -293,7 +293,14 @@ for (const theme of THEMES) {
       checks.locator('hr.pg-sep + ul[aria-label="Unchecked"] .pg-verdict-unchecked').first(),
     ).toBeVisible();
     await expect(checks.locator("ul:not([aria-label]) .pg-verdict-unchecked")).toHaveCount(0);
-    for (const route of ["events", "gate-checks", "trace", "status", "config", "cost/2026-10-16"])
+    for (const route of [
+      "events/from/0",
+      "gate-checks",
+      "trace",
+      "status",
+      "config",
+      "cost/2026-10-16",
+    ])
       expect([...seen.api]).toContain(`/api/runs/0/drive-on/${route}`);
     expect([...seen.api]).toContain("/api/runs/0/drive-on/trajectories/:session");
     await runsDistinct(page);
@@ -341,7 +348,7 @@ test("the timeline's event log refused is a sentence with its reason, and nothin
   page,
 }) => {
   await watch(page);
-  await page.route("**/api/runs/0/drive-on/events", (route) =>
+  await page.route("**/api/runs/0/drive-on/events/from/*", (route) =>
     route.fulfill({
       status: 422,
       contentType: "application/json",

@@ -166,6 +166,8 @@ def _valid(world: World) -> dict[str, str]:
         "session": sealed_session(run_dir),
         "date": PRICES,
         "revision": "1",
+        # The line a page follows the log from: the first, so the whole log is served.
+        "seq": "0",
         "round": "2",
         "node": journal_records_after(run_dir / "store", 0)[-1].node_id,
         "library_file": "standards",

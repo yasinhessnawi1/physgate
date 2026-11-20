@@ -6,7 +6,8 @@ the allowlist, then handed to the package's own reader for that format:
 - the run configuration: ``load_run_config``, with its digest as the manifest id, and the
   harness's attempts per subtask (``REPAIR_BUDGET``), a constant of the code, not of the record;
   every field but the held-out tier's (``HELD_OUT_FIELDS``), which no answer carries;
-- the event log: ``read_events``;
+- the event log: ``read_events``, whole or from a line on (``events_from``), for a page that
+  follows a running run's log;
 - the task ledger: ``recorded_ledger``, read without writing and held to the log's projection,
   exactly what ``physgate ledger`` prints;
 - the gate events: ``recorded_gate_events``, exactly what ``physgate gate-events`` prints;
@@ -158,6 +159,27 @@ def events(context: Context, params: Mapping[str, str]) -> Response:
     """The run's event log, one record per line, as the package reads it back."""
     run_dir = run_dir_of(context, params)
     return _lines(render_jsonl(read_events(_file(context, run_dir, EVENTS))))
+
+
+def events_from(context: Context, params: Mapping[str, str]) -> Response:
+    """The run's event log from line ``seq`` on, with how many whole lines it holds.
+
+    For a page that follows a running run's log: it asks again from the last line it holds, which
+    comes back too, so it can tell, byte for byte, that the log is the one it read before. The
+    log is read through the same reader as the whole-log route, which stops before a final line
+    the writer has not ended yet, and the lines are rendered as that route renders them, so the
+    answer's ``lines`` are always the end of what that route serves at the same moment: never a
+    half-written line, never anything it leaves out. A line past the log's end is no refusal:
+    the answer holds no line and the count, and a page holding more lines than the count knows
+    the log is not the one it read.
+
+    The whole log is read on every request: a reader that started at a byte offset would take
+    the lines after it without the checks that hold each line to the ones before it.
+    """
+    run_dir = run_dir_of(context, params)
+    held = read_events(_file(context, run_dir, EVENTS))
+    first = int(params["seq"])
+    return json_response({"count": len(held), "from": first, "lines": render_jsonl(held[first:])})
 
 
 def ledger(context: Context, params: Mapping[str, str]) -> Response:

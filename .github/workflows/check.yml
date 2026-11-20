@@ -85,13 +85,45 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Python tests
-        # Every test the default selection collects, in parallel, exactly as the single job ran them.
+        # Every test the default selection collects, in parallel, exactly as the single job ran them,
+        # but the ablation matrix, which the ablation-matrix job runs.
         shell: bash
         run: ./scripts/check.sh tests 2>&1 | tee "$RUNNER_TEMP/tests.log"
 
       - name: Test count and wall time, to the job summary
         if: always()
         run: ./scripts/ci-job-summary.sh "tests" "$JOB_START" "$RUNNER_TEMP/tests.log"
+
+  ablation-matrix:
+    name: ablation-matrix
+    runs-on: ubuntu-latest
+    # Every combination of the ablation switches, run through the command and, where admitted,
+    # the real loop on real git: a job of its own so neither it nor the tests job (which leaves
+    # this file out) runs near its ceiling. Measured about 4 min on four local workers.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start the job's clock
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        # The same exact pin as every other job here, for the same reason.
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+
+      - name: Create the environment from the lockfile
+        run: uv sync --frozen
+
+      - name: The ablation matrix
+        shell: bash
+        run: ./scripts/check.sh matrix 2>&1 | tee "$RUNNER_TEMP/matrix.log"
+
+      - name: Test count and wall time, to the job summary
+        if: always()
+        run: ./scripts/ci-job-summary.sh "ablation-matrix" "$JOB_START" "$RUNNER_TEMP/matrix.log"
 
   scoring:
     name: scoring (${{ matrix.shard }})

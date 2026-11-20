@@ -68,7 +68,8 @@ def test_read_manifest_resolves_binary_defaults_for_every_pinned_version(
             tmp_path / version,
             "run-a",
             target_repo(tmp_path / version),
-            overrides={"claude_version": version, "models": models},
+            # Each entry was measured with the search tool offered.
+            overrides={"claude_version": version, "models": models, "tool_search": "offered"},
         )
         manifest = read_manifest(run)
         assert manifest.config.claude_version == version

@@ -130,6 +130,7 @@ def dispatch(
     answer_as: str | None = None,
     credential: Credential | None = None,
     before: Callable[[RunGit], None] | None = None,
+    tool_servers: tuple[Any, ...] = (),
 ) -> tuple[Any, Any, RunGit]:
     run, store_root = layout(root)
     if before is not None:
@@ -149,6 +150,7 @@ def dispatch(
             base_url=url,
             credential=credential or Credential("api_key", DUMMY_KEY),
             review_root=Path("/nonexistent/review-scratch"),
+            tool_servers=tool_servers,
         )
         report = dispatcher.run(request(cfg))
         facts = dispatcher.environment()

@@ -24,8 +24,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal, get_args
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
+from physgate.evaluation.observe.compare import normal_tool_environment
 from physgate.evaluation.per_role.arms.raw import canaries_sha256, raw_bound_values
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.task import Task
@@ -44,6 +45,7 @@ from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.orchestrator.session_files import FileRefused, read_beneath
+from physgate.toolenv.record import ToolEnvironment
 
 #: How each field of a harness run's recorded configuration bears on the raw arm, by its
 #: path: every field of a model nested in the configuration has a decision of its own, so a
@@ -148,6 +150,40 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     # Whether the run may go on where the OS layer is absent; the layer each arm ran
     # with is compared (``os_layer``), and a reportable run allows no absence.
     "os_layer_absent": "not_compared",
+    # Both arms compute and build with the same tools and are offered the same servers: the
+    # raw arm is given the tool environment and the tool-server record the harness run
+    # recorded, and records both as it ran them. The environment is compared in the normal
+    # form two runs are held to (paths relative to the root that holds them, the manifest's
+    # digest, the counts, the interpreter's and every tool's version): the same environment
+    # at another root is the same environment, since absolute paths are not identity. The
+    # server record names no path and is compared whole: the register's digest and the names
+    # each profile's sessions are offered.
+    "tool_environment": "compared",
+    "tool_environment.interpreter": "compared",
+    "tool_environment.resolved": "compared",
+    "tool_environment.python_version": "compared",
+    "tool_environment.prefix": "compared",
+    "tool_environment.distributions": "compared",
+    "tool_environment.distributions.name": "compared",
+    "tool_environment.distributions.version": "compared",
+    "tool_environment.native_tools": "compared",
+    "tool_environment.native_tools.name": "compared",
+    "tool_environment.native_tools.path": "compared",
+    "tool_environment.native_tools.resolved": "compared",
+    "tool_environment.native_tools.version": "compared",
+    "tool_environment.roots": "compared",
+    "tool_environment.manifest_digest": "compared",
+    "tool_environment.entries": "compared",
+    "tool_environment.total_bytes": "compared",
+    "tool_servers": "compared",
+    "tool_servers.profiles": "compared",
+    "tool_servers.max_output_tokens": "compared",
+    "tool_servers.register_sha256": "compared",
+    # Whether the binary's search tool was denied, which decides whether a server's tools are
+    # offered up front or held back behind it. Each arm reads it from the deny lists it was
+    # installed from, at its own time: a harness run recorded while the tool was offered is no
+    # pair for a raw arm whose sessions were denied it.
+    "tool_search": "compared",
     # The bytes the harness run executed, by digest and platform build. The raw arm records
     # its binary's version, which is compared, and not the digest of its bytes.
     "binary": "not_compared",
@@ -186,8 +222,20 @@ RAW_PINS = frozenset(
         "os_layer",
         "role_python",
         "thinking_display",
+        "tool_environment",
+        "tool_search",
+        "tool_servers",
     }
 )
+
+#: What a raw arm's record written before each of these pins existed reads as: the raw arm
+#: was given no tool environment and no tool servers then, and its settings denied the
+#: binary's search tool to no profile. Read so, never rewritten.
+BEFORE_THE_PIN: dict[str, Any] = {
+    "tool_environment": None,
+    "tool_servers": None,
+    "tool_search": "offered",
+}
 
 
 def run_field_paths(model: type[BaseModel] = RunConfig, prefix: str = "") -> set[str]:
@@ -365,7 +413,32 @@ def _expected(config: RunConfig, role: str, task: Task) -> dict[str, Any]:
             None if config.role_python is None else config.role_python.model_dump(mode="json")
         ),
         "thinking_display": config.thinking_display,
+        "tool_environment": (
+            None
+            if config.tool_environment is None
+            else config.tool_environment.model_dump(mode="json")
+        ),
+        "tool_servers": (
+            None if config.tool_servers is None else config.tool_servers.model_dump(mode="json")
+        ),
+        "tool_search": config.tool_search,
     }
+
+
+def _same(name: str, want: Any, got: Any) -> bool:  # noqa: ANN401 - each pin's own type
+    """Whether the raw arm's pin ``got`` is the harness run's ``want``.
+
+    A tool environment is held to the form two runs are (:func:`normal_tool_environment`); a
+    raw record that does not read as an environment is no environment the harness ran.
+    """
+    if name != "tool_environment" or want is None or got is None:
+        return bool(want == got)
+    try:
+        theirs = ToolEnvironment.model_validate_json(json.dumps(got))
+    except (ValidationError, TypeError, ValueError):
+        return False
+    mine = ToolEnvironment.model_validate_json(json.dumps(want))
+    return normal_tool_environment(mine) == normal_tool_environment(theirs)
 
 
 def _held(name: str, value: Any) -> Any:  # noqa: ANN401 - a pin as either arm recorded it
@@ -406,7 +479,7 @@ def differences(
     kept = raw_dir if record_dir is None else record_dir
     try:
         record: dict[str, Any] = json.loads(_read(kept.parent, (kept.name, "raw.json")))
-        pins: dict[str, Any] = record["pins"]
+        pins: dict[str, Any] = {**BEFORE_THE_PIN, **record["pins"]}
     except (OSError, ValueError, KeyError, TypeError) as exc:
         msg = "the raw arm's record could not be read"
         raise ComparisonError(msg, raw_dir=str(raw_dir), error=repr(exc)) from None
@@ -425,7 +498,7 @@ def differences(
     found += [
         f"{name}: the harness ran with {want!r}, the raw arm with {pins[name]!r}"
         for name, want in _expected(config, role, task).items()
-        if name in pins and _held(name, pins[name]) != _held(name, want)
+        if name in pins and not _same(name, _held(name, want), _held(name, pins[name]))
     ]
     if not config.reportable:
         found.append("reportable: the harness run is not reportable; no baseline is held to it")
