@@ -80,11 +80,13 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 #: and eefbf4fe50d6...; before the widening: 08a7e77a7464... and b26536a34818...; before
 #: those two sentences: f56406956965... and 1a3802deb6f1..., in this order.
 INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
+#: Before the designer's node was said to be named by its module and a module's own limits to stay
+#: off the interface nodes: 02021140dcf2... and f3717294a8ce....
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "02021140dcf2dd1a0e631239da8b23b98828280740eab527be73a739e3d4547f"
+        "bbf7b8f3427d2d9246844f99e4bf844af85459837cd276150f62b1b5a3f7ff8c"
     ),
-    BOTH: "f3717294a8ceee44adc48bcc1c0a973d458106c6ea0ad3e66a91f1c56a6616fb",
+    BOTH: "f0cefb5fb842f41421179b9bcdd992db7542e518fe03940549cbe1af83f2dc71",
 }
 
 

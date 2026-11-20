@@ -51,7 +51,7 @@ from physgate.orchestrator.credentials import (
     remove_secrets,
     write_login,
 )
-from physgate.orchestrator.design_pairs import DesignPair, plan_design_pairs
+from physgate.orchestrator.design_pairs import DesignPair, misordered_pairs, plan_design_pairs
 from physgate.orchestrator.events import Followable
 from physgate.orchestrator.exceptions import (
     DecompositionError,
@@ -764,7 +764,9 @@ UNIT_SPELLING_SENTENCE = (
 #: not a criterion says so, the designer comes before the implementer (not before every module),
 #: writes its design on a node both specifications name, and the implementer is held to that
 #: node as merged, so what runs is what was analysed; an implementer that starts before the node
-#: is merged reports it and implements no design of its own.
+#: is merged reports it and implements no design of its own. The harness reads which module
+#: implements which from that node, by its id's first part, so the sentence says how the id is
+#: formed: the designing module's name, then what the node holds.
 SOLUTION_SENTENCE = (
     "A specification states its module's interfaces and acceptance criteria, never the internal "
     "law, structure or coefficients of a solution, unless the brief fixes them. The brief fixes "
@@ -781,7 +783,8 @@ SOLUTION_SENTENCE = (
     "Where one module implements "
     "what another designs, such as firmware running the control law that was analysed, the "
     "designing module comes before the implementing module in the plan and writes its design on "
-    "a node of its own, named in both specifications; the implementing module's acceptance "
+    'a node of its own, "<the designing module\'s name>.<what it holds>", named in both '
+    "specifications; the implementing module's acceptance "
     "criteria compare its implementation with that node as merged, and where the node is not "
     "merged when it starts, it reports that and implements no design of its own."
 )
@@ -803,8 +806,9 @@ SOLUTION_SENTENCE = (
 #: criterion is held to what can be measured (the build, its size, static checks, host tests),
 #: with behaviour on the target said to be unmeasured. No product is named here, since the prompt
 #: does not know which is installed. A plan that gave a module no value for its timeouts, limits
-#: or fault rules left that module nothing it could build to, so each is stated, as a value or
-#: the node carrying it.
+#: or fault rules left that module nothing it could build to, so each is stated with a value in
+#: the module's specification; an interface node carries one only where both sides must agree on
+#: it, as the interface paragraph has it, so a module's own limit is never put on one.
 CRITERION_FORM_SENTENCE = (
     'Write each acceptance criterion as one statement of one thing, in the form "The <module> '
     'shall <verb> <what>, <threshold with its unit and tolerance>, verified by <method>.", '
@@ -820,8 +824,9 @@ CRITERION_FORM_SENTENCE = (
     "provides one, and otherwise the criterion is written against what can be measured (that "
     "the code compiles, its size, static checks, tests of its logic on the host) and the "
     "specification states that behaviour on the target is not measured in this run. Each "
-    "module's specification states, with a value or the node that will carry it, every limit, "
-    "timeout and fault behaviour the module must implement."
+    "module's specification states, with a value, every limit, timeout and fault behaviour the "
+    "module must implement, and names the interface node that carries one only where both sides "
+    "must agree on its value."
 )
 
 
@@ -1032,16 +1037,19 @@ def retry_prompt(
 ) -> str | None:
     """What the one retry of a call is sent: ``prompt`` as it was, or with why a unit was refused.
 
-    A plan refused for an interface unit (:data:`UNIT_REFUSAL_HEAD`) is the one refusal the
+    A plan refused for an interface unit (:data:`UNIT_REFUSAL_HEAD`), or for a module that
+    implements another's design put before it (:data:`ORDER_REFUSAL_HEAD`), is a refusal the
     designer corrects only if told: its retry is sent the prompt the refused call was sent
     (``prompt``, or the brief's own where that is ``None``), then the refusal's exact text, which
-    names the node, the quantity, the unit and the spelling to write, between fences the text
-    cannot close. The text is this module's own and the designer's own unit, never another
-    session's words. Any other refusal by the schema is made again with ``prompt`` as it was.
+    names the node, the quantity, the unit and the spelling to write, or the two modules and the
+    design's nodes, between fences the text cannot close. The text is this module's own and the
+    designer's own names, never another session's words. Any other refusal by the schema is made
+    again with ``prompt`` as it was.
     ``parts`` is as the refused call's own prompt took it, so the brief's prompt rebuilt here
     asks for the components exactly when the first did.
     """
-    if refused.cause != "schema_refused" or not refused.detail.startswith(UNIT_REFUSAL_HEAD):
+    told = (UNIT_REFUSAL_HEAD, ORDER_REFUSAL_HEAD)
+    if refused.cause != "schema_refused" or not refused.detail.startswith(told):
         return prompt
     first = prompt_for(brief, sorted(roles), parts=parts) if prompt is None else prompt
     return (
@@ -1262,12 +1270,41 @@ def judge(
     problems = plan_problems(plan, roles, brief)
     if problems:
         return "invalid_plan", "; ".join(problems), None, seen_model, turns
+    misordered = order_refusal(plan, roles)
+    if misordered is not None:
+        # A schema-stage refusal as a unit's is: the call is made once more, told why.
+        return "schema_refused", misordered, None, seen_model, turns
     return None, "a plan", plan, seen_model, turns
 
 
 #: How the refusal of a plan's interface unit begins: the node and the quantity follow. The
 #: binary's own refusal of an answer never begins so.
 UNIT_REFUSAL_HEAD = "interface node "
+#: How the refusal of a plan that puts a module before the module whose design it implements
+#: begins: the two modules and the design's nodes follow. The binary's own never begins so.
+ORDER_REFUSAL_HEAD = "the plan puts module "
+
+
+def order_refusal(plan: Plan, roles: Sequence[str]) -> str | None:
+    """Why ``plan`` is refused for a builder put before its designer, or ``None``.
+
+    Among the domain modules, whose order in the plan is the run's (ARCH-051): a module whose
+    specification names a node that is a later module's own, which that module's specification
+    names too, would be dispatched before the design it implements and never held to it. The
+    module of the role that opens the domain work runs first whatever the plan says and reads the
+    domain's nodes to size them, so it is no builder here.
+    """
+    openings = set(_in_run("cross_nodes", roles))
+    domain = [module.name for module in plan.modules if module.role not in openings]
+    found = misordered_pairs(plan, domain)
+    if not found:
+        return None
+    said = "; ".join(
+        f"{ORDER_REFUSAL_HEAD if at == 0 else 'module '}{builder!r} before module {designer!r}, "
+        f"whose design on {', '.join(nodes)} it implements"
+        for at, (builder, designer, nodes) in enumerate(found)
+    )
+    return f"{said}: the designing module comes before the implementing module in the plan"
 
 
 def _units_as_products(plan: Plan, roles: Sequence[str]) -> Plan:

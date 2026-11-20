@@ -12,7 +12,9 @@ static checks, tests of its logic on the host), and the specification says behav
 is not measured in this run. The same plan gave firmware no value for its command timeout, its
 sensor-fault rule, its reset state, its limits or its bus timeout, so firmware could only end
 blocked; the prompt asks each specification to state every limit, timeout and fault behaviour its
-module must implement, with a value or the node that will carry it.
+module must implement, with a value. A module's own limit put on an interface node would be one
+no other module reads, against the interface paragraph's rule, so the sentence names an interface
+node for one only where both sides must agree on its value.
 
 Both sentences end the paragraph that says how one criterion is written, so a re-plan is told them
 too. The method of verification stays one of the four the review counts: a check in a simulator,
@@ -46,8 +48,9 @@ INSTRUMENT = (
     "measured in this run."
 )
 STATED = (
-    "Each module's specification states, with a value or the node that will carry it, every "
-    "limit, timeout and fault behaviour the module must implement."
+    "Each module's specification states, with a value, every limit, timeout and fault behaviour "
+    "the module must implement, and names the interface node that carries one only where both "
+    "sides must agree on its value."
 )
 #: Products the prompt does not know are installed, so it names none of them.
 NOT_NAMED = ("simavr", "avr-gcc", "platformio", "arduino-cli", "qemu", "renode")
