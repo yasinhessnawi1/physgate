@@ -636,3 +636,18 @@ def test_usb_frames_count_only_while_the_controller_is_attached_clocked_and_lock
         "unlocked": [0, frames],
         "vbus": 0,
     }
+
+
+def test_a_compare_flag_already_set_is_taken_once_its_enable_is_written() -> None:
+    # Timer1 in normal mode at clk/1 with OCR1C = 0x10: the match sets OCF1C with OCIE1C clear,
+    # and writing OCIE1C then makes the interrupt pending at once (datasheet "Interrupts").
+    found = _registers(
+        """
+        cpu.writeData(REG.OCR1CL + 1, 0x00); cpu.writeData(REG.OCR1CL, 0x10);
+        cpu.writeData(REG.TCCR1B, 0x01); step(100);
+        const flagged = [cpu.data[REG.TIFR1] & 0x08, pending(mcu.VECTORS.TIMER1_COMPC)];
+        cpu.writeData(REG.TIMSK1, 0x08);
+        console.log(JSON.stringify({ flagged, enabled: pending(mcu.VECTORS.TIMER1_COMPC) }));
+        """
+    )
+    assert found == {"flagged": [0x08, False], "enabled": True}
