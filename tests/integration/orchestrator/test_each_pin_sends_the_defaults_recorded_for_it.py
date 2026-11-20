@@ -26,7 +26,8 @@ from scripted_endpoint import DUMMY_OAUTH_TOKEN, Recorded, Script, serving, text
 from test_every_request_carries_the_run_s_effort_and_token_limit import PLAN
 
 from physgate.cli import main
-from physgate.evaluation.observe.manifest import BINARY_DEFAULTS, BinaryDefaults
+from physgate.evaluation.observe.manifest import BINARY_DEFAULTS, BinaryDefaults, binary_defaults
+from physgate.hooks.settings import session_tool_search
 from physgate.orchestrator.cli import Registrations
 from physgate.orchestrator.decompose import binary_version, mint_id
 from physgate.orchestrator.install import prepare_install
@@ -128,7 +129,8 @@ def _measure(
             {json.dumps(_sent(r, keep_display=False), sort_keys=True) for r in session}
         ),
     }
-    defaults = BINARY_DEFAULTS.get((version, model))
+    # The entry for the setting the sessions run with today, as a new run records it.
+    defaults = binary_defaults(version, model, session_tool_search())
     assert defaults is not None, f"no defaults for {version} on {model}; it sends {measured}"
     assert measured["decomposition"] == _expected(defaults, decomposition=True), measured
     sessions = [json.loads(s) for s in measured["sessions"]]

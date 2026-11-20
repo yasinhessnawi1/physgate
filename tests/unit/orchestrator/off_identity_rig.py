@@ -82,7 +82,10 @@ def sent() -> dict[str, str]:
 def driven(run_dir: Path) -> dict[str, str]:
     """How a run driven to its end ended, and the digest of each file it left."""
     run_dir.mkdir(parents=True, exist_ok=True)
-    rig = Rig(run_dir, config_overrides={"harness": CLEAN_HARNESS, "models": MODELS})
+    # The search tool offered, as every run recorded before the field existed reads: a run that
+    # records it denied (as the sessions' settings now are) is a run the reference never was.
+    overrides = {"harness": CLEAN_HARNESS, "models": MODELS, "tool_search": "offered"}
+    rig = Rig(run_dir, config_overrides=overrides)
     loop = rig.open()
     loop.start(
         [entry.model_copy(update={"assigned_role": "control"}) for entry in plan("s1", "s2")]
