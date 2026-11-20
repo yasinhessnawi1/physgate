@@ -582,19 +582,19 @@ def _effect_of(
         if chosen == "record_only":
             return "none", "record_only_source"
         return chosen, None
+    if consequence.on_approve == "sign" or consequence.on_reject == "reopen_fix":
+        # A sign-off item's alone, whose decisions :func:`sign_off_outcome` computes from the
+        # record: every caller routes a sign-off item there before this table is read.
+        msg = "a decision on a sign-off item is computed from the record, never from its item"
+        raise ValueError(msg)
     if verb == "approve":
         if consequence.on_approve == "merge_attempt":
             return "merge", None
         if consequence.on_approve == "release":
             return "release", None
-        if consequence.on_approve == "sign":
-            return "sign", None
         return "none", _WHY_NOT[consequence.why_record_only or "legacy"]
     if consequence.on_reject == "record_only":
         return "none", "record_only_source"
-    if consequence.on_reject == "reopen_fix":
-        # A sign-off item's alone, whose decisions are computed by :func:`sign_off_outcome`.
-        return "reopen", None
     return consequence.on_reject, None
 
 
@@ -795,7 +795,9 @@ def sign_off_outcome(
     The third is the module it reopens. One a later raise superseded records only. An approve
     signs. A reject orders the module's one fix where its item said so and the record still
     allows it; it records only where the item said so, and where the record no longer allows the
-    fix the item promised (the module was reopened since), as what the item said is no longer true.
+    fix the item promised, as what the item said is no longer true: the module was reopened since
+    (``module_reopened``). The integration call waits while the item is undecided, so no such
+    reject is taken after it.
     """
     if item_id in state.superseded:
         return "none", "superseded", None
@@ -805,7 +807,7 @@ def sign_off_outcome(
     if raised.reject != "reopen":
         return "none", "record_only_source", None
     if sign_off_reject(state, raised.module) != "reopen":
-        return "none", "superseded", None
+        return "none", "module_reopened", None
     return "reopen", None, raised.module
 
 

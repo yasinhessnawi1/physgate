@@ -418,7 +418,7 @@ def test_a_reject_taken_while_its_module_is_reopened_by_its_follow_up_records_on
     (decision,) = taken(events, SECOND)
     (follow_up,) = reopens(events)
     assert follow_up.seq < decision.seq
-    assert (decision.effect, decision.acts, decision.why_not) == ("none", False, "superseded")
+    assert (decision.effect, decision.acts, decision.why_not) == ("none", False, "module_reopened")
     monkeypatch.undo()
     events, step = resume(rig)
     assert step.kind == "wait"
@@ -445,7 +445,7 @@ def test_a_reject_after_its_module_s_follow_up_ended_unmerged_records_only(
     # Its item said a reject orders the fix; the module's last attempt is unmerged now, so none
     # can be reopened from it, and the reject records only.
     (decision,) = taken(events, SECOND)
-    assert (decision.effect, decision.acts, decision.why_not) == ("none", False, "superseded")
+    assert (decision.effect, decision.acts, decision.why_not) == ("none", False, "module_reopened")
     monkeypatch.undo()
     events, step = resume(rig)
     assert [r.cause for r in reopens(events)] == ["follow_up"]
@@ -641,3 +641,90 @@ def test_a_run_that_records_decisions_orders_no_fix(tmp_path: Path) -> None:
     assert not [e for e in events if isinstance(e, DecisionTaken)]
     assert reopens(events) == []
     assert step.kind == "escalated"
+
+
+# --- a held reject, the table that never reads a sign-off item, and the readers -------------------
+
+
+def test_a_held_reject_confirmed_after_a_later_item_superseded_it_orders_no_fix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The person rejects the first item while a session runs without the OS layer: held. The
+    # closing pass then moves the plant's mass, and the module's next item supersedes the first.
+    from test_a_queue_decision_acts_at_a_boundary import _layer
+
+    monkeypatch.setattr(Loop, "_require_os_layer", lambda self: None)
+    rig, graph = journal_rig(tmp_path)
+    graph.writes[CLOSING] = [[plant(mass=0.41)]]
+    rig.dispatcher.during[3] = rejecting(tmp_path)
+    loop = journal_start(rig, closing=True, acts=False)
+    _layer(loop, present=False)
+    assert loop.run().kind == "wait"
+    loop.close()
+    events = read_events(tmp_path / "events.jsonl")
+    (held,) = taken(events, FIRST)
+    assert (held.effect, held.reopens, held.acts, held.why_not) == (
+        "reopen",
+        CONTROL,
+        False,
+        "held_os_layer_off",
+    )
+    assert FIRST in replay(events).superseded
+    # Confirmed now: the fix it would order is for values the module no longer holds.
+    resumed = rig.open()
+    _layer(resumed, present=False)
+    step = resumed.resume(confirm=(FIRST,), confirmed_by="operator")
+    resumed.close()
+    events = read_events(tmp_path / "events.jsonl")
+    confirmed = taken(events, FIRST)[1]
+    assert confirmed.confirmed_by == "operator"
+    assert (confirmed.verb, confirmed.decision_offset) == (held.verb, held.decision_offset)
+    assert (confirmed.effect, confirmed.reopens, confirmed.acts, confirmed.why_not) == (
+        "none",
+        None,
+        False,
+        "superseded",
+    )
+    # No fix was ordered from it: every reopen on the record is code's follow-up.
+    assert all(r.cause is not None for r in reopens(events))
+    state = replay(events)
+    assert state.subtasks[CONTROL].sign_off_fixed is None
+    assert step.kind == "wait"
+
+
+@pytest.mark.parametrize("verb", ["approve", "reject"])
+def test_a_sign_off_item_s_decision_is_never_read_from_the_item_s_own_table(verb: str) -> None:
+    # The record computes it (``sign_off_outcome``); the table a decision on any other item is
+    # read from refuses a sign-off item's consequence, whichever verb.
+    from physgate.orchestrator import decisions
+    from physgate.orchestrator.queue import sign_off_consequence
+
+    with pytest.raises(ValueError, match="computed from the record"):
+        decisions._effect_of(sign_off_consequence("reopen"), verb)  # type: ignore[arg-type]  # noqa: SLF001
+
+
+def test_the_decision_sequence_names_a_sign_off_s_lines_and_a_fix_that_ended(
+    tmp_path: Path,
+) -> None:
+    from physgate.evaluation.observe import sequence
+
+    rig, _ = journal_rig(tmp_path, gate=FakeGate(verdicts=["pass", "pass", "pass", "fail"]))
+    rig.dispatcher.during[3] = rejecting(tmp_path)
+    drive(rig)
+    raw = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    steps = [s for s in sequence.decisions(raw) if s["step"].startswith(("sign_off", "no_follow"))]
+    assert [s["step"] for s in steps] == ["sign_offs_raised", "sign_off_fix_ended"]
+    raised, ended = steps
+    assert raised["raised"] == [{"item_id": FIRST, "module": CONTROL}]
+    assert (ended["subtask_id"], ended["attempt"], ended["why"]) == (CONTROL, 2, "rejected")
+
+
+def test_the_decision_sequence_names_the_line_that_no_follow_up_is_owed() -> None:
+    from physgate.evaluation.observe import sequence
+
+    recorded = Path(__file__).resolve().parents[1] / "evaluation" / "whole" / "recorded_runs"
+    lines_ = (recorded / "acts_waiting_on_a_sign_off.jsonl").read_text().splitlines()
+    steps = [s["step"] for s in sequence.decisions([json.loads(line) for line in lines_])]
+    # The control module's item, then the electrical module's merge, then the integration step
+    # finding no follow-up owed while the item waits: where the run's log ends.
+    assert steps[-5:] == ["sign_offs_raised", "gate", "review", "merged", "no_follow_up_owed"]

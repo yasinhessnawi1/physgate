@@ -471,6 +471,18 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             step |= {"quantity": conflict["quantity"], "level": e["level"]}
         elif kind == "contract_item_raised":
             step = {"step": "contract_item", "item_id": e["item_id"]}
+        elif kind == "sign_offs_raised":
+            # Each item and its module; never the values' digest or the revisions it binds.
+            raised = [{"item_id": i["item_id"], "module": i["module"]} for i in e["raised"]]
+            step = {"step": "sign_offs_raised", **at, "raised": raised}
+        elif kind == "sign_off_raised_again":
+            item = e["raised"]
+            step = {"step": "sign_off_raised_again", **at, "found": e["found"]}
+            step |= {"item_id": item["item_id"], "module": item["module"]}
+        elif kind == "no_follow_up_owed":
+            step = {"step": "no_follow_up_owed"}
+        elif kind == "sign_off_fix_ended":
+            step = {"step": "sign_off_fix_ended", **at, "why": e["why"]}
         if step is not None:
             out.append({**step, "seq": e["seq"]})
     return out

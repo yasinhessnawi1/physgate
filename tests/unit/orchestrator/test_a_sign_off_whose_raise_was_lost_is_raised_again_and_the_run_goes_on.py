@@ -317,3 +317,19 @@ def test_a_merge_whose_write_takes_a_node_out_of_the_bound_set_raises_the_module
     assert _again(events) == []
     assert step.kind == "wait"
     assert replay(events).undecided(SECOND)
+
+
+def test_the_decision_sequence_names_a_sign_off_raised_again_and_where_it_was_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.evaluation.observe import sequence
+
+    _raised_again_at_the_merge(tmp_path, monkeypatch)
+    raw = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    (again,) = [s for s in sequence.decisions(raw) if s["step"] == "sign_off_raised_again"]
+    assert (again["found"], again["subtask_id"], again["item_id"], again["module"]) == (
+        "merge",
+        INTEG,
+        SECOND,
+        CONTROL,
+    )

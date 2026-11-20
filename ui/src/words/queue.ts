@@ -295,7 +295,12 @@ export const UNSEALED_WORDS = {
 } as const;
 
 /** What a decision on an item a reopen superseded does, for every verb: it is recorded only. */
-export function supersededOutcome(by: string): string {
+export function supersededOutcome(by: string, source?: QueueSource): string {
+  if (source === "sign_off")
+    return (
+      `Recorded only: a later sign-off item on the module, ${by}, replaced this one, so nothing ` +
+      "in the run acts on this decision."
+    );
   return (
     `Recorded only: a choice on ${by} reopened a module this item is about, so nothing in the ` +
     "run acts on this decision."
@@ -528,10 +533,28 @@ const NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
   superseded:
     "Recorded only: a choice on another item reopened a module this item is about, so what it " +
     "said was no longer true.",
+  module_reopened:
+    "Recorded only: the module was reopened for its follow-up after the item was listed, so " +
+    "the fix the item offered could no longer be ordered.",
 };
 
-/** The note on an open item a reopen superseded, naming the item whose choice reopened it. */
-export function supersededWords(by: string): string {
+/** What a decision on a sign-off item did not do, where its words differ from another item's. */
+const SIGN_OFF_NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
+  superseded:
+    "Recorded only: a later sign-off item on the module replaced this one, so the values it " +
+    "showed are no longer the module's.",
+};
+
+/**
+ * The note on an open item a later one superseded: for a contract item, the item whose choice
+ * reopened a module it is about; for a sign-off item, the module's later sign-off item.
+ */
+export function supersededWords(by: string, source?: QueueSource): string {
+  if (source === "sign_off")
+    return (
+      `A later sign-off item on the module, ${by}, replaced this one: the values it shows are ` +
+      "no longer the module's. A decision on it is recorded only; decide the later item."
+    );
   return (
     `A choice on ${by} reopened a module this item is about, so what it says is no longer ` +
     "true. A decision on it is recorded only. The run lists the contract again if it still " +
@@ -574,11 +597,19 @@ export function reviewTimeWords(d: Decided): string {
 const PART_NOT_COUNTED =
   "stating a part's values is data entry, not a sign that the design was split too coarsely";
 
-/** What the run did with a decision, from its own record of taking it. */
-export function takenWords(t: Taken): string {
+/**
+ * What the run did with a decision, from its own record of taking it; ``source`` is the item's,
+ * where a sign-off item's words differ.
+ */
+export function takenWords(t: Taken, source?: QueueSource): string {
+  const signOff = source === "sign_off";
   if (!t.acts) {
-    const known = t.whyNot === null ? undefined : NOT_TAKEN_WORDS[t.whyNot];
-    return known ?? `Recorded only (${t.whyNot ?? "no reason recorded"}).`;
+    const why = t.whyNot;
+    const known =
+      why === null
+        ? undefined
+        : ((signOff ? SIGN_OFF_NOT_TAKEN_WORDS[why] : undefined) ?? NOT_TAKEN_WORDS[why]);
+    return known ?? `Recorded only (${why ?? "no reason recorded"}).`;
   }
   const done: Readonly<Record<Taken["effect"], string>> = {
     merge: "The run took it: the attempt it names was merged.",
@@ -601,6 +632,12 @@ export function takenWords(t: Taken): string {
     none: "The run took it; it changed nothing.",
   };
   const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;
+  if (signOff && t.effect === "reopen")
+    return (
+      "The run took it: the module was reopened for its one fix, told your note and the values " +
+      "the item showed." +
+      by
+    );
   if (t.orderTooLong)
     return (
       "The run took it: the subtask ended rejected, and no session was started. What that " +

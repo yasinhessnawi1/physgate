@@ -194,6 +194,31 @@ export type RunEvent = Line &
         readonly attempt: number;
         readonly why: string;
       }
+    /** The sign-off items a clean merge raised: each item and the module it is about. */
+    | {
+        readonly kind: "sign_offs_raised";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly raised: readonly { readonly itemId: string; readonly module: string }[];
+      }
+    /** A module's sign-off raised again on values the graph moved with no item raised on them. */
+    | {
+        readonly kind: "sign_off_raised_again";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly found: "merge" | "completion";
+        readonly itemId: string;
+        readonly module: string;
+      }
+    /** No follow-up is owed before the integration call, while a sign-off waits. */
+    | { readonly kind: "no_follow_up_owed" }
+    /** The one fix a rejected sign-off ordered ended without a merge. */
+    | {
+        readonly kind: "sign_off_fix_ended";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly why: string;
+      }
     | {
         readonly kind: "subtask_rejected";
         readonly subtask: string;
@@ -271,6 +296,12 @@ function planComponent(value: unknown): PlanComponent {
 }
 
 /** One event line as the screens read it; a line of another shape is refused whole. */
+/** A sign-off item a line raised: its id and the module it is about. */
+function raisedSignOff(value: unknown): { readonly itemId: string; readonly module: string } {
+  const r = object(value, "a sign-off item raised");
+  return { itemId: text(r.item_id, "an item id"), module: text(r.module, "a module") };
+}
+
 export function runEvent(value: unknown): RunEvent {
   const e = object(value, "an event");
   const line = { seq: count(e.seq, "a sequence number"), ts: text(e.ts, "a timestamp") };
@@ -531,6 +562,36 @@ export function runEvent(value: unknown): RunEvent {
         subtask: subtask(),
         attempt: attempt(),
         why: text(e.why, "why a follow-up ended"),
+      };
+    case "sign_offs_raised":
+      return {
+        ...line,
+        kind: "sign_offs_raised",
+        subtask: subtask(),
+        attempt: attempt(),
+        raised: list(e.raised, "the items raised").map(raisedSignOff),
+      };
+    case "sign_off_raised_again": {
+      const raised = raisedSignOff(e.raised);
+      return {
+        ...line,
+        kind: "sign_off_raised_again",
+        subtask: subtask(),
+        attempt: attempt(),
+        found: oneOf(e.found, ["merge", "completion"] as const, "where it was found"),
+        itemId: raised.itemId,
+        module: raised.module,
+      };
+    }
+    case "no_follow_up_owed":
+      return { ...line, kind: "no_follow_up_owed" };
+    case "sign_off_fix_ended":
+      return {
+        ...line,
+        kind: "sign_off_fix_ended",
+        subtask: subtask(),
+        attempt: attempt(),
+        why: text(e.why, "why a fix ended"),
       };
     case "subtask_rejected":
       return {

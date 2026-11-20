@@ -441,6 +441,41 @@ export function rowOf(
         meta: `${event.subtask} · attempt ${String(event.attempt)}`,
         subtask: event.subtask,
       };
+    case "sign_offs_raised":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `A person's sign-off was asked for ${event.raised
+          .map((r) => `${subtaskName(r.module)} (${r.itemId})`)
+          .join(", ")}, after ${subtaskName(event.subtask)} merged`,
+        meta: `${event.subtask} · attempt ${String(event.attempt)}`,
+        subtask: event.subtask,
+        attempt: event.attempt,
+      };
+    case "sign_off_raised_again":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.module)}'s sign-off was asked for again (${event.itemId}): the values it binds had moved with no item raised on them, found ${event.found === "merge" ? `after ${subtaskName(event.subtask)} merged` : "where its completion was due"}`,
+        meta: `${event.subtask} · attempt ${String(event.attempt)}`,
+        subtask: event.module,
+      };
+    case "no_follow_up_owed":
+      return {
+        ...base,
+        depth: 0,
+        sentence:
+          "No follow-up is owed before the integration call; the run waits for a person's sign-off",
+        meta: "integration",
+      };
+    case "sign_off_fix_ended":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.subtask)}'s fix after a rejected sign-off ended without a merge (${event.why.replace("_", " ")}), and is not retried; its earlier merge stands and its sign-off stays owed`,
+        meta: `${event.subtask} · attempt ${String(event.attempt)}`,
+        subtask: event.subtask,
+      };
     case "subtask_rejected": {
       const why = REJECTED_WORDS[event.by] ?? event.by;
       const item = event.itemId === null ? "" : ` (${event.itemId})`;

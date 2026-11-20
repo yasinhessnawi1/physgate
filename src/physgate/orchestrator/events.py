@@ -849,8 +849,9 @@ DecisionEffect = Literal[
 #: could have written it; it acts once the operator confirms it. ``order_too_long``: a choice,
 #: or a reject of a sign-off item, that would reopen a module whose order its reviewer could not
 #: read whole. ``superseded``: a decision on a contract item another item's reopen superseded, or
-#: on a sign-off item a later one superseded or whose fix the record no longer allows, since what
-#: it said is no longer true.
+#: on a sign-off item a later one superseded, since what it said is no longer true.
+#: ``module_reopened``: a reject of a sign-off item that promised the module's fix, which the
+#: record no longer allows because the module was reopened since (its follow-up, merged or not).
 WhyNot = Literal[
     "record_only_source",
     "last_rejection_automated",
@@ -861,6 +862,7 @@ WhyNot = Literal[
     "held_os_layer_off",
     "order_too_long",
     "superseded",
+    "module_reopened",
 ]
 
 
