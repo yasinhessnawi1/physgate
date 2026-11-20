@@ -3,19 +3,25 @@
 A plan in which one module implements what another designs has the designer write its design on a
 node of its own and both specifications name it (the decomposition prompt asks for exactly that).
 The pair is read from that: a node the designer's specification names under the designer's own
-name (its module's name, or its role where no other module has that role), which is no interface
-node and no component of the plan, and which another module's specification names too. That other
-module is the builder: it is not dispatched until the designer has merged (ARCH-051's run order
-leaves it to the record to say so).
+name, which is no interface node and no component of the plan, and which another module's
+specification names too. That other module is the builder: it is not dispatched until the designer
+has merged (ARCH-051's run order leaves it to the record to say so). The prompt tells the plan to
+name the node so; a plan that names it otherwise is still read: the designer's own name is its
+module's name in any case, with hyphens as underscores, and, where no other module could be meant,
+that name with a hyphen-separated suffix left off (``balance`` for ``balance-control``) or its
+role.
 
 A node is named by its first two parts, so a specification that writes a quantity's path under it
-(``control.law.gain``) names the node (``control.law``). A name inside a file path is no node.
+(``control.law.gain``) names the node (``control.law``). A name inside a file path is no node, and
+neither is a file's own name (``control.md``, ``control.py``): one whose last part is a file
+extension.
 
 The pairs are fixed from the plan and recorded before the first dispatch. Only a designer that the
 run dispatches before its builder makes a pair, as the prompt asks the plan to order them: the run
 order is the harness's (ARCH-051), so a builder is never moved ahead of the module that opens the
-domain work, and no two modules can wait on each other. Nothing here reads the register, a store
-or a model.
+domain work, and no two modules can wait on each other. A plan that puts a domain module's builder
+before its designer is found here too (:func:`misordered_pairs`), so the decomposition refuses it
+rather than let it pass with no hold. Nothing here reads the register, a store or a model.
 """
 
 from __future__ import annotations
@@ -28,11 +34,27 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.plan import PartsPlan, Plan
-from physgate.state.schema import NodeIdKey
+from physgate.state.schema import NODE_ID_MAX_LENGTH, NODE_ID_PATTERN, NodeIdKey
 
-#: A node id's form inside prose: lowercase parts joined by dots, not inside a path or a longer
-#: word. A sentence's closing full stop is not taken as a part: a part is at least one character.
-_NAMED = re.compile(r"(?<![A-Za-z0-9_./\\-])[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+(?![A-Za-z0-9_/\\-])")
+#: A node id's form inside prose: parts joined by dots, not inside a path or a longer word, read
+#: in any case and with a hyphen in its first part, as a module's name has (both are folded to the
+#: id's own form). A sentence's closing full stop is not taken as a part: a part is at least one
+#: character.
+_NAMED = re.compile(
+    r"(?<![A-Za-z0-9_./\\-])[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_]+)+(?![A-Za-z0-9_/\\-])"
+)
+#: The last parts that make a name a file's, never a node's: the files a specification of these
+#: roles names (documents, data, sources, builds, models, drawings, images, archives).
+FILE_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        *("md", "txt", "rst", "pdf", "tex", "csv", "tsv", "json", "jsonl", "yaml", "yml"),
+        *("toml", "ini", "cfg", "xml", "html", "htm", "ipynb"),
+        *("py", "pyi", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "ino", "asm", "ld"),
+        *("hex", "elf", "js", "ts", "sh", "mk", "cmake", "m", "mat", "slx"),
+        *("step", "stp", "stl", "iges", "igs", "dxf", "dwg", "scad", "urdf", "sdf", "xacro"),
+        *("png", "jpg", "jpeg", "svg", "gif", "zip", "gz", "tar"),
+    }
+)
 
 
 class DesignPair(BaseModel):
@@ -52,12 +74,19 @@ class DesignPair(BaseModel):
 def named_nodes(spec: str, excluded: Sequence[str] = ()) -> list[str]:
     """Every node a specification names, by its first two parts, in the order first named.
 
-    A name that is, or lies under, one of ``excluded`` is left out whole.
+    A name is read in the id's own form: lowercase, with a hyphen in its first part as an
+    underscore. A file's own name (its last part a file extension) is no node; nor is a name
+    that is, or lies under, one of ``excluded``, which is left out whole.
     """
     found: dict[str, None] = {}
     for match in _NAMED.finditer(spec):
-        name = match.group(0)
-        head = ".".join(name.split(".")[:2])
+        first, *rest = match.group(0).lower().split(".")
+        parts = [first.replace("-", "_"), *rest]
+        if parts[-1] in FILE_EXTENSIONS:
+            continue
+        name, head = ".".join(parts), ".".join(parts[:2])
+        if len(head) > NODE_ID_MAX_LENGTH or not NODE_ID_PATTERN.fullmatch(head):
+            continue
         if not _is_excluded(name, excluded) and not _is_excluded(head, excluded):
             found.setdefault(head, None)
     return list(found)
@@ -78,14 +107,35 @@ def _is_excluded(node: str, excluded: Sequence[str]) -> bool:
 def _owners(plan: Plan) -> dict[str, str]:
     """Each first part a node may begin with to be a module's own, to the module it names.
 
-    The module's name; and its role, where no other module has it and no module is named so.
+    The module's name, with hyphens as underscores. Then, where no module is named so and no
+    other module could be meant by it: the name with one or more hyphen-separated parts left off
+    its end (``balance`` for ``balance-control``), and the module's role. A part two modules
+    could be meant by, as a shortened name or a role, names neither.
     """
     owners = {module.name.replace("-", "_"): module.name for module in plan.modules}
-    roles = [module.role for module in plan.modules]
+    meant: dict[str, set[str]] = {}
     for module in plan.modules:
-        if roles.count(module.role) == 1:
-            owners.setdefault(module.role, module.name)
+        parts = module.name.split("-")
+        for key in {"_".join(parts[:end]) for end in range(1, len(parts))} | {module.role}:
+            meant.setdefault(key, set()).add(module.name)
+    for key, names in meant.items():
+        if len(names) == 1 and key not in owners:
+            owners[key] = next(iter(names))
     return owners
+
+
+def _named_and_own(
+    plan: Plan, modules: Sequence[str]
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """What each of ``modules``' specifications names, and which of those nodes are its own."""
+    excluded = _excluded(plan)
+    owners = _owners(plan)
+    spec_of = {module.name: module.spec for module in plan.modules}
+    named = {name: named_nodes(spec_of[name], excluded) for name in modules}
+    own = {
+        name: [n for n in named[name] if owners.get(n.split(".")[0]) == name] for name in modules
+    }
+    return named, own
 
 
 def plan_design_pairs(
@@ -96,11 +146,7 @@ def plan_design_pairs(
     ``subtask_of`` maps each module to its subtask; ``order`` is the plan's modules in the order
     the run dispatches them. A designer pairs only with a builder dispatched after it.
     """
-    excluded = _excluded(plan)
-    owners = _owners(plan)
-    spec_of = {module.name: module.spec for module in plan.modules}
-    named = {name: named_nodes(spec_of[name], excluded) for name in order}
-    own = {name: [n for n in named[name] if owners.get(n.split(".")[0]) == name] for name in order}
+    named, own = _named_and_own(plan, order)
     pairs: list[DesignPair] = []
     for at, builder in enumerate(order):
         for designer in order[:at]:
@@ -114,6 +160,23 @@ def plan_design_pairs(
                     )
                 )
     return tuple(pairs)
+
+
+def misordered_pairs(plan: Plan, order: Sequence[str]) -> list[tuple[str, str, tuple[str, ...]]]:
+    """Each builder ``order`` puts before its designer: (builder, designer, nodes), by module.
+
+    ``order`` is the modules among which the plan's order is the run's: the domain modules, in
+    the plan's order. Read as :func:`plan_design_pairs` reads a pair, with the two the other way
+    round, by builder and then designer in that order.
+    """
+    named, own = _named_and_own(plan, order)
+    found: list[tuple[str, str, tuple[str, ...]]] = []
+    for at, builder in enumerate(order):
+        for designer in order[at + 1 :]:
+            nodes = tuple(sorted(n for n in own[designer] if n in named[builder]))
+            if nodes:
+                found.append((builder, designer, nodes))
+    return found
 
 
 def recorded_design_pairs_problem(

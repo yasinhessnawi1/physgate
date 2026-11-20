@@ -1,9 +1,11 @@
 """Which module builds what another designs is read from the plan's specifications, and recorded.
 
 A designer writes its design on a node of its own, which both specifications name. The pair is
-read from that: a node the designer's specification names under its module's name (or its role,
-where one module alone has it), no interface node and no component, which a module dispatched
-after it names too. A node is named by its first two parts; a name inside a file path is no node.
+read from that: a node the designer's specification names under its module's name (or, where no
+other module could be meant, under that name with a hyphen-separated suffix left off, or its role),
+no interface node and no component, which a module dispatched after it names too. A name is read
+in any case and with its module's hyphen, in the id's own form. A node is named by its first two
+parts; a name inside a file path is no node, and nor is a file's own name.
 A designer dispatched after the module that names its node makes no pair, so the run order the
 harness sets is never changed. The pairs are recorded once, in the run's opening after the contract
 pairs, only where there are some; replay refuses a set no plan could give, a second one, one after
@@ -113,10 +115,39 @@ def test_the_builder_of_the_designers_own_node_is_paired_with_it_and_nothing_els
 def test_a_node_is_named_by_its_first_two_parts_and_a_path_or_a_sentence_end_is_no_node() -> None:
     spec = (
         "Run `control.law.gain` and control.law. Read modules/control.law/x.py, "
-        "./control.py and C:\\control.cfg; Control.Law and control_law are no nodes."
+        "./control.py and C:\\control.cfg; control_law is no node."
     )
     assert named_nodes(spec) == ["control.law"]
     assert named_nodes("Under drive.motor.duty_cycle.", ("drive.motor",)) == []
+
+
+def test_a_file_s_own_name_is_no_node_whatever_its_case() -> None:
+    spec = (
+        "Write control.md, control.py and `firmware.c`, with firmware.h, README.MD, "
+        "control.law.py and balance_design.json; run control.law."
+    )
+    assert named_nodes(spec) == ["control.law"]
+    # Both specifications naming one file of control's is no design held: no pair.
+    shared = {"control": CONTROL + " See control.md.", "firmware": FIRMWARE}
+    for name, spec in shared.items():
+        shared[name] = spec.replace("control.balance_design", "control.md")
+    assert pairs_of(balancer(**shared)) == []
+
+
+def test_a_node_in_capitals_or_with_its_module_s_hyphen_is_read_in_the_id_s_form() -> None:
+    assert named_nodes("Run `Control.Balance_Design` and Control.Law.Gain.") == [
+        "control.balance_design",
+        "control.law",
+    ]
+    assert named_nodes("Run `balance-control.design`.") == ["balance_control.design"]
+    capital = {
+        name: spec.replace("control.balance_design", "Control.Balance_Design")
+        for name, spec in {"control": CONTROL, "firmware": FIRMWARE}.items()
+    }
+    assert pairs_of(balancer(control=capital["control"])) == [
+        ("c-2", "f-3", ("control.balance_design",))
+    ]
+    assert pairs_of(balancer(**capital)) == [("c-2", "f-3", ("control.balance_design",))]
 
 
 def test_an_interface_or_a_component_under_the_designers_name_is_no_design() -> None:
@@ -183,6 +214,68 @@ def test_a_node_under_the_role_names_its_module_where_one_module_alone_has_that_
     subtask = {"sizing": "s-1", "balance": "c-2", "firmware": "f-3"}
     found = plan_design_pairs(plan, subtask, ("sizing", "balance", "firmware"))
     assert found == (DesignPair(designer="c-2", builder="f-3", nodes=("control.balance_design",)),)
+
+
+def modules_plan(*modules: tuple[str, str, str]) -> Plan:
+    """A plan of these (name, role, specification) modules, with the shape's two interfaces."""
+    answer = {
+        "modules": [{**module(name, role, spec)} for name, role, spec in modules],
+        "interface_nodes": [
+            interface("drive.motor", "sizing"),
+            interface("firmware.loop_io", "firmware"),
+        ],
+    }
+    return Plan.model_validate_json(json.dumps(answer))
+
+
+#: An earlier run's wording: control's module is ``balance-control``, its node ``balance.*``.
+SHORT_CONTROL = (
+    "Writes `balance.controller_design`, this module's own node: the gains the firmware runs."
+    + CRITERIA
+)
+SHORT_FIRMWARE = "Runs the gains on `balance.controller_design` as merged." + CRITERIA
+
+
+def test_a_node_under_the_name_less_a_hyphen_separated_suffix_names_its_module() -> None:
+    plan = modules_plan(
+        ("balance-control", "control", SHORT_CONTROL),
+        ("firmware", "firmware", SHORT_FIRMWARE),
+    )
+    subtask = {"balance-control": "c-2", "firmware": "f-3"}
+    found = plan_design_pairs(plan, subtask, ("balance-control", "firmware"))
+    assert found == (
+        DesignPair(designer="c-2", builder="f-3", nodes=("balance.controller_design",)),
+    )
+    # Under its full name with an underscore, or its role, the node is its own as well.
+    for first in ("balance_control", "control"):
+        renamed = modules_plan(
+            ("balance-control", "control", SHORT_CONTROL.replace("balance.", f"{first}.")),
+            ("firmware", "firmware", SHORT_FIRMWARE.replace("balance.", f"{first}.")),
+        )
+        pairs = plan_design_pairs(renamed, subtask, ("balance-control", "firmware"))
+        assert [p.nodes for p in pairs] == [(f"{first}.controller_design",)]
+
+
+def test_a_shortened_name_or_a_role_two_modules_could_be_meant_by_names_neither() -> None:
+    # Two modules shorten to ``balance``: the node is neither's, and no pair is read from it.
+    plan = modules_plan(
+        ("balance-control", "control", SHORT_CONTROL),
+        ("balance-sensing", "electrical", "Reads the sensor." + CRITERIA),
+        ("firmware", "firmware", SHORT_FIRMWARE),
+    )
+    order = ("balance-control", "balance-sensing", "firmware")
+    subtask = {"balance-control": "c-2", "balance-sensing": "e-3", "firmware": "f-4"}
+    assert plan_design_pairs(plan, subtask, order) == ()
+    # A module named so owns the part over one that shortens to it or has it as its role.
+    named = modules_plan(
+        ("balance", "control", SHORT_CONTROL),
+        ("balance-control", "control", "Tunes it." + CRITERIA),
+        ("firmware", "firmware", SHORT_FIRMWARE),
+    )
+    found = plan_design_pairs(
+        named, {"balance": "b-1", **subtask}, ("balance", *order[:1], "firmware")
+    )
+    assert [(p.designer, p.builder) for p in found] == [("b-1", "f-4")]
 
 
 # --- what is recorded ----------------------------------------------------------------------------
