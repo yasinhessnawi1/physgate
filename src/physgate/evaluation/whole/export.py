@@ -311,9 +311,11 @@ def _write_new(out: Path, raw: bytes) -> None:
     except OSError as exc:
         msg = f"the answer cannot be written where asked ({exc.strerror})"
         raise ExportError(msg, out=str(out)) from exc
+    # Held open to the end: while it is, the claimed file's inode cannot be freed and given
+    # to another file at the same name, so the identity compared below is the claim's alone.
     claim = os.fstat(claimed)
-    os.close(claimed)
     temporary: str | None = None
+    placed = False
     try:
         fd, temporary = tempfile.mkstemp(prefix=f".{out.name}.", dir=out.parent)
         try:
@@ -325,12 +327,14 @@ def _write_new(out: Path, raw: bytes) -> None:
             msg = "the answer's name was taken by something else while it was written"
             raise ExportError(msg, out=str(out))
         os.replace(temporary, out)
-        temporary = None
+        placed = True
     except OSError as exc:
         msg = f"the answer cannot be written where asked ({exc.strerror})"
         raise ExportError(msg, out=str(out)) from exc
     finally:
-        if temporary is not None:
-            os.unlink(temporary)
+        if not placed:
+            if temporary is not None:
+                os.unlink(temporary)
             if _ours(out, claim):
                 os.unlink(out)
+        os.close(claimed)

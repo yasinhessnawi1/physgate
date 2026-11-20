@@ -450,8 +450,8 @@
   {
     "name": "temporary_left",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "            os.unlink(temporary)\n            if _ours(out, claim):",
-    "new": "            pass\n            if _ours(out, claim):",
+    "old": "                os.unlink(temporary)\n",
+    "new": "                pass\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
