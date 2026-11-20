@@ -16,7 +16,7 @@ import type { Source } from "../../design/components/data/source";
 import { orderRuns, type RunLabel, runLabels } from "../../words/runs";
 import { queueListing } from "../../api/queue";
 import { type Phase, phaseOf, type Standing, standingOf } from "../../words/standing";
-import { recordedEnd, runEnd, waitingFor } from "../home/runEnd";
+import { recordedEnd, runEnd, unsignedEnd, waitingFor } from "../home/runEnd";
 import { useJson, useLines, useLiveJson } from "./read";
 import { useResult } from "./useResult";
 
@@ -153,6 +153,7 @@ export function useChosenRun(query: URLSearchParams): ChosenRun {
             waitingFor(queue.ok ? queue.value.open : null, value.superseded),
             value.completion,
             recordedEnd(value),
+            unsignedEnd(value),
           )
         : null;
     return standingOf(value, end);

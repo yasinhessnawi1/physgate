@@ -7,7 +7,7 @@ import { RunStanding } from "../../design/components/status/RunStanding";
 import { standingOf } from "../../words/standing";
 import type { RunRead } from "../home/data";
 import { statusWords } from "../home/Home";
-import { type RunEnd, recordedEnd, runEnd, runEndWords } from "../home/runEnd";
+import { type RunEnd, recordedEnd, runEnd, runEndWords, unsignedEnd } from "../home/runEnd";
 
 const BASE: RunStatus = {
   kind: "done",
@@ -36,6 +36,7 @@ const WITHHELD: RunEnd = {
   gate: "not-run",
   setAside: 1,
   recorded: null,
+  unsigned: null,
 };
 
 describe("every ended or halted run says why, in one short plain sentence", () => {
@@ -98,7 +99,7 @@ describe("every ended or halted run says why, in one short plain sentence", () =
     const control = {
       subtask: "control-c2599c",
       sizing: false,
-      state: "not_declared" as const,
+      state: "sign_off_owed" as const,
       open: [{ name: "sign_off", reason: "its stability margin owes a person's sign-off" }],
     };
     const status: RunStatus = {
@@ -150,6 +151,95 @@ describe("every ended or halted run says why, in one short plain sentence", () =
     expect(recordedEnd(status)).toBeNull();
     // A server that does not say whether decisions act is read as before.
     expect(standingOf({ ...BASE, kind: "escalated" }, null).phase).toBe("waiting-person");
+  });
+
+  it("a run that acts and ended owing a sign-off whose item was decided waits on no one", () => {
+    // The person rejected the module's latest item: it records only, and no later item asks.
+    const control = {
+      subtask: "control-c2599c",
+      sizing: false,
+      state: "sign_off_owed" as const,
+      open: [{ name: "sign_off", reason: "its stability margin owes a person's sign-off" }],
+    };
+    const status: RunStatus = {
+      ...BASE,
+      kind: "escalated",
+      acts: true,
+      signOffsOwed: ["control-c2599c"],
+      signOffsOpenToDecide: [],
+      completion: { owner: true, modules: [control] },
+    };
+    expect(unsignedEnd(status)).toEqual(["control-c2599c"]);
+    expect(recordedEnd(status)).toBeNull();
+    const end = runEnd([], 0, status.completion, recordedEnd(status), unsignedEnd(status));
+    const s = standingOf(status, end);
+    expect(s.phase).toBe("done");
+    expect(s.word).toBe("Ended");
+    expect(s.sentence).toBe(
+      "Ended: the control module's sign-off was not given, and no decision left in this run " +
+        "can give it. A new run is needed to complete it.",
+    );
+    expect(runEndWords(end)).toBe("Ended · sign-off not given: control-c2599c");
+    for (const said of [s.sentence ?? "", runEndWords(end)]) {
+      expect(said).not.toMatch(/waiting for (you|a person)/i);
+      expect(said).not.toMatch(/\bcomplete\b(?! it)/);
+    }
+    // Another item still open to a person is said first: the run ended with it waiting.
+    const waiting = runEnd([], 1, status.completion, null, unsignedEnd(status));
+    expect(standingOf(status, waiting).sentence).toBe(
+      "Ended with 1 decision still waiting for a person.",
+    );
+  });
+
+  it("a run that acts and ended owing a sign-off a person can still decide waits for them", () => {
+    const status: RunStatus = {
+      ...BASE,
+      kind: "escalated",
+      acts: true,
+      signOffsOwed: ["c1", "c2"],
+      signOffsOpenToDecide: ["c2"],
+    };
+    expect(unsignedEnd(status)).toBeNull();
+    expect(standingOf(status, null).phase).toBe("waiting-person");
+    // A server that does not say which are open to decide is read as before.
+    const unsaid: RunStatus = { ...status, signOffsOpenToDecide: [] };
+    expect(unsignedEnd({ ...unsaid, acts: true, signOffsOwed: [] })).toBeNull();
+    const notSaid: RunStatus = {
+      ...BASE,
+      kind: "escalated",
+      acts: true,
+      signOffsOwed: ["c1"],
+    };
+    expect(unsignedEnd(notSaid)).toBeNull();
+  });
+
+  it("a module whose sign-off is owed is never read as complete, and says the sign-off is owed", () => {
+    const control = {
+      subtask: "control-c2599c",
+      sizing: false,
+      state: "sign_off_owed" as const,
+      open: [],
+    };
+    const end = runEnd([], 0, { owner: true, modules: [control] });
+    expect(end.kind).toBe("ended");
+    expect(end.kind === "ended" ? end.withheld : null).toEqual({
+      module: "control-c2599c",
+      reasons: ["a person's sign-off is owed"],
+    });
+  });
+
+  it("two sign-offs not given are named together", () => {
+    const status: RunStatus = {
+      ...BASE,
+      kind: "escalated",
+      acts: true,
+      signOffsOwed: ["control-c2599c", "chassis-0a1b2c"],
+      signOffsOpenToDecide: [],
+    };
+    const end = runEnd([], 0, status.completion, null, unsignedEnd(status));
+    expect(standingOf(status, end).sentence).toContain(
+      "the control and chassis modules' sign-offs were not given",
+    );
   });
 
   it("Home's list says the run ended with its decisions recorded, never that it waits for you", () => {

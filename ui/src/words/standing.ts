@@ -15,7 +15,7 @@
  * is going again at its next read of the status.
  */
 import type { RunStatus } from "../api/run";
-import { type RunEnd, runEndWords } from "../screens/home/runEnd";
+import { type RunEnd, runEndWords, unsignedEnd } from "../screens/home/runEnd";
 import { dayAndMinute } from "./runs";
 
 /**
@@ -64,6 +64,8 @@ export function phaseOf(status: RunStatus): Phase {
   if (status.kind === "done") return "done";
   // A run that records decisions acts on none: its escalated end waits on no one, and has ended.
   if (status.kind === "escalated" && status.acts === false) return "done";
+  // Nor does one that acts and ended owing a sign-off whose item was decided: nothing can sign it.
+  if (unsignedEnd(status) !== null) return "done";
   // The loop returns at these steps: nothing runs until a person decides and the run is resumed.
   if (status.kind === "wait" || status.kind === "escalated") return "waiting-person";
   if (silentTooLong(status)) return "stopped";
@@ -128,6 +130,18 @@ export function recordedEndSentence(owed: readonly string[]): string {
   return `${base} The ${namesWords(owed)} ${which} a person's sign-off.`;
 }
 
+/**
+ * How a run that acts ended escalated owing a sign-off nothing left in it can give: a person
+ * decided each module's latest item, and no later item asks again.
+ */
+export function unsignedEndSentence(owed: readonly string[]): string {
+  const which = owed.length === 1 ? "module's sign-off was" : "modules' sign-offs were";
+  return (
+    `Ended: the ${namesWords(owed)} ${which} not given, and no decision left in this run can ` +
+    "give it. A new run is needed to complete it."
+  );
+}
+
 /** How an ended run ended, in one short sentence. */
 export function endSentence(end: RunEnd): string {
   if (end.kind === "complete") return "Complete: every module is declared complete.";
@@ -136,6 +150,7 @@ export function endSentence(end: RunEnd): string {
   if (end.recorded !== null) return recordedEndSentence(end.recorded);
   if (end.waiting !== null && end.waiting > 0)
     return `Ended with ${plural(end.waiting, "decision")} still waiting for a person.`;
+  if (end.unsigned !== null) return unsignedEndSentence(end.unsigned);
   if (end.announced !== null && end.announced !== end.planned)
     return "Ended: its log does not list every subtask the plan announced.";
   if (end.withheld !== null)

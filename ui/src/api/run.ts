@@ -161,7 +161,8 @@ export interface ModuleCompletion {
   readonly subtask: string;
   /** Sizing's module, as the server tells it by the register's name for sizing. */
   readonly sizing: boolean;
-  readonly state: "complete" | "withheld" | "owed" | "not_declared";
+  /** ``sign_off_owed``: a person's sign-off is open, whatever else is (ARCH-130). */
+  readonly state: "complete" | "sign_off_owed" | "withheld" | "owed" | "not_declared";
   /** The precondition registry's open entries, each with its own reason. */
   readonly open: readonly { readonly name: string; readonly reason: string }[];
 }
@@ -201,6 +202,11 @@ export interface RunStatus {
   readonly acts?: boolean;
   /** The modules whose sign-off is owed, in plan order. */
   readonly signOffsOwed?: readonly string[];
+  /**
+   * Of those, each whose latest item a person may still decide; one not here was decided and
+   * nothing left in the run can sign it. Absent where the server did not say.
+   */
+  readonly signOffsOpenToDecide?: readonly string[];
 }
 
 function moduleCompletion(value: unknown): ModuleCompletion {
@@ -210,7 +216,7 @@ function moduleCompletion(value: unknown): ModuleCompletion {
     sizing: flag(m.sizing, "whether it is sizing's"),
     state: oneOf(
       m.state,
-      ["complete", "withheld", "owed", "not_declared"] as const,
+      ["complete", "sign_off_owed", "withheld", "owed", "not_declared"] as const,
       "a completion state",
     ),
     open: list(m.open, "open preconditions").map((raw) => {
@@ -273,6 +279,13 @@ export function runStatus(value: unknown): RunStatus {
     signOffsOwed: list(s.sign_offs_owed ?? [], "the sign-offs owed").map((m) =>
       text(m, "a module"),
     ),
+    ...(s.sign_offs_open_to_decide === undefined
+      ? {}
+      : {
+          signOffsOpenToDecide: list(s.sign_offs_open_to_decide, "the sign-offs open").map((m) =>
+            text(m, "a module"),
+          ),
+        }),
   };
 }
 

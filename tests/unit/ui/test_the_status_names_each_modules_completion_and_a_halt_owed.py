@@ -119,9 +119,9 @@ def test_the_status_names_each_declared_modules_completion_or_what_withholds_it(
 ) -> None:
     found = served(live, "complete")
     # The control module owes a person's sign-off, so integration's declaration leaves it out:
-    # it is not complete, and the status names the sign-off as what is open.
+    # it is not complete, its state says the sign-off is owed, and the sign-off is what is open.
     drive = module(found, DRIVE)
-    assert (drive["state"], drive["sizing"]) == ("not_declared", False)
+    assert (drive["state"], drive["sizing"]) == ("sign_off_owed", False)
     assert drive["open"] == registry(world, "complete", DRIVE)
     assert names(drive) == ["sign_off"]
     assert "owes a person's sign-off" in drive["open"][0]["reason"]
@@ -142,8 +142,9 @@ def test_the_status_names_each_declared_modules_completion_or_what_withholds_it(
     # The control module is withheld by the pair as well, and by its sign-off besides.
     assert module(pair, DRIVE)["open"] == registry(world, "failed-pair", DRIVE)
     assert names(module(pair, DRIVE)) == ["contract", "open_item", "sign_off"]
+    assert module(pair, DRIVE)["state"] == "sign_off_owed"
     one = served(live, "one-declared")
-    assert (module(one, FW)["state"], module(one, DRIVE)["state"]) == ("complete", "not_declared")
+    assert (module(one, FW)["state"], module(one, DRIVE)["state"]) == ("complete", "sign_off_owed")
 
 
 def test_under_observe_a_failed_system_scope_result_withholds_completion(
@@ -159,12 +160,13 @@ def test_under_observe_a_failed_system_scope_result_withholds_completion(
     drive = module(found, DRIVE)
     assert drive["open"] == registry(world, "observe-failed", DRIVE)
     assert names(drive) == ["system_scope", "sign_off"]
+    assert drive["state"] == "sign_off_owed"
 
 
 def test_under_off_completion_has_no_system_scope_precondition(live: Live) -> None:
     found = served(live, "gate-off")
     assert [(m["subtask_id"], m["state"], names(m)) for m in found["completion"]["modules"]] == [
-        (DRIVE, "not_declared", ["sign_off"]),
+        (DRIVE, "sign_off_owed", ["sign_off"]),
         (FW, "complete", []),
     ]
 
@@ -177,6 +179,8 @@ def test_the_status_says_the_run_records_decisions_and_names_each_sign_off_owed(
     found = served(live, run)
     assert found["acts"] is False
     assert found["sign_offs_owed"] == [DRIVE]
+    # Its item is open, though no decision on it acts in such a run.
+    assert found["sign_offs_open_to_decide"] == [DRIVE]
     assert found["next_step"]["kind"] == "escalated"
 
 
@@ -192,3 +196,29 @@ def test_a_run_owing_a_halt_says_so(world: dict[str, Path], live: Live) -> None:
     }
     for run in RUNS:
         assert served(live, run)["owed_halt"] is None
+
+
+_RECORDED = Path(__file__).resolve().parents[1] / "evaluation" / "whole" / "recorded_runs"
+
+
+@pytest.mark.parametrize(
+    ("recorded", "open_to_decide"),
+    [
+        # Waiting before the call: the person's decision on the item is what the run waits for.
+        ("acts_waiting_on_a_sign_off", ["c1"]),
+        # Rejected, then the fix's item rejected too: owed, with nothing left that can sign it.
+        ("acts_rejected_a_sign_off_owed", []),
+        # Signed: nothing is owed.
+        ("acts_signed", []),
+        # Records decisions: the item stays open, though a decision on it signs nothing.
+        ("records_a_sign_off_owed", ["c1"]),
+    ],
+)
+def test_a_sign_off_owed_is_open_to_decide_only_while_its_latest_item_is_undecided(
+    recorded: str, open_to_decide: list[str]
+) -> None:
+    from physgate.ui.readers import sign_offs_open_to_decide
+
+    state = replay(read_events(_RECORDED / f"{recorded}.jsonl"))
+    assert sign_offs_open_to_decide(state) == open_to_decide
+    assert set(open_to_decide) <= set(state.sign_offs_open())

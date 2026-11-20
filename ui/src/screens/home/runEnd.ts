@@ -11,6 +11,8 @@
  * Anything else is "Ended", with what is left, and a module's completion withheld is named with
  * the server's own reasons. A run that records decisions only and ended escalated waits on no
  * one, whatever its queue holds: no decision acts there, and the sign-offs owed are named instead.
+ * A run that acts and ended escalated owing a sign-off whose latest item was decided (a reject)
+ * waits on no one for it either: nothing left in the run can sign it, and it is named so.
  * Counts are a view over the records, never a verdict.
  */
 import type { RunEvent } from "../../api/events";
@@ -41,11 +43,17 @@ export type RunEnd =
        * no decision acts there, so nothing waits for a person. ``null`` for any other run.
        */
       readonly recorded: readonly string[] | null;
+      /**
+       * In a run that acts and ended escalated, the modules whose sign-off is owed with nothing
+       * left in the run that can sign it: each one's latest item was decided. ``null`` otherwise.
+       */
+      readonly unsigned: readonly string[] | null;
     };
 
 /** A module not complete with nothing open: why, by the state the server read. */
 const STATE_WORDS: Readonly<Record<ModuleCompletion["state"], string>> = {
   complete: "complete",
+  sign_off_owed: "a person's sign-off is owed",
   not_declared: "integration did not declare it complete",
   owed: "its completion line is owed",
   withheld: "withheld",
@@ -71,14 +79,27 @@ export function recordedEnd(status: RunStatus): readonly string[] | null {
 }
 
 /**
+ * The modules whose sign-off is owed with nothing left to sign it, where the run acts and ended
+ * escalated and none of them has an item open to a decision; ``null`` for any other run, and
+ * where the server did not say which are open.
+ */
+export function unsignedEnd(status: RunStatus): readonly string[] | null {
+  const owed = status.signOffsOwed ?? [];
+  const open = status.signOffsOpenToDecide;
+  if (status.kind !== "escalated" || status.acts !== true || open === undefined) return null;
+  return owed.length > 0 && owed.every((m) => !open.includes(m)) ? owed : null;
+}
+
+/**
  * ``openItems`` is what waits for a person (``waitingFor``), or ``null`` when the queue could not be
- * read; ``recorded``, what ``recordedEnd`` gives.
+ * read; ``recorded``, what ``recordedEnd`` gives; ``unsigned``, what ``unsignedEnd`` gives.
  */
 export function runEnd(
   events: readonly RunEvent[],
   openItems: number | null,
   completion: RunStatus["completion"],
   recorded: readonly string[] | null = null,
+  unsigned: readonly string[] | null = null,
 ): RunEnd {
   const planned = new Set(events.flatMap((e) => (e.kind === "subtask_planned" ? [e.subtask] : [])));
   const merged = new Set(events.flatMap((e) => (e.kind === "merged" ? [e.subtask] : [])));
@@ -120,6 +141,7 @@ export function runEnd(
     gate,
     setAside: setAside.size,
     recorded,
+    unsigned,
   };
 }
 
@@ -133,6 +155,7 @@ export function runEndWords(end: RunEnd): string {
       : `Ended · decisions recorded, none acted on · sign-off owed: ${end.recorded.join(", ")}`;
   if (end.waiting !== null && end.waiting > 0)
     return `Ended · ${String(end.waiting)} waiting for you`;
+  if (end.unsigned !== null) return `Ended · sign-off not given: ${end.unsigned.join(", ")}`;
   if (end.announced !== null && end.announced !== end.planned)
     return `Ended · log incomplete: ${String(end.planned)} of ${String(end.announced)} subtasks planned`;
   if (end.withheld !== null)

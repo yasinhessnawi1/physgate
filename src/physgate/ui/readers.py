@@ -321,7 +321,9 @@ def decisions(context: Context, params: Mapping[str, str]) -> Response:
 def _completion(state: RunState) -> dict[str, object]:
     """Each plan module's completion, and whether the run has a subtask that declares it.
 
-    A module is ``complete`` once its line is on the record; else ``withheld`` while the merged
+    A module is ``complete`` once its line is on the record; else ``sign_off_owed`` while its
+    sign-off is open (ARCH-130), whatever else is, since a person's signature is what it waits
+    for first and integration is told to leave it out; else ``withheld`` while the merged
     declaration names it and a registered precondition is open, ``owed`` while none is, and
     ``not_declared`` otherwise. Every module not complete carries the registry's open entries with
     their own reasons. Sizing's module is told by the role name the register gives sizing.
@@ -335,6 +337,8 @@ def _completion(state: RunState) -> dict[str, object]:
     for module in state.modules():
         still = () if module in state.completed else open_preconditions(state, module)
         word = "not_declared" if module not in declared else "withheld" if still else "owed"
+        if any(name == "sign_off" for name, _ in still):
+            word = "sign_off_owed"
         modules.append(
             {
                 "subtask_id": module,
@@ -344,6 +348,20 @@ def _completion(state: RunState) -> dict[str, object]:
             }
         )
     return {"owner": integration is not None, "modules": modules}
+
+
+def sign_offs_open_to_decide(state: RunState) -> list[str]:
+    """The modules whose sign-off is owed and whose latest item a person may still decide.
+
+    In plan order. Undecided, or held and not yet confirmed: a decision there can still sign the
+    module. One whose latest item was decided (a reject, recorded only or ordering the fix that
+    then ended unmerged) is owed with nothing left in the run that can sign it.
+    """
+    return [
+        module
+        for module in state.sign_offs_open()
+        if (items := state.sign_offs_of(module)) and state.undecided(items[-1].item_id)
+    ]
 
 
 def _silence_bound(last: object, bounds: RunBounds) -> float | None:
@@ -397,6 +415,9 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             # an escalated end waits on no one, and the modules whose sign-off is owed are named.
             "acts": state.acts,
             "sign_offs_owed": state.sign_offs_open(),
+            # Of those, each whose latest item is still open to a person's decision: in a run that
+            # acts, one whose latest item was decided can be signed by nothing left in the run.
+            "sign_offs_open_to_decide": sign_offs_open_to_decide(state),
             "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
             "superseded": dict(state.superseded),
             "last_line_at": None if last is None else last.ts,
