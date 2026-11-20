@@ -385,7 +385,14 @@ def test_a_main_program_stalled_with_interrupts_off_is_reset_by_the_watchdog(
         if _cycle(0.3) < e["c"] < resets[1]["cycle"] and e["type"] in ("ocr", "twi", "usart1")
     ]
     assert quiet == []
-    # After the reset the firmware runs again and drives the motors.
+    # After the reset the firmware runs again and drives the motors: the reset ends the stall,
+    # so updates come again from the sketch's start, before the stall's own end at 0.5 s.
+    assert resets[1]["sketch_start_cycle"] - resets[1]["cycle"] == START
+    again = [
+        e["c"] for e in trace
+        if e["type"] == "probe" and resets[1]["sketch_start_cycle"] <= e["c"] < _cycle(0.5)
+    ]  # fmt: skip
+    assert again
     assert summary["motors"]["left"]["last"] == COMMAND
     # No interrupt ran in the stall either: Timer0 lost the overflows of its 64 ms or more.
     assert summary["vectors"]["TIMER0_OVF"]["count"] <= round(0.95 * (F - 2 * START) / 64 / 256)
