@@ -62,18 +62,18 @@ DECLARED = (BUDGET, DRIVE, FW)
 ITEM = "run-1-contract-2"
 
 
-def _per_attempt(rig: Rig, subtask_id: str, by_attempt: dict[int, dict[str, Any]]) -> None:
-    """``subtask_id`` writes ``by_attempt[n]`` from its attempt ``n``'s commit, else its own."""
+def _per_attempt(rig: Rig, target: str, by_attempt: dict[int, dict[str, Any]]) -> None:
+    """``target`` writes ``by_attempt[n]`` from its attempt ``n``'s commit, else its own."""
     graph = rig.diff
     original = graph.proposals
     # The fake dispatcher names each session's commit by its subtask, attempt and call.
-    commits = {sha(f"{subtask_id}-{n}-{call}"): n for n in by_attempt for call in range(1, 40)}
+    commits = {sha(f"{target}-{n}-{call}"): n for n in by_attempt for call in range(1, 40)}
 
-    def proposals(sub: str, attempt_commit: str, role: str) -> list[dict[str, Any]]:
-        n = commits.get(attempt_commit) if sub == subtask_id else None
+    def proposals(subtask_id: str, attempt_commit: str, role: str) -> list[dict[str, Any]]:
+        n = commits.get(attempt_commit) if subtask_id == target else None
         if n is not None:
             return [by_attempt[n]]
-        return list(original(sub, attempt_commit, role))
+        return list(original(subtask_id, attempt_commit, role))
 
     graph.proposals = proposals  # type: ignore[method-assign]
 
