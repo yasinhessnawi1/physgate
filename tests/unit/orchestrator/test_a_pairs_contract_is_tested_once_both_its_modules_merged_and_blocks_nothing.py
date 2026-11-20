@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 from accounted import forged_account_before_each_open, reaccount  # noqa: F401 - the forger
 from loop_fakes import FakeChanges, FakeDispatcher, FakeGraph, KilledError, Rig
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 
 from physgate import roles
 from physgate.contracts.clause import check_pair
@@ -59,6 +60,10 @@ from physgate.orchestrator.record import DecompositionSummary, PlanEntry
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import ModelStrings
 from physgate.state.store import JOURNAL_NAME, Store, journal_records_after
+
+#: These runs plan a control module, and what is tested is the contract's hold on its completion:
+#: each starts as a run recorded before the sign-off rule table, which owes no sign-off.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 DRIVE, FW, BUDGET, CLOSING, INTEG = (
     "drive-0a1b2c",

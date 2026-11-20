@@ -24,6 +24,7 @@ import pytest
 import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as runner
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeChanges, FakeGate, FakeReviewer, KilledError, Rig, passing_gate_result
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 from test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line import (
     at_integrations_resolve,
     ended,
@@ -65,6 +66,11 @@ from physgate.roles import CrossCuttingRole
 from physgate.series.seal import SessionSeries
 from physgate.state.exceptions import DesignStateError
 from physgate.state.store import Store
+
+#: These runs plan a control module, and what is tested is the declaration and the
+#: system-scope result its completion rests on: each starts as a run
+#: recorded before the sign-off rule table, which owes no sign-off.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 INTEG, DRIVE, FW = runner.INTEG, runner.DRIVE, runner.FW
 DECLARED = (DRIVE, FW)

@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeDispatcher, FakeGate, KilledError, Rig, failing_gate_result
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing import (
     BUDGET,
     DRIVE,
@@ -58,6 +59,10 @@ from physgate.orchestrator.queue import (
 )
 from physgate.orchestrator.replay import replay
 from physgate.oslayer.probe import Present
+
+#: These runs plan a control module, and what is tested is the contract's hold on its completion:
+#: each starts as a run recorded before the sign-off rule table, which owes no sign-off.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 ITEM = "run-1-contract-1"
 SPAN = "e" * 40
@@ -543,7 +548,7 @@ def test_a_module_is_not_complete_while_an_item_about_its_pair_is_undecided(
 
 def test_the_open_item_precondition_is_registered_after_the_contract_s() -> None:
     names = [p.name for p in completion.PRECONDITIONS]
-    assert names == ["merged", "system_scope", "contract", "open_item"]
+    assert names == ["merged", "system_scope", "contract", "open_item", "sign_off"]
 
 
 # --- the decision sequence ----------------------------------------------------------------------

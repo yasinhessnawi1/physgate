@@ -25,6 +25,7 @@ import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_n
 from loop_fakes import FakeGate  # noqa: E402
 
 from physgate import roles  # noqa: E402
+from physgate.orchestrator import record  # noqa: E402
 from physgate.orchestrator.completion import open_preconditions  # noqa: E402
 from physgate.orchestrator.events import Halted, Incident, read_events  # noqa: E402
 from physgate.orchestrator.replay import replay  # noqa: E402
@@ -52,6 +53,9 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Path]]
     root.mkdir()
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
+        # The runs plan a control module, and the status of the other preconditions is what is
+        # read: each starts as a run recorded before the sign-off rule table, which owes none.
+        monkeypatch.setattr(record, "SIGN_OFF_RULES", None)
         for name, kw in RUNS.items():
             rig, _ = runner.finished(base / name, monkeypatch, **kw)
             shutil.copytree(rig.run_dir, root / name)

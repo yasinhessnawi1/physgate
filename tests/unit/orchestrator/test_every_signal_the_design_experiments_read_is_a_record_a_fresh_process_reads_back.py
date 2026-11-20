@@ -27,6 +27,7 @@ import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_n
 from journal_helper import one_round, plan_digest
 from loop_fakes import FakeGate, FakeReviewer, usage
 from replan_rig import RUBRIC, Step, decompose, item_of
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 
 from physgate import roles
 from physgate.orchestrator.design_rounds import RoundEnded, RoundsEnded, RoundStarted, read_journal
@@ -37,6 +38,10 @@ from physgate.orchestrator.record import DecompositionCall, PlanReviewed, Review
 from physgate.orchestrator.replay import RunState
 from physgate.orchestrator.run_config import ModelStrings, RunConfig, load_run_config
 from physgate.orchestrator.trajectory import seal
+
+#: These runs plan a control module, and what is tested is the signals each line gives:
+#: each starts as a run recorded before the sign-off rule table, which owes no sign-off.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
 

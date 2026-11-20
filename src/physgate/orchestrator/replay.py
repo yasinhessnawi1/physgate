@@ -172,6 +172,7 @@ from physgate.orchestrator.queue import (
 )
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
+from physgate.orchestrator.sign_off import RaisedSignOff, SignOffRules, known_rules
 from physgate.reviewers.scan import judged_attempts
 from physgate.roles import owners_of as _cross_owners
 from physgate.state.store import payload_digest
@@ -545,6 +546,14 @@ class RunState:
         self.resolved: IncidentResolved | None = None
         #: The rule's resolution of a session's change, before the session's end line.
         self.ruled: IncidentResolved | None = None
+        #: The version of the sign-off rule table the run's first line names; ``None`` on a run
+        #: started before the table existed, which owes no sign-off.
+        self.sign_off_rules: SignOffRules | None = None
+        #: Every sign-off item on the record, by id, in the order raised.
+        self.sign_offs: dict[str, RaisedSignOff] = {}
+        #: The sign-off items whose approve acts, in the order each came to act: taken acting, or
+        #: held and since confirmed.
+        self.signed: list[str] = []
 
     # -- following the log -------------------------------------------------------
 
@@ -601,6 +610,14 @@ class RunState:
             self.asks_parts = event.parts_on_hand == "on"
             if self.asks_parts and not self.acts:
                 _refuse("a run that asks which parts a person has acts on decisions")
+            if event.sign_offs is not None:
+                rules = known_rules(event.sign_offs)
+                if rules is None:
+                    _refuse(
+                        "the run's first line names a version of the sign-off rule table this "
+                        "code does not hold"
+                    )
+                self.sign_off_rules = rules
             return
         if isinstance(event, IncidentResolved):
             self._incident_resolved(event)

@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 from loop_fakes import FakeReviewer, Rig
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 from test_a_choice_on_a_failed_contract_reopens_the_other_module import (
     BOTH,
     MENDED_FW,
@@ -55,6 +56,11 @@ from physgate.orchestrator.queue import (
 )
 from physgate.orchestrator.replay import RunState, replay
 from physgate.ui import readers
+
+#: These runs plan a control module, and what is tested is how a failed contract's items
+#: and reopens hold its completion: each starts as a run
+#: recorded before the sign-off rule table, which owes no sign-off.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 #: The second pair's item: fw (producer) to drive (consumer) over ``iface.tilt``.
 OTHER = "run-1-contract-2"

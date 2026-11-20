@@ -26,6 +26,7 @@ import pytest
 import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as runner
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeDispatcher, FakeGate, FakeReviewer, KilledError, Rig, plan
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 
 from physgate import roles
 from physgate.orchestrator import integration_state
@@ -52,6 +53,10 @@ from physgate.orchestrator.integration_state import issued_state
 from physgate.orchestrator.plan import CriterionWords
 from physgate.orchestrator.replay import Step, replay
 from physgate.state.schema import NODE_ID_MAX_LENGTH
+
+#: These runs plan a control module, and what is tested is integration's issued state:
+#: each starts as a run recorded before the sign-off rule table, which owes no sign-off.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 INTEG, DRIVE, FW, BUDGET = runner.INTEG, runner.DRIVE, runner.FW, runner.BUDGET
 DECLARED = (DRIVE, FW)
