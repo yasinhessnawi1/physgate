@@ -28,6 +28,7 @@ from parts_rig import (
     started,
 )
 from plan_hold_rig import again, dispatched, kinds
+from sign_off_rig import signing
 
 from physgate.orchestrator.queue import (
     DECISIONS_NAME,
@@ -225,8 +226,11 @@ def test_a_run_whose_parts_lines_are_marked_is_taken_and_follows_in_the_replay(
         b"".join(one.model_dump_json().encode() + b"\n" for one in lines)
     )
     assert [read for _, read in read_queue(run_dir).decisions] == lines
-    assert again(rig(run_dir)) == "done"
-    assert kinds(run_dir).count("decision_taken") == 3
+    signed_rig = rig(run_dir)
+    assert signing(lambda: again(signed_rig), run_dir) == "done"
+    # One decision a part, beside the person's signature on each control module's values.
+    taken = [one["item_id"] for one in log_of(run_dir) if one["kind"] == "decision_taken"]
+    assert len([one for one in taken if "SIGNOFF" not in one]) == 3
     assert "stage_entered" in dispatched(run_dir)
     assert "incident" not in kinds(run_dir)
     assert refusal(tmp_path, log_of(run_dir)) == ""

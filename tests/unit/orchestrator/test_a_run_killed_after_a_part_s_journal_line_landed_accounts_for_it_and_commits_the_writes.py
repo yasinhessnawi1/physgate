@@ -17,6 +17,7 @@ from typing import Any
 from loop_fakes import KilledError
 from parts_rig import body, decide, find_all, log_of, started
 from plan_hold_rig import again, kinds
+from sign_off_rig import signing
 
 IDS = ["run-1-parts-1", "run-1-parts-2", "run-1-parts-3"]
 
@@ -61,7 +62,7 @@ def test_a_line_that_landed_before_its_done_line_is_the_intents_and_is_not_writt
     assert len(_of(run_dir, "parts_write_intended")) == 1
     assert _of(run_dir, "parts_write_done") == []
     diff.declare = real
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     assert "incident" not in kinds(run_dir)
     nodes = [one["node_id"] for one in _of(run_dir, "parts_write_intended")]
     assert len(nodes) == len(set(nodes)) == 3
@@ -76,7 +77,7 @@ def test_the_store_is_committed_once_after_the_last_write_and_before_the_release
     diff: Any = the_rig.diff
     committed: list[tuple[str, int]] = []
     diff.commit = lambda message: committed.append((message, len(_of(run_dir, "parts_write_done"))))
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     assert len(committed) == 1
     assert committed[0][1] == 3, "the commit came before the last write was done"
     assert "parts_released" in kinds(run_dir)
@@ -91,6 +92,6 @@ def test_a_run_that_wrote_nothing_commits_nothing(tmp_path: Path) -> None:
     committed: list[str] = []
     diff.commit = committed.append
     find_all(the_rig.run_dir)
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     assert committed == []
     assert _of(the_rig.run_dir, "parts_write_intended") == []
