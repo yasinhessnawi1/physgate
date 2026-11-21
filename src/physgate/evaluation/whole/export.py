@@ -229,8 +229,12 @@ def _finished(run_dir: Path) -> tuple[bool, tuple[str, ...]]:
     except OSError as exc:
         msg = f"the run has no event log to export from ({exc.strerror})"
         raise ExportError(msg, run=str(run_dir)) from exc
-    with os.fdopen(fd, "rb") as handle:
-        data = handle.read()
+    try:
+        with os.fdopen(fd, "rb") as handle:
+            data = handle.read()
+    except OSError as exc:
+        msg = f"the run's event log cannot be read ({exc.strerror})"
+        raise ExportError(msg, run=str(run_dir)) from exc
     try:
         state = replay(parse_events(data, log=str(path)))
     except OrchestratorError as exc:
@@ -274,9 +278,25 @@ def _refusing(
 
 
 def _inside(out: Path, run_dir: Path) -> bool:
-    """Whether ``out``, as the filesystem resolves it, lies in the run's directory."""
-    resolved = Path(os.path.realpath(out))
-    return resolved.is_relative_to(Path(os.path.realpath(run_dir)))
+    """Whether ``out`` lies in the run's directory, by the filesystem's own say.
+
+    Two spellings of one directory (a link, or another case on a case-insensitive filesystem)
+    are told apart by the string a path resolves to, so the directory itself is compared: the
+    nearest ancestor of ``out`` that exists, and each of its parents, against the run's.
+    """
+    if Path(os.path.realpath(out)).is_relative_to(Path(os.path.realpath(run_dir))):
+        return True
+    ancestor = Path(os.path.abspath(out))
+    while not ancestor.exists():
+        ancestor = ancestor.parent
+    return any(_same_file(candidate, run_dir) for candidate in (ancestor, *ancestor.parents))
+
+
+def _same_file(first: Path, second: Path) -> bool:
+    try:
+        return os.path.samefile(first, second)
+    except OSError:
+        return False
 
 
 def export_whole_run(run_dir: Path, out: Path) -> Export:
@@ -395,6 +415,26 @@ def _ours(out: Path, claim: os.stat_result) -> bool:
     return (now.st_dev, now.st_ino) == (claim.st_dev, claim.st_ino)
 
 
+def _umask() -> int:
+    """The process's file-creation mask, read without changing it."""
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+def _claim(out: Path) -> int:
+    """``out`` created empty and open, or an error that says what a refusal may mean."""
+    try:
+        return os.open(out, _CLAIM_FLAGS, 0o644)
+    except FileExistsError as exc:
+        msg = (
+            f"the answer cannot be written where asked ({exc.strerror}); a name left empty with a "
+            f"temporary beside it (named from the answer's) is what an earlier write that was "
+            f"killed leaves, and both are removed by hand"
+        )
+        raise ExportError(msg, out=str(out)) from exc
+
+
 def _write_new(files: tuple[tuple[Path, bytes], ...]) -> None:
     """Each ``raw`` at its ``out``, where nothing may be yet: all claimed, then each put there.
 
@@ -406,7 +446,10 @@ def _write_new(files: tuple[tuple[Path, bytes], ...]) -> None:
     claim only once every claim is still the file it made, so no name the export did not make
     is ever replaced. The harness makes no second name for a file, so nothing is linked into
     place. Whatever fails, every name the export made, and every file it put, is removed where it
-    can be, so a failed write leaves nothing behind and the next export is not refused. A removal
+    can be, so a failed write leaves nothing behind and the next export is not refused. A process
+    killed outright (no chance to remove anything) between a claim and its rename leaves the empty
+    claim and the temporary, and the next export is refused until both are removed by hand; the
+    refusal says so. A file is put down with the mode a plain file made here would have. A removal
     that itself fails is passed over, and leaves only that file (a temporary beside the answer's
     name, which a person may delete).
     """
@@ -421,13 +464,14 @@ def _write_new(files: tuple[tuple[Path, bytes], ...]) -> None:
         for out, _ in files:
             at = out
             out.parent.mkdir(parents=True, exist_ok=True)
-            claimed = os.open(out, _CLAIM_FLAGS, 0o644)
+            claimed = _claim(out)
             claims.append((out, claimed, os.fstat(claimed)))
         for out, raw in files:
             at = out
             fd, temporary = tempfile.mkstemp(prefix=f".{out.name}.", dir=out.parent)
             try:
                 temporaries.append((temporary, os.fstat(fd)))
+                os.fchmod(fd, 0o644 & ~_umask())
                 _write_all(fd, raw)
                 os.fsync(fd)
             finally:

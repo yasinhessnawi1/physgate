@@ -83,7 +83,7 @@ NATIVE: Values = {
 }
 PARAMETERS: Values = {
     "update_rate": (100, "Hz"),
-    "gyro_output_data_rate": (208, "Hz"),
+    "output_data_rate": (208, "Hz"),
     "gyro_full_scale": (1000, "deg/s"),
     "pwm_frequency": (20000, "Hz"),
     "pwm_full_scale": (400, "count"),
@@ -992,3 +992,81 @@ def test_a_temporary_that_cannot_be_removed_after_a_failed_second_rename_stops_n
     left = sorted(p.name for p in out.parent.iterdir())
     assert not out.exists() and not module.record_path(out).exists(), left
     assert all(name.startswith(f".{out.name}.") for name in left), left
+
+
+def test_an_event_log_that_is_a_directory_is_an_export_error_not_a_raw_one(tmp_path: Path) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    (run / "events.jsonl").unlink()
+    (run / "events.jsonl").mkdir()
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        _export(run, tmp_path)
+    assert isinstance(caught.value, _module().ExportError)
+    assert "event log" in str(caught.value)
+
+
+def test_an_answer_reached_through_a_name_the_filesystem_sees_as_the_run_is_never_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A path whose spelling differs from the run's, yet is the run's own directory on disk: a
+    # link here, the same directory in another case on a case-insensitive filesystem. The
+    # spelling the filesystem resolves it to is not what decides; the directory itself is.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    elsewhere = Path(os.path.realpath(tmp_path)) / "elsewhere"
+    elsewhere.symlink_to(run, target_is_directory=True)
+    module = _module()
+    monkeypatch.setattr(module.os.path, "realpath", lambda p, **_: os.path.abspath(p))
+    before = _tree(run)
+    with pytest.raises(module.ExportError):
+        module.export_whole_run(run, elsewhere / "answers" / "whole_run.json")
+    assert _tree(run) == before
+
+
+def test_an_answer_named_in_another_case_inside_the_run_is_never_written_there(
+    tmp_path: Path,
+) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    shouted = run.with_name(run.name.upper())
+    if not shouted.exists():
+        pytest.skip("this filesystem tells one case from another")
+    before = _tree(run)
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        _module().export_whole_run(run, shouted / "answers" / "whole_run.json")
+    assert isinstance(caught.value, _module().ExportError)
+    assert _tree(run) == before
+
+
+def test_a_sibling_directory_whose_name_starts_with_the_run_s_is_not_inside_it(
+    tmp_path: Path,
+) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    record, out = _export(run, tmp_path)
+    assert record.status == "exported"
+    sibling = run.with_name(run.name + "_answers") / "whole_run.json"
+    other = _module().export_whole_run(run, sibling)
+    assert other.status == "exported"
+    assert sibling.exists()
+
+
+def test_the_files_an_export_puts_down_are_readable_as_a_plain_file_is(tmp_path: Path) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    previous = os.umask(0o022)
+    try:
+        _, out = _export(run, tmp_path)
+    finally:
+        os.umask(previous)
+    assert out.stat().st_mode & 0o777 == 0o644
+    assert _record_of(out).stat().st_mode & 0o777 == 0o644
+
+
+def test_a_name_left_by_an_earlier_write_that_was_killed_is_refused_with_what_to_remove(
+    tmp_path: Path,
+) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
+    out.parent.mkdir()
+    out.write_bytes(b"")
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        _module().export_whole_run(run, out)
+    assert isinstance(caught.value, _module().ExportError)
+    message = str(caught.value)
+    assert "killed" in message and "temporary" in message
