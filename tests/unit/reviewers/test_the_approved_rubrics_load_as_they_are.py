@@ -81,6 +81,9 @@ APPROVED = {
             # A criterion written against an instrument the run does not have is not evaluable;
             # what a provided simulator or a host-side test measures is judged as usual.
             ("final_v8", "cdc18174f4326548ad0dc586cf36d9223131419a536e4d2c5295841b4205164e", 54),
+            # The tools the run provides: a test is judged on what the environment records, and what
+            # it cannot show is stated as not shown, not owed.
+            ("final_v9", "d3614df90d0b7dfdae6d0b2f8067dcce7bb0d4dd81a2b3083dc44005a0af4597", 54),
         ),
         ("AC", "DS", "AP", "RH"),
     ),
@@ -129,6 +132,9 @@ APPROVED = {
             # A simulator is named only where the run provides one; the supply voltage is the
             # one a criterion of the brief pins.
             ("final_v3", "3468ddb2adcb11413664e60f94fd9520f720914e43f50754dadb1702843f50a1", 66),
+            # What the run can measure is named as the environment provides it; a criterion naming
+            # an instrument that is not recorded fails.
+            ("final_v4", "16a09143f343af7e0b36247ab5939879bd1564abeeba3189b367b86db7f1b1e9", 66),
         ),
         ("PA", "PS", "PP", "PH"),
     ),
