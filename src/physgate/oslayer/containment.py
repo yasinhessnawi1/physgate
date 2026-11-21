@@ -7,7 +7,10 @@ harness generates from the same policy the session's commands run under (``oslay
 - **reads:** denied wherever the session's commands are denied, and the series outbox whole: the
   Linux sandbox names the outbox's entries as they stand when each command starts, and a server
   lives as long as its session, so a rule by entries would not cover a record written after it
-  started. A server never reads the records;
+  started. A server never reads the records. Where the session's worktree lies in a root
+  withheld from the session whole but for it (a protected trial's session, a blind check's), the
+  server reads the worktree there, as the session's commands do, and nothing else of the root:
+  the root stays denied, the worktree alone is read again, every denial inside it stays one;
 - **writes:** only a directory of its own beneath the session's temporary directory, made empty
   for it, so nothing it leaves is a channel another session reads;
 - **network:** none, ever (all of a server's network happened at provisioning);
@@ -27,7 +30,10 @@ a test that runs the wrapper for real:
   denied places, writes only into the server's own directory.
 - **macOS:** any place's metadata (its name, size and times) and the root's own listing stay
   readable, which looking a path up needs. The content of a denied or unlisted file it can
-  stat is not, nor the listing of any directory outside the list.
+  stat is not, nor the listing of any directory outside the list. Inside a root withheld whole
+  around the session's worktree not even the metadata is: there a server learns nothing of any
+  place but the worktree's own, not whether it is there (its ancestors' metadata is denied too;
+  reaching the worktree needs none of it).
 """
 
 from __future__ import annotations
@@ -42,7 +48,12 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from physgate.hooks.config import SessionConfig
-from physgate.oslayer.policy import _read_denied, board_devices, outbox_read_denial
+from physgate.oslayer.policy import (
+    _read_denied,
+    board_devices,
+    outbox_read_denial,
+    withheld_around_worktree,
+)
 from physgate.toolenv.session import REFUSED_PREFIXES, REFUSED_VARIABLES
 
 #: Seatbelt's front end, where macOS ships it.
@@ -213,23 +224,74 @@ SYSCTL_PREFIXES = (
 IOCTL_DEVICES = ("/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", "/dev/tty")
 
 
-def _refuse_roots_inside_denials(read_denied: Sequence[str], roots: Sequence[str]) -> None:
+def _excepted(
+    read_denied: Sequence[str], excepted: str | None, withheld: Sequence[str]
+) -> str | None:
+    """Where the one place opened again inside a root withheld whole really is, held first.
+
+    The session's worktree, where it lies in a root withheld from the session whole but for it
+    (a protected trial's, a blind check's): every such root is one the server is denied, and the
+    worktree lies strictly inside each.
+
+    Raises:
+        ContainmentError: a place is excepted from no root, from a root the server is not
+            denied, or from one it does not lie strictly inside.
+    """
+    if excepted is None:
+        if withheld:
+            msg = "a root is withheld whole from a server, but no place in it is named"
+            raise ContainmentError(msg)
+        return None
+    real = os.path.realpath(excepted)
+    denied = {os.path.realpath(p) for p in read_denied}
+    if not withheld:
+        msg = f"the place {excepted} is excepted from no root withheld whole"
+        raise ContainmentError(msg)
+    for root in withheld:
+        place = os.path.realpath(root)
+        if place not in denied or real == place or not _within(real, place):
+            msg = f"the place {excepted} is not one excepted from {root}, withheld from the server"
+            raise ContainmentError(msg)
+    return real
+
+
+def _refuse_roots_inside_denials(
+    read_denied: Sequence[str],
+    roots: Sequence[str],
+    *,
+    excepted: str | None = None,
+    withheld: Sequence[str] = (),
+) -> None:
     """Refuse a root of the server's that lies inside a place it may not read.
 
     The same on both platforms: a read, exec or command root inside a denied place would be
     opened again by its own allowance, so no server is offered (fail closed). The server's own
     directory is not one of them: it is the one place beneath a denied parent opened again.
+    Nor is a read root inside ``excepted`` (the session's worktree, in the roots ``withheld``
+    whole from the session but for it), which is judged against every other denial: the
+    worktree is read again there, as the session's commands read it. A program is never
+    excepted: the caller names programs apart from what the server reads.
 
     Raises:
         ContainmentError: a root lies inside a denied place, or is one.
     """
     denied = [os.path.realpath(p) for p in read_denied]
+    around = {os.path.realpath(p) for p in withheld}
     for root in roots:
         real = os.path.realpath(root)
+        inside = excepted is not None and _within(real, excepted)
         for place in denied:
+            if inside and place in around:
+                continue
             if real == place or real.startswith(place.rstrip("/") + "/"):
                 msg = f"the server's root {root} lies inside {place}, which it may not read"
                 raise ContainmentError(msg)
+
+
+#: What Seatbelt names apart from a read of contents: a place's name, size, mode and times, whether
+#: it is there at all, and its extended attributes. Denied by name inside a root withheld whole,
+#: where a rule naming every read would not outrank the metadata allowed everywhere.
+UNSEEN = "file-read-metadata file-test-existence file-read-xattr"
 
 
 #: What a server reads on macOS beyond its own roots: the system's libraries, frameworks and
@@ -262,6 +324,8 @@ def seatbelt_profile(
     command: str,
     exec_roots: Sequence[str] = (),
     read_roots: Sequence[str] = (),
+    excepted: str | None = None,
+    withheld: Sequence[str] = (),
 ) -> str:
     """The Seatbelt profile a server runs under on macOS: denied by default.
 
@@ -276,14 +340,22 @@ def seatbelt_profile(
     that matches an access decides, so each denial comes before the one place it opens again.
     Every path is named as given and where it really is.
 
+    ``excepted`` is the session's worktree where it lies in roots ``withheld`` from the session
+    whole but for it: it is read again after the denials, and every denial inside it denied
+    once more after that, so the server reads there what the session's commands read and no
+    more of the root. It is never written, nor run from.
+
     Raises:
         ContainmentError: no command is named, a path holds a character the profile cannot
-            quote, or a device is named by more than a plain pattern.
+            quote, a device is named by more than a plain pattern, or the place excepted is not
+            one a root withheld whole is denied around.
     """
     if not command:
         msg = "a contained server names the command it runs"
         raise ContainmentError(msg)
-    _refuse_roots_inside_denials(read_denied, (*read_roots, *exec_roots, command))
+    opened = _excepted(read_denied, excepted, withheld)
+    _refuse_roots_inside_denials(read_denied, read_roots, excepted=opened, withheld=withheld)
+    _refuse_roots_inside_denials(read_denied, (*exec_roots, command))
     for pattern in devices:
         if not _DEVICE_PATTERN.fullmatch(pattern):
             msg = f"the device pattern {pattern!r} cannot be written into a sandbox profile"
@@ -326,6 +398,21 @@ def seatbelt_profile(
     for path in sorted(read_denied):
         spelt = " ".join(f"(subpath {_quoted(p)})" for p in _spellings(path))
         lines.append(f"(deny file-read* {spelt})")
+    if opened is not None and excepted is not None:
+        # Nothing of the root withheld whole is looked up either: Seatbelt lets a rule naming an
+        # operation outrank one naming every read, so the metadata allowed everywhere above is
+        # denied there by name. Reaching the worktree needs none of its ancestors' (measured).
+        for root in sorted(withheld):
+            spelt = " ".join(f"(subpath {_quoted(p)})" for p in _spellings(root))
+            lines.append(f"(deny {UNSEEN} {spelt})")
+        # The worktree alone, read again inside the root withheld around it; then each denial
+        # inside it, denied again, as the session's own policy leaves them denied there.
+        spelt = " ".join(f"(subpath {_quoted(p)})" for p in _spellings(excepted))
+        lines.append(f"(allow file-read* {UNSEEN} {spelt})")
+        for path in sorted(read_denied):
+            if _within(os.path.realpath(path), opened):
+                spelt = " ".join(f"(subpath {_quoted(p)})" for p in _spellings(path))
+                lines.append(f"(deny file-read* {UNSEEN} {spelt})")
     if devices:
         # No device lies in the server's own directory, so the opening after it reopens none.
         named = " ".join(f'(regex #"{_device_regex(d)}")' for d in devices)
@@ -388,31 +475,16 @@ def _depth(path: str) -> tuple[int, str]:
     return (path.rstrip("/").count("/"), path)
 
 
-def bwrap_args(
-    *, read_denied: Sequence[str], server_dir: str, read_roots: Sequence[str] = ()
-) -> list[str]:
-    """The bubblewrap options a server runs under on Linux, before its command.
+def _hidden_within(
+    mounted: Sequence[str], denied: set[str]
+) -> tuple[list[str], list[str], list[str]]:
+    """How each denial inside ``mounted`` is kept from the server, and what is made for it.
 
-    An allowlist: the server's root holds the system's libraries and programs
-    (:data:`LINUX_SYSTEM`), its read roots, and its own directory, and nothing else of the
-    machine, so no service's socket and no program outside them is there. A root inside a
-    denied place is refused. Within anything the root holds, the system's places too, a
-    denied directory is hidden under an empty filesystem and a denied file under ``/dev/null``
-    (bound without device access, so opening it is refused);
-    a denied place that does not exist yet has its nearest existing parent rebuilt from the
-    entries it has at launch, so one made later is not there inside (fail closed). A fresh
-    ``/dev`` (no serial device in it) and a ``/proc`` of a process namespace of its own; no
-    network but its own loopback; its own directory bound writable; every filesystem made
-    here, the root's among them, made read-only last. No new session: it stays in the
-    session's process group, and it dies with the binary. What it still lets through is stated
-    once, in this module's docstring.
+    The listings rebuilt come first, then the denied places masked. A denied directory is
+    hidden under an empty filesystem and a denied file under ``/dev/null``; a denied place that
+    does not exist yet has its nearest existing parent rebuilt from the entries it has at
+    launch, so one made later is not there inside (fail closed).
     """
-    _refuse_roots_inside_denials(read_denied, read_roots)
-    roots = sorted({os.path.realpath(r) for r in read_roots if os.path.lexists(r)}, key=_depth)
-    roots = [r for r in roots if not any(_within(r, o) and r != o for o in roots)]
-    # Every place the root holds, the system's among them: a denial inside any is masked.
-    mounted = [*roots, *(os.path.realpath(p) for p in LINUX_SYSTEM if os.path.exists(p))]
-    denied = {os.path.realpath(p) for p in read_denied}
     inside = [p for p in denied if any(_within(p, m) for m in mounted)]
     directories = sorted((p for p in inside if os.path.isdir(p)), key=_depth)
     directories = [d for d in directories if not any(_within(d, o) and d != o for o in directories)]
@@ -426,6 +498,70 @@ def bwrap_args(
         key=_depth,
     )
     rebuilt = [p for p in rebuilt if not hidden(p) and any(_within(p, m) for m in mounted)]
+    listings: list[str] = []
+    made: list[str] = []
+    for place in rebuilt:
+        listings += ["--tmpfs", place]
+        made.append(place)
+        listings += _entries(place, denied)
+    masks: list[str] = []
+    listed = set(rebuilt)
+    for path in directories:
+        if os.path.dirname(path) in listed:
+            continue  # left out of a listing that was rebuilt: not there at all
+        masks += ["--tmpfs", path]
+        made.append(path)
+    for path in files:
+        if hidden(path) or os.path.dirname(path) in listed:
+            continue
+        masks += ["--ro-bind", "/dev/null", path]
+    return listings, masks, made
+
+
+def bwrap_args(
+    *,
+    read_denied: Sequence[str],
+    server_dir: str,
+    read_roots: Sequence[str] = (),
+    exec_roots: Sequence[str] = (),
+    excepted: str | None = None,
+    withheld: Sequence[str] = (),
+) -> list[str]:
+    """The bubblewrap options a server runs under on Linux, before its command.
+
+    An allowlist: the server's root holds the system's libraries and programs
+    (:data:`LINUX_SYSTEM`), its read and exec roots, and its own directory, and nothing else of
+    the machine, so no service's socket and no program outside them is there. A root inside a
+    denied place is refused. Within anything the root holds, the system's places too, a
+    denied directory is hidden under an empty filesystem and a denied file under ``/dev/null``
+    (bound without device access, so opening it is refused);
+    a denied place that does not exist yet has its nearest existing parent rebuilt from the
+    entries it has at launch, so one made later is not there inside (fail closed). A fresh
+    ``/dev`` (no serial device in it) and a ``/proc`` of a process namespace of its own; no
+    network but its own loopback; its own directory bound writable; every filesystem made
+    here, the root's among them, made read-only last. No new session: it stays in the
+    session's process group, and it dies with the binary. What it still lets through is stated
+    once, in this module's docstring.
+
+    ``excepted`` is the session's worktree where it lies in roots ``withheld`` from the session
+    whole but for it: bound read-only after every denial is hidden, so a root withheld that a
+    place of the server's holds is masked first and the worktree alone is put on it, and the
+    denials inside the worktree are hidden after that. Of the root, the server's root holds
+    only the way down to the worktree, and the worktree.
+    """
+    opened = _excepted(read_denied, excepted, withheld)
+    _refuse_roots_inside_denials(read_denied, read_roots, excepted=opened, withheld=withheld)
+    _refuse_roots_inside_denials(read_denied, exec_roots)
+    given = (*read_roots, *exec_roots)
+    roots = sorted({os.path.realpath(r) for r in given if os.path.lexists(r)}, key=_depth)
+    if opened is not None:
+        # Bound on its own, after the denials around it: what lies in it comes with it.
+        roots = [r for r in roots if not _within(r, opened)]
+    roots = [r for r in roots if not any(_within(r, o) and r != o for o in roots)]
+    # Every place the root holds, the system's among them: a denial inside any is masked.
+    mounted = [*roots, *(os.path.realpath(p) for p in LINUX_SYSTEM if os.path.exists(p))]
+    denied = {os.path.realpath(p) for p in read_denied}
+    listings, masks, made = _hidden_within(mounted, denied)
     args = ["--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-ipc"]
     for place in LINUX_SYSTEM:
         if os.path.islink(place):
@@ -434,22 +570,14 @@ def bwrap_args(
             args += ["--ro-bind", place, place]
     for root in roots:
         args += ["--ro-bind", root, root]
-    made: list[str] = []
-    for place in rebuilt:
-        args += ["--tmpfs", place]
-        made.append(place)
-        args += _entries(place, denied)
+    args += listings
     args += ["--dev", "/dev", "--proc", "/proc"]
-    listed = set(rebuilt)
-    for path in directories:
-        if os.path.dirname(path) in listed:
-            continue  # left out of a listing that was rebuilt: not there at all
-        args += ["--tmpfs", path]
-        made.append(path)
-    for path in files:
-        if hidden(path) or os.path.dirname(path) in listed:
-            continue
-        args += ["--ro-bind", "/dev/null", path]
+    args += masks
+    if opened is not None:
+        args += ["--ro-bind", opened, opened]
+        listings, masks, inner = _hidden_within([opened], denied)
+        args += [*listings, *masks]
+        made += inner
     own = os.path.realpath(server_dir)
     args += ["--bind", own, own]
     for path in made:
@@ -570,6 +698,10 @@ def contained_servers(
         )
         raise ContainmentError(msg)
     denied = server_read_denied(config, platform)
+    # A protected trial's session and a blind check's work in a root withheld whole but for the
+    # worktree: the server reads the worktree there, as the session's commands do, and no more.
+    withheld = sorted(withheld_around_worktree(config))
+    excepted = config.worktree if withheld else None
     # Every server held before anything of any is made.
     judged = {
         server.name: _judged(server, temp_dir / SERVERS_DIR / server.name, config.worktree)
@@ -603,6 +735,8 @@ def contained_servers(
                     command=server.command,
                     exec_roots=server.exec_roots,
                     read_roots=reads_from,
+                    excepted=excepted,
+                    withheld=withheld,
                 )
             )
             command, args = SANDBOX_EXEC, ["-f", str(profile)]
@@ -613,7 +747,10 @@ def contained_servers(
                     *bwrap_args(
                         read_denied=denied,
                         server_dir=str(server_dir),
-                        read_roots=(*reads_from, *server.exec_roots, server.command),
+                        read_roots=reads_from,
+                        exec_roots=(*server.exec_roots, server.command),
+                        excepted=excepted,
+                        withheld=withheld,
                     ),
                     "--",
                 ],

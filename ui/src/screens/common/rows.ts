@@ -475,8 +475,79 @@ export function rowOf(
         meta: `${event.subtask} · ${event.itemId}`,
         subtask: event.subtask,
       };
+    case "design_pairs_planned": {
+      const built = event.pairs.map(
+        (p) =>
+          `${subtaskName(p.builder)} builds ${subtaskName(p.designer)}'s design on ${p.nodes.join(", ")}`,
+      );
+      const named = event.mutual.map(
+        (p) =>
+          `${subtaskName(p.builder)} also names ${p.nodes.join(", ")} of ${subtaskName(p.designer)}'s, which holds nothing`,
+      );
+      // A builder the plan lists before the designer whose design it may build holds nothing:
+      // the page says so in the sentence, where a person reads it.
+      const misordered = event.misordered.map(
+        (p) =>
+          `The plan lists ${subtaskName(p.builder)} before ${subtaskName(p.designer)}, whose design it may build: check the order`,
+      );
+      const nodesOf = event.misordered.map(
+        (p) => `${p.nodes.join(", ")} of ${subtaskName(p.designer)}'s`,
+      );
+      const planned =
+        event.pairs.length === 0
+          ? []
+          : [
+              `Planned ${String(event.pairs.length)} design ${event.pairs.length === 1 ? "pair" : "pairs"}`,
+            ];
+      return {
+        ...base,
+        depth: 0,
+        sentence: [...planned, ...misordered].join(". "),
+        meta: [...built, ...named, ...nodesOf].join("; "),
+      };
+    }
+    case "builder_held":
+      return {
+        ...base,
+        depth: 1,
+        sentence: heldWords(
+          subtaskName(event.subtask),
+          subtaskName(event.designer),
+          event,
+          subtaskName,
+        ),
+        meta: `${event.subtask} · implements ${event.nodes.join(", ")}`,
+        subtask: event.subtask,
+      };
+    case "builder_released":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.subtask)} released: ${subtaskName(event.designer)}'s design merged`,
+        meta: `${event.subtask} · implements ${event.nodes.join(", ")}`,
+        subtask: event.subtask,
+      };
     default:
       return null;
+  }
+}
+
+/** Why a builder is held until the design it implements is merged, in a sentence. */
+function heldWords(
+  builder: string,
+  designer: string,
+  event: Extract<RunEvent, { kind: "builder_held" }>,
+  subtaskName: (id: string) => string,
+): string {
+  switch (event.why) {
+    case "escalated":
+      return `${builder} is held until ${designer}'s design is merged: ${designer} is with a person (${event.itemId ?? "no item"})`;
+    case "ended_unmerged":
+      return `${builder} is held for good: ${designer} ended without merging, so there is no design to build`;
+    case "designer_held":
+      return `${builder} is held for good: ${designer} is itself held for good, through ${(event.chain ?? []).map(subtaskName).join(", then ")}`;
+    case "not_merged":
+      return `${builder} is held until ${designer}'s design is merged`;
   }
 }
 

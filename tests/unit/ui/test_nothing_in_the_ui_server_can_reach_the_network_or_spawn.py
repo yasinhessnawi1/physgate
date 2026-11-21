@@ -95,6 +95,9 @@ ALLOWED_MODULES = {
     # The precondition registry, asked for each module's open entries and their own reasons, so
     # no reason is born in the page. It reads the run state it is given and nothing else.
     "physgate.orchestrator.completion",
+    # The builders held while the design each implements has not merged, as the run state it is
+    # given holds them; it reads that state and nothing else.
+    "physgate.orchestrator.design_wait",
     # The attempts a subtask gets, sent beside the run's configuration: a constant, which the
     # event log's own model already imports.
     "physgate.orchestrator.budget",

@@ -54,6 +54,7 @@ from physgate.orchestrator.common import (
     utc_now,
     utc_stamp,
 )
+from physgate.orchestrator.design_pairs import DesignPair
 from physgate.orchestrator.dispute import plain
 from physgate.orchestrator.escalation import BackendName, Decision
 from physgate.orchestrator.escalation_state import EscalationState
@@ -1087,6 +1088,75 @@ class DispatchReleased(_Event):
     outcome: ReleasedHow
 
 
+#: Why a builder is held while the module whose design it implements has not merged.
+#:
+#: ``escalated``: the designer is with a person, its item undecided, named by the line.
+#: ``ended_unmerged``: the designer ended without a merge (rejected, removed, or a decision that
+#: acted on nothing): the builder stays held, since there is no design to build, and the run goes
+#: on without it. ``designer_held``: the designer is itself a builder held for good, so it will
+#: never merge either: the builder is held for good too, and the line names the chain.
+#: ``not_merged``: the designer has not merged yet for any other reason (it runs again after a
+#: person's decision, waits for sizing's closing pass, or is a builder still held).
+BuilderHeldWhy = Literal["escalated", "ended_unmerged", "designer_held", "not_merged"]
+
+
+class BuilderHeld(_Event):
+    """A builder's dispatch is held: the module whose design it implements has not merged.
+
+    "Implements" is the run's recorded design pairs: ``designer`` is a pair's designing subtask
+    whose builder is ``subtask_id``, over the design's ``nodes``. Written when the builder's
+    dispatch comes and its designer has not merged, and again whenever why changes; never a
+    failure, and nothing of the builder runs while it is held. ``item_id`` is the designer's
+    undecided item, exactly when ``why`` is ``escalated``. ``chain`` is exactly when ``why`` is
+    ``designer_held``: the designers in turn, from ``designer`` to the one that can no longer
+    merge (ended without a merge, or with a person in a run that records only), each once.
+    """
+
+    kind: Literal["builder_held"] = "builder_held"
+    subtask_id: NonEmptyStr
+    designer: NonEmptyStr
+    nodes: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
+    why: BuilderHeldWhy
+    item_id: NonEmptyStr | None = None
+    chain: Annotated[tuple[NonEmptyStr, ...], Field(min_length=2)] | None = None
+
+    @model_validator(mode="after")
+    def _item_when_escalated(self) -> BuilderHeld:
+        if (self.why == "escalated") != (self.item_id is not None):
+            msg = "a builder's hold names the designer's item exactly when the designer escalated"
+            raise ValueError(msg)
+        if (self.why == "designer_held") != (self.chain is not None):
+            msg = "a builder's hold names a chain exactly when its designer is itself held for good"
+            raise ValueError(msg)
+        chain = self.chain or (self.designer,)
+        if chain[0] != self.designer or len(set(chain)) != len(chain) or self.subtask_id in chain:
+            msg = "a hold's chain starts at its designer and names each subtask once, not its own"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_no_item(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.item_id is None:
+            data.pop("item_id", None)
+        if self.chain is None:
+            data.pop("chain", None)
+        return data
+
+
+class BuilderReleased(_Event):
+    """A builder's hold let go: the module whose design it implements merged.
+
+    Closes the one hold of ``subtask_id`` on ``designer``; the builder is then dispatched as
+    planned, against the design as merged.
+    """
+
+    kind: Literal["builder_released"] = "builder_released"
+    subtask_id: NonEmptyStr
+    designer: NonEmptyStr
+    nodes: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
+
+
 class Incident(_Event):
     """Something the loop cannot answer by itself happened. The run halts after it."""
 
@@ -1431,6 +1501,41 @@ class ContractPairsPlanned(_Event):
 
     kind: Literal["contract_pairs_planned"] = "contract_pairs_planned"
     pairs: Annotated[tuple[ContractPair, ...], Field(min_length=1)]
+
+
+class DesignPairsPlanned(_Event):
+    """The modules that build what another designs, read from the plan's specifications.
+
+    Written once, in the run's opening after the planning lines and the contract pairs, and only
+    where the plan has such a pair or a suspected misorder, so the set is on the record before any
+    module runs. A builder is not dispatched until its designer merged (:class:`BuilderHeld`).
+    """
+
+    kind: Literal["design_pairs_planned"] = "design_pairs_planned"
+    pairs: tuple[DesignPair, ...]
+    #: Each pair the other way round, where its designer's specification also names a node of its
+    #: builder's own: no hold, as the plan's order is the pair's, and written so a reader sees it.
+    #: Left out of the line when empty, so every other line keeps its bytes.
+    mutual: tuple[DesignPair, ...] = ()
+    #: Each builder the plan lists before the designer whose design it may build, the plan having
+    #: been refused for it once and accepted when made again: ``builder`` is dispatched first, so
+    #: nothing is held for it. Left out of the line when empty, as ``mutual`` is.
+    misordered: tuple[DesignPair, ...] = ()
+
+    @model_validator(mode="after")
+    def _a_line_says_something(self) -> DesignPairsPlanned:
+        if not self.pairs and not self.misordered:
+            msg = "a design pairs line records a pair or a suspected misorder"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_what_is_empty(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        for name in ("mutual", "misordered"):
+            if not getattr(self, name):
+                data.pop(name, None)
+        return data
 
 
 class ContractTested(_Event):
@@ -1963,6 +2068,8 @@ Event = Annotated[
     | FollowUpEnded
     | DispatchHeld
     | DispatchReleased
+    | BuilderHeld
+    | BuilderReleased
     | FindingsRecorded
     | Incident
     | IncidentResolved
@@ -1978,6 +2085,7 @@ Event = Annotated[
     | PartsGateRan
     | PartsRaisedAgain
     | ContractPairsPlanned
+    | DesignPairsPlanned
     | ContractTested
     | IntegrationStateIssued
     | CompletionDeclared

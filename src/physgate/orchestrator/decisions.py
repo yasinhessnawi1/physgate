@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from physgate.orchestrator.arbitration import clause_conflicts
-from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
+from physgate.orchestrator.budget import ATTEMPT_LIMIT, REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.events import (
     ContractTested,
     DecisionEffect,
@@ -264,7 +264,8 @@ def contract_choices(state: RunState, tested: ContractTested) -> dict[Position, 
             why = "deviates"
         elif sub.status != "done" or state.integration is not None:
             why = "closed"
-        elif any(attempt.fix for attempt in sub.attempts):
+        elif any(attempt.fix for attempt in sub.attempts) or last >= ATTEMPT_LIMIT:
+            # A follow-up can merge on the subtask's last number though it is no fix.
             why = "spent"
         choices[position] = ContractChoice(
             why, side.module, side.subtask_id, last + 1, fix=last >= REPAIR_BUDGET

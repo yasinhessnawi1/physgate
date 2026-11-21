@@ -63,7 +63,13 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: (test_every_acceptance_criterion_is_one_statement_with_its_verification_method); and, since
 #: 18.11.2026, the sentence in the first of those paragraphs saying a quantity is on an
 #: interface node only where another module's specification reads it, and is named in each
-#: reader's specification (test_an_interface_quantity_is_read_by_a_module_besides_its_producer).
+#: reader's specification (test_an_interface_quantity_is_read_by_a_module_besides_its_producer);
+#: and, since 20.11.2026, the sentence ending the criterion paragraph saying a criterion is
+#: written only against what the run's environment can measure (a simulator only where it
+#: provides one, where the brief connects no board), and that each specification states its
+#: limits, timeouts and fault behaviour
+#: (test_a_criterion_is_written_against_an_instrument_the_run_has).
+#: Before the instrument sentence: 11fc062c365c..., ccd58c178193... and 591a7d65fb70....
 #: Before that sentence: 6672229b67f4..., 6219833c8874... and b85194b2c03a....
 #: Before the criterion paragraph: 38485dfa3eae..., c6bbc8f4ddd1... and 06b330e281cc....
 #: Before the rewording: 7394c68115d3..., 044c69c7b621... and 0e879c749f64....
@@ -73,15 +79,19 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: before that sentence: ca0317a59ce7..., 8abeae4b5f23... and 44175ad46745...; before the
 #: widening, since 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
 #: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
+#: Before the designer's node was said to be named by its module and a module's own limits to stay
+#: off the interface nodes: 5ad250714df6..., 5b92ffb708ee... and cd26dec56241....
+#: Before a criterion's measurable checks named no instrument the environment may lack:
+#: db3460bb33af..., 54927b0efe85... and 7cefa8af5171....
 PROMPT_SHA256 = {
-    ("control", "firmware"): "11fc062c365c4f128038c88bae8f05c4a78f135a0b4970f3286ac9e4d3d285ab",
-    ("electrical",): "ccd58c178193d4b0963c808302e6e7d62aa3c4fe2d4dfb492f2dc5ee8d0c57c4",
+    ("control", "firmware"): "0855254a33127995ced0fb1e81ab4474895a4ab5d553888cf6349e3d04a49e3d",
+    ("electrical",): "0a3dc6ded3ef651ceed802c9a415b787402edd70ff855a9c006eb1bd93354072",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "591a7d65fb70b6202d1b4bce6aaf05a1560b3b5361575bf978e1ba0daf746d37",
+    ): "6733365870b192d21e3c5fae4e55df1b956296ab2f421fa1991a05db097a4c35",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -114,7 +124,8 @@ PROMPT = (
     "Where one module implements what another designs, such as firmware running the control law "
     "that was analysed, the "
     "designing module comes before the implementing module in the plan and writes its design on "
-    "a node of its own, named in both specifications; the implementing module's acceptance "
+    'a node of its own, "<the designing module\'s name>.<what it holds>", named in both '
+    "specifications; the implementing module's acceptance "
     "criteria compare its implementation with that node as merged, and where the node is not "
     "merged when it starts, it reports that and implements no design of its own.\n\n"
     'Write each acceptance criterion as one statement of one thing, in the form "The <module> '
@@ -125,7 +136,16 @@ PROMPT = (
     "holds several figures or conditions (a value and its agreement with another quantity, a "
     "value and a rule for the rest of the module, two margins, a figure and a setting) becomes "
     "one criterion for each, so that each is met or unmet on its own. A goal is written with "
-    '"should", outside the acceptance criteria.\n\n'
+    '"should", outside the acceptance criteria. Write each criterion only against what the '
+    "run's environment can measure. No board is connected unless the brief says so; without "
+    "one, behaviour on the target is checked in a simulator only where the run's environment "
+    "provides one, and otherwise the criterion is written against what can be measured (that "
+    "the code compiles without a warning in the module's own files, its size, and a check of "
+    "its logic with the tools the environment provides) and the specification states that "
+    "behaviour on the target is not measured in this run. Each "
+    "module's specification states, with a value, every limit, timeout and fault behaviour the "
+    "module must implement, and names the interface node that carries one only where both sides "
+    "must agree on its value.\n\n"
     # The catalogue's names, from the catalogue: a copy here would hold the test to a list the
     # catalogue no longer keeps. The digests above hold the bytes.
     f"{catalogue_sentence()}\n\n"
