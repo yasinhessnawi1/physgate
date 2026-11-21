@@ -1,0 +1,92 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/orchestrator/sign_off.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_scripted_slice_with_a_control_module_owes_its_sign_off_and_ends_as_the_person_decides.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_sign_off_item_is_raised_by_code_at_every_clean_merge_that_owes_one.py",
+      "tests/unit/orchestrator/test_a_sign_off_owed_holds_the_integration_call_and_refuses_a_declaration_of_its_module.py"
+    ]
+  },
+  {
+    "name": "slice_table_without_control",
+    "file": "src/physgate/orchestrator/sign_off.py",
+    "old": "            role=\"control\",\n            owes=\"stability_margin\",",
+    "new": "            role=\"nobody\",\n            owes=\"stability_margin\",",
+    "tests": [
+      "tests/unit/orchestrator/test_a_scripted_slice_with_a_control_module_owes_its_sign_off_and_ends_as_the_person_decides.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_sign_off_item_is_raised_by_code_at_every_clean_merge_that_owes_one.py",
+      "tests/unit/orchestrator/test_a_sign_off_owed_holds_the_integration_call_and_refuses_a_declaration_of_its_module.py"
+    ]
+  },
+  {
+    "name": "slice_rule_not_recorded",
+    "file": "src/physgate/orchestrator/record.py",
+    "old": "SIGN_OFF_RULES: str | None = CURRENT_SHA256",
+    "new": "SIGN_OFF_RULES: str | None = None",
+    "tests": [
+      "tests/unit/orchestrator/test_a_scripted_slice_with_a_control_module_owes_its_sign_off_and_ends_as_the_person_decides.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_sign_off_item_is_raised_by_code_at_every_clean_merge_that_owes_one.py",
+      "tests/unit/orchestrator/test_a_sign_off_owed_holds_the_integration_call_and_refuses_a_declaration_of_its_module.py"
+    ]
+  },
+  {
+    "name": "slice_record_says_nothing_unsigned",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "\"sign_off\": UNSIGNED if export.sign_offs_owed else None,",
+    "new": "\"sign_off\": None,",
+    "tests": [
+      "tests/unit/orchestrator/test_a_scripted_slice_with_a_control_module_owes_its_sign_off_and_ends_as_the_person_decides.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_sign_off_item_is_raised_by_code_at_every_clean_merge_that_owes_one.py",
+      "tests/unit/orchestrator/test_a_sign_off_owed_holds_the_integration_call_and_refuses_a_declaration_of_its_module.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/orchestrator/sign_off.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_scripted_slice_with_a_control_module_owes_its_sign_off_and_ends_as_the_person_decides.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_sign_off_item_is_raised_by_code_at_every_clean_merge_that_owes_one.py",
+      "tests/unit/orchestrator/test_a_sign_off_owed_holds_the_integration_call_and_refuses_a_declaration_of_its_module.py"
+    ]
+  }
+]

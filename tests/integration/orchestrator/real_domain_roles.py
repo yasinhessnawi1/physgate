@@ -78,6 +78,7 @@ from physgate.evaluation.observe.manifest import read_manifest  # noqa: E402
 from physgate.evaluation.observe.trace import read_traces  # noqa: E402
 from physgate.gate.runner import PhysicsGate  # noqa: E402
 from physgate.knowledge import loader  # noqa: E402
+from physgate.orchestrator import record  # noqa: E402
 from physgate.orchestrator.cli import Registrations  # noqa: E402
 from physgate.orchestrator.decompose import binary_version, mint_id  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
@@ -657,6 +658,22 @@ def dry_script(api: Any) -> None:  # noqa: ANN401
 
 
 def one_run(root: Path) -> dict[str, Any]:
+    """The run, started as one recorded before the sign-off rule table, as it was written.
+
+    This run plans a control module and passes only if it ends done with nothing open. Under the
+    rule control owes a person's signature, so a run that records decisions would end escalated
+    and one that acts would wait for a person this driver does not have. The setting is undone
+    when the run is over.
+    """
+    held = record.SIGN_OFF_RULES
+    record.SIGN_OFF_RULES = None
+    try:
+        return _run(root)
+    finally:
+        record.SIGN_OFF_RULES = held
+
+
+def _run(root: Path) -> dict[str, Any]:
     # Nothing curated is seeded here: at decomposition the orchestrator copies each
     # planned role's real curated files from this checkout into the run branch, and
     # the sessions read those.
