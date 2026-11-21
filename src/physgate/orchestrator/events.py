@@ -1507,22 +1507,34 @@ class DesignPairsPlanned(_Event):
     """The modules that build what another designs, read from the plan's specifications.
 
     Written once, in the run's opening after the planning lines and the contract pairs, and only
-    where the plan has such a pair, so the set is on the record before any module runs. A builder
-    is not dispatched until its designer merged (:class:`BuilderHeld`).
+    where the plan has such a pair or a suspected misorder, so the set is on the record before any
+    module runs. A builder is not dispatched until its designer merged (:class:`BuilderHeld`).
     """
 
     kind: Literal["design_pairs_planned"] = "design_pairs_planned"
-    pairs: Annotated[tuple[DesignPair, ...], Field(min_length=1)]
+    pairs: tuple[DesignPair, ...]
     #: Each pair the other way round, where its designer's specification also names a node of its
     #: builder's own: no hold, as the plan's order is the pair's, and written so a reader sees it.
     #: Left out of the line when empty, so every other line keeps its bytes.
     mutual: tuple[DesignPair, ...] = ()
+    #: Each builder the plan lists before the designer whose design it may build, the plan having
+    #: been refused for it once and accepted when made again: ``builder`` is dispatched first, so
+    #: nothing is held for it. Left out of the line when empty, as ``mutual`` is.
+    misordered: tuple[DesignPair, ...] = ()
+
+    @model_validator(mode="after")
+    def _a_line_says_something(self) -> DesignPairsPlanned:
+        if not self.pairs and not self.misordered:
+            msg = "a design pairs line records a pair or a suspected misorder"
+            raise ValueError(msg)
+        return self
 
     @model_serializer(mode="wrap")
-    def _omit_no_mutual(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+    def _omit_what_is_empty(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        if not self.mutual:
-            data.pop("mutual", None)
+        for name in ("mutual", "misordered"):
+            if not getattr(self, name):
+                data.pop(name, None)
         return data
 
 

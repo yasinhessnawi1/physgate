@@ -230,6 +230,8 @@ export type RunEvent = Line &
         readonly kind: "design_pairs_planned";
         readonly pairs: readonly DesignPair[];
         readonly mutual: readonly DesignPair[];
+        /** Builders the plan lists before the designer whose design they may build. */
+        readonly misordered: readonly DesignPair[];
       }
     /** A builder's dispatch held: the module whose design it implements has not merged. */
     | {
@@ -612,6 +614,10 @@ export function runEvent(value: unknown): RunEvent {
         kind: "design_pairs_planned",
         pairs: list(e.pairs, "design pairs").map(designPair),
         mutual: e.mutual === undefined ? [] : list(e.mutual, "design namings").map(designPair),
+        misordered:
+          e.misordered === undefined
+            ? []
+            : list(e.misordered, "suspected misorders").map(designPair),
       };
     case "builder_held":
       return {

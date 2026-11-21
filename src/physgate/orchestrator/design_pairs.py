@@ -13,23 +13,26 @@ role.
 
 A node is named by its first two parts, so a specification that writes a quantity's path under it
 (``control.law.gain``) names the node (``control.law``). A name inside a file path is no node, and
-neither is a file's own name (``control.md``, ``control.py``): one whose last part is a file
-extension no quantity could be named by. A last part that could name one (``control.step``, a step
+neither is a file's own name (``control.md``, ``firmware.c``): one whose last part is in
+:data:`FILE_EXTENSIONS`. A last part that could name a quantity (``control.step``, a step
 response; ``control.m``, a mass) is read as a node, whatever file type is spelt the same. Nor is
 a node a specification names only as what a node of its own constrains (``"constrains":
-["firmware.main_loop"]``, a ``constrains`` edge to ``firmware.main_loop``): a constrained node
-must follow every change of the node constraining it (ARCH-082), so the module writing that edge
-designs for the node it names and implements nothing of it.
+["firmware.main_loop"]`` over one line or several, a YAML ``constrains:`` list, ``constrains X and
+Y``, ``constrains the node X``, "constrained by X", a ``constrains`` edge to it): a constrained
+node must follow every change of the node constraining it (ARCH-082), so the module writing that
+edge designs for the node it names and implements nothing of it.
 
 The pairs are fixed from the plan and recorded before the first dispatch. Only a designer that the
 run dispatches before its builder makes a pair, as the prompt asks the plan to order them: the run
 order is the harness's (ARCH-051), so a builder is never moved ahead of the module that opens the
 domain work, and no two modules can wait on each other. A plan that puts a domain module's builder
 before its designer is found here too (:func:`misordered_pairs`), so the decomposition refuses it
-rather than let it pass with no hold. Two modules that each name a node of the other's own are no
-misorder: no order could satisfy a refusal of them. The later builds what the earlier designs, as
-the plan orders them, and the earlier one's naming of the later one's node holds nothing; it is
-written on the pairs line beside its pair (:func:`plan_mutual_namings`), so a reader sees it.
+once, for the planner to reorder; this reading is of text, so a plan refused for its order a
+second time is accepted, the suspected misorder recorded beside the pairs and no hold made. Two
+modules that each name a node of the other's own are no misorder: no order could satisfy a
+refusal of them. The later builds what the earlier designs, as the plan orders them, and the
+earlier one's naming of the later one's node holds nothing; it is written on the pairs line beside
+its pair (:func:`plan_mutual_namings`), so a reader sees it.
 Nothing here reads the register, a store or a model.
 """
 
@@ -53,21 +56,44 @@ _NAMED = re.compile(
     r"(?<![A-Za-z0-9_./\\-])[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_]+)+(?![A-Za-z0-9_/\\-])"
 )
 #: The last parts that make a name a file's, never a node's: file types a specification of these
-#: roles names that no quantity is named by. A word a design node may end in (``step``, ``ts``,
-#: ``mat``, ``m``, ``c``, ``h``, ...) is left out, whatever file type is spelt the same: such a file
-#: named inside a path is no node already.
+#: roles names (``firmware.c``, ``firmware.h``, a linker script, a map, an image). A word a design
+#: node may end in (``step``, ``ts``, ``mat``, ``m``, ...) is left out, whatever file type is spelt
+#: the same: such a file named inside a path is no node already. A node whose last part is one of
+#: these loses its hold, which errs toward running the module, not toward ending the run.
 FILE_EXTENSIONS: frozenset[str] = frozenset(
     {"py", "md", "cpp", "hpp", "ino", "json", "toml", "yaml", "yml", "txt", "csv", "ini"}
+    | {"c", "h", "cc", "s", "hex", "elf", "ld", "map"}
 )
+#: A name as a ``constrains`` clause writes it: with or without backticks or quotes.
+_QUOTED_NAME = r"[`\"']?[A-Za-z][A-Za-z0-9_.-]*[`\"']?"
 #: What a node's ``constrains`` edges name, as a specification writes them: the field as JSON
-#: (``"constrains": [...]``) or in prose (``constrains firmware.main_loop``, a ``constrains`` edge
-#: to it, ``constrains`` is ``[...]``). The first group is the list, or the one name, the edges
-#: name; a list is read to its closing bracket on its own line.
+#: (``"constrains": [...]``) or YAML (``constrains:`` and a list), or in prose (``constrains
+#: firmware.main_loop``, ``constrains X and Y``, ``constrains the node X``, a ``constrains`` edge
+#: to it, ``X is constrained by``-style ``constrained by Y``, ``constrains`` is ``[...]``). The
+#: head ends where the edge's names begin; :func:`_edge_spans` reads them from there.
 _CONSTRAINED = re.compile(
-    r"\bconstrains\b[`\"']?\s*(?::|\bis\b|\bedges?\s+to\b|\bto\b)?\s*[`\"']?\s*"
-    r"(\[[^\]\n]*\]|[A-Za-z][A-Za-z0-9_.-]*)",
+    r"\b(?:constrains|constrained\s+by)\b[`\"']?\s*(?::|\bis\b|\bedges?\s+to\b|\bto\b)?\s*"
+    r"[`\"']?\s*(?:\bthe\s+)?(?:\bnodes?\s+)?",
     re.IGNORECASE,
 )
+#: A JSON or YAML flow list, to its closing bracket, over as many lines as it takes.
+_FLOW_LIST = re.compile(r"\[[^\]]*\]")
+#: A YAML block list: every ``- name`` line that follows.
+_BLOCK_LIST = re.compile(rf"(?:-\s*{_QUOTED_NAME}\s*)+")
+#: One name, or several in a sentence: ``X``, ``X, Y`` and ``X and Y``.
+_NAME_LIST = re.compile(rf"{_QUOTED_NAME}(?:\s*(?:,\s*and\b|,|\band\b)\s*{_QUOTED_NAME})*")
+
+
+def _edge_spans(spec: str) -> list[tuple[int, int]]:
+    """The stretches of ``spec`` that name what a node's ``constrains`` edges name."""
+    spans: list[tuple[int, int]] = []
+    for head in _CONSTRAINED.finditer(spec):
+        for shape in (_FLOW_LIST, _BLOCK_LIST, _NAME_LIST):
+            found = shape.match(spec, head.end())
+            if found is not None:
+                spans.append(found.span())
+                break
+    return spans
 
 
 class DesignPair(BaseModel):
@@ -93,7 +119,7 @@ def named_nodes(spec: str, excluded: Sequence[str] = ()) -> list[str]:
     specification writes what a node's ``constrains`` edges name is not read there: the module
     constrains that node, it does not implement it. Named anywhere else as well, it is read.
     """
-    edges = [match.span(1) for match in _CONSTRAINED.finditer(spec)]
+    edges = _edge_spans(spec)
     found: dict[str, None] = {}
     for match in _NAMED.finditer(spec):
         if any(start <= match.start() < end for start, end in edges):
@@ -226,6 +252,7 @@ def recorded_design_pairs_problem(
     modules: Sequence[str],
     interfaces: Sequence[str],
     mutual: Sequence[DesignPair] = (),
+    misordered: Sequence[DesignPair] = (),
 ) -> str | None:
     """Why a recorded set of design pairs cannot be a plan's, given the run's own lines.
 
@@ -233,7 +260,10 @@ def recorded_design_pairs_problem(
     interface nodes the decomposition's line names. Each pair is of two of them, the designer
     dispatched first, each pair once, in the order :func:`plan_design_pairs` gives, and no node
     is an interface node. Each of ``mutual`` is a recorded pair the other way round, each once,
-    in the pairs' order (:func:`plan_mutual_namings`), its nodes held as a pair's are.
+    in the pairs' order (:func:`plan_mutual_namings`), its nodes held as a pair's are. Each of
+    ``misordered`` is a suspected misorder the plan was accepted with (:func:`misordered_pairs`):
+    ``builder`` is dispatched before ``designer``, each is recorded once, by builder and then
+    designer in run order, on no interface node, and none is a recorded pair the other way round.
     """
     place = {subtask: index for index, subtask in enumerate(modules)}
     keys: list[tuple[int, int]] = []
@@ -249,7 +279,34 @@ def recorded_design_pairs_problem(
         keys.append((place[pair.builder], place[pair.designer]))
     if keys != sorted(set(keys)):
         return "the pairs are not each recorded once, by builder and then designer in run order"
-    return _mutual_problem(pairs, mutual, interfaces)
+    return _mutual_problem(pairs, mutual, interfaces) or _misordered_problem(
+        pairs, misordered, interfaces, place
+    )
+
+
+def _misordered_problem(
+    pairs: Sequence[DesignPair],
+    misordered: Sequence[DesignPair],
+    interfaces: Sequence[str],
+    place: Mapping[str, int],
+) -> str | None:
+    held = {(pair.builder, pair.designer) for pair in pairs}
+    keys: list[tuple[int, int]] = []
+    for one in misordered:
+        if one.designer not in place or one.builder not in place:
+            return "a suspected misorder names a subtask that plans no module of the plan"
+        if place[one.builder] >= place[one.designer]:
+            return "a suspected misorder's builder is not dispatched before its designer"
+        if (one.designer, one.builder) in held:
+            return "a suspected misorder is a recorded pair the other way round"
+        if any(_is_excluded(node, interfaces) for node in one.nodes):
+            return "a suspected misorder is on an interface node"
+        if list(one.nodes) != sorted(set(one.nodes)):
+            return "a suspected misorder has its nodes not each named once, in id order"
+        keys.append((place[one.builder], place[one.designer]))
+    if keys != sorted(set(keys)):
+        return "the suspected misorders are not each recorded once, in run order"
+    return None
 
 
 def _mutual_problem(

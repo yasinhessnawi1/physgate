@@ -1216,6 +1216,7 @@ def judge(
     declined: bool = False,
     parts: bool = False,
     lost: str | None = None,
+    accept_misorder: bool = False,
 ) -> tuple[FailureCause | None, str, Plan | None, str | None, int]:
     """Decide from the result object whether the call produced a usable plan.
 
@@ -1279,7 +1280,7 @@ def judge(
     problems = plan_problems(plan, roles, brief)
     if problems:
         return "invalid_plan", "; ".join(problems), None, seen_model, turns
-    misordered = order_refusal(plan, roles)
+    misordered = None if accept_misorder else order_refusal(plan, roles)
     if misordered is not None:
         # A schema-stage refusal as a unit's is: the call is made once more, told why.
         return "schema_refused", misordered, None, seen_model, turns
@@ -1294,6 +1295,28 @@ UNIT_REFUSAL_HEAD = "interface node "
 ORDER_REFUSAL_HEAD = "the plan puts module "
 
 
+def _misordered(plan: Plan, roles: Sequence[str]) -> list[tuple[str, str, tuple[str, ...]]]:
+    """Each domain module the plan puts before a module whose design it may build."""
+    openings = set(_in_run("cross_nodes", roles))
+    domain = [module.name for module in plan.modules if module.role not in openings]
+    return misordered_pairs(plan, domain)
+
+
+def planned_misorders(
+    plan: Plan, roles: Sequence[str], subtask_of: Mapping[str, str]
+) -> tuple[DesignPair, ...]:
+    """The suspected misorders of ``plan`` as the run records them, with each module's subtask.
+
+    One entry for each builder listed before the designer whose design it may build: the entry's
+    ``builder`` is dispatched first, so nothing is held for it. A plan reaches the opening with
+    one only when it was refused for its order and made once more (:func:`judge`).
+    """
+    return tuple(
+        DesignPair(designer=subtask_of[designer], builder=subtask_of[builder], nodes=nodes)
+        for builder, designer, nodes in _misordered(plan, roles)
+    )
+
+
 def order_refusal(plan: Plan, roles: Sequence[str]) -> str | None:
     """Why ``plan`` is refused for a builder put before its designer, or ``None``.
 
@@ -1305,10 +1328,11 @@ def order_refusal(plan: Plan, roles: Sequence[str]) -> str | None:
     the two the other way round, or the quantity on an interface node. The module of the role
     that opens the domain work runs first whatever the plan says and reads the domain's nodes to
     size them, so it is no builder here.
+
+    The refusal is made once: the call made again accepts such a plan (``accept_misorder`` of
+    :func:`judge`), as a text check must not be able to end a run.
     """
-    openings = set(_in_run("cross_nodes", roles))
-    domain = [module.name for module in plan.modules if module.role not in openings]
-    found = misordered_pairs(plan, domain)
+    found = _misordered(plan, roles)
     if not found:
         return None
     said = "; ".join(
@@ -1431,6 +1455,7 @@ def call(
     credential: Credential,
     prompt: str | None = None,
     session_id: str | None = None,
+    accept_misorder: bool = False,
 ) -> Outcome:
     """Make one decomposition call, isolated, as session ``session_id``, and judge what came back.
 
@@ -1439,7 +1464,8 @@ def call(
     call's own configuration directory, removed when the call ends. It is sent
     ``prompt``, or without one the decomposition prompt for ``brief``, which is
     therefore the first call's prompt whatever the run does with a rejected plan; the
-    answer is judged against ``brief`` either way.
+    answer is judged against ``brief`` either way. ``accept_misorder`` is set for the call made once
+    more after a refusal, which accepts a plan the order check would refuse (:func:`judge`).
     """
     binary = claude_binary()
     reported = binary_version(binary)
@@ -1534,6 +1560,7 @@ def call(
         declined=model_declined(stdout),
         parts=parts,
         lost=writes_lost(stdout),
+        accept_misorder=accept_misorder,
     )
     changed = drift(workdir / "config", system_before)
     seen = traffic_refusal(observed, reported) if observed is not None else None
@@ -2429,6 +2456,12 @@ def start_run(
             contract_pairs=pairs,
             design_pairs=_design_pairs(plan, planned) or None,
             design_mutual=_design_pairs(plan, planned, mutual=True) or None,
+            design_misordered=planned_misorders(
+                plan,
+                sorted(config.models.roles),
+                {one.module: one.entry.subtask_id for one in planned[: len(plan.modules)]},
+            )
+            or None,
             brief_words=words or None,
             followable=followable,
             components=plan.components if isinstance(plan, PartsPlan) else None,

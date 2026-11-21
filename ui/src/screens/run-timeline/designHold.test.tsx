@@ -46,6 +46,12 @@ const MUTUAL = written({
   mutual: [{ designer: "firmware", builder: "control", nodes: ["firmware.timing"] }],
 });
 
+const MISORDERED = written({
+  kind: "design_pairs_planned",
+  pairs: [],
+  misordered: [{ designer: "firmware", builder: "control", nodes: ["firmware.timing"] }],
+});
+
 function held(why: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
   return written({
     kind: "builder_held",
@@ -77,7 +83,7 @@ const RELEASED = written({
   nodes: ["control.law"],
 });
 
-const LINES = [...PLANNED, PAIRS, MUTUAL, ...Object.values(HELD), RELEASED];
+const LINES = [...PLANNED, PAIRS, MUTUAL, MISORDERED, ...Object.values(HELD), RELEASED];
 
 function rows(): readonly Row[] {
   return rowsOf(LINES.map(runEvent), MODELS);
@@ -105,6 +111,16 @@ describe("a builder held until its design is merged reads as its own sentence", 
     expect(row?.meta).toBe(
       "Subtask 2 builds Subtask 1's design on control.law; Subtask 1 also names firmware.timing of Subtask 2's, which holds nothing",
     );
+  });
+
+  it("a suspected misorder is said as a plain sentence naming both modules and asks for a check", () => {
+    const row = rowOfLine(MISORDERED);
+    expect(row?.sentence).toBe(
+      "The plan lists Subtask 1 before Subtask 2, whose design it may build: check the order",
+    );
+    expect(row?.meta).toBe("firmware.timing of Subtask 2's");
+    expect(row?.actor).toEqual(ORCHESTRATOR);
+    expect(runEvent(MISORDERED).kind).toBe("design_pairs_planned");
   });
 
   it.each([
