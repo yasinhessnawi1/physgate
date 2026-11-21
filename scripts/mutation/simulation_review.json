@@ -356,20 +356,20 @@
     ]
   },
   {
-    "name": "bound_output_data_rate_low_closed",
+    "name": "bound_gyro_output_data_rate_low_closed",
     "file": "src/physgate/evaluation/whole/answer.py",
-    "old": "    \"output_data_rate\": FieldBound(\n        0.0,\n        10_000.0,\n        \"chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read\",\n        low_open=True,\n    ),\n",
-    "new": "    \"output_data_rate\": FieldBound(\n        0.0,\n        10_000.0,\n        \"chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read\",\n        low_open=False,\n    ),\n",
+    "old": "    \"gyro_output_data_rate\": FieldBound(\n        0.0,\n        10_000.0,\n        \"chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read\",\n        low_open=True,\n    ),\n",
+    "new": "    \"gyro_output_data_rate\": FieldBound(\n        0.0,\n        10_000.0,\n        \"chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read\",\n        low_open=False,\n    ),\n",
     "tests": [
       "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
       "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
     ]
   },
   {
-    "name": "bound_output_data_rate_high",
+    "name": "bound_gyro_output_data_rate_high",
     "file": "src/physgate/evaluation/whole/answer.py",
-    "old": "    \"output_data_rate\": FieldBound(\n        0.0,\n        10_000.0,\n        \"chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read\",\n        low_open=True,\n    ),\n",
-    "new": "    \"output_data_rate\": FieldBound(\n        0.0,\n        20_000.0,\n        \"chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read\",\n        low_open=True,\n    ),\n",
+    "old": "    \"gyro_output_data_rate\": FieldBound(\n        0.0,\n        10_000.0,\n        \"chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read\",\n        low_open=True,\n    ),\n",
+    "new": "    \"gyro_output_data_rate\": FieldBound(\n        0.0,\n        20_000.0,\n        \"chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read\",\n        low_open=True,\n    ),\n",
     "tests": [
       "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
       "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"

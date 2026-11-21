@@ -107,7 +107,7 @@ KIT_ANSWER: dict[str, Any] = {
     },
     "parameters": {
         "update_rate": _m(100, "Hz"),
-        "output_data_rate": _m(208, "Hz"),
+        "gyro_output_data_rate": _m(208, "Hz"),
         "gyro_full_scale": _m(1000, "deg/s"),
         "pwm_frequency": _m(20000, "Hz"),
         "pwm_full_scale": _m(400, "count"),

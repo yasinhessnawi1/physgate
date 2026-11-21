@@ -30,7 +30,7 @@ def _m(value: object, unit: str) -> dict[str, object]:
 def _parameters() -> dict[str, Any]:
     return {
         "update_rate": _m(100, "Hz"),
-        "output_data_rate": _m(208, "Hz"),
+        "gyro_output_data_rate": _m(208, "Hz"),
         "gyro_full_scale": _m(1000, "deg/s"),
         "pwm_frequency": _m(20000, "Hz"),
         "pwm_full_scale": _m(400, "count"),
@@ -193,7 +193,7 @@ _BOUNDS: list[tuple[str, str, object, object, object, object, dict[str, object]]
         {"controller.angle_decay_numerator": 1},
     ),
     ("feedback", "parameters.update_rate", 1, 0.999999, 1000, 1000.001, {}),
-    ("feedback", "parameters.output_data_rate", None, 0.0, 10000, 10000.01, {}),
+    ("feedback", "parameters.gyro_output_data_rate", None, 0.0, 10000, 10000.01, {}),
     ("feedback", "parameters.gyro_full_scale", None, 0.0, 10000, 10000.01, {}),
     ("feedback", "parameters.pwm_frequency", None, 0.0, 1e6, 1.000001e6, {}),
     ("feedback", "parameters.pwm_full_scale", 1, 0, 65535, 65536, {}),
@@ -239,7 +239,7 @@ def test_every_numeric_field_of_every_structure_has_a_bound_with_its_reason() ->
         "distance_gain",
         "speed_gain",
         "rate_ratio",
-        "output_data_rate",
+        "gyro_output_data_rate",
         "gyro_full_scale",
         "pwm_frequency",
         "encoder_counts_per_wheel_revolution",

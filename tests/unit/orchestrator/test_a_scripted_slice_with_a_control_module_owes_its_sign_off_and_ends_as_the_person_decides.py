@@ -94,7 +94,7 @@ CONTROLLER = {
 }
 SETTINGS = {
     "update_rate": (100, "Hz"),
-    "output_data_rate": (208, "Hz"),
+    "gyro_output_data_rate": (208, "Hz"),
     "gyro_full_scale": (1000, "deg/s"),
     "pwm_frequency": (20000, "Hz"),
     "pwm_full_scale": (400, "count"),

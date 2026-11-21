@@ -97,7 +97,7 @@ def _answer(
         "controller": controller,
         "parameters": {
             "update_rate": _m(100, "Hz"),
-            "output_data_rate": _m(208, "Hz"),
+            "gyro_output_data_rate": _m(208, "Hz"),
             "gyro_full_scale": _m(1000, "deg/s"),
             "pwm_frequency": _m(20000, "Hz"),
             "pwm_full_scale": _m(400, "count"),
@@ -334,7 +334,7 @@ def test_each_scale_factor_is_the_answer_s_or_the_environment_s_never_the_kit_s(
         "controller": _native(gyro_divisor=31, motor_speed_limit=200),
         "parameters": {
             "update_rate": _m(100, "Hz"),
-            "output_data_rate": _m(208, "Hz"),
+            "gyro_output_data_rate": _m(208, "Hz"),
             "gyro_full_scale": _m(1000, "deg/s"),
             "pwm_frequency": _m(20000, "Hz"),
             "pwm_full_scale": _m(255, "count"),

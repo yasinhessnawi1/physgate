@@ -73,7 +73,7 @@ NATIVE_UNITS = {
 NATIVE_WHOLE = [f for f in NATIVE_UNITS if f not in DELAY_UNITS]
 PARAMETER_UNITS = {
     "update_rate": "Hz",
-    "output_data_rate": "Hz",
+    "gyro_output_data_rate": "Hz",
     "gyro_full_scale": "deg/s",
     "pwm_frequency": "Hz",
     "pwm_full_scale": "count",
@@ -138,7 +138,7 @@ def native() -> dict[str, Any]:
 def parameters() -> dict[str, Any]:
     return {
         "update_rate": _m(100, "Hz"),
-        "output_data_rate": _m(208, "Hz"),
+        "gyro_output_data_rate": _m(208, "Hz"),
         "gyro_full_scale": _m(1000, "deg/s"),
         "pwm_frequency": _m(20000, "Hz"),
         "pwm_full_scale": _m(400, "count"),
@@ -342,7 +342,7 @@ def test_a_structure_off_the_closed_list_is_refused(structure: str) -> None:
 _POSITIVE = [
     (("controller", "period"), "s"),
     (("parameters", "update_rate"), "Hz"),
-    (("parameters", "output_data_rate"), "Hz"),
+    (("parameters", "gyro_output_data_rate"), "Hz"),
     (("parameters", "gyro_full_scale"), "deg/s"),
     (("parameters", "pwm_frequency"), "Hz"),
     (("parameters", "pwm_full_scale"), "count"),

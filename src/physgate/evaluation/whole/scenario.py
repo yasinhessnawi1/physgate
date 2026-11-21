@@ -154,7 +154,7 @@ def _static(answer: WholeRun, metric: str) -> tuple[float | None, str | None]:
         "command_limit_counts": lambda: si.command_limit * full_scale,
         "update_rate": lambda: float(p.update_rate.value),
         "controller_rate": lambda: 1.0 / si.period,
-        "gyro_output_data_rate": lambda: float(p.output_data_rate.value),
+        "gyro_output_data_rate": lambda: float(p.gyro_output_data_rate.value),
         "gyro_full_scale": lambda: float(p.gyro_full_scale.value),
         "pwm_frequency": lambda: float(p.pwm_frequency.value),
         "pwm_full_scale": lambda: full_scale,
