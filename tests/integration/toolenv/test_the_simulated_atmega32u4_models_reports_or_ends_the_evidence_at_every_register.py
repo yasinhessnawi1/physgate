@@ -519,7 +519,7 @@ def test_a_reserved_address_ends_the_evidence_on_a_read_and_on_a_write() -> None
 def test_the_rig_s_own_table_of_outcomes_agrees_with_the_datasheet_s_summary() -> None:
     table = _node(OUTCOME_TABLE % {"src": _src()})
     assert sorted(int(a) for a in table) == list(range(0x20, 0x100))
-    wrong = []
+    wrong: list[tuple[int, Any, Any]] = []
     for address in range(0x20, 0x100):
         entry = table[str(address)]
         if address in ADDRESS:
