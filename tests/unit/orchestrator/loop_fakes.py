@@ -356,6 +356,7 @@ class FakeMerger:
         message: str,
         reopen: int = 0,
         contracts: Mapping[str, str] | None = None,
+        records: Mapping[str, str] | None = None,
     ) -> str:
         self.messages.append(message)
         self.reopens.append(reopen)

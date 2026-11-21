@@ -29,9 +29,9 @@ def attempt(tmp_path: Path) -> tuple[RunGit, str]:
     return run, commit_attempt(worktree, "m1", 1, "sess-1", repo=run.repo)
 
 
-def merged(run: RunGit, commit: str, **kw: dict[str, str]) -> str:
+def merged(run: RunGit, commit: str, records: dict[str, str] | None = None) -> str:
     text = merge_message("m1", 1, commit, "pass", "pass")
-    return GitMerger(run, removal_timeout_s=60.0).merge("m1", 1, commit, text, **kw)
+    return GitMerger(run, removal_timeout_s=60.0).merge("m1", 1, commit, text, records=records)
 
 
 def test_the_merge_commit_holds_the_record_and_the_attempt_does_not(tmp_path: Path) -> None:
