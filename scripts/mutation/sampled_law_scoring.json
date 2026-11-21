@@ -7,7 +7,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -22,7 +23,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -37,7 +39,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -52,7 +55,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -67,7 +71,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -82,7 +87,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -97,7 +103,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -112,7 +119,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -127,7 +135,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -142,7 +151,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -157,7 +167,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -172,7 +183,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -187,7 +199,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -202,7 +215,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -213,7 +227,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -224,7 +239,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -235,7 +251,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -246,7 +263,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -257,7 +275,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -268,7 +287,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -279,7 +299,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -290,7 +311,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -301,29 +323,32 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
     "name": "the_record_drops_the_flag",
     "file": "src/physgate/evaluation/whole/scenario.py",
-    "old": "        **_flags(law),\n",
-    "new": "        **{**_flags(law), \"no_interface_statement\": []},\n",
+    "old": "        **_flags(law, modes),\n",
+    "new": "        **{**_flags(law, modes), \"no_interface_statement\": []},\n",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
     "name": "a_row_drops_the_flag",
     "file": "src/physgate/evaluation/whole/scenario.py",
-    "old": "            row.update(_flags(read.controller))\n",
-    "new": "            row.update({**_flags(read.controller), \"no_interface_statement\": []})\n",
+    "old": "            row.update(self._law_flags)\n",
+    "new": "            row.update({**self._law_flags, \"no_interface_statement\": []})\n",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -334,7 +359,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -345,7 +371,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -356,7 +383,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ]
   },
   {
@@ -367,7 +395,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -382,7 +411,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -397,7 +427,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -412,7 +443,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -422,12 +454,13 @@
   {
     "name": "the_written_numbers_are_not_attached",
     "file": "src/physgate/evaluation/whole/answer.py",
-    "old": "            controller._written = law_module.written_from(as_written)  # noqa: SLF001\n",
+    "old": "            controller._written = law_module.written_from(as_written, origin.get(key))  # noqa: SLF001\n",
     "new": "            controller._written = None  # noqa: SLF001\n",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -442,7 +475,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -457,7 +491,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -472,7 +507,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -487,7 +523,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -502,7 +539,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -517,7 +555,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -532,7 +571,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -547,7 +587,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -562,7 +603,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -577,7 +619,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -592,7 +635,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -607,7 +651,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -622,7 +667,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -637,7 +683,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -652,7 +699,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -667,7 +715,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -682,7 +731,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -697,7 +747,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -712,7 +763,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -727,7 +779,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -742,7 +795,104 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_state_fed_by_a_signal_and_read_is_not_flagged",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        \"held_state_flags\": list(law_module.held_state_flags(modes)),\n",
+    "new": "        \"held_state_flags\": [],\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_held_state_flag_is_not_on_the_rows",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "    \"held_state_flags\",\n)\n",
+    "new": ")\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_flags_of_the_law_are_not_kept_for_the_rows",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "            self._law_flags = {k: law_record[k] for k in FLAG_KEYS}\n",
+    "new": "            self._law_flags = {}\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_refusal_of_the_numbers_escapes_the_scorer",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        except law_module.LawRefused as exc:\n",
+    "new": "        except KeyError as exc:\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_numbers_that_do_not_correspond_are_scored_failed",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "            record.update(outcome=\"unscored\")\n            return record\n\n    def _judged",
+    "new": "            record.update(outcome=\"fail\")\n            return record\n\n    def _judged",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "an_analysed_law_s_numbers_are_attached_to_the_primary_law",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "        as_written = decimals.get(key)\n",
+    "new": "        as_written = decimals.get(\"controller\")\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -757,7 +907,8 @@
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
-      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
