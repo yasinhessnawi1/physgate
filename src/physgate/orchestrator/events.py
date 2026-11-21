@@ -853,6 +853,8 @@ DecisionEffect = Literal[
 #: on a sign-off item a later one superseded, since what it said is no longer true.
 #: ``module_reopened``: a reject of a sign-off item that promised the module's fix, which the
 #: record no longer allows because the module was reopened since (its follow-up, merged or not).
+#: ``no_attempt_left``: a reject of a sign-off item whose module has no attempt left to fix its
+#: values at: it merged on its last attempt number, or on a fix a person ordered earlier.
 WhyNot = Literal[
     "record_only_source",
     "last_rejection_automated",
@@ -864,6 +866,7 @@ WhyNot = Literal[
     "order_too_long",
     "superseded",
     "module_reopened",
+    "no_attempt_left",
 ]
 
 

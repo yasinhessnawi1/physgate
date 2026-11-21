@@ -327,7 +327,7 @@ def test_a_reject_where_the_module_is_at_the_last_attempt_number_records_only(
     decide(tmp_path, "reject", NOTE, item_id=THIRD)
     events, step = resume(rig)
     (decision,) = taken(events, THIRD)
-    assert (decision.effect, decision.why_not) == ("none", "record_only_source")
+    assert (decision.effect, decision.why_not) == ("none", "no_attempt_left")
     assert [r.cause for r in reopens(events)] == ["follow_up"]
     assert step.kind == "escalated"
     assert replay(events).sign_offs_open() == [CONTROL]
@@ -352,7 +352,7 @@ def test_a_reject_where_the_module_merged_on_its_one_fix_after_a_blocked_review_
     decide(tmp_path, "reject", NOTE, item_id=FIRST)
     events, step = resume(rig)
     (decision,) = taken(events, FIRST)
-    assert (decision.effect, decision.why_not) == ("none", "record_only_source")
+    assert (decision.effect, decision.why_not) == ("none", "no_attempt_left")
     assert step.kind == "escalated"
 
 
@@ -560,6 +560,20 @@ def test_replay_refuses_a_reject_that_records_only_where_the_record_orders_the_f
     (first,) = taken(events, FIRST)
     recording = {"effect": "none", "acts": False, "why_not": "record_only_source"}
     reason = refusal(rewritten(events, first, reopens=None, **recording)) or ""
+    assert "a decision on a sign-off item that does other than the record allows" in reason
+
+
+def test_replay_refuses_a_reject_at_the_last_attempt_number_recorded_for_another_reason(
+    tmp_path: Path,
+) -> None:
+    rig, graph = journal_rig(tmp_path, gate=FakeGate(verdicts=["pass", "fail", "fail"]))
+    _closing_moves_the_plant(graph)
+    drive(rig, closing=True)
+    decide(tmp_path, "reject", NOTE, item_id=THIRD)
+    events, _ = resume(rig)
+    (third,) = taken(events, THIRD)
+    other = {"effect": "none", "acts": False, "why_not": "record_only_source", "reopens": None}
+    reason = refusal(rewritten(events, third, **other)) or ""
     assert "a decision on a sign-off item that does other than the record allows" in reason
 
 

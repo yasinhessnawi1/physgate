@@ -66,14 +66,28 @@ describe("what a decision on a sign-off item did is said in its own words", () =
     const said = takenWords(taken({ whyNot: "record_only_source" }), "sign_off");
     const long = takenWords(taken({ whyNot: "order_too_long" }), "sign_off");
     expect(said).toBe(
-      "Recorded only: as the item said, no fix could be ordered for the module, so it stays not " +
-        "complete and its sign-off owed.",
+      "Recorded only: as the item said, no fix could be ordered for the module (its one fix was " +
+        "ordered already, or it was not merged then), so it stays not complete and its sign-off " +
+        "owed.",
     );
     expect(long).toContain("no fix was ordered; the module stays not complete");
     for (const words of [said, long]) {
-      expect(words).not.toMatch(/record_only_source|order_too_long|\(/);
+      expect(words).not.toMatch(/record_only_source|order_too_long|\(\w+_\w+\)/);
       expect(words).not.toContain("subtask ended rejected");
     }
+  });
+
+  it("a reject of a module with no attempt left says so, apart from the other reasons", () => {
+    const spent = takenWords(taken({ whyNot: "no_attempt_left" }), "sign_off");
+    expect(spent).toBe(
+      "Recorded only: the module has no attempt left to fix its values at, so it stays not " +
+        "complete and its sign-off owed.",
+    );
+    const others = ["record_only_source", "order_too_long", "superseded", "module_reopened"].map(
+      (whyNot) => takenWords(taken({ whyNot }), "sign_off"),
+    );
+    expect(new Set([spent, ...others]).size).toBe(5);
+    expect(spent).not.toMatch(/no_attempt_left|_/);
   });
 
   it("an open sign-off item a later one replaced says so, not that a choice reopened a module", () => {

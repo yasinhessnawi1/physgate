@@ -805,6 +805,8 @@ def sign_off_outcome(
     if verb == "approve":
         return "sign", None, None
     raised = state.sign_offs[item_id]
+    if raised.reject == "spent":
+        return "none", "no_attempt_left", None
     if raised.reject != "reopen":
         return "none", "record_only_source", None
     if sign_off_reject(state, raised.module) != "reopen":

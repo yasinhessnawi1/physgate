@@ -543,10 +543,14 @@ const SIGN_OFF_NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
   superseded:
     "Recorded only: a later sign-off item on the module replaced this one, so the values it " +
     "showed are no longer the module's.",
-  // The item said why a reject records only: its one fix was ordered already, it had no attempt
-  // left, or it was not merged then or the integration call was made.
+  // The item said why a reject records only: its one fix was ordered already, or it was not
+  // merged then or the integration call was made. A module with no attempt left has its own.
   record_only_source:
-    "Recorded only: as the item said, no fix could be ordered for the module, so it stays not " +
+    "Recorded only: as the item said, no fix could be ordered for the module (its one fix was " +
+    "ordered already, or it was not merged then), so it stays not complete and its sign-off " +
+    "owed.",
+  no_attempt_left:
+    "Recorded only: the module has no attempt left to fix its values at, so it stays not " +
     "complete and its sign-off owed.",
   order_too_long:
     "Recorded only: with your note, the fix's order would be longer than its reviewer can read " +
@@ -610,13 +614,13 @@ const PART_NOT_COUNTED =
  * where a sign-off item's words differ.
  */
 export function takenWords(t: Taken, source?: QueueSource): string {
-  const signOff = source === "sign_off";
+  const isSignatureItem = source === "sign_off";
   if (!t.acts) {
     const why = t.whyNot;
     const known =
       why === null
         ? undefined
-        : ((signOff ? SIGN_OFF_NOT_TAKEN_WORDS[why] : undefined) ?? NOT_TAKEN_WORDS[why]);
+        : ((isSignatureItem ? SIGN_OFF_NOT_TAKEN_WORDS[why] : undefined) ?? NOT_TAKEN_WORDS[why]);
     return known ?? `Recorded only (${why ?? "no reason recorded"}).`;
   }
   const done: Readonly<Record<Taken["effect"], string>> = {
@@ -640,7 +644,7 @@ export function takenWords(t: Taken, source?: QueueSource): string {
     none: "The run took it; it changed nothing.",
   };
   const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;
-  if (signOff && t.effect === "reopen")
+  if (isSignatureItem && t.effect === "reopen")
     return (
       "The run took it: the module was reopened for its one fix, told your note and the values " +
       "the item showed." +
