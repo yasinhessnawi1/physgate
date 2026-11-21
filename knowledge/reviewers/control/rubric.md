@@ -41,7 +41,9 @@ without doing the work.
    criteria, or to an allowance it grants, is itself a finding. It means reject unless the issued
    specification called for that edit.
 3. **Acceptance criteria.** Each Section 1 criterion is `met`, `unmet` or `not evaluable`.
-   - An `unmet` criterion is a rejecting finding.
+   - An `unmet` criterion is a rejecting finding, except as rule 7's **Blocking: a criterion no
+     design can meet at an end** says. A maker's stated tolerance is judged at its typical value
+     (D35).
    - `not evaluable` is allowed only when an input the criterion needs is missing, as rule 7's
      **Missing evidence** rule says; missing evidence whose inputs are all there is `unmet`. It is
      then a specification defect (rule 7): blocking when the criterion is on A6's safety-critical
@@ -199,6 +201,18 @@ without doing the work.
      check that uses any written value (a value the work chose, or a departure from the
      specification's value) is judged normally, and its failure is an ordinary finding.
    - **Blocking: a void allowance followed** (rule 5).
+   - **Blocking: a criterion no design can meet at an end** (standards §7). Only a criterion with a
+     stated bound applies: the push, with sizing standards §12's bound, §12's inputs and the
+     delivered command limit, in control's plant at the end's values. Where it, or its D33 run,
+     fails at one of D35's estimate ends and the work shows that bound below 1 there, the failure
+     is not `unmet` and not a finding at that end. Record one blocking specification defect for all
+     such ends together, naming the criterion, each end, and the command limit needed there
+     against the limit written and the full scale, as the conflict the work records in its
+     module's record. *Cat. 1* for the bound: redo it by reading from that end's numbers. Where it
+     does not hold (the bound is 1 or more, a number differs, or the work shows none), the failure
+     is judged as usual; so is the criterion at every other case D35 judges. The criterion's line
+     is `met` when it is met at every other case D35 judges, else `unmet`; the defect carries the
+     ends.
    - **The verdict.** A blocking defect with no rejecting finding gives `blocked`: the work goes to
      the human approval queue, and no repair is requested.
    - **Reject wins.** If the review also has a rejecting finding, the findings are repaired first,
@@ -570,12 +584,25 @@ findings and rule 7's non-blocking defects, and the verdict format.
     margin with a delay the code has and the stated loop leaves out.
 - **D35. The margins hold across the stated spread of every estimated parameter.** *Cat. 2.*
   *Trigger: a plant parameter of the loop is an estimate with a range (a rotor inertia, a
-  centre-of-mass height, a body inertia).*
+  centre-of-mass height, a body inertia), or a maker's figure with a stated tolerance.*
   - The work computes the margins at the low end, the nominal value and the high end of each
-    such range, one at a time, and at a combination it names as worst with its reason, and prints a
-    sweep across each range (standards §7; Åström and Murray 2021, Ch. 13, "Modeling Uncertainty").
+    such range, one at a time, with the others nominal, and prints a sweep across each range, one
+    at a time (standards §7; Åström and Murray 2021, Ch. 13, "Modeling Uncertainty").
   - The design's margin, the one D8 and the specification's criterion judge, is the smallest over
     those cases and the sweeps. Judging the nominal case alone fails.
+  - The work also records the margins at every combination of the ends. They are not judged: a
+    combination that misses a criterion is not a finding, and leaving the combinations unjudged is
+    not R3's shrunk parameter set. A supply voltage a criterion of the brief pins is held at that
+    value, not spread.
+  - A criterion whose stated bound shows no law can meet it at an end is judged as policy rule 7's
+    **Blocking: a criterion no design can meet at an end** says.
+  - A maker's stated tolerance on a figure it publishes (a no-load speed's ±20 %, a no-load
+    current's ±50 %), quoted from the maker's document in the quantity's source, is not an estimate
+    (standards §7); without that quote the range is an estimate. A friction taken from the maker's
+    no-load current is that figure, the work's own friction estimate is not. The figure is judged at its typical value,
+    and the work records the results at the tolerance's ends as a sensitivity. A margin, a
+    criterion or a D33 run that misses only at a tolerance's end is not a finding, and holding the
+    typical value is not R3 or R7.
   - A range narrower than the one its source gives (sizing's node or the parameter's own record)
     fails: a shaded range is also R7.
 - **D36. Structure added to a reference law is needed, the least that works, and the law that
@@ -742,6 +769,11 @@ findings and rule 7's non-blocking defects, and the verdict format.
   - [B: the largest disturbance to withstand.] The same runs also carry the largest disturbance the
     issued specification states, and still recover.
   - [B: a limit missing per D21.] The runs include that limit.
+  - Where a plant parameter is an estimate with a range (D35), the runs are made at the nominal
+    plant and at each of D35's ends, one at a time; a run at a tolerance's end (D35), and one at a
+    combination of ends where made, is recorded, not judged. A run that fails at an end where the
+    push's stated bound shows no law recovers is judged as policy rule 7's **Blocking: a criterion
+    no design can meet at an end** says.
   - *Alternative route, cat. 1:* a region-of-attraction analysis may replace the runs. It must meet
     all of the following:
     - it is done on the D24 loop, with the hold, the delay, the estimator, and the magnitude and
@@ -885,4 +917,4 @@ in a proposed revision, it is recorded as policy rule 10's **Given values** says
   - *Do:* `noted` when the history reads precede a matching number; confirmed when the trajectory
     shows no derivation of it.
 
-<!-- a6463c73816dee05adc7e2e0a9534a90 -->
+<!-- cf89e112eb945117c702ed73406fea36 -->

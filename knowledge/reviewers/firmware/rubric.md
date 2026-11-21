@@ -123,7 +123,8 @@ claim.
      *unmet*, as *Unwritten records* under *No issued specification* says.
 
   So *not evaluable* means the issued specification and the design state it gives (for a
-  proposed revision, the design graph) give no way to judge, for want of an input; it never means
+  proposed revision, the design graph) give no way to judge, for want of an input (or, by AC-1's
+  one exception, of an instrument the run environment lacks, as DS-29 says); it never means
   that the work failed to produce the evidence. A given value that is present but fails a check or
   lacks a source is not a missing input: it follows *Given and written values* (and, for a
   proposed revision, *Given values* below). For a proposed revision, section 1 stays the single
@@ -268,7 +269,10 @@ method. When no specification is issued, AC-9 replaces AC-1's line per criterion
 - **AC-1. One line per criterion.** For every criterion, record *met*, *unmet* or *not evaluable*,
   with a pointer to the evidence. Missing evidence is judged by the verdict policy's *Missing
   evidence* rule: *not evaluable* only when an input the criterion needs is missing, and then it is
-  a blocking specification defect; missing evidence whose inputs are all there is *unmet*. An
+  a blocking specification defect; missing evidence whose inputs are all there is *unmet*. The one
+  exception: a criterion written against an instrument the run environment does not have is *not
+  evaluable* by DS-29's rule, a blocking specification defect naming the instrument, not a missing
+  input. An
   unmet criterion is a rejecting finding (see the verdict policy).
   Do not issue a verdict until every criterion has a line.
 - **AC-2. Claimed but not evidenced is unmet.** Evidence is an artefact in the worktree or a tool
@@ -278,7 +282,9 @@ method. When no specification is issued, AC-9 replaces AC-1's line per criterion
   missing is judged by the verdict policy's *Missing evidence* rule instead).
 - **AC-3. The evidence must be of the kind the criterion asks for.** A criterion that needs an
   on-target run, a measurement or an integration test is not met by a host-side unit test, a
-  simulation or a reasoning step.
+  simulation or a reasoning step. With no board in the run environment, a run on the simulator
+  DS-29 accepts is an on-target run; with no simulator provided there is none, and what the run
+  cannot show is judged as DS-29 says.
 - **AC-4. The evidence must be from the final code.** A test run counts only if it happened after
   the last edit to the files it covers. If the code changed after the last passing run, the
   criterion is unmet.
@@ -448,7 +454,7 @@ balances and follow-ups by reading, like every other item.
 - **DS-5. Loop delay and jitter are stated, not assumed zero.** *Applies when* the diff changes the
   loop, its timer, an ISR or a priority. Interrupts and higher-priority work shift both the start
   time and the execution time of the control task. *Check:* the trajectory shows the loop's
-  input-to-output delay and its variation measured on target, with what the measurement returned,
+  input-to-output delay and its variation measured on target (DS-29), with what it returned,
   and that the figures were compared with what the control design tolerates or passed to the
   control role. A budget that treats the loop as running at exactly its period with no delay is a
   finding.
@@ -521,7 +527,7 @@ balances and follow-ups by reading, like every other item.
   verdict policy), is a finding (see RH-2); where that limit is missing (see the verdict policy),
   record a blocking specification defect for that limit only. Each limit is a *Specification
   value*. *Exercise*, judged whatever the specification gives: the trajectory shows each changed
-  trip condition exercised on target or on the rig the specification names (e.g. tilting past the
+  trip condition exercised on target or on the rig DS-29 accepts (e.g. tilting past the
   limit, stopping the loop, disconnecting or faulting the sensor, forcing a reset), and
   observations that the motor outputs went off; a trip not exercised is a finding.
 
@@ -664,6 +670,28 @@ balances and follow-ups by reading, like every other item.
   behaviour and the trip paths of DS-12 are evidenced by a run on the target hardware (or the rig the
   specification names), with its output in the trajectory. Host-side tests with a fake driver
   substituted through the HAL are valid evidence for application logic, not for timing.
+  - *No board in the run environment* (none is connected unless the issued specification says
+    so; firmware standards §12, design standards §6). Where the run environment provides a
+    simulator of the target microcontroller, the rig is the one the specification names, or,
+    where it names none, the provided one; the specification's silence is a non-blocking
+    specification defect. The program built for the board by the target's compiler, run on that
+    simulator, is an on-target run for AC-3, DS-5, DS-12 and AP-2, and its cycle counts, register
+    states and pin timings are measurements. A device model the work adds cites the datasheet for
+    each behaviour it models; one that does not is a finding. Where the run environment provides
+    none, there is no on-target run: the evidence is the build with the target's compiler, its
+    size, static checks and host-side tests of the logic and of the control law against the
+    designer's coefficients; DS-12's exercise is then a host-side test, for the trip's logic and
+    the outputs it commands, and on-target behaviour (a loop's timing, a fault's timing) is not
+    shown in this run. Having no board, or no simulator, is not a duty of the work.
+  - *What the run cannot show* (with no simulator, on-target behaviour; with one, a sensor's
+    physical noise, the driver's electrical behaviour, an off state set by the board's wiring), the
+    work states as not shown, with the reason. A criterion written against an instrument the run
+    environment does not have (a measurement on the board, or a simulator it does not provide) is
+    *not evaluable* by this item's own rule, AC-1's one exception to its missing-input reading: a
+    blocking specification defect naming the instrument. A section 2 or 3 sub-check that needs
+    such an instrument is a non-blocking specification defect, not a finding. A "not shown"
+    claimed for what the run can show (what a provided simulator or a host-side test measures) is
+    judged as usual: the line is *unmet*, the sub-check a finding.
 - **DS-30. Changed quantities are followed up across domains.** A changed quantity which
   constrains another part of the design has a follow-up or a non-empty stated reason. Judge both by
   reading: that the follow-up or the reason is there, and whether a stated reason actually holds;
@@ -681,8 +709,9 @@ design* and *Inputs the parts sheet does not give*) apply to these items too.
   and `Ti`, the total, and the bound it was compared with behind it.
 - **AP-2. Average-case execution time.** Read the measurement code and its logged output. A `Ci`
   taken as a mean, a single run, a typical value, or a figure measured on the host instead of the
-  target is a finding, even if every other number in the budget is right. *Derived bound
-  (category 1):* a schedulability bound is a worst-case argument by definition.
+  target (DS-29's simulator counts as the target) is a finding, even if every other number in the
+  budget is right. *Derived bound (category 1):* a schedulability bound is a worst-case argument by
+  definition.
 - **AP-3. Watchdog kicked from the interrupt meant to detect a hang.** A kick inside a timer ISR, a
   SysTick handler or any periodic callback that runs regardless of task progress is a finding.
 - **AP-4. Real work in an ISR "because it was convenient".** Work in an ISR is a finding when it
@@ -785,4 +814,4 @@ policy).
   rather than the specification. *Confirmed when* that choice is in the delivered work; otherwise
   `noted`.
 
-<!-- 8f803df1919fbac3a05804d09721c9c0 -->
+<!-- 6b45153456006a521423f16ecaddca55 -->
