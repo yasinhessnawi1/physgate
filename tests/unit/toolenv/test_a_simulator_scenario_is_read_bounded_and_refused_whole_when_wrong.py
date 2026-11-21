@@ -37,13 +37,15 @@ def test_the_least_scenario_is_filled_in_with_a_still_board_and_nothing_injected
     read = _read(_base())["ok"]
     assert read == {
         "duration_s": 1.0,
-        # The gyroscope's zero-rate level by default: the datasheet's typical +-10 dps (G_TyOff)
-        # at its stated magnitude, so firmware that does not calibrate it shows it.
+        # The gyroscope's zero-rate level and the accelerometer's zero-g level by default: the
+        # datasheet's typical figures (G_TyOff +-10 dps, LA_TyOff +-40 mg) at their stated
+        # magnitudes, so firmware that does not calibrate them shows it.
         "imu": {
             "pitch_rad": [[0, 0]],
             "pitch_rate_rad_s": None,
             "raw": [],
             "gyro_zero_rate_dps": [10, 10, 10],
+            "accel_zero_g_mg": [40, 40, 40],
         },
         "encoders": {"left": [[0, 0]], "right": [[0, 0]]},
         "faults": [],
@@ -70,7 +72,8 @@ def test_every_part_a_scenario_can_hold_is_read_as_given() -> None:
             "pitch_rad": [[0, 0], [1, 0.5]],
             "pitch_rate_rad_s": [[0, 0.5]],
             "raw": [{"t_s": 1.5, "gyro": [1, -2, 3], "accel": [16384, 0, -1]}],
-            "gyro_zero_rate_dps": [-10, 0, 2.5],
+            "gyro_zero_rate_dps": [-40, 0, 2.5],
+            "accel_zero_g_mg": [-160, 0, 40.5],
         },
         encoders={"left_rev_s": [[0, 5]], "right_rev_s": [[0, -2.5], [1, 0]]},
         faults=[
@@ -102,7 +105,8 @@ def test_every_part_a_scenario_can_hold_is_read_as_given() -> None:
         sram_seed=0xFFFFFFFF,
     )
     read = _read(scenario)["ok"]
-    assert read["imu"]["gyro_zero_rate_dps"] == [-10, 0, 2.5]
+    assert read["imu"]["gyro_zero_rate_dps"] == [-40, 0, 2.5]
+    assert read["imu"]["accel_zero_g_mg"] == [-160, 0, 40.5]
     assert (read["watchdog_oscillator_hz"], read["sram_seed"]) == (112_000, 0xFFFFFFFF)
     assert read["imu"]["raw"] == [{"t_s": 1.5, "gyro": [1, -2, 3], "accel": [16384, 0, -1]}]
     assert read["encoders"] == {"left": [[0, 5]], "right": [[0, -2.5], [1, 0]]}
@@ -327,15 +331,34 @@ REFUSED: list[tuple[str, object, str]] = [
     ),
     ("start-of-frame as text", _base(usb_sof="true"), "usb_sof"),
     ("a battery past its bound", _base(battery_v=16), "battery_v"),
-    # Above 10.8 V the motor drivers limit the board; below 5 V its 5 V regulator cannot hold
-    # VCC, and the chip's brown-out reset lies at 4.0 to 4.5 V (Balboa 32U4 User's Guide;
-    # datasheet Table 8-1): neither is shown.
+    # The model's range is the six-cell pack's own, 1.0 V a cell to the 10.8 V the motor drivers
+    # limit the board to: below it the 5 V rail's regulation near its drop-out is not documented.
     ("a battery past the motor drivers' limit", _base(battery_v=10.81), "battery_v"),
-    ("a battery below the regulator's output", _base(battery_v=4.99), "battery_v"),
+    ("a battery below a six-cell pack at 1.0 V a cell", _base(battery_v=5.99), "battery_v"),
     (
-        "a zero-rate level past the datasheet's",
-        _base(imu={"gyro_zero_rate_dps": [0, 10.01, 0]}),
+        "a zero-rate level past four times the datasheet's typical figure",
+        _base(imu={"gyro_zero_rate_dps": [0, 40.01, 0]}),
         "imu.gyro_zero_rate_dps[1]",
+    ),
+    (
+        "a negative zero-rate level past four times the typical figure",
+        _base(imu={"gyro_zero_rate_dps": [-40.01, 0, 0]}),
+        "imu.gyro_zero_rate_dps[0]",
+    ),
+    (
+        "a zero-g level past four times the datasheet's typical figure",
+        _base(imu={"accel_zero_g_mg": [0, 0, 160.01]}),
+        "imu.accel_zero_g_mg[2]",
+    ),
+    (
+        "a negative zero-g level past four times the typical figure",
+        _base(imu={"accel_zero_g_mg": [0, -160.01, 0]}),
+        "imu.accel_zero_g_mg[1]",
+    ),
+    (
+        "a zero-g level of two axes",
+        _base(imu={"accel_zero_g_mg": [0, 1]}),
+        "imu.accel_zero_g_mg",
     ),
     (
         "a zero-rate level of two axes",
@@ -429,3 +452,12 @@ out([0, 0.5, 1, 1.5, 2, 3].map((t) => [profileAt(p, t), slopeAt(p, t)]));
 
 def test_a_profile_is_held_before_its_first_point_and_after_its_last_and_linear_between() -> None:
     assert evaluate(PROFILE) == [[1, 0], [1, 2], [2, 2], [3, 0], [3, 0], [3, 0]]
+
+
+def test_the_ends_of_the_battery_range_and_of_both_zero_levels_are_read() -> None:
+    # The model's battery range is a six-cell pack's own, 6.0 V to the drivers' 10.8 V. A zero
+    # level may be stated up to four times the datasheet's typical figure, of either sign.
+    low = _read(_base(battery_v=6.0, imu={"gyro_zero_rate_dps": [40, -40, 0]}))["ok"]
+    high = _read(_base(battery_v=10.8, imu={"accel_zero_g_mg": [160, -160, 0]}))["ok"]
+    assert (low["battery_v"], low["imu"]["gyro_zero_rate_dps"]) == (6.0, [40, -40, 0])
+    assert (high["battery_v"], high["imu"]["accel_zero_g_mg"]) == (10.8, [160, -160, 0])

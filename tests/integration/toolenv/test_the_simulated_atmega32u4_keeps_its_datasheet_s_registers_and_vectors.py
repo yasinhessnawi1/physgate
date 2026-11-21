@@ -70,7 +70,10 @@ console.log(JSON.stringify({ vectors: s.vectors, resets: s.resets, pwm: s.pwm, m
   sleep: s.sleep, evidence_end: s.evidence_end, simulated_cycles: s.simulated_cycles,
   withheld: s.withheld, not_shown: s.not_shown, typical: s.typical_figures,
   input_to_output: s.input_to_output, power_on_sram_seed: s.power_on_sram_seed,
-  ocr1a: rig.chip.timer1.ocrA, sram: Array.from(d.slice(0x900, 0x910)) }));
+  ocr1a: rig.chip.timer1.ocrA, sram: Array.from(d.slice(0x900, 0x910)),
+  behaviour_evaluable: s.behaviour_evaluable,
+  behaviour_not_evaluable_because: s.behaviour_not_evaluable_because,
+  eeprom: s.eeprom, usb: s.usb, watchdog: s.watchdog, imu: s.imu }));
 """
 
 #: The sketch's first instruction: the start-up time after power-on (16K CK + 14CK + 65 ms).
@@ -107,7 +110,13 @@ const mcu = await import(`${src}/mcu.js`);
 const { REG } = mcu;
 const bus = { start: () => true, stop() {}, connect: () => true, write: () => true, read: () => 0 };
 const eeprom = new mcu.EEPROMMemoryBackend(1024);
-const chip = new mcu.ATmega32U4(new Uint16Array(0x4000), { eeprom, bus });
+const reports = {};
+const ends = [];
+const chip = new mcu.ATmega32U4(new Uint16Array(0x4000), {
+  eeprom, bus,
+  onUnmodelled: (what) => { reports[what] = (reports[what] ?? 0) + 1; },
+  onEvidenceEnd: (cause, detail) => ends.push({ cause, ...detail }),
+});
 const { cpu } = chip;
 const step = (n) => {
   const end = cpu.cycles + n;
@@ -1412,11 +1421,19 @@ def test_with_timing_not_evaluable_every_figure_of_time_is_withheld() -> None:
 #: What every summary says it does not show, word for word.
 NOT_SHOWN = [
     "brown-out beyond its reset: the chip resets below VBOT (4.0 to 4.5 V, typically 4.3 V; "
-    "datasheet Table 8-1), and the rig refuses a battery below 5 V, where the documents do not "
-    "say what VCC is",
+    "datasheet Table 8-1); the battery range is the model's own, 6.0 V (1.0 V a cell of six) to "
+    "the motor drivers' 10.8 V, and says nothing of the board below it",
+    "the 5 V rail near its drop-out: VCC and the ADC's reference AVCC stay at exactly 5.000 V "
+    "whatever the battery, and the battery does not sag under motor load",
     "an external reset (the RESET pin or button) and the bootloader path it takes",
-    "the inertial sensor's noise and its filters' delay; start-up settling beyond AN4682's "
-    "discard tables",
+    "the inertial sensor's noise (rate noise density 7 mdps/sqrt(Hz)) and its filters' delay; "
+    "start-up settling beyond AN4682's discard tables; its temperature output, constant at 25 degC",
+    "the inertial sensor's zero levels are typical figures, not bounds (G_TyOff +-10 dps, "
+    "LA_TyOff +-40 mg: a scenario may state up to four times either, of either sign), and its "
+    "drift with temperature (sensitivity +-1 % and +-1.5 %; zero level 0.5 mg/degC and "
+    "0.05 dps/degC) is not shown",
+    "the magnetometer answers its address and its identity only: a read of its data ends the "
+    "evidence, and a setting written to it is reported",
     "clock tolerance: the crystal is exactly 16 MHz; the watchdog oscillator and the start-up "
     "time-out are typical figures (typical_figures), with no bound in the datasheet",
     "stack headroom on paths the run did not execute: stack.headroom_bytes covers only the "
@@ -1426,6 +1443,27 @@ NOT_SHOWN = [
     "motors_off_until_cycle or stayed_off_to_end",
     "I2C transfers at their fastest (no clock stretching by the sensor, no level-shifter delay) "
     "and the bootloader's session without its interrupts' latency: both are lower bounds",
+    "the I2C bus has the chip as its only master: the Raspberry Pi the board can be connected to "
+    "is not shown, and a firmware that listens as a slave ends the evidence",
+    "the scenario is open loop: the inertial sensor, the encoders and the battery follow the "
+    "script and the motor outputs change nothing, so anything that needs the loop closed is not "
+    "shown",
+    "USB: detached, no host; blocking Serial writes, USB interrupts and the CDC session are not "
+    "shown unless usb_sof is set, and the calls of Serial's write are counted "
+    "(usb.serial_write_calls) with their cost not shown",
+    "USART1 receive: nothing sends, as on an unconnected pin, so a receive interrupt's load "
+    "never appears",
+    "ADC accuracy: conversions are exact (the datasheet gives an absolute accuracy of +-2 LSB at "
+    "200 kHz), the 2.56 V and 1.1 V references and the band gap are exact, and its input noise "
+    "and offset are not shown; a clock outside 50 to 200 kHz is reported (adc_clock)",
+    "the encoders are perfect quadrature: no bounce, glitch, missed count or skew between "
+    "their channels",
+    "inputs nothing is wired to: a pin with no pull-up reads low and one with its pull-up reads "
+    "high; a floating or unattached input is neither",
+    "uninitialised SRAM is one seed's pattern (power_on_sram_seed): a criterion that depends on "
+    "it must run several seeds",
+    "an edge on INT0 to INT3 or INT6 while its mask bit is clear does not set its flag here, as "
+    "in avr8js; the datasheet does not settle whether the part sets it",
 ]
 
 
@@ -1462,3 +1500,294 @@ def test_motors_off_says_whether_they_stayed_off_to_the_run_s_end() -> None:
     (event,) = found["events"]
     assert event["motors_off_cycle"] == START and event["stayed_off_to_end"] is False
     assert START + 2000 < event["motors_off_until_cycle"] < START + 2500
+
+
+#: A conversion started as firmware does: ADMUX and ADCSRB set, then ADCSRA = ADEN | ADSC with
+#: the prescaler's 128 (125 kHz at 16 MHz), run on for 25 ADC clocks and more.
+CONVERT = """
+const results = [];
+for (const [admux, adcsrb, adcsra] of %(cases)s) {
+  const before = ends.length;
+  cpu.data[0x7c] = admux; cpu.data[0x7b] = adcsrb;
+  cpu.writeData(0x7a, adcsra);
+  step(8000);
+  const adc = cpu.data[0x78] | (cpu.data[0x79] << 8);
+  results.push({ admux, adcsrb, ends: ends.slice(before), adc, reports: { ...reports } });
+  cpu.data[0x7a] = 0;
+  for (const key of Object.keys(reports)) delete reports[key];
+}
+console.log(JSON.stringify(results));
+"""
+
+
+def _convert(*cases: tuple[int, int, int]) -> list[dict[str, Any]]:
+    found = _registers(CONVERT % {"cases": json.dumps(cases)})
+    assert isinstance(found, list)
+    return found
+
+
+def test_an_adc_conversion_of_an_input_the_model_has_a_value_for_runs() -> None:
+    # The band gap at 1.1 V against AVCC = 5 V is 225 (1.1 / 5 * 1024); against the internal
+    # 2.56 V it is 440; ground is 0. ADEN | ADSC | ADPS = 128.
+    modelled = _convert((0x5E, 0, 0xC7), (0xDE, 0, 0xC7), (0x5F, 0, 0xC7), (0x46, 0, 0xC7))
+    assert [item["ends"] for item in modelled] == [[], [], [], []]
+    assert [item["adc"] for item in modelled] == [225, 440, 0, 0]
+
+
+def test_an_adc_conversion_of_an_input_the_model_has_no_entry_for_ends_the_evidence() -> None:
+    # DS-32U4 Table 24-4: with MUX5 clear 0x09 is ADC1-ADC0 at 10x, 0x0B at 200x, 0x10 ADC0-ADC1
+    # at 1x, 0x14 to 0x17 the 1x pairs; avr8js gives every code it has no entry for a constant 0 V.
+    # The rig has a value for the battery's channel 6, the band gap and ground only: the other
+    # single-ended channels have nothing attached, and the rest is not modelled.
+    differential = [0x49, 0x4B, 0x50, 0x54, 0x55, 0x56, 0x57]
+    single = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x47]
+    cases = [(code, 0, 0xC7) for code in differential + single]
+    # MUX5 set: ADC8 to ADC13, the temperature sensor, the high-gain pairs.
+    cases += [(0x40 | n, 0x20, 0xC7) for n in (0, 1, 2, 3, 4, 5, 6, 7, 0x1E, 0x1F)]
+    found = _convert(*cases)
+    for item in found:
+        causes = [e["cause"] for e in item["ends"]]
+        assert causes == ["adc_input"], item
+        assert item["ends"][0]["mux"] == (item["admux"] & 0x1F) | (0x20 if item["adcsrb"] else 0)
+        assert item["adc"] == 0 and "adc_input" in item["reports"], item
+
+
+def test_an_adc_reference_the_model_has_no_value_for_ends_the_evidence() -> None:
+    # REFS = 00 is the AREF pin, which nothing drives here; REFS = 10 is reserved, which avr8js
+    # takes for AVCC. Both read a value the part would not give.
+    found = _convert((0x06, 0, 0xC7), (0x86, 0, 0xC7), (0x1E, 0, 0xC7), (0x9E, 0, 0xC7))
+    for item in found:
+        assert [e["cause"] for e in item["ends"]] == ["adc_input"], item
+        assert item["ends"][0]["refs"] == item["admux"] >> 6
+    # A start with the ADC disabled does nothing on the part (ADSC stays clear, no flag): the
+    # rig's library would set ADIF.
+    (disabled,) = _convert((0x46, 0, 0x40))
+    assert [e["cause"] for e in disabled["ends"]] == ["adc_input"]
+
+
+def test_an_adc_clock_outside_50_to_200_khz_is_reported_as_a_reading_not_shown() -> None:
+    # "By default, the successive approximation circuitry requires an input clock frequency
+    # between 50 kHz and 200 kHz to get maximum resolution": 16 MHz / 128 is 125 kHz; any
+    # smaller division is above it.
+    found = _convert(*[(0x5E, 0, 0xC0 | divisor) for divisor in range(8)])
+    assert ["adc_clock" in item["reports"] for item in found] == [True] * 7 + [False]
+    assert all(item["ends"] == [] for item in found)
+
+
+def test_a_twi_slave_ends_the_evidence_and_a_master_that_acknowledges_a_read_does_not() -> None:
+    # Wire's master sets TWEA in TWCR for every transfer; a slave sets its own address (TWAR),
+    # whose interrupt the rig never raises, and an address mask (TWAMR).
+    found = _registers(
+        """
+        cpu.writeData(0xbc, 0xc5);                 // TWINT | TWEA | TWEN
+        const master = ends.length;
+        cpu.writeData(0xba, 0x08);                 // TWAR: address 4
+        const afterAddress = ends.map((e) => e.cause);
+        console.log(JSON.stringify({ master, afterAddress, reports: { ...reports } }));
+        """
+    )
+    assert found["master"] == 0 and found["afterAddress"] == ["twi_slave"]
+    assert "twi_slave" in found["reports"]
+
+
+def test_an_edge_on_a_masked_external_interrupt_does_not_set_its_flag_here() -> None:
+    # avr8js sets INTF6 only while INT6 is enabled in EIMSK (gpio.js). Whether the part sets it
+    # while masked is not settled by the datasheet (it advises clearing the flag before
+    # enabling): the summary names the gap, and this row holds the model's reading, so that a
+    # change of avr8js or of the model's is noticed.
+    found = _registers(
+        """
+        cpu.writeData(0x6a, 0x30);                 // EICRB: INT6 on a rising edge
+        cpu.writeData(0x2d, 0x40); cpu.writeData(0x2e, 0x00);   // PE6 an output, low
+        cpu.writeData(0x2e, 0x40);                 // the edge, EIMSK clear
+        step(10);
+        const masked = cpu.data[0x3c];
+        cpu.writeData(0x3d, 0x40);                 // EIMSK: INT6 enabled afterwards
+        step(10);
+        console.log(JSON.stringify({ masked, after: cpu.data[0x3c], taken: pending(0x0e) }));
+        """
+    )
+    assert found == {"masked": 0, "after": 0, "taken": False}
+
+
+#: Writes to EEPROM cells as firmware does (EEMPE, then EEPE within four cycles), waiting for
+#: each to finish (3.6 ms atomic, 1.8 ms erase only or write only).
+EEPROM = """
+const src = %(src)s;
+const mcu = await import(`${src}/mcu.js`);
+const bus = { start: () => true, stop() {}, connect: () => true, write: () => true, read: () => 0 };
+const eeprom = new mcu.CountingEEPROM(1024);
+const chip = new mcu.ATmega32U4(new Uint16Array(0x4000), { eeprom, bus });
+const { cpu } = chip;
+const step = (n) => {
+  const end = cpu.cycles + n;
+  while (cpu.cycles < end) { cpu.cycles += 1; cpu.tick(); }
+};
+const program = (address, value, mode) => {
+  cpu.writeData(0x41, address & 0xff); cpu.writeData(0x42, address >> 8);
+  cpu.writeData(0x40, value); cpu.writeData(0x3f, 0x04); cpu.writeData(0x3f, 0x02 | mode);
+  step(60000);
+};
+program(3, 0x5a, 0); program(3, 0x5b, 0); program(3, 0x5c, 0); program(5, 1, 0);
+const atomic = eeprom.counts();
+program(7, 0x00, 0x10);   // EEPM0: erase only
+program(7, 0x01, 0x20);   // EEPM1: write only: a second operation on the same cell
+console.log(JSON.stringify({ atomic, all: eeprom.counts() }));
+"""
+
+
+def test_each_eeprom_programming_operation_is_counted_per_cell() -> None:
+    # DS-32U4 "EEPROM Data Memory": an endurance of at least 100,000 write/erase cycles. An
+    # atomic erase-and-write is one operation on the cell, an erase only and a write only two.
+    found = _node(EEPROM % {"src": _src()})
+    assert found["atomic"] == {"writes": 4, "per_address_max": 3}
+    assert found["all"] == {"writes": 6, "per_address_max": 3}
+
+
+#: A rig with nothing to run, its sensors told of a use the model does not act on before it runs.
+SUMMARY = """
+const src = %(src)s;
+const { Rig, Trace } = await import(`${src}/rig.js`);
+const { readScenario } = await import(`${src}/scenario.js`);
+const words = new Uint16Array(0x4000);
+words[0] = 0xcfff;
+const scenario = readScenario(JSON.stringify({ avrsim_scenario: 1, duration_s: 0.08 }));
+const rig = new Rig({ flash: new Uint8Array(words.buffer), eeprom: null, symbols: new Map() },
+  scenario, new Trace(() => {}, 100));
+%(before)s
+const s = rig.run();
+console.log(JSON.stringify({ timing: s.timing_evaluable, because: s.timing_not_evaluable_because,
+  behaviour: s.behaviour_evaluable, behaviour_because: s.behaviour_not_evaluable_because,
+  unmodelled: Object.keys(s.unmodelled), eeprom: s.eeprom, usb: s.usb, withheld: s.withheld }));
+"""
+
+
+def _summary(before: str = "") -> dict[str, Any]:
+    found = _node(SUMMARY % {"src": _src(), "before": before})
+    assert isinstance(found, dict)
+    return found
+
+
+def test_a_sensor_setting_the_model_lacks_makes_values_not_evaluable_and_leaves_the_time() -> None:
+    # A gyroscope high-pass filter or an accelerometer's second low-pass changes the values
+    # firmware reads and not when anything happens: behaviour_evaluable says so and
+    # timing_evaluable stays about timing. A chip feature the model lacks changes both.
+    clean = _summary()
+    assert (clean["timing"], clean["behaviour"]) == (True, True)
+    assert clean["because"] == clean["behaviour_because"] == []
+    gyro = _summary("rig.board.lsm6.onUnmodelled('lsm6ds33:CTRL7_G');")
+    assert (gyro["timing"], gyro["behaviour"]) == (True, False)
+    assert gyro["behaviour_because"] == ["lsm6ds33:CTRL7_G"]
+    mag = _summary("rig.board.lis3mdl.onUnmodelled('lis3mdl:CTRL_REG1');")
+    assert (mag["timing"], mag["behaviour"]) == (True, False)
+    both = _summary("rig.noteUnmodelled('spi');")
+    assert (both["timing"], both["behaviour"]) == (False, False)
+    assert both["because"] == both["behaviour_because"] == ["spi"]
+    # A feature that touches nothing the board runs from is named and gates nothing.
+    inert = _summary("rig.noteUnmodelled('rc_oscillator');")
+    assert (inert["timing"], inert["behaviour"], inert["unmodelled"]) == (
+        True,
+        True,
+        ["rc_oscillator"],
+    )
+
+
+def test_the_summary_counts_eeprom_programming_with_the_datasheet_s_endurance() -> None:
+    found = _summary(
+        "for (let i = 0; i < 3; i += 1) { rig.eeprom.eraseMemory(9);"
+        " rig.eeprom.writeMemory(9, 1); }"
+        "rig.eeprom.eraseMemory(2); rig.eeprom.writeMemory(2, 1);"
+    )["eeprom"]
+    assert found["write_cycles"] == 4 and found["per_address_max"] == 3
+    assert found["endurance_cycles"] == 100_000 and found["cells_over_endurance"] == []
+    assert "100,000" in found["statement"] or "100 000" in found["statement"]
+    again = _summary("for (let i = 0; i < 100_001; i += 1) { rig.eeprom.writeMemory(1, 0); }")[
+        "eeprom"
+    ]
+    assert again["cells_over_endurance"] == [1]
+
+
+def test_the_summary_says_no_usb_host_is_present_and_counts_serial_writes_it_does_not_cost() -> (
+    None
+):
+    usb = _summary()["usb"]
+    assert usb["host"] == "none" and usb["serial_write_calls"] == 0
+    assert "not shown" in usb["statement"]
+
+
+def test_a_watchdog_figure_is_reported_at_both_ends_of_the_oscillator_s_range() -> None:
+    # The watchdog oscillator has no bound in the datasheet: 128 kHz is its nominal and the
+    # fast end ("does not reset early" must read it), 112 kHz the slow end of its typical curves
+    # ("resets within" must read it). The summary runs both. WDE with WDP = 0 is 16 ms at
+    # 128 kHz; after each reset the start-up time (16K CK, 14 CK and the 65 ms scaled with the
+    # oscillator) comes before the sketch, which enables the watchdog again.
+    found = _program("store(0x60, 0x08);", seconds=0.3)
+    watchdog = found["watchdog"]
+    assert watchdog["used"] is True
+    assert watchdog["read"] == {"does_not_reset_early": "fast", "resets_within": "slow"}
+    fast, slow = watchdog["ends"]["fast"], watchdog["ends"]["slow"]
+    assert (fast["oscillator_hz"], slow["oscillator_hz"]) == (128_000, 112_000)
+    assert fast["start_up_cycles"] == START
+    assert slow["start_up_cycles"] == round(0.065 * 128_000 / 112_000 * 16e6) + 14 + 16_384
+    assert fast["period_cycles"] == 256_000 and slow["period_cycles"] == round(
+        2048 * 16e6 / 112_000
+    )
+    # Each end's first watchdog reset comes one start-up time and one period after power-on, give
+    # or take the few cycles of the sketch's own first instructions.
+    extra = [
+        end["first_watchdog_reset_cycle"] - end["start_up_cycles"] - end["period_cycles"]
+        for end in (fast, slow)
+    ]
+    assert extra[0] == extra[1] and 0 <= extra[0] < 20
+    assert fast["watchdog_resets"] >= 2 and slow["watchdog_resets"] >= 2
+    assert [r["cause"] for r in fast["resets"]][:2] == ["power_on", "watchdog"]
+    # The run's own figures are the scenario's oscillator's: here the fast end's.
+    assert found["resets"][1]["cycle"] == fast["first_watchdog_reset_cycle"]
+
+
+def test_a_watchdog_the_firmware_never_uses_shows_only_the_start_up_time_at_both_ends() -> None:
+    found = _program("store(0x24, 0x01);", seconds=0.001)["watchdog"]
+    assert found["used"] is False
+    assert found["ends"]["fast"] == {"oscillator_hz": 128_000, "start_up_cycles": START}
+    assert found["ends"]["slow"]["oscillator_hz"] == 112_000
+    # A scenario's own oscillator in between still gets both ends, and its figures are its own.
+    mid = _program("store(0x60, 0x08);", seconds=0.1, watchdog_oscillator_hz=120_000)["watchdog"]
+    assert mid["ends"]["fast"]["oscillator_hz"] == 128_000
+    assert mid["ends"]["slow"]["oscillator_hz"] == 112_000
+
+
+def test_every_figure_of_time_is_withheld_when_timing_is_not_evaluable() -> None:
+    # CLKPR written (the prescaler is not modelled): timing_evaluable is false. The cycle of a
+    # reset, of a probe's first entry, of a sleep and of a bootloader session are figures of time
+    # as well.
+    setup = "store(0x61, 0x80); store(0x61, 0x01);"
+    found = _program(setup)
+    why = {"withheld": "timing not evaluable: clock_prescaler"}
+    assert found["resets"][0]["cycle"] == why
+    assert found["sleep"]["cycles_asleep"] == why
+    assert "resets.*.cycle" in found["withheld"] and "sleep.cycles_asleep" in found["withheld"]
+    body = """
+    const main = at, loop = at + 6, f = at + 20;
+    words.set(asm.jmp(main), 0);
+    words.set([...asm.ldi(16, 0x80), ...asm.sts(0x61, 16), ...asm.ldi(16, 1), ...asm.sts(0x61, 16),
+      ...asm.call(f), ...asm.jmp(loop)], main);
+    words.set(asm.ret(), f);
+    """
+    scenario = {
+        "avrsim_scenario": 1,
+        "duration_s": (START + 4000) / 16e6,
+        "probes": [{"symbol": "f"}],
+    }
+    probe = _node(
+        CALLS
+        % {
+            "src": _src(),
+            "body": body,
+            "symbols": json.dumps({"f": 0x56 + 20}),
+            "scenario": json.dumps(scenario),
+        }
+    )["probes"]["f"]
+    assert probe["first_entry_cycle"] == why and probe["by_reset"][0]["first_entry_cycle"] == why
+    # The bootloader's session, whose length is a figure of time as well, is on the list.
+    listed = _summary("rig.noteUnmodelled('clock_prescaler');")["withheld"]
+    assert "resets.*.bootloader_session_cycles" in listed

@@ -145,6 +145,9 @@ START = round(0.065 * F) + 14 + 16_384
 #: default (datasheet G_TyOff) included, and the command the bench derives.
 GYRO_Y = round((math.degrees(RATE) + 10) * 1000 / 35)
 COMMAND = int(GYRO_Y / 8)
+#: The accelerometer's x at +-2 g (0.061 mg a count): 1 g upright and its zero-g level of 40 mg
+#: by default (datasheet LA_TyOff).
+ACCEL_X = round(1040 / 0.061)
 
 
 def scenario(**more: Any) -> dict[str, Any]:
@@ -179,7 +182,7 @@ def test_the_sensor_is_read_at_its_full_scale_and_the_motors_driven_from_it(
     lines = _lines(summary)
     # Power-on: the bootloader clears PORF (and BORF) before the sketch (Caterina.c main()).
     assert lines[0] == "RESET:0"
-    assert lines[-1] == f"G:{GYRO_Y} X:{round(1000 / 0.061)} A:0 L:0 R:0"
+    assert lines[-1] == f"G:{GYRO_Y} X:{ACCEL_X} A:0 L:0 R:0"
     assert summary["imu"]["registers_written"] == {"CTRL1_XL": 0x40, "CTRL2_G": 0x58}
     # The sketch starts some 66 ms after power-on and the gyroscope then turns on for 80 ms
     # (AN4682 Table 16): of some 92 updates, the first ones find no sample or an invalid one,
@@ -241,8 +244,10 @@ def test_the_sensor_is_read_at_its_full_scale_and_the_motors_driven_from_it(
     assert summary["resets"] == [
         {"cycle": 0, "cause": "power_on", "sketch_start_cycle": START, "mcusr_at_sketch_start": 0}
     ]
-    # Ordinary Arduino firmware touches nothing the rig does not model.
-    assert summary["unmodelled"] == {} and summary["timing_evaluable"] is True
+    # Ordinary Arduino firmware touches nothing the rig does not model: its core's start-up
+    # (the timers, the ADC, USB's attach) and the Wire master's TWEA are not uses of it.
+    assert summary["unmodelled"] == {} and summary["evidence_end"] is None
+    assert (summary["timing_evaluable"], summary["behaviour_evaluable"]) == (True, True)
 
 
 def test_the_motor_outputs_are_not_driven_high_from_reset_until_the_firmware_commands_them(
@@ -510,7 +515,7 @@ def test_a_short_stall_with_interrupts_off_loses_the_timer_ticks_it_held_off(
         tmp_path,
     )
     assert [r["cause"] for r in summary["resets"]] == ["power_on"]
-    assert _lines(summary)[-1] == f"G:{GYRO_Y} X:{round(1000 / 0.061)} A:0 L:0 R:0"
+    assert _lines(summary)[-1] == f"G:{GYRO_Y} X:{ACCEL_X} A:0 L:0 R:0"
     assert summary["motors"]["left"]["last"] == COMMAND
     entries = [e["c"] for e in trace if e["type"] == "probe" and e["symbol"] == "update"]
     first, last = entries[0], entries[-1]
@@ -546,3 +551,50 @@ def test_a_stack_that_grows_into_the_heap_is_shown_as_a_collision(tmp_path: Path
     assert stack["heap_end_max"] == stack["static_end"] + 2 + 1800
     assert stack["headroom_bytes"] == stack["min_sp"] - stack["heap_end_max"] < 0
     assert stack["collision"] is True
+
+
+#: A sketch that prints on the USB serial port and reads the magnetometer: its identity, then
+#: its field from OUT_X_L with the sub-address incrementing, as Pololu's LIS3MDL library does.
+MAG = r"""#include <Arduino.h>
+#include <Wire.h>
+void setup() {
+  Serial.begin(115200);
+  Serial.println("hello");
+  Serial.println("again");
+  Serial1.begin(115200);
+  Wire.begin();
+  Wire.beginTransmission(0x1E);
+  Wire.write(0x0F);
+  Wire.endTransmission();
+  Wire.requestFrom((uint8_t)0x1E, (uint8_t)1);
+  uint8_t who = Wire.read();
+  Serial1.print(F("WHO:"));
+  Serial1.println(who);
+  delay(5);
+  Wire.beginTransmission(0x1E);
+  Wire.write(0x28 | 0x80);
+  Wire.endTransmission();
+  Wire.requestFrom((uint8_t)0x1E, (uint8_t)6);
+  int16_t x = Wire.read() | (Wire.read() << 8);
+  Serial1.print(F("X:"));
+  Serial1.println(x);
+}
+void loop() {}
+"""
+
+
+def test_a_firmware_that_reads_the_magnetometer_is_not_shown_a_zero_field(tmp_path: Path) -> None:
+    # The part answers its identity (0x3D) as on the board; its field is not modelled, so the
+    # first byte of OUT_X_L ends the evidence rather than reading zero on three axes without
+    # noise, and the summary names it. Serial's two writes to a USB with no host are counted.
+    env = environment()
+    elf = build(env, tmp_path / "mag", MAG)
+    summary, _ = simulate(env, elf, {"avrsim_scenario": 1, "duration_s": 0.3}, tmp_path)
+    assert summary["usart1"]["text"].startswith("WHO:61")
+    end = summary["evidence_end"]
+    assert end is not None and end["cause"] == "lis3mdl_data" and end["register"] == 0x28
+    assert "X:" not in summary["usart1"]["text"]
+    assert "lis3mdl_data" in summary["unmodelled"]
+    assert summary["simulated_cycles"] < 0.3 * F
+    assert (summary["timing_evaluable"], summary["behaviour_evaluable"]) == (False, False)
+    assert summary["usb"]["host"] == "none" and summary["usb"]["serial_write_calls"] >= 2

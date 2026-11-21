@@ -633,3 +633,46 @@ def test_the_gyroscope_reads_its_zero_rate_level_on_every_axis_but_not_in_a_disc
         }
     )
     assert found == {"discarded": [-32768, 32767, -32768], "level": [229, -343, 457]}
+
+
+def test_the_accelerometer_reads_its_zero_g_level_on_every_axis() -> None:
+    # Datasheet "Mechanical characteristics": LA_TyOff, the typical zero-g level, +-40 mg. At
+    # +-2 g (0.061 mg a count) a level of (40, -40, 20) mg on a board at rest, upright, reads
+    # 1 g plus 40 mg on x, -40 mg on y and 20 mg on z.
+    found = evaluate(
+        SENSOR.replace("faults,\n", "faults, zeroGMg: [40, -40, 20],\n")
+        % {
+            "pitch": "0",
+            "rate": "0",
+            "faults": NO_FAULT,
+            "raw": "null",
+            "body": """
+            write(0x10, [0x40], 0);
+            const a = read(0x28, 6, 0.5);
+            out([int16(a[0], a[1]), int16(a[2], a[3]), int16(a[4], a[5])]);
+            """,
+        }
+    )
+    assert found == [round(1040 / 0.061), round(-40 / 0.061), round(20 / 0.061)]
+
+
+def test_a_read_of_the_magnetometer_s_data_ends_the_evidence_and_names_the_register() -> None:
+    # The part answers its address and its identity as on the board. It has no field to give:
+    # the first byte of an output, the status or the temperature read ends the evidence, with the
+    # register it was; a multi-byte read from OUT_X_L (the sub-address's top bit set) names the
+    # first.
+    found = _run(
+        """
+        const ends = [];
+        const mag = new imu.LIS3MDL({ faults, onEvidenceEnd: (cause, d) => ends.push([cause, d]) });
+        mag.begin(true); mag.write(0x0f); mag.begin(false);
+        const who = mag.read();
+        const afterWho = ends.length;
+        mag.begin(true); mag.write(0x28 | 0x80); mag.begin(false);
+        const bytes = [mag.read(), mag.read(), mag.read()];
+        out({ who, afterWho, ends, bytes });
+        """
+    )
+    assert found["who"] == 0x3D and found["afterWho"] == 0
+    assert [e[0] for e in found["ends"]] == ["lis3mdl_data"] * 3
+    assert [e[1]["register"] for e in found["ends"]] == [0x28, 0x29, 0x2A]
