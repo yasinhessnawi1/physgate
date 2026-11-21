@@ -1,4 +1,4 @@
-"""Integration carries what a person decided, and the merge of its attempt writes the closing record.
+"""Integration carries what a person decided; the merge of its attempt writes the closing record.
 
 A person's choice with a note on a failed contract's item is an open point of the design. The
 issued state integration reads names it, its reviewer reads the same bytes, and integration's own
@@ -72,7 +72,8 @@ class Merging(FakeMerger):
             if any(sha(f"{INTEG}-{n}-{call}") == attempt_commit for call in range(40)):
                 lines = "\n".join(f"+{line}" for line in self.says)
                 path = "modules/integration/README.md"
-                return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -0,0 +1 @@\n{lines}\n"
+                head = f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -0,0 +1 @@\n"
+                return f"{head}{lines}\n"
         return super().artefact_diff(attempt_commit)
 
 
