@@ -6,7 +6,11 @@
     "new": "",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -31,7 +35,11 @@
     "new": "{}",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -52,11 +60,15 @@
   {
     "name": "a_term_with_an_extra_key_is_not_nonlinear",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "            if extra:\n",
-    "new": "            if False:\n",
+    "old": "    if extra:\n        msg = (\n",
+    "new": "    if False:\n        msg = (\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -77,11 +89,15 @@
   {
     "name": "a_expression_term_is_not_nonlinear",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "            if found is None:\n                msg = f\"line {line.get('name')!r} reads {of!r}, which is not one variable\"\n                raise LawRefused(\"nonlinear\", msg)",
-    "new": "            if found is None:\n                msg = f\"line {line.get('name')!r} reads {of!r}, which is not one variable\"\n                raise LawRefused(\"malformed\", msg)",
+    "old": "        return Outside(\n            name, index, \"nonlinear\", f\"line {name!r} reads {of!r}, which is not one variable\"\n        )",
+    "new": "        return Outside(\n            name, index, \"malformed\", f\"line {name!r} reads {of!r}, which is not one variable\"\n        )",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -102,11 +118,15 @@
   {
     "name": "a_signal_outside_the_list_is_not_out_of_scope",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "                    f\"list ({', '.join(SIGNALS)})\"\n                )\n                raise LawRefused(\"out_of_scope\", msg)",
-    "new": "                    f\"list ({', '.join(SIGNALS)})\"\n                )\n                raise LawRefused(\"malformed\", msg)",
+    "old": "        return Outside(name, index, \"out_of_scope\", msg)\n",
+    "new": "        return Outside(name, index, \"malformed\", msg)\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -131,7 +151,11 @@
     "new": "            if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -156,7 +180,11 @@
     "new": "    if command is None:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -181,7 +209,11 @@
     "new": "        if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -206,7 +238,11 @@
     "new": "        msg = f\"line {line!r} uses the coefficient {name!r}, which the law does not declare\"\n        raise LawRefused(\"units_do_not_balance\", msg)",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -231,7 +267,11 @@
     "new": "    scale = float(term.number)\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -256,7 +296,11 @@
     "new": "        scale *= coefficients[name]\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -277,11 +321,15 @@
   {
     "name": "memory_is_set_from_the_command_line",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "    return [basis[f\"line.{m.next}\"] for m in body.memory], basis[f\"line.{body.command}\"]\n",
-    "new": "    return [basis[f\"line.{body.command}\"] for m in body.memory], basis[f\"line.{body.command}\"]\n",
+    "old": "    return [basis[f\"line.{m.next}\"] for m in body.memory], basis[f\"line.{body.command}\"], scales\n",
+    "new": "    return [basis[f\"line.{body.command}\"] for m in body.memory], basis[f\"line.{body.command}\"], scales\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -306,7 +354,11 @@
     "new": "    held = duty\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -331,7 +383,11 @@
     "new": "following[m.name]",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -356,7 +412,11 @@
     "new": "DUTY_TOLERANCE = 1e-3\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -381,7 +441,11 @@
     "new": "COUNT_TOLERANCE = 2\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -406,7 +470,11 @@
     "new": "COUNT_TOLERANCE = 0\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -431,7 +499,11 @@
     "new": "            if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -456,7 +528,11 @@
     "new": "                if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -481,7 +557,11 @@
     "new": "        if len(given) > 1:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -506,7 +586,11 @@
     "new": "        if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -531,7 +615,11 @@
     "new": "        WholeRun\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -552,11 +640,15 @@
   {
     "name": "a_law_is_not_checked_for_scope_as_written",
     "file": "src/physgate/evaluation/whole/answer.py",
-    "old": "    refused = _scope_refusals(document, where) if model is WholeRunV3 else {}\n",
-    "new": "    refused: dict[str, OutsideScope] = {}\n",
+    "old": "    probe, refused, aside = _scoped(document, where)\n",
+    "new": "    probe, refused, aside = document, {}, {}\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -581,7 +673,11 @@
     "new": "            pass\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -606,7 +702,11 @@
     "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -631,7 +731,11 @@
     "new": "            if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -656,7 +760,11 @@
     "new": "                if not abs(term.number) <= LAW_MAGNITUDE:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -681,7 +789,11 @@
     "new": "    def _native_needs_its_scales(self) -> WholeRunV3:\n        full_scale = float(self.parameters.pwm_full_scale.value)\n        for controller in (self.controller, self.analysed_controller):\n            if not isinstance(controller, NativeRisingOffset):\n                continue\n            if False:",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -706,7 +818,11 @@
     "new": "    if source is not None:\n        if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -731,7 +847,11 @@
     "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -756,7 +876,11 @@
     "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -781,7 +905,11 @@
     "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -806,7 +934,11 @@
     "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -831,7 +963,11 @@
     "new": "            law_reason=\"malformed\",",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -856,7 +992,11 @@
     "new": "        if required and n not in found\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -881,7 +1021,11 @@
     "new": "    pass\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -906,7 +1050,11 @@
     "new": "    if False:\n        raise LawRefused(\"vector_not_reproduced\", mismatch)\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -931,7 +1079,11 @@
     "new": "        if not rate > 0:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -956,7 +1108,11 @@
     "new": "        value = max(found[name][0] for name in source.sum_of)\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -981,7 +1137,11 @@
     "new": "    return f\"{directory}/{LAW_FILE}\", merges[0]\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1006,7 +1166,11 @@
     "new": "e.assigned_role != CONTROL_ROLE",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1031,7 +1195,11 @@
     "new": "    left = set()\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1052,11 +1220,15 @@
   {
     "name": "a_term_s_sign_is_dropped_from_the_matrices",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "            scale = number(float(term.sign)) * number(float(term.number))\n",
-    "new": "            scale = number(float(term.number))\n",
+    "old": "    return float(term.sign) * float(term.number)\n",
+    "new": "    return float(term.number)\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1081,7 +1253,11 @@
     "new": "                scale = scale * coefficients[factor]\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1106,7 +1282,11 @@
     "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1131,7 +1311,11 @@
     "new": "MIN_ROWS = 9\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1156,7 +1340,11 @@
     "new": "MIN_ROWS = 1\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1181,7 +1369,11 @@
     "new": "        if False\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1206,7 +1398,11 @@
     "new": "if False\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1231,7 +1427,11 @@
     "new": "        if False:\n            loose.append(f\"the coefficient {name!r}\")\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1252,11 +1452,15 @@
   {
     "name": "a_term_is_not_moved",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "            if not all(both):\n                loose.append(_where(line, at))\n",
-    "new": "            if False:\n                loose.append(_where(line, at))\n",
+    "old": "            if not all(both):\n                loose.append(key)\n                continue\n",
+    "new": "            if False:\n                loose.append(key)\n                continue\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1281,7 +1485,11 @@
     "new": "PIN_RELATIVE = 0.5\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1306,7 +1514,11 @@
     "new": "PIN_RELATIVE = 1e-9\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1327,11 +1539,15 @@
   {
     "name": "a_zero_coefficient_is_moved",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "        if values.get(name, 0.0) == 0.0:\n            continue\n",
-    "new": "        if False:\n            continue\n",
+    "old": "        if values.get(name, 0.0) == 0.0:\n            pins[f\"coefficient {name}\"] = Pin(None, None)\n            continue\n",
+    "new": "        if False:\n            pins[f\"coefficient {name}\"] = Pin(None, None)\n            continue\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1352,11 +1568,15 @@
   {
     "name": "a_zero_term_is_moved",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "            if any(values.get(n, 0.0) == 0.0 for n in term.coefficients):\n                continue\n",
-    "new": "            if False:\n                continue\n",
+    "old": "            if any({**values, PERIOD: period}.get(n, 0.0) == 0.0 for n in term.coefficients):\n",
+    "new": "            if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1377,11 +1597,15 @@
   {
     "name": "a_mode_with_no_memory_is_held",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "        if _rank([*memory_parts, part]) > len(memory_parts):\n",
-    "new": "        if True:\n",
+    "old": "    if _rank([v[1:] for v in kernel]) < len(kernel):\n",
+    "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1402,11 +1626,15 @@
   {
     "name": "the_held_numbers_are_rounded",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "{k: Fraction(v) for k, v in _coefficients(values, period).items()}",
-    "new": "{k: Fraction(round(v, 6)) for k, v in _coefficients(values, period).items()}",
+    "old": "    exact_values = {name: exact(v) for name, v in values.items()}\n",
+    "new": "    exact_values = {name: Fraction(round(v, 6)) for name, v in values.items()}\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1431,7 +1659,11 @@
     "new": "            vector[col] = reduced[r][free]\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1456,7 +1688,11 @@
     "new": "row[j]",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1481,7 +1717,11 @@
     "new": "        if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1506,7 +1746,11 @@
     "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1531,7 +1775,11 @@
     "new": "        pass\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1552,11 +1800,15 @@
   {
     "name": "the_signals_read_are_not_recorded",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "        law_signals=verified.signals,\n",
+    "old": "        law_signals=result.verified.signals,\n",
     "new": "        law_signals=(),\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1581,7 +1833,11 @@
     "new": "        supplied={n: {\"value\": 0, \"unit\": u} for n, (v, u) in sorted(supplied.items())},\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1606,7 +1862,11 @@
     "new": "        number = _bounded(measure, unit, name, bound)\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1631,7 +1891,11 @@
     "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1656,7 +1920,11 @@
     "new": "                if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1681,7 +1949,11 @@
     "new": "                if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1706,7 +1978,11 @@
     "new": "        if quantity is None:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1731,7 +2007,11 @@
     "new": "            \"no_interface_statement\": False,\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1756,7 +2036,11 @@
     "new": "        \"no_interface_statement\": [],\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1781,7 +2065,1548 @@
     "new": "        if True:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_law_with_a_command_fed_conserved_quantity_is_set_aside",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if y[0] != 0 or fed != 0:\n",
+    "new": "        if fed != 0:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_wheel_speed_fed_state_is_set_aside",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if y[0] != 0 or fed != 0:\n",
+    "new": "        if y[0] != 0:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_tilt_is_the_signal_that_moves_the_wheels",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    cruise = n + LOOP_SIGNALS.index(\"wheel_speed\")\n",
+    "new": "    cruise = n + LOOP_SIGNALS.index(\"tilt\")\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_travel_alone_is_set_aside_with_the_memory",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    if _rank([v[1:] for v in kernel]) < len(kernel):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_decimal_is_its_binary_fraction",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    return Fraction(Decimal(repr(number)))\n",
+    "new": "    return Fraction(number)\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_written_numbers_are_ignored",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    if written is not None:\n        exact_values.update(",
+    "new": "    if False:\n        exact_values.update(",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_written_number_of_a_term_is_ignored",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if written is not None and (li, ti) in written.numbers:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_division_by_zero_is_not_refused_in_a_term",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if coefficients[name] == 0:\n            raise zero_refusal(name)\n",
+    "new": "        if False:\n            raise zero_refusal(name)\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_division_by_zero_is_not_refused_in_the_matrices",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "                if coefficients[factor] == 0:\n                    raise zero_refusal(factor)\n",
+    "new": "                if False:\n                    raise zero_refusal(factor)\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_zero_divisor_is_not_listed",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    return tuple(sorted(name for name in divisors if name in values and values[name] == 0))\n",
+    "new": "    return ()\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_zero_divisor_is_not_refused_in_the_answer",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "        if divisors:\n            msg = (\n                f\"zero_divisor:",
+    "new": "        if False:\n            msg = (\n                f\"zero_divisor:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_term_of_weight_zero_by_its_number_is_live",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    if _is_number(number) and number == 0:\n        return True\n",
+    "new": "    if False:\n        return True\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_term_of_weight_zero_by_a_coefficient_is_live",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    return any(\n        isinstance(c, str) and _is_number(values.get(c)) and values[c] == 0 for c in coefficients\n    )\n",
+    "new": "    return False\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_line_nothing_reads_is_live",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if key[0] not in live_lines\n",
+    "new": "        if False\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "no_line_is_read_by_a_term",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    return [(kind, name) for kind, name in _REFERENCE.findall(term[\"of\"])]\n",
+    "new": "    return []\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_state_read_does_not_make_its_next_value_live",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "                    if isinstance(following, str) and following not in live:\n",
+    "new": "                    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_line_that_reads_a_line_taken_out_stays",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            if any(_reads_what_went(term, lines, states) for term in terms):\n",
+    "new": "            if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_state_whose_line_goes_stays",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            if state not in states and isinstance(following, str) and following in lines:\n",
+    "new": "            if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_zero_weight_reader_of_a_line_taken_out_stays",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            elif (\n                (label, at) not in found\n                and others > 1\n                and _reads_what_went(term, gone, gone_states)\n            ):\n",
+    "new": "            elif False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_marked_term_keeps_its_extra_keys",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    return {key: value for key, value in term.items() if key in Term.model_fields} | {\"of\": OUTSIDE}\n",
+    "new": "    return {key: value for key, value in term.items() if True} | {\"of\": OUTSIDE}\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_marked_variable_is_unit_checked",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            if term.of == OUTSIDE:\n",
+    "new": "            if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_scope_refusal_comes_before_every_other_check",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    timing, report = _timing(file, found, nodes)\n    coefficients = {\n",
+    "new": "    if file.outside:\n        raise law_module.LawRefused(file.outside[0].code, file.outside[0].detail)\n    timing, report = _timing(file, found, nodes)\n    coefficients = {\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_file_is_refused_for_scope_when_read",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        file=law_module.parse_file(blob.stdout, defer_scope=True),\n",
+    "new": "        file=law_module.parse_file(blob.stdout),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_term_of_weight_zero_with_the_graph_s_numbers_is_live",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    file = file.with_numbers(\n        {name: found[quantity][0] for name, quantity in file.coefficients.items()}\n    )\n",
+    "new": "    pass\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_pin_is_not_searched",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    for _ in range(PIN_STEPS):\n",
+    "new": "    for _ in range(0):\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_pin_is_searched_the_wrong_way",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if noticed(middle):\n            high = middle\n        else:\n            low = middle\n",
+    "new": "        if not noticed(middle):\n            high = middle\n        else:\n            low = middle\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_pins_are_not_returned",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    return Verified(rows=checked, signals=signals_read(body), pins=pins)\n",
+    "new": "    return Verified(rows=checked, signals=signals_read(body), pins={})\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_period_term_is_taken_as_zero",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            if any({**values, PERIOD: period}.get(n, 0.0) == 0.0 for n in term.coefficients):\n",
+    "new": "            if any(values.get(n, 0.0) == 0.0 for n in term.coefficients):\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_pins_are_not_in_the_record",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        law_pins={key: pin.as_record() for key, pin in result.verified.pins.items()},\n",
+    "new": "        law_pins={},\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_held_modes_are_not_in_the_record",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        law_held_modes=result.held_modes,\n",
+    "new": "        law_held_modes=(),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_terms_set_aside_are_not_in_the_record",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "            for o in file.set_aside\n",
+    "new": "            for o in ()\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_mode_s_feeders_are_not_listed",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "                fed_by_signals=tuple(s for s in SIGNALS if s in feeds),\n",
+    "new": "                fed_by_signals=(),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_mode_is_said_not_to_be_read",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "                read_by_command=any(state in reached for state in states),\n",
+    "new": "                read_by_command=False,\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_term_of_weight_zero_feeds",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            if held.scales[li][ti] == 0:\n                continue\n",
+    "new": "            if False:\n                continue\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_reference_is_said_not_to_feed",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            \"fed_by_the_reference\": \"wheel_reference\" in self.fed_by_signals,\n",
+    "new": "            \"fed_by_the_reference\": False,\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_mode_carries_no_note",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    note: str = HELD_NOTE\n",
+    "new": "    note: str = \"\"\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_period_other_than_the_interface_s_is_taken",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "                    if abs(value - 1 / rate) > PERIOD_SLACK * (1 / rate):\n",
+    "new": "                    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_longer_period_is_taken",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "                    if abs(value - 1 / rate) > PERIOD_SLACK * (1 / rate):\n",
+    "new": "                    if (1 / rate) - value > PERIOD_SLACK * (1 / rate):\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_period_is_refused_under_the_sensor_floor_s_name",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "                code = \"period_is_not_the_interface_s\"\n",
+    "new": "                code = \"delay_or_limit_not_stated_by_the_interface\"\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_compute_delay_may_leave_out_an_interface_time",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "            if time_valued and quantity_name not in named:\n",
+    "new": "            if time_valued and False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_rate_is_a_time_quantity_to_include",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "            time_valued = writer != CONTROL_ROLE and quantity[\"unit\"] in TIME_UNITS\n",
+    "new": "            time_valued = writer != CONTROL_ROLE\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_control_s_time_quantity_is_one_to_include",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "            time_valued = writer != CONTROL_ROLE and quantity[\"unit\"] in TIME_UNITS\n",
+    "new": "            time_valued = quantity[\"unit\"] in TIME_UNITS\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_millisecond_is_no_time_quantity",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "TIME_UNITS = frozenset({\"s\", \"ms\", \"us\", \"\\u00b5s\", \"\\u03bcs\", \"ns\"})\n",
+    "new": "TIME_UNITS = frozenset({\"s\"})\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_non_interface_quantity_is_not_flagged",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    if outside:\n        flags.append(NON_INTERFACE_FLAG)\n",
+    "new": "    if False:\n        flags.append(NON_INTERFACE_FLAG)\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_omission_flag_is_not_raised",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    flags = [OMITS_FLAG] if omitted else []\n",
+    "new": "    flags = []\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_compute_flags_are_not_in_the_answer",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "            \"compute_delay_flags\": compute[\"flags\"],\n",
+    "new": "            \"compute_delay_flags\": [],\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "what_the_compute_delay_leaves_out_is_not_in_the_answer",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "            \"compute_delay_omitted\": compute[\"omitted_interface_times\"],\n",
+    "new": "            \"compute_delay_omitted\": [],\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_compute_flags_are_not_in_the_record",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "                \"flags\": flags,\n",
+    "new": "                \"flags\": [],\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "an_integer_past_a_float_is_not_finite",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    if isinstance(value, float) and not math.isfinite(value):\n",
+    "new": "    if not math.isfinite(value):\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "an_integer_past_a_float_is_shown_by_its_float",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    try:\n        return f\"{value:g}\"\n    except OverflowError:\n        return f\"an integer of {len(str(value))} digits\"\n",
+    "new": "    return f\"{value:g}\"\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_memory_that_is_no_list_is_iterated",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        for m in (states if isinstance(states, list) else ())\n",
+    "new": "        for m in states\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_name_that_is_no_text_is_a_line",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if not isinstance(label, str) or label not in named:\n",
+    "new": "        if label not in named:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "any_held_vector_with_a_memory_part_is_set_aside",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    for y in _null_space([list(column) for column in zip(*stacked, strict=True)]):\n",
+    "new": "    for y in []:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1806,7 +3631,11 @@
     "new": "",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
-      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_that_cannot_affect_the_command_is_no_ground_for_a_scope_refusal.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",

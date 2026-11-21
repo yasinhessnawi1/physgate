@@ -5,7 +5,9 @@
     "old": "",
     "new": "",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -18,7 +20,9 @@
     "old": "    read[2, 2] = 1.0 / wheel_radius\n",
     "new": "    read[2, 2] = 1.0\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -31,7 +35,9 @@
     "old": "    read[3, 3] = 1.0 / wheel_radius\n",
     "new": "    read[3, 3] = 1.0\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -44,7 +50,9 @@
     "old": "    read[0, 0] = 1.0\n    read[1, 1] = 1.0\n",
     "new": "    read[0, 0] = 0.0\n    read[1, 1] = 1.0\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -57,7 +65,9 @@
     "old": "        return PLANT_STATES + whole + 1 + loop.law.states\n",
     "new": "        return PLANT_STATES + whole + 1 + 2\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -67,10 +77,12 @@
   {
     "name": "a_mode_with_no_memory_is_set_aside",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "        if _rank([*memory_parts, part]) > len(memory_parts):\n",
-    "new": "        if True:\n",
+    "old": "    if _rank([v[1:] for v in kernel]) < len(kernel):\n",
+    "new": "    if False:\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -83,7 +95,9 @@
     "old": "    if system.held is not None:\n",
     "new": "    if False:\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -96,7 +110,9 @@
     "old": "            held=_held_columns(loop.law, ap.shape[0], values[\"wheel_radius\"]),\n",
     "new": "            held=None,\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -109,7 +125,9 @@
     "old": "        command_limit=float(controller.command_limit.value),\n        sensor_delay=float(controller.sensor_delay.value),\n        compute_delay=float(controller.compute_delay.value),\n        factors=(),\n        law=",
     "new": "        command_limit=1.0,\n        sensor_delay=float(controller.sensor_delay.value),\n        compute_delay=float(controller.compute_delay.value),\n        factors=(),\n        law=",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -122,7 +140,9 @@
     "old": "        for name in (\"period\", \"command_limit\"):\n",
     "new": "        for name in (\"period\",):\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -135,7 +155,9 @@
     "old": "        if set(c.coefficients) != set(analysed.coefficients):\n",
     "new": "        if set(c.coefficients) == set(analysed.coefficients):\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -148,7 +170,9 @@
     "old": "loop.law is None and loop.distance == 0.0",
     "new": "loop.distance == 0.0",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -161,7 +185,9 @@
     "old": "\"gyro_output_data_rate\": lambda: float(_output_data_rate(p).value),",
     "new": "\"gyro_output_data_rate\": lambda: float(p.update_rate.value),",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -174,7 +200,9 @@
     "old": "law=LinearLaw(a=a, b=b, c=c, d=d, held=held),",
     "new": "law=LinearLaw(a=a, b=b, c=c, d=d),",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
@@ -183,7 +211,9 @@
     "old": "        columns[TRAVEL, j] = mode[0] * wheel_radius\n",
     "new": "        columns[TRAVEL, j] = mode[0]\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
@@ -192,7 +222,9 @@
     "old": "        columns[plant_size:, j] = mode[1:]\n",
     "new": "        columns[plant_size:, j] = 0.0\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
@@ -201,7 +233,9 @@
     "old": "STABILITY_EPSILON = 1e-12\n",
     "new": "STABILITY_EPSILON = 1e-6\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
@@ -210,7 +244,9 @@
     "old": "STABILITY_EPSILON = 1e-12\n",
     "new": "STABILITY_EPSILON = 1e-15\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
@@ -219,7 +255,9 @@
     "old": "        if (c.memory, c.lines, c.command) != (analysed.memory, analysed.lines, analysed.command):\n",
     "new": "        if False:\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
@@ -228,16 +266,20 @@
     "old": "            record.update(specs=[], outcome=\"unscored\")\n",
     "new": "            record.update(specs=[], outcome=\"fail\")\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
     "name": "a_law_out_of_scope_is_named_malformed",
     "file": "src/physgate/evaluation/whole/answer.py",
-    "old": "refused[key] = OutsideScope(msg, name=exc.code, where=where)",
+    "old": "refused[key] = OutsideScope(msg, name=first.code, where=where)",
     "new": "refused[key] = OutsideScope(msg, name=\"malformed\", where=where)",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
@@ -246,34 +288,42 @@
     "old": "        except OutsideScope as exc:\n",
     "new": "        except ZeroDivisionError as exc:\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
     "name": "the_held_numbers_are_rounded_in_the_scorer",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "{k: Fraction(v) for k, v in _coefficients(values, period).items()}",
-    "new": "{k: Fraction(round(v, 6)) for k, v in _coefficients(values, period).items()}",
+    "old": "            coefficients[name] = exact(measure[\"value\"])\n",
+    "new": "            coefficients[name] = Fraction(round(float(measure[\"value\"]), 6))\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
     "name": "the_record_drops_the_flag",
     "file": "src/physgate/evaluation/whole/scenario.py",
-    "old": "            record[\"no_interface_statement\"] = list(read.controller.no_interface_statement)\n",
-    "new": "            record[\"no_interface_statement\"] = []\n",
+    "old": "        **_flags(law),\n",
+    "new": "        **{**_flags(law), \"no_interface_statement\": []},\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
     "name": "a_row_drops_the_flag",
     "file": "src/physgate/evaluation/whole/scenario.py",
-    "old": "            row[\"no_interface_statement\"] = list(read.controller.no_interface_statement)\n",
-    "new": "            row[\"no_interface_statement\"] = []\n",
+    "old": "            row.update(_flags(read.controller))\n",
+    "new": "            row.update({**_flags(read.controller), \"no_interface_statement\": []})\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
@@ -282,7 +332,9 @@
     "old": "    if refused is not None:\n        return None,",
     "new": "    if False:\n        return None,",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
@@ -291,7 +343,9 @@
     "old": "    answer = _validate(model, json.dumps(probe), where)\n",
     "new": "    answer = None  # type: ignore[assignment]\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ]
   },
   {
@@ -300,7 +354,399 @@
     "old": "    if \"controller\" in refused:\n        raise refused[\"controller\"]\n",
     "new": "    if \"controller\" in refused and \"analysed_controller\" not in refused:\n        raise refused[\"controller\"]\n",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ]
+  },
+  {
+    "name": "a_law_with_a_command_fed_conserved_quantity_is_set_aside",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if y[0] != 0 or fed != 0:\n",
+    "new": "        if fed != 0:\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_wheel_speed_fed_state_is_set_aside",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if y[0] != 0 or fed != 0:\n",
+    "new": "        if y[0] != 0:\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_travel_alone_is_set_aside_with_the_memory",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    if _rank([v[1:] for v in kernel]) < len(kernel):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_decimal_is_its_binary_fraction",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    return Fraction(Decimal(repr(number)))\n",
+    "new": "    return Fraction(number)\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_written_numbers_are_not_attached",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "            controller._written = law_module.written_from(as_written)  # noqa: SLF001\n",
+    "new": "            controller._written = None  # noqa: SLF001\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_written_numbers_are_not_used_in_the_loop",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "    held = law_module.held_modes(controller, values, period=period, written=controller.written)\n",
+    "new": "    held = law_module.held_modes(controller, values, period=period, written=None)\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_zero_divisor_is_not_refused_in_the_answer",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "        if divisors:\n            msg = (\n                f\"zero_divisor:",
+    "new": "        if False:\n            msg = (\n                f\"zero_divisor:",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_line_nothing_reads_is_live",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if key[0] not in live_lines\n",
+    "new": "        if False\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_term_of_weight_zero_by_its_number_is_live",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    if _is_number(number) and number == 0:\n        return True\n",
+    "new": "    if False:\n        return True\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_term_of_weight_zero_by_a_coefficient_is_live",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    return any(\n        isinstance(c, str) and _is_number(values.get(c)) and values[c] == 0 for c in coefficients\n    )\n",
+    "new": "    return False\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_marked_variable_is_unit_checked",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            if term.of == OUTSIDE:\n",
+    "new": "            if False:\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_term_that_cannot_matter_is_not_set_aside_in_the_answer",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "        if sorted_out.dead:\n            aside[key] = sorted_out.dead\n",
+    "new": "        if False:\n            aside[key] = sorted_out.dead\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_probe_is_not_validated_before_the_refusal",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    answer = _validate(model, json.dumps(probe), where)\n    if not refused:\n",
+    "new": "    answer = None  # type: ignore[assignment]\n    if not refused:\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "an_analysed_law_with_another_fault_is_tolerated",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    rest = {k: v for k, v in probe.items() if k != \"analysed_controller\"}\n",
+    "new": "    rest = {k: v for k, v in document.items() if k != \"analysed_controller\"}\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_compute_flags_are_not_on_the_record_and_rows",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        \"compute_delay_flags\": list(law.compute_delay_flags),\n",
+    "new": "        \"compute_delay_flags\": [],\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "what_the_compute_delay_leaves_out_is_not_on_the_record",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        \"compute_delay_omitted\": list(law.compute_delay_omitted),\n",
+    "new": "        \"compute_delay_omitted\": [],\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_signals_read_are_not_in_the_record",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        \"law_signals\": list(law_module.signals_read(law)),\n",
+    "new": "        \"law_signals\": [],\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_modes_set_aside_are_not_in_the_record",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        \"held_modes\": [mode.as_record() for mode in modes],\n",
+    "new": "        \"held_modes\": [],\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_terms_set_aside_are_not_in_the_scorer_s_record",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "            for o in law.set_aside\n",
+    "new": "            for o in ()\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_mode_s_feeders_are_not_listed",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "                fed_by_signals=tuple(s for s in SIGNALS if s in feeds),\n",
+    "new": "                fed_by_signals=(),\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_mode_is_said_not_to_be_read",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "                read_by_command=any(state in reached for state in states),\n",
+    "new": "                read_by_command=False,\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_reference_is_said_not_to_feed",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            \"fed_by_the_reference\": \"wheel_reference\" in self.fed_by_signals,\n",
+    "new": "            \"fed_by_the_reference\": False,\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_term_of_weight_zero_feeds",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            if held.scales[li][ti] == 0:\n                continue\n",
+    "new": "            if False:\n                continue\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_warning_is_left_in_the_log_by_the_plant_s_system",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    with np.errstate(over=\"ignore\", invalid=\"ignore\"):\n        return _system(values, loop)\n",
+    "new": "    return _system(values, loop)\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_warning_is_left_in_the_log_by_the_margins",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    with np.errstate(over=\"ignore\", invalid=\"ignore\"):\n        return _margins(values, loop)\n",
+    "new": "    return _margins(values, loop)\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "any_held_vector_with_a_memory_part_is_set_aside",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    for y in _null_space([list(column) for column in zip(*stacked, strict=True)]):\n",
+    "new": "    for y in []:\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
     ]
   },
   {
@@ -309,7 +755,9 @@
     "old": "",
     "new": "",
     "tests": [
-      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
