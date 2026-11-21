@@ -829,6 +829,9 @@ def test_a_watchdog_reset_with_the_boot_key_keeps_the_bootloader_running_its_tim
     assert reset["cause"] == "watchdog"
     assert reset["sketch_start_cycle"] - reset["cycle"] == START + 8001 * 251 * 64
     assert reset["bootloader_session_cycles"] == 8001 * 251 * 64
+    assert found["resets"][1]["bootloader_session_cycles"] == {
+        "withheld": "timing not evaluable: bootloader_session"
+    }
     assert reset["mcusr_at_sketch_start"] == 0
     assert found["unmodelled"]["bootloader_session"]["count"] == 1
     # Its length is a lower bound and its USB state is not modelled: the timing is not evaluable.
@@ -1374,6 +1377,9 @@ def test_stack_headroom_runs_to_the_highest_heap_end_and_a_negative_one_is_a_col
     assert (clear["headroom_bytes"], clear["collision"]) == (0x0AFF - 0x0910, False)
     static = stack("")
     assert static["heap_end_max"] is None and static["headroom_bytes"] == 0x0AFF - 0x0302
+    # A zero written to the break is no heap end: avr-libc keeps it 0 until the first malloc().
+    zero = stack("store(0x300, 0x00); store(0x301, 0x00);")
+    assert zero["heap_end_max"] is None and zero["headroom_bytes"] == 0x0AFF - 0x0302
 
 
 def test_the_watchdog_and_the_start_up_time_out_run_at_either_end_of_the_oscillator_s_range() -> (
@@ -1504,6 +1510,16 @@ def test_motors_off_says_whether_they_stayed_off_to_the_run_s_end() -> None:
     (event,) = found["events"]
     assert event["motors_off_cycle"] == START and event["stayed_off_to_end"] is False
     assert START + 2000 < event["motors_off_until_cycle"] < START + 2500
+    # Both enables driven high from the start: never off, and not "stayed off" either.
+    never = _program(
+        "store(0x24, 0x60); store(0x25, 0x60);",
+        seconds=0.01,
+        markers=marker,
+        motors_off_hold_s=0.0001,
+    )
+    (event,) = never["events"]
+    assert event["motors_off_cycle"] is None and event["motors_off_until_cycle"] is None
+    assert event["stayed_off_to_end"] is False
 
 
 #: A conversion started as firmware does: ADMUX and ADCSRB set, then ADCSRA = ADEN | ADSC with
@@ -1710,6 +1726,9 @@ def test_the_summary_counts_eeprom_programming_with_the_datasheet_s_endurance() 
         "eeprom"
     ]
     assert again["cells_over_endurance"] == [1]
+    # "At least 100,000 cycles": a cell programmed exactly that often is not over it.
+    exact = _summary("for (let i = 0; i < 100_000; i += 1) { rig.eeprom.writeMemory(1, 0); }")
+    assert exact["eeprom"]["cells_over_endurance"] == []
 
 
 def test_the_summary_says_no_usb_host_is_present_and_counts_serial_writes_it_does_not_cost() -> (
@@ -1744,11 +1763,12 @@ def test_a_watchdog_figure_is_reported_at_both_ends_of_the_oscillator_s_range() 
         for end in (fast, slow)
     ]
     # (a reset is taken at an instruction's end: up to four cycles' difference between the ends)
-    assert abs(extra[0] - extra[1]) <= 4 and 0 <= min(extra) and max(extra) < 20
+    assert abs(extra[0] - extra[1]) <= 4 and min(extra) >= 0 and max(extra) < 20
     assert fast["watchdog_resets"] >= 2 and slow["watchdog_resets"] >= 2
     assert [r["cause"] for r in fast["resets"]][:2] == ["power_on", "watchdog"]
     # The run's own figures are the scenario's oscillator's: here the fast end's.
     assert found["resets"][1]["cycle"] == fast["first_watchdog_reset_cycle"]
+    assert found["resets"][1]["watchdog_period_cycles"] == 256_000
 
 
 def test_a_watchdog_the_firmware_never_uses_shows_only_the_start_up_time_at_both_ends() -> None:
@@ -1760,6 +1780,10 @@ def test_a_watchdog_the_firmware_never_uses_shows_only_the_start_up_time_at_both
     mid = _program("store(0x60, 0x08);", seconds=0.1, watchdog_oscillator_hz=120_000)["watchdog"]
     assert mid["ends"]["fast"]["oscillator_hz"] == 128_000
     assert mid["ends"]["slow"]["oscillator_hz"] == 112_000
+    # Each end is a run of its own at that oscillator: the fast one's reset comes first.
+    assert mid["ends"]["fast"]["start_up_cycles"] == START
+    first = [mid["ends"][end]["first_watchdog_reset_cycle"] for end in ("fast", "slow")]
+    assert first[0] < first[1]
 
 
 def test_every_figure_of_time_is_withheld_when_timing_is_not_evaluable() -> None:
@@ -1771,6 +1795,9 @@ def test_every_figure_of_time_is_withheld_when_timing_is_not_evaluable() -> None
     why = {"withheld": "timing not evaluable: clock_prescaler"}
     assert found["resets"][0]["cycle"] == why
     assert found["sleep"]["cycles_asleep"] == why
+    assert found["resets"][0]["sketch_start_cycle"] == why
+    reset = _program(setup + "store(0x60, 0x08);", seconds=0.1)["resets"][1]
+    assert reset["cause"] == "watchdog" and reset["watchdog_period_cycles"] == why
     assert "resets.*.cycle" in found["withheld"] and "sleep.cycles_asleep" in found["withheld"]
     body = """
     const main = at, loop = at + 6, f = at + 20;

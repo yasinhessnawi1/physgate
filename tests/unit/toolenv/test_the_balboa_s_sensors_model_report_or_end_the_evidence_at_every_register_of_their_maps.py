@@ -139,7 +139,7 @@ LIS3MDL: list[Row] = [
     (0x31, "INT_SRC", "data"),
     (0x32, "INT_THS_L", "cfg"),
     (0x33, "INT_THS_H", "cfg"),
-    *[(a, "RESERVED", "reserved") for a in range(0x34, 0x40)],
+    *[(a, "RESERVED", "reserved") for a in range(0x34, 0x80)],
 ]
 
 
@@ -204,3 +204,14 @@ def test_the_identities_and_the_modelled_outputs_read_what_the_model_gives() -> 
     assert lsm6[(0x0F, "r")]["value"] == 0x69 and lis3mdl[(0x0F, "r")]["value"] == 0x3D
     for key, item in lsm6.items():
         assert not item["ends"] and not item["reports"], key
+
+
+def test_a_control_register_written_with_its_reset_value_is_not_a_use() -> None:
+    # CTRL_REG1 resets to 0x10 and CTRL_REG3 (power-down) to 0x03: writing them back changes
+    # nothing the model shows; any other value is firmware setting the part up.
+    back = _run("lis3mdl", [[0x20, 0x10], [0x21, 0x00]])
+    assert [back[(a, "w")]["reports"] for a in (0x20, 0x21)] == [[], []]
+    back = _run("lis3mdl", [[0x22, 0x03]])
+    assert back[(0x22, "w")]["reports"] == []
+    other = _run("lis3mdl", [[0x22, 0x00]])
+    assert other[(0x22, "w")]["reports"] == ["lis3mdl:CTRL_REG3"]

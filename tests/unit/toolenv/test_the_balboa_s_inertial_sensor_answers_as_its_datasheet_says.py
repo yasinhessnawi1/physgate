@@ -676,3 +676,20 @@ def test_a_read_of_the_magnetometer_s_data_ends_the_evidence_and_names_the_regis
     assert found["who"] == 0x3D and found["afterWho"] == 0
     assert [e[0] for e in found["ends"]] == ["lis3mdl_data"] * 3
     assert [e[1]["register"] for e in found["ends"]] == [0x28, 0x29, 0x2A]
+
+
+def test_an_odr_change_of_the_other_sensor_does_not_shorten_what_is_left_to_discard() -> None:
+    # The accelerometer at 208 Hz in high-performance mode has two samples to discard (Table 12);
+    # its mode is then changed to normal, which has none; the gyroscope's rate is set before its
+    # first sample. The change starts the accelerometer's discards again but cannot take the two
+    # it still owes away: its first sample (at 1 / 208 s) is read as invalid.
+    found = _run(
+        """
+        write(0x10, [0x50], 0);
+        write(0x15, [0x10], 0.0005);
+        write(0x11, [0x50], 0.001);
+        const a = read(0x28, 2, 1.5 / 208);
+        out(int16(a[0], a[1]));
+        """
+    )
+    assert found == -32768

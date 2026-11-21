@@ -561,6 +561,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("hello");
   Serial.println("again");
+  Serial.write('x');
   Serial1.begin(115200);
   Wire.begin();
   Wire.beginTransmission(0x1E);
@@ -586,7 +587,8 @@ void loop() {}
 def test_a_firmware_that_reads_the_magnetometer_is_not_shown_a_zero_field(tmp_path: Path) -> None:
     # The part answers its identity (0x3D) as on the board; its field is not modelled, so the
     # first byte of OUT_X_L ends the evidence rather than reading zero on three axes without
-    # noise, and the summary names it. Serial's two writes to a USB with no host are counted.
+    # noise, and the summary names it. Serial's writes to a USB with no host, of a buffer and of
+    # a byte, are counted.
     env = environment()
     elf = build(env, tmp_path / "mag", MAG)
     summary, _ = simulate(env, elf, {"avrsim_scenario": 1, "duration_s": 0.3}, tmp_path)
@@ -597,4 +599,4 @@ def test_a_firmware_that_reads_the_magnetometer_is_not_shown_a_zero_field(tmp_pa
     assert "lis3mdl_data" in summary["unmodelled"]
     assert summary["simulated_cycles"] < 0.3 * F
     assert (summary["timing_evaluable"], summary["behaviour_evaluable"]) == (False, False)
-    assert summary["usb"]["host"] == "none" and summary["usb"]["serial_write_calls"] >= 2
+    assert summary["usb"]["host"] == "none" and summary["usb"]["serial_write_calls"] >= 3
