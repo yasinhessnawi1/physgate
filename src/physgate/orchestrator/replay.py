@@ -26,7 +26,7 @@ from pydantic import ValidationError
 
 from physgate.contracts.pairs import ContractPair, recorded_pairs_problem
 from physgate.flags import Reviewers, replans
-from physgate.orchestrator import design_wait
+from physgate.orchestrator import closing_wait, design_wait
 from physgate.orchestrator.arbitration import (
     ClauseConflict,
     Held,
@@ -503,6 +503,8 @@ class RunState:
         self.integration_escalated: IntegrationEscalated | None = None
         #: The holds on dispatches while a subtask read from waits on a person.
         self.producer_waits = Waits()
+        #: Whether the run started under the closing pass's wait: its first line says so.
+        self.closing_wait = False
         #: The builders held while the module whose design each implements has not merged.
         self.design_waits = DesignWaits()
         #: Integration's subtask, if the plan has one: the one subtask whose planning line marks
@@ -645,6 +647,7 @@ class RunState:
             self.escalation_backend = event.escalation_backend
             self.acts = event.queue_decisions == "act"
             self.producer_waits.strict = event.producer_wait == "hold"
+            self.closing_wait = event.closing_wait == "hold"
             self.reviews_plan = event.design_review is not None
             self.holds_plan = self.reviews_plan and event.design_review != "observe"
             self.replans = replans(event.design_review or "off")
@@ -2674,6 +2677,8 @@ class RunState:
         due = dispatch_due(self, sub.plan.subtask_id)
         if due and (held := held_dispatch(self, sub.plan.subtask_id)):
             _refuse(held)
+        if due and (held := closing_wait.held_dispatch(self, sub.plan.subtask_id)):
+            _refuse(held)
         if due and (held := design_wait.held_dispatch(self, sub.plan.subtask_id)):
             _refuse(held)
         if not sub.attempts or sub.attempts[-1].number != attempt:
@@ -2976,6 +2981,14 @@ class RunState:
             gate = gated(self, subtask_id) if step is not None and step.kind == "attempt" else None
             if gate == "hold" or gate == "release":
                 return Step(gate, subtask_id)
+            if (
+                gate is None
+                and step is not None
+                and step.kind == "attempt"
+                and step.point == "resolve"
+                and closing_wait.waits(self, subtask_id)
+            ):
+                return Step("wait", subtask_id)  # sizing's closing pass waits for a module
             if step is not None and gate is None:
                 return step
         held = held_subtask(self)

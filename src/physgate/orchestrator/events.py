@@ -246,6 +246,11 @@ class RunStarted(_Event):
     #: such a dispatch with no hold or release line before it. Left out of every other run, so a
     #: line written before the rule keeps its bytes and replays as it did.
     producer_wait: Literal["hold"] | None = None
+    #: ``hold`` in a run that acts on decisions and was started under the rule that sizing's
+    #: closing pass is not dispatched while a domain module before it has neither merged nor
+    #: ended without a merge; replay refuses such a dispatch. Left out of every other run, so a
+    #: line written before the rule keeps its bytes and replays as it did.
+    closing_wait: Literal["hold"] | None = None
     #: The digest of the version of the sign-off rule table the run started under, written by
     #: code on every run started since the table existed, never by a parameter: which modules owe
     #: a person's sign-off before they are complete (ARCH-130). Left out of a run started before
@@ -265,6 +270,7 @@ class RunStarted(_Event):
             "hooks",
             "ablation",
             "producer_wait",
+            "closing_wait",
             "sign_offs",
         ):
             if getattr(self, absent) is None:
