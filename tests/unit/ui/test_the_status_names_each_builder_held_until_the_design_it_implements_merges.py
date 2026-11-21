@@ -21,10 +21,18 @@ from ui_rig import Live, context_over, fake_ui, serving
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "orchestrator"))
 import test_a_builder_is_held_until_the_design_it_implements_merges as held  # noqa: E402
 from accounted import reaccount  # noqa: E402
+from test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item import (  # noqa: E402
+    lines,
+)
+from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing import (  # noqa: E402
+    DRIVE,
+    FW,
+)
+from test_a_queue_decision_acts_at_a_boundary import decide  # noqa: E402
 
 from physgate import roles  # noqa: E402
 
-DRIVE, FW, LAW = held.DRIVE, held.FW, held.LAW
+LAW = held.LAW
 
 
 @pytest.fixture(scope="module")
@@ -37,13 +45,11 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
         monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
         rig = held.rigged(base / "escalated")
         assert held.first_run(rig, monkeypatch) == "wait"
-        items["escalated"] = held.drive_item(held.lines(rig))
+        items["escalated"] = held.drive_item(lines(rig))
         shutil.copytree(rig.run_dir, root / "escalated")
         rig = held.rigged(base / "ended")
         assert held.first_run(rig, monkeypatch) == "wait"
-        held.decide(
-            rig.run_dir, "reject", "no attempt is left", item_id=held.drive_item(held.lines(rig))
-        )
+        decide(rig.run_dir, "reject", "no attempt is left", item_id=held.drive_item(lines(rig)))
         reaccount(rig.run_dir)
         assert held.resumed(rig, monkeypatch) == "done"
         shutil.copytree(rig.run_dir, root / "ended")
