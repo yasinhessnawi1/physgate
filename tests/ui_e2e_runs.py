@@ -47,6 +47,8 @@ from ui_rig import contract_run, escalated_run, evaluation_rig, real_runs, unava
 from ui_series_rig import series_runs
 from ui_three_mode_rig import cut_after_first_gate_stage, three_mode_runs, two_domain_run
 
+from physgate.orchestrator import record
+
 #: The escalated runs the Queue view's browser tests use, one per test that decides, so no test
 #: depends on another's decision: shown and screenshot only; approved; decided on a view that
 #: went stale; decided while a session's window is open; and the target of a forged request.
@@ -156,6 +158,10 @@ def main(argv: list[str]) -> int:
     """Build the runs under ``argv[1]`` and print the root that holds them."""
     # The runs plan the suite's stand-in roles, which the shipped register does not hold.
     register()
+    # What the browser tests read is each screen over the item or the end it was written for: the
+    # runs start as runs recorded before the sign-off rule table, so no run plans a control
+    # module that owes a person's signature and puts its own item before the one tested.
+    record.SIGN_OFF_RULES = None
     out = Path(argv[1])
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
