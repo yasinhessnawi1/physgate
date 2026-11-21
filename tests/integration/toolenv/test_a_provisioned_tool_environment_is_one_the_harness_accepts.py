@@ -99,7 +99,7 @@ def test_the_harness_measures_the_environment_at_its_pins(
     tools = {tool.name: tool.version for tool in measured.native_tools}
     assert tools["node"] == "v24.22.1"
     assert tools["avr-gcc"].startswith("avr-gcc (GCC) 7.3.0")
-    assert tools["avrsim"] == "avrsim 0.3.0 avr8js 0.21.1 node 24.22.1"
+    assert tools["avrsim"] == "avrsim 0.4.0 avr8js 0.21.1 node 24.22.1"
     assert measured.entries > 10_000
 
 
@@ -132,7 +132,7 @@ def test_the_offline_self_check_built_the_firmware_and_ran_the_libraries(
     assert check["platformio_server"] == "3.1.0"
     # Both firmware fixtures ran on the simulator to their known answers.
     simulated = check["avrsim"]
-    assert simulated["version"] == "avrsim 0.3.0 avr8js 0.21.1 node 24.22.1"
+    assert simulated["version"] == "avrsim 0.4.0 avr8js 0.21.1 node 24.22.1"
     assert simulated["oc1a_frequency_hz"] == pytest.approx(20_000, rel=0.01)
     assert (simulated["icr1"], simulated["who_am_i"], simulated["ctrl2_g"]) == (400, "69", "58")
     assert simulated["encoder_counts"] == {"left": 30, "right": -15}

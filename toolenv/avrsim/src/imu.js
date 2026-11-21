@@ -2,8 +2,11 @@
 //
 // The LSM6DS33 (ST DocID025725, "LSM6DS33: iNEMO inertial module: always-on 3D accelerometer and
 // 3D gyroscope") at 0x6B, its SA0 pin pulled high on the board, and the LIS3MDL magnetometer
-// (ST DocID024204) at 0x1E as a minimal responder. Neither needs avr8js: each is a register file
-// with a sub-address pointer, given the time in seconds with every bus step.
+// (ST DocID024204) at 0x1E, which answers its address and identity and has no field to give.
+// Neither needs avr8js: each is a register file with a sub-address pointer, given the time in
+// seconds with every bus step. Every register of each part's map is modelled, reported or ends
+// the evidence (`LSM6_KINDS`, `LIS3MDL_KINDS`): a part that acknowledged its address and then read
+// zero from everything it has no model for would show firmware a sensor that works.
 //
 // The LSM6DS33's outputs are taken at sample instants: once an output data rate (ODR) is set at
 // time t0, sample k is taken at t0 + k / ODR, and a read returns the newest sample so far. What is
@@ -12,8 +15,9 @@
 // angle from the accelerometer is atan2(a.z, a.x)): with pitch theta and pitch rate omega, the
 // gyroscope reads (0, omega, 0) plus its zero-rate level and the accelerometer (cos theta, 0,
 // sin theta) g. The zero-rate level is the scenario's, within the datasheet's typical figure
-// ("Mechanical characteristics", G_TyOff: +-10 dps). No noise and no filter delay: those are the
-// part's, and not shown.
+// ("Mechanical characteristics", G_TyOff: +-10 dps, a typical figure and not a bound), and the
+// accelerometer reads its own zero-g level (LA_TyOff: +-40 mg). No noise and no filter delay: those
+// are the part's, and not shown.
 
 export const LSM6DS33_ADDRESS = 0x6b;
 export const LIS3MDL_ADDRESS = 0x1e;
@@ -47,6 +51,7 @@ export const LSM6 = Object.freeze({
   OUTZ_H_G: 0x27,
   OUTX_L_XL: 0x28,
   OUTZ_H_XL: 0x2d,
+  TIMESTAMP2_REG: 0x42,
   TAP_CFG: 0x58,
   TAP_THS_6D: 0x59,
   INT_DUR2: 0x5a,
@@ -73,6 +78,29 @@ const MODELLED_BITS = {
   [LSM6.CTRL7_G]: 0x80,
 };
 const NAMES = new Map(Object.entries(LSM6).map(([name, address]) => [address, name]));
+
+/**
+ * What each LSM6DS33 register is (datasheet Table 16): `cfg` a control register (a write the
+ * model does not act on is reported), `out` an output or the status and identity the model gives
+ * (read-only: a write changes nothing), `data` an output the model has no value for (a read
+ * ends the evidence), `timestamp` such an output that a write also acts on, and `reserved` a
+ * register the datasheet says must not be changed (any access ends the evidence).
+ */
+const kinds = (table, ranges) => {
+  for (const [kind, ...spans] of ranges) {
+    for (const span of spans) {
+      const [from, to = from] = Array.isArray(span) ? span : [span];
+      for (let address = from; address <= to; address += 1) table[address] = kind;
+    }
+  }
+};
+const LSM6_KINDS = new Array(0x80).fill('reserved');
+kinds(LSM6_KINDS, [
+  ['cfg', 0x01, [0x06, 0x0b], 0x0d, 0x0e, [0x10, 0x19], [0x58, 0x5f]],
+  ['out', 0x0f, 0x1e, [0x20, 0x2d]],
+  ['data', [0x1b, 0x1d], [0x3a, 0x41], [0x49, 0x4c], 0x53],
+  ['timestamp', 0x42],
+]);
 
 /** Output data rates by the four ODR bits of CTRL1_XL and CTRL2_G; the gyroscope stops at
  * 1.66 kHz, and its codes above that are taken as power-down. */
@@ -112,8 +140,11 @@ const ACCEL_AUTO_BW = [null, 3, 3, 3, 3, 2, 1, 0, 0, 4, 4];
 
 const DEG_PER_RAD = 180 / Math.PI;
 /** The datasheet's typical zero-rate level ("Mechanical characteristics", G_TyOff), in dps: a
- * scenario's level lies within it on each axis. */
+ * typical figure and not a bound (section 4.6.2 calls it the standard deviation of a group of
+ * parts), so a scenario may state up to four times it, of either sign. */
 export const GYRO_ZERO_RATE_LIMIT_DPS = 10;
+/** The datasheet's typical zero-g level ("Mechanical characteristics", LA_TyOff), in mg. */
+export const ACCEL_ZERO_G_TYPICAL_MG = 40;
 /** What a sample to discard reads, and what the outputs read before the part has taken any
  * sample. The documents give no value for either: AN4682 Tables 12, 16 and 17 say only that such
  * samples "have to be discarded", and the register map gives the outputs no reset value. The rig's
@@ -136,12 +167,15 @@ export function lsm6Name(address) {
 /**
  * The LSM6DS33.
  *
- * `zeroRateDps` is the gyroscope's zero-rate level on x, y and z in dps (none if not given);
+ * `zeroRateDps` is the gyroscope's zero-rate level on x, y and z in dps and `zeroGMg` the
+ * accelerometer's zero-g level in mg (none if not given);
  * `motion(t)` gives {pitch_rad, pitch_rate_rad_s}; `raw(t)` gives counts that replace the outputs
  * ({gyro, accel}) or null; `faults(t)` gives {nack, stale_since, saturated} (`stale_since` the
  * time the active stale fault began, `saturated` null or {sensor: 'gyro' | 'accel' | 'both',
  * axes: ['x', 'y', 'z'] or some of them}). `onWrite(register, value, t)` is told of every
  * register the firmware writes, `onUnmodelled(what)` of each write the model does not act on,
+ * `onEvidenceEnd(cause, detail)` of each read of data it has no value for and each access to a
+ * reserved register,
  * `onOutputRead(sensor, instant)` of each output byte read with the instant (s) of the sample it
  * came from.
  *
@@ -165,13 +199,16 @@ export function lsm6Name(address) {
  *   is counted, and so is each high output byte read before the sensor has taken any sample.
  */
 export class LSM6DS33 {
-  constructor({ motion, raw, faults, onWrite, onUnmodelled, onOutputRead, zeroRateDps }) {
+  constructor({ motion, raw, faults, onWrite, onUnmodelled, onEvidenceEnd, onOutputRead, zeroRateDps,
+    zeroGMg }) { // prettier-ignore
     this.motion = motion;
     this.zeroRateDps = zeroRateDps ?? [0, 0, 0];
+    this.zeroGMg = zeroGMg ?? [0, 0, 0];
     this.raw = raw;
     this.faults = faults;
     this.onWrite = onWrite ?? (() => {});
     this.onUnmodelled = onUnmodelled ?? (() => {});
+    this.onEvidenceEnd = onEvidenceEnd ?? (() => {});
     this.onOutputRead = onOutputRead ?? (() => {});
     this.registers = new Uint8Array(0x80);
     this.reset(0);
@@ -230,10 +267,20 @@ export class LSM6DS33 {
     if (this.registers[LSM6.CTRL3_C] & 0x04) this.pointer = (this.pointer + 1) & 0x7f;
   }
 
+  /** A register the model has no value for was read or a reserved one touched: the evidence ends. */
+  noData(address, access) {
+    this.onUnmodelled('lsm6ds33_data');
+    this.onEvidenceEnd('lsm6ds33_data', { register: address, name: lsm6Name(address), access });
+  }
+
   store(address, value, t) {
     this.onWrite(address, value, t);
-    if (address === LSM6.WHO_AM_I || address === LSM6.STATUS_REG) return; // read-only
-    if (address >= LSM6.OUT_TEMP_L && address <= LSM6.OUTZ_H_XL) return; // read-only
+    const kind = LSM6_KINDS[address];
+    if (kind === 'reserved') {
+      this.noData(address, 'write'); // "must not be changed"
+      return;
+    }
+    if (kind === 'out' || kind === 'data') return; // read-only: a write changes nothing
     if (address === LSM6.CTRL3_C && value & 0x01) {
       this.reset(t); // SW_RESET: the registers return to their reset values; the bit clears
       return;
@@ -303,6 +350,11 @@ export class LSM6DS33 {
   }
 
   load(address, t) {
+    const kind = LSM6_KINDS[address];
+    if (kind === 'reserved' || kind === 'data' || kind === 'timestamp') {
+      this.noData(address, 'read'); // an output with no value here, or a register not to be touched
+      return this.registers[address];
+    }
     if (address === LSM6.STATUS_REG) {
       const xl = this.ready(this.accel, t) ? 0x01 : 0;
       const g = this.ready(this.gyro, t) ? 0x02 : 0;
@@ -386,7 +438,12 @@ export class LSM6DS33 {
     } else {
       const mg = ACCEL_MG[(this.registers[LSM6.CTRL1_XL] >> 2) & 0x03];
       const { pitch_rad: theta } = this.motion(t);
-      counts = [int16((Math.cos(theta) * 1000) / mg), 0, int16((Math.sin(theta) * 1000) / mg)];
+      const [x, y, z] = this.zeroGMg;
+      counts = [
+        int16((Math.cos(theta) * 1000 + x) / mg),
+        int16(y / mg),
+        int16((Math.sin(theta) * 1000 + z) / mg),
+      ];
     }
     // Over range: each axis named clips at the end of the range on the side its input lies
     // (datasheet "Mechanical characteristics", FS); an input of exactly 0 is taken as positive.
@@ -398,14 +455,45 @@ export class LSM6DS33 {
   }
 }
 
-/** The LIS3MDL as a minimal responder: it acknowledges, keeps what is written, answers
- * WHO_AM_I (0x3D) and reads zero field. Its sub-address increments only when its top bit is set
- * (datasheet "I2C operation"). */
+/** The LIS3MDL's registers by name (datasheet Table 16): the control registers a write of which
+ * the model does not act on, the identity it answers, and the outputs it has no value for. */
+const LIS3MDL_NAMES = new Map([
+  [0x0f, 'WHO_AM_I'], [0x20, 'CTRL_REG1'], [0x21, 'CTRL_REG2'], [0x22, 'CTRL_REG3'],
+  [0x23, 'CTRL_REG4'], [0x24, 'CTRL_REG5'], [0x27, 'STATUS_REG'], [0x28, 'OUT_X_L'],
+  [0x29, 'OUT_X_H'], [0x2a, 'OUT_Y_L'], [0x2b, 'OUT_Y_H'], [0x2c, 'OUT_Z_L'], [0x2d, 'OUT_Z_H'],
+  [0x2e, 'TEMP_OUT_L'], [0x2f, 'TEMP_OUT_H'], [0x30, 'INT_CFG'], [0x31, 'INT_SRC'],
+  [0x32, 'INT_THS_L'], [0x33, 'INT_THS_H'],
+]); // prettier-ignore
+const LIS3MDL_KINDS = new Array(0x80).fill('reserved');
+kinds(LIS3MDL_KINDS, [
+  ['cfg', [0x20, 0x24], 0x30, 0x32, 0x33],
+  ['out', 0x0f],
+  ['data', 0x27, [0x28, 0x2f], 0x31],
+]);
+/** The LIS3MDL's control registers' values after reset (CTRL_REG1 10h, CTRL_REG3 03h). */
+const LIS3MDL_RESET = { 0x20: 0x10, 0x22: 0x03 };
+export const LIS3MDL_WHO_AM_I = 0x3d;
+
+/** The name a trace or a report gives a LIS3MDL register: the datasheet's, or its address. */
+export function lis3mdlName(address) {
+  return LIS3MDL_NAMES.get(address) ?? `0x${address.toString(16).padStart(2, '0')}`;
+}
+
+/**
+ * The LIS3MDL: it acknowledges its address and answers WHO_AM_I (0x3D), as on the board, and has
+ * no field to give. A read of its status, outputs, temperature or interrupt source ends the
+ * evidence (`lis3mdl_data`), a write of a control register away from its reset value is
+ * reported (`lis3mdl:NAME`), and any access to a register the datasheet calls reserved ends the
+ * evidence. Its sub-address increments only when its top bit is set (datasheet "I2C operation").
+ */
 export class LIS3MDL {
-  constructor({ faults }) {
+  constructor({ faults, onUnmodelled, onEvidenceEnd }) {
     this.faults = faults;
-    this.registers = new Uint8Array(0x40);
-    this.registers[0x0f] = 0x3d;
+    this.onUnmodelled = onUnmodelled ?? (() => {});
+    this.onEvidenceEnd = onEvidenceEnd ?? (() => {});
+    this.registers = new Uint8Array(0x80);
+    this.registers[0x0f] = LIS3MDL_WHO_AM_I;
+    for (const [address, value] of Object.entries(LIS3MDL_RESET)) this.registers[address] = value;
     this.pointer = 0;
     this.increment = false;
     this.addressed = false;
@@ -419,21 +507,35 @@ export class LIS3MDL {
     this.addressed = !write;
   }
 
+  noData(address, access) {
+    this.onUnmodelled('lis3mdl_data');
+    this.onEvidenceEnd('lis3mdl_data', { register: address, name: lis3mdlName(address), access });
+  }
+
   write(value) {
     if (!this.addressed) {
-      this.pointer = value & 0x3f;
+      this.pointer = value & 0x7f;
       this.increment = !!(value & 0x80);
       this.addressed = true;
       return true;
     }
-    if (this.pointer !== 0x0f) this.registers[this.pointer] = value;
-    if (this.increment) this.pointer = (this.pointer + 1) & 0x3f;
+    const address = this.pointer;
+    const kind = LIS3MDL_KINDS[address];
+    if (kind === 'reserved') {
+      this.noData(address, 'write'); // "must not be changed"
+    } else if (kind === 'cfg') {
+      if (value !== (LIS3MDL_RESET[address] ?? 0)) this.onUnmodelled(`lis3mdl:${lis3mdlName(address)}`);
+      this.registers[address] = value;
+    } // a read-only register ignores a write
+    if (this.increment) this.pointer = (this.pointer + 1) & 0x7f;
     return true;
   }
 
   read() {
-    const value = this.registers[this.pointer];
-    if (this.increment) this.pointer = (this.pointer + 1) & 0x3f;
-    return value;
+    const address = this.pointer;
+    const kind = LIS3MDL_KINDS[address];
+    if (kind === 'reserved' || kind === 'data') this.noData(address, 'read');
+    if (this.increment) this.pointer = (this.pointer + 1) & 0x7f;
+    return this.registers[address];
   }
 }

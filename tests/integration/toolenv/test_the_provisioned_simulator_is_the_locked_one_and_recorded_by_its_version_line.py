@@ -25,7 +25,7 @@ from physgate.toolenv.session import wire
 pytestmark = pytest.mark.integration
 
 REPO = Path(__file__).resolve().parents[3]
-VERSION = "avrsim 0.3.0 avr8js 0.21.1 node 24.22.1"
+VERSION = "avrsim 0.4.0 avr8js 0.21.1 node 24.22.1"
 
 
 def _provision() -> ModuleType:

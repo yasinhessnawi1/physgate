@@ -13,14 +13,16 @@
 //   board's resistor; B and C share their pins with the green and red LEDs.
 // - I2C: SCL on PD0, SDA on PD1, held high by the board; the LSM6DS33 at 0x6B and the LIS3MDL
 //   at 0x1E.
-// - Battery: VBAT / 3 on ADC6 (A1), read against AVCC = 5 V (readBatteryMillivolts).
+// - Battery: VBAT / 3 on ADC6 (A1), read against AVCC = 5 V (readBatteryMillivolts): the one
+//   thing the ADC has a value for besides its band gap and ground.
 // - Motors, observed: left PWM on PB6 (OC1B) with direction PB2, right PWM on PB5 (OC1A) with
 //   direction PB1 (Balboa32U4Motors.cpp: PWM_L 10, PWM_R 9, DIR_L 16, DIR_R 15). Each PWM pin is
 //   a DRV8838's EN input: EN low brakes the motor whatever PH is (TI DRV8838 datasheet, Table
 //   7-2 "DRV8838 Device Logic"). EN has a 100 kOhm pull-down (RPD); a pin left as an input with
 //   its 20 to 50 kOhm pull-up on reads high through that divider (VIH is at most 0.5 VCC), so
 //   EN is high when the pin drives high or is an input pulled up, and low otherwise.
-// - Any other pin with its pull-up enabled reads high; with none it reads low.
+// - Any other pin with its pull-up enabled reads high; with none it reads low. A floating input is
+//   neither, and an unattached one is not shown (NOT_SHOWN).
 
 import { LIS3MDL, LIS3MDL_ADDRESS, LSM6DS33, LSM6DS33_ADDRESS } from './imu.js';
 import { FREQUENCY_HZ, REG } from './mcu.js';
@@ -62,7 +64,7 @@ export class Balboa32U4 {
   /**
    * @param {object} scenario a read scenario (scenario.js)
    * @param {{onImuWrite?: Function, onInput?: Function, onUnmodelled?: Function,
-   *   onOutputRead?: Function}} observers
+   *   onEvidenceEnd?: Function, onOutputRead?: Function}} observers
    */
   constructor(scenario, observers = {}) {
     this.scenario = scenario;
@@ -76,10 +78,16 @@ export class Balboa32U4 {
       faults: faultsAt('lsm6ds33'),
       onWrite: observers.onImuWrite,
       onUnmodelled: observers.onUnmodelled,
+      onEvidenceEnd: observers.onEvidenceEnd,
       onOutputRead: observers.onOutputRead,
       zeroRateDps: scenario.imu.gyro_zero_rate_dps,
+      zeroGMg: scenario.imu.accel_zero_g_mg,
     });
-    this.lis3mdl = new LIS3MDL({ faults: faultsAt('lis3mdl') });
+    this.lis3mdl = new LIS3MDL({
+      faults: faultsAt('lis3mdl'),
+      onUnmodelled: observers.onUnmodelled,
+      onEvidenceEnd: observers.onEvidenceEnd,
+    });
     this.devices = new Map([
       [LSM6DS33_ADDRESS, this.lsm6],
       [LIS3MDL_ADDRESS, this.lis3mdl],

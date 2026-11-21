@@ -4,6 +4,8 @@
 // or a symbol name the ELF must hold. A field the reader does not know is refused, never
 // ignored, so a misspelt fault cannot pass as a scenario without it.
 
+import { ACCEL_ZERO_G_TYPICAL_MG, GYRO_ZERO_RATE_LIMIT_DPS } from './imu.js';
+
 export class ScenarioError extends Error {
   constructor(where, why) {
     super(`the scenario is refused at ${where}: ${why}`);
@@ -34,17 +36,20 @@ const BOOTLOADERS = new Set(['a-star', 'none']);
 /** How long both motor enables must stay low for the motors to count as off, by default: longer
  * than a PWM period at 50 Hz or faster, so the low part of a PWM wave is never "off". */
 const DEFAULT_MOTORS_OFF_HOLD_S = 0.02;
-/** The gyroscope's zero-rate level by default, in dps on x, y and z: the datasheet's typical
- * figure (LSM6DS33 "Mechanical characteristics", G_TyOff +-10 dps) at its stated magnitude, so a
- * firmware that does not calibrate it shows that it does not. */
-const DEFAULT_GYRO_ZERO_RATE_DPS = [10, 10, 10];
-const GYRO_ZERO_RATE_LIMIT_DPS = 10;
-/** The battery voltages the board is shown at. Below 5 V the 5 V buck regulator (MP4423H) cannot
- * hold its output, and the documents give no figure for what VCC then is; the brown-out detector
- * resets the chip below VBOT, 4.0 to 4.5 V (extended fuse 0xC8, BODLEVEL 000, datasheet Table 8-1;
- * Balboa 32U4 User's Guide: "The brown-out threshold is 4.3 V"). Above 10.8 V the motor drivers
- * limit the board (User's Guide, "5 V and 3.3 V regulators"). */
-export const BATTERY_V = Object.freeze({ min: 5.0, max: 10.8 });
+/** The sensors' zero levels by default: the datasheet's typical figures (LSM6DS33 "Mechanical
+ * characteristics", G_TyOff +-10 dps and LA_TyOff +-40 mg) at their stated magnitudes, so a
+ * firmware that does not calibrate them shows that it does not. They are typical figures and not
+ * bounds (the datasheet gives no maximum): a scenario may state up to ZERO_LEVEL_FACTOR times
+ * either, of either sign. */
+const DEFAULT_GYRO_ZERO_RATE_DPS = [GYRO_ZERO_RATE_LIMIT_DPS, GYRO_ZERO_RATE_LIMIT_DPS, GYRO_ZERO_RATE_LIMIT_DPS];
+const DEFAULT_ACCEL_ZERO_G_MG = [ACCEL_ZERO_G_TYPICAL_MG, ACCEL_ZERO_G_TYPICAL_MG, ACCEL_ZERO_G_TYPICAL_MG];
+const ZERO_LEVEL_FACTOR = 4;
+/** The battery voltages the model is run at: a six-cell pack's own range, 6.0 V (1.0 V a cell) to
+ * the 10.8 V the motor drivers limit the board to (Balboa 32U4 User's Guide, "5 V and 3.3 V
+ * regulators"). It is the model's range and not a statement about the board: the documents give no
+ * minimum input and no drop-out for the 5 V regulator (MP4423H) below it, and the chip's brown-out
+ * reset lies at 4.0 to 4.5 V (datasheet Table 8-1; "The brown-out threshold is 4.3 V"). */
+export const BATTERY_V = Object.freeze({ min: 6.0, max: 10.8 });
 /** The watchdog oscillator, in Hz: 128 kHz is the datasheet's nominal, from which its Table 8-5
  * typical time-outs follow; its typical curves at 5 V (Figure 30-34) lie between about 112.5 kHz
  * (85 degC) and 121.5 kHz (-40 degC). The datasheet gives no bound; a scenario runs either end. */
@@ -144,16 +149,18 @@ function triple(value, where) {
 
 function imu(value, duration) {
   const where = 'imu';
-  only(value, where, ['pitch_rad', 'pitch_rate_rad_s', 'raw', 'gyro_zero_rate_dps']);
-  let zeroRate = DEFAULT_GYRO_ZERO_RATE_DPS;
-  if (value.gyro_zero_rate_dps !== undefined) {
-    const at = `${where}.gyro_zero_rate_dps`;
-    if (!Array.isArray(value.gyro_zero_rate_dps) || value.gyro_zero_rate_dps.length !== 3) {
-      throw new ScenarioError(at, 'it is not three rates [x, y, z]');
+  only(value, where, ['pitch_rad', 'pitch_rate_rad_s', 'raw', 'gyro_zero_rate_dps', 'accel_zero_g_mg']);
+  const level = (field, unit, typical, fallback) => {
+    if (value[field] === undefined) return fallback;
+    const at = `${where}.${field}`;
+    if (!Array.isArray(value[field]) || value[field].length !== 3) {
+      throw new ScenarioError(at, `it is not three ${unit} [x, y, z]`);
     }
-    const bound = { min: -GYRO_ZERO_RATE_LIMIT_DPS, max: GYRO_ZERO_RATE_LIMIT_DPS };
-    zeroRate = value.gyro_zero_rate_dps.map((v, i) => number(v, `${at}[${i}]`, bound));
-  }
+    const bound = { min: -ZERO_LEVEL_FACTOR * typical, max: ZERO_LEVEL_FACTOR * typical };
+    return value[field].map((v, i) => number(v, `${at}[${i}]`, bound));
+  };
+  const zeroRate = level('gyro_zero_rate_dps', 'rates', GYRO_ZERO_RATE_LIMIT_DPS, DEFAULT_GYRO_ZERO_RATE_DPS);
+  const zeroG = level('accel_zero_g_mg', 'levels', ACCEL_ZERO_G_TYPICAL_MG, DEFAULT_ACCEL_ZERO_G_MG);
   const out = {
     pitch_rad: value.pitch_rad ? profile(value.pitch_rad, `${where}.pitch_rad`, duration, 100) : [[0, 0]],
     pitch_rate_rad_s: value.pitch_rate_rad_s
@@ -161,6 +168,7 @@ function imu(value, duration) {
       : null,
     raw: [],
     gyro_zero_rate_dps: [...zeroRate],
+    accel_zero_g_mg: [...zeroG],
   };
   if (value.raw !== undefined) {
     let last = -1;

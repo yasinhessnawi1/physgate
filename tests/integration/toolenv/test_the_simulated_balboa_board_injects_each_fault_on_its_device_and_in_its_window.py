@@ -155,8 +155,9 @@ def test_a_saturation_reaches_only_the_sensor_it_names(sensor: str) -> None:
         console.log(JSON.stringify({ gyro: read(0x22), accel: read(0x28) }));
         """,
     )
-    upright = round(1000 / 0.061)
-    # At rest the gyroscope's x reads its zero-rate level, 10 dps by default.
+    # At rest the gyroscope's x reads its zero-rate level, 10 dps by default, and the
+    # accelerometer its zero-g level, 40 mg.
+    upright = round(1040 / 0.061)
     assert found == {
         "gyro": 32767 if sensor == "gyro" else round(10 * 1000 / 35),
         "accel": 32767 if sensor == "accel" else upright,

@@ -25,6 +25,10 @@ import {
   PinState,
 } from 'avr8js';
 
+import { REG, REGISTER_OUTCOMES } from './registers.js';
+
+export { FEATURE_EFFECTS, REG, REGISTER_OUTCOMES, UNMODELLED_FEATURES, effectsOf } from './registers.js';
+
 export const FREQUENCY_HZ = 16_000_000; // the Balboa's crystal (board a-star32U4: f_cpu 16000000L)
 export const FLASH_BYTES = 0x8000; // FLASHEND 0x7FFF
 export const SRAM_BYTES = 0xa00; // RAMSIZE; RAMSTART 0x100
@@ -79,41 +83,6 @@ const VECTOR_NAMES = new Map(Object.entries(VECTORS).map(([name, address]) => [a
 export function vectorName(address) {
   return VECTOR_NAMES.get(address) ?? `vector@0x${address.toString(16)}`;
 }
-
-// Data-memory addresses (an I/O register's `_SFR_IO8(n)` lies at n + 0x20).
-export const REG = Object.freeze({
-  PINB: 0x23, DDRB: 0x24, PORTB: 0x25,
-  PINC: 0x26, DDRC: 0x27, PORTC: 0x28,
-  PIND: 0x29, DDRD: 0x2a, PORTD: 0x2b,
-  PINE: 0x2c, DDRE: 0x2d, PORTE: 0x2e,
-  PINF: 0x2f, DDRF: 0x30, PORTF: 0x31,
-  TIFR0: 0x35, TIFR1: 0x36, TIFR3: 0x38, TIFR4: 0x39,
-  PCIFR: 0x3b, EIFR: 0x3c, EIMSK: 0x3d,
-  EECR: 0x3f, EEDR: 0x40, EEARL: 0x41, EEARH: 0x42,
-  TCCR0A: 0x44, TCCR0B: 0x45, TCNT0: 0x46, OCR0A: 0x47, OCR0B: 0x48,
-  PLLCSR: 0x49,
-  SPCR: 0x4c, SPSR: 0x4d, SPDR: 0x4e,
-  ACSR: 0x50, PLLFRQ: 0x52, SMCR: 0x53, MCUSR: 0x54, MCUCR: 0x55, SPMCSR: 0x57,
-  SPL: 0x5d, SPH: 0x5e, SREG: 0x5f,
-  WDTCSR: 0x60, CLKPR: 0x61, PRR0: 0x64, PRR1: 0x65,
-  PCICR: 0x68, EICRA: 0x69, EICRB: 0x6a, PCMSK0: 0x6b,
-  TIMSK0: 0x6e, TIMSK1: 0x6f, TIMSK3: 0x71, TIMSK4: 0x72,
-  ADCL: 0x78, ADCH: 0x79, ADCSRA: 0x7a, ADCSRB: 0x7b, ADMUX: 0x7c, DIDR0: 0x7e,
-  TCCR1A: 0x80, TCCR1B: 0x81, TCCR1C: 0x82, TCNT1L: 0x84, ICR1L: 0x86,
-  OCR1AL: 0x88, OCR1BL: 0x8a, OCR1CL: 0x8c,
-  TCCR3A: 0x90, TCCR3B: 0x91, TCCR3C: 0x92, TCNT3L: 0x94, ICR3L: 0x96,
-  OCR3AL: 0x98, OCR3BL: 0x9a, OCR3CL: 0x9c,
-  TWBR: 0xb8, TWSR: 0xb9, TWAR: 0xba, TWDR: 0xbb, TWCR: 0xbc, TWAMR: 0xbd,
-  TCNT4: 0xbe, TC4H: 0xbf, TCCR4A: 0xc0, TCCR4B: 0xc1, TCCR4C: 0xc2, TCCR4D: 0xc3,
-  TCCR4E: 0xc4,
-  CLKSEL0: 0xc5, CLKSEL1: 0xc6,
-  UCSR1A: 0xc8, UCSR1B: 0xc9, UCSR1C: 0xca, UCSR1D: 0xcb, UBRR1L: 0xcc, UBRR1H: 0xcd,
-  UDR1: 0xce,
-  OCR4A: 0xcf, OCR4B: 0xd0, OCR4C: 0xd1, OCR4D: 0xd2, DT4: 0xd4,
-  UHWCON: 0xd7, USBCON: 0xd8, USBSTA: 0xd9,
-  UDCON: 0xe0, UDINT: 0xe1, UDIEN: 0xe2, UDADDR: 0xe3, UDFNUML: 0xe4, UDFNUMH: 0xe5,
-  UEINTX: 0xe8, UENUM: 0xe9, UEDATX: 0xf1,
-}); // prettier-ignore
 
 /** Each port by its letter: its three registers, as avr8js's port model names them. */
 const PORTS = {
@@ -213,17 +182,22 @@ const TWI = {
   TWAMR: REG.TWAMR,
 };
 
-// The ADC: single-ended ADC0..ADC7 by MUX4:0 (ADC2 and ADC3 have no pin on the 32U4), the
-// 1.1 V band gap at 0b11110 and ground at 0b11111; REFS1:0 = 11 is the internal 2.56 V.
-// MUX5 (ADCSRB bit 5) is not modelled: avr8js reads MUX5 from bit 3, the ATmega2560's place,
-// and the mask below drops it, so a conversion of ADC8..ADC13 or the temperature sensor reads
-// the channel its low five bits name. Such a conversion is listed as unmodelled.
-const ADC_CHANNELS = {};
-for (let channel = 0; channel < 8; channel += 1) {
-  ADC_CHANNELS[channel] = { type: ADCMuxInputType.SingleEnded, channel };
-}
-ADC_CHANNELS[0x1e] = { type: ADCMuxInputType.Constant, voltage: 1.1 };
-ADC_CHANNELS[0x1f] = { type: ADCMuxInputType.Constant, voltage: 0 };
+// The ADC: avr8js reads every mux code it has no entry for as a constant 0 V and a reserved
+// reference as AVCC, so the chip stands in front of its conversions (`guardAdc`): only the inputs
+// below have a value, and a conversion of anything else ends the evidence. What has one: the
+// battery's channel 6 (the only thing wired to an ADC pin: ADC0 and ADC1 are the right encoder's
+// B channel and a pin nothing is connected to, and the other single-ended channels are
+// likewise not given a voltage), the 1.1 V band gap at 0b011110 and ground at 0b011111; and of
+// the references AVCC (REFS1:0 = 01) and the internal 2.56 V (11). MUX5 (ADCSRB bit 5) selects
+// ADC8..ADC13, the temperature sensor and the high-gain pairs, none of which has a value here;
+// avr8js reads MUX5 from bit 3, the ATmega2560's place, so the mask below drops it.
+const ADC_CHANNELS = {
+  6: { type: ADCMuxInputType.SingleEnded, channel: 6 },
+  0x1e: { type: ADCMuxInputType.Constant, voltage: 1.1 },
+  0x1f: { type: ADCMuxInputType.Constant, voltage: 0 },
+};
+/** The ADC clock range for the full 10 bits (datasheet "ADC Clock Source"): 50 to 200 kHz. */
+const ADC_CLOCK_HZ = Object.freeze({ min: 50_000, max: 200_000 });
 const ADC = {
   ADMUX: REG.ADMUX,
   ADCSRA: REG.ADCSRA,
@@ -265,16 +239,6 @@ export const MCUSR_WDRF = 0x08;
 /** The PLL's lock time. The datasheet ("PLLCSR", PLOCK) gives only "about several ms"; the rig
  * takes 10 ms, the long end of that reading, so a start-up that waits on PLOCK is not shortened. */
 export const PLL_LOCK_CYCLES = FREQUENCY_HZ / 100;
-
-/** The power reduction bits by register (datasheet "PRR0", "PRR1"): writing one "shuts down" the
- * module "by stopping the clock to the module", and then "the current state of the peripheral is
- * frozen and the I/O registers can not be read or written" ("Power Reduction Register"). What a
- * read then gives is not documented, so the rig does not go on past such a write: the run's
- * evidence ends there. */
-export const POWER_REDUCTION = Object.freeze({
-  PRR0: { address: 0x64, bits: { 0x80: 'twi', 0x20: 'timer0', 0x08: 'timer1', 0x04: 'spi', 0x01: 'adc' } },
-  PRR1: { address: 0x65, bits: { 0x80: 'usb', 0x10: 'timer4', 0x08: 'timer3', 0x01: 'usart1' } },
-});
 
 /** The four-cycle interrupt response for a part with a two-byte program counter, of which avr8js
  * counts two (datasheet "Interrupt Response Time"). */
@@ -543,7 +507,7 @@ class Watchdog {
  * after PLLE is set and clears it with PLLE; UDINT's
  * flags can only be cleared by software, by writing a zero; USB_GEN is a level, pending while
  * any flag in UDINT has its enable in UDIEN. No host means no bus reset, no enumeration and no
- * data: VBUS reads 0. Start-of-frame interrupts at 1 kHz can be switched on as a load (`sof`),
+ * data: VBUS reads 0, so USBINT's flag never sets. Start-of-frame interrupts at 1 kHz can be switched on as a load (`sof`),
  * which a real host gives only after enumeration; each sets SOFI and steps the frame number,
  * while the controller is enabled, its clock running, the PLL locked and the device attached.
  */
@@ -579,6 +543,10 @@ class Usb {
     cpu.writeHooks[REG.UDIEN] = (value) => {
       cpu.data[REG.UDIEN] = value;
       this.update();
+      return true;
+    };
+    cpu.writeHooks[REG.USBINT] = (value, old) => {
+      cpu.data[REG.USBINT] = old & value; // VBUSTI is cleared by writing a zero, never set by a write
       return true;
     };
     cpu.writeHooks[REG.USBSTA] = (value, old) => {
@@ -619,34 +587,42 @@ class Usb {
 }
 
 /**
- * What the chip keeps as plain storage, or does not do, reported each time firmware uses it.
- *
- * A write that only configures a part the firmware never uses is not a use: the Arduino core's
- * init() clocks Timer4 and sets its PWM bits in every sketch, with no output connected and no
- * interrupt enabled, and that is not reported. Each entry below is a use, counted each time:
- *
- * - `timer4`: Timer4 clocked (TCCR4B CS4) with an interrupt enabled (TIMSK4) or a compare output
- *   connected (COM4A/B in TCCR4A, COM4D or the COM4A/B shadow bits in TCCR4C), written as such;
- *   or a read of TCNT4, TC4H or TIFR4, a count that does not count here.
- * - `input_capture`: ICIE1 or ICIE3 (TIMSKn bit 5) set; avr8js captures nothing.
- * - `vector_relocation`: IVSEL set in MCUCR; the rig's vectors stay at 0.
- * - `pull_up_disable`: PUD set in MCUCR; the ports' pull-ups stay as PORT gives them.
- * - `adc_auto_trigger`: ADATE set with ADEN in ADCSRA; avr8js converts only on ADSC.
- * - `adc_mux5`: a conversion started with MUX5 set (ADC8..13, the temperature sensor).
- * - `clock_prescaler`: CLKPR's CLKPS written non-zero; the rig runs at 16 MHz whatever it says.
- * - `spi`: SPDR written, or SPCR written with SPE set.
- * - `analog_comparator`: ACSR read, or written with ACIE set.
- * - `usb_endpoint_data`: UEDATX read or written (no host: no endpoint has data).
- * - `spm_interrupt`: SPMIE set in SPMCSR (the SPM_READY interrupt is never raised here).
- * - `clock_source`: CLKSEL0 or CLKSEL1 written (the rig runs from the crystal whatever they say).
- * - The rig adds `spm_instruction` (an SPM executed) and `bootloader_session` (the bootloader's
- *   own session ran, whose length is a lower bound and whose USB state is not modelled).
+ * The EEPROM's cells, counting each programming operation on each (datasheet "EEPROM Data
+ * Memory": an endurance of at least 100,000 write/erase cycles). An atomic erase-and-write is one
+ * operation on the cell, an erase only or a write only one each; `now` is the chip's cycle count,
+ * which tells the two halves of an atomic operation (the same cycle) from two operations.
  */
-export const UNMODELLED_FEATURES = Object.freeze([
-  'timer4', 'input_capture', 'vector_relocation', 'pull_up_disable', 'adc_auto_trigger',
-  'adc_mux5', 'clock_prescaler', 'spi', 'analog_comparator', 'usb_endpoint_data',
-  'spm_instruction', 'spm_interrupt', 'clock_source', 'bootloader_session',
-]); // prettier-ignore
+export class CountingEEPROM extends EEPROMMemoryBackend {
+  constructor(size) {
+    super(size);
+    this.now = () => 0;
+    this.cells = new Uint32Array(size);
+    this.writes = 0;
+    this.erased = null;
+  }
+
+  count(address) {
+    this.cells[address] += 1;
+    this.writes += 1;
+  }
+
+  eraseMemory(address) {
+    this.count(address);
+    this.erased = { address, at: this.now() };
+    super.eraseMemory(address);
+  }
+
+  writeMemory(address, value) {
+    const half = this.erased && this.erased.address === address && this.erased.at === this.now();
+    if (!half) this.count(address);
+    this.erased = null;
+    super.writeMemory(address, value);
+  }
+
+  counts() {
+    return { writes: this.writes, per_address_max: this.cells.reduce((a, b) => Math.max(a, b), 0) };
+  }
+}
 
 /**
  * One ATmega32U4 from reset.
@@ -681,23 +657,71 @@ export class ATmega32U4 {
     this.usart1 = new AVRUSART(cpu, USART1, FREQUENCY_HZ);
     this.twi = new TimedTWI(cpu, options.bus, options.onTransfer ?? (() => {}));
     this.adc = new AVRADC(cpu, ADC);
+    if ('now' in options.eeprom) options.eeprom.now = () => cpu.cycles;
     this.eeprom = new AVREEPROM(cpu, options.eeprom, EEPROM);
     this.watchdog = new Watchdog(this);
     this.usb = new Usb(this, { sof: !!options.sof });
-    this.watchUnmodelled(options.onUnmodelled ?? (() => {}));
-    this.watchPowerReduction(options.onEvidenceEnd ?? (() => {}));
+    const unmodelled = options.onUnmodelled ?? (() => {});
+    const end = options.onEvidenceEnd ?? (() => {});
+    this.guardAdc(unmodelled, end);
+    this.watchRegisters(unmodelled, end);
   }
 
-  /** A one written to a power reduction bit: `end(cause, detail)` (POWER_REDUCTION). */
-  watchPowerReduction(end) {
-    for (const [register, { address, bits }] of Object.entries(POWER_REDUCTION)) {
-      observeWrite(this.cpu, address, (value) => {
-        const modules = Object.entries(bits)
-          .filter(([bit]) => value & Number(bit))
-          .map(([, module]) => module);
-        if (modules.length) end('power_reduction', { register, value, modules });
-      });
+  /**
+   * Every register's entry of REGISTER_OUTCOMES, acted on: an access that is a use of what the rig
+   * does not model is reported (`report(feature)`), and one that ends the evidence says so
+   * (`end(cause, detail)`), after the register has done what it does (a write is stored first).
+   */
+  watchRegisters(report, end) {
+    const { cpu } = this;
+    for (const [key, entry] of Object.entries(REGISTER_OUTCOMES)) {
+      const address = Number(key);
+      const act = (access, value) => {
+        const features = entry.uses ? entry.uses(value, access, this) : [entry.feature ?? entry.cause];
+        if (!features.length) return;
+        if (entry.outcome === 'ends') {
+          if (!entry.silent) report(entry.cause);
+          end(entry.cause, entry.detail ? entry.detail(value, access, this, entry.name) : {});
+        } else {
+          for (const feature of features) report(feature);
+        }
+      };
+      const on = entry.on ?? 'write';
+      if (entry.outcome === 'modelled' && !entry.uses) continue;
+      if (on !== 'read') observeWrite(cpu, address, (value) => act('write', value));
+      if (on !== 'write') observeRead(cpu, address, (value) => act('read', value));
     }
+  }
+
+  /**
+   * The ADC's conversions: avr8js gives an input it has no entry for a constant 0 V, a reserved
+   * reference AVCC, and a start with the ADC disabled an interrupt flag the part never sets. A
+   * conversion the model has no value for ends the evidence instead of starting; a clock outside
+   * 50 to 200 kHz, at which the part does not resolve the 10 bits it is read as, is reported.
+   */
+  guardAdc(report, end) {
+    const { cpu } = this;
+    const start = cpu.writeHooks[REG.ADCSRA];
+    cpu.writeHooks[REG.ADCSRA] = (value, old, address, mask) => {
+      if (value & 0x40 && !this.adc.converting) {
+        const mux = (cpu.data[REG.ADMUX] & 0x1f) | (cpu.data[REG.ADCSRB] & 0x20);
+        const refs = cpu.data[REG.ADMUX] >> 6;
+        let why = null;
+        if (!(value & 0x80)) why = 'a conversion started with the ADC disabled, which the part does not start';
+        else if (!(mux in ADC_CHANNELS)) why = 'an input nothing models: no pin or source of the board is attached to it';
+        else if (refs !== 1 && refs !== 3) why = 'a reference that is not AVCC or the internal 2.56 V';
+        if (why) {
+          report('adc_input');
+          end('adc_input', { mux, refs, why });
+          cpu.data[REG.ADCSRA] = value & ~0x40;
+          return true;
+        }
+        const divisor = Math.max(2, 1 << (value & 0x07)); // ADPS2:0 (0 and 1 both divide by 2)
+        const clock = FREQUENCY_HZ / divisor;
+        if (clock > ADC_CLOCK_HZ.max || clock < ADC_CLOCK_HZ.min) report('adc_clock');
+      }
+      return start(value, old, address, mask);
+    };
   }
 
   requestReset(cause) {
@@ -720,41 +744,6 @@ export class ATmega32U4 {
   /** Whether a pin is an output driven high. */
   drivenHigh(letter, index) {
     return this.ports[letter].pinState(index) === PinState.High;
-  }
-
-  watchUnmodelled(report) {
-    const { cpu } = this;
-    const { data } = cpu;
-    const timer4Used = () =>
-      !!(data[REG.TCCR4B] & 0x0f) &&
-      !!(data[REG.TIMSK4] & 0xe4 || data[REG.TCCR4A] & 0xf0 || data[REG.TCCR4C] & 0xfc);
-    for (const address of [REG.TIMSK4, REG.TCCR4A, REG.TCCR4B, REG.TCCR4C]) {
-      observeWrite(cpu, address, () => timer4Used() && report('timer4'));
-    }
-    for (const address of [REG.TCNT4, REG.TC4H, REG.TIFR4]) observeRead(cpu, address, () => report('timer4'));
-    for (const address of [REG.TIMSK1, REG.TIMSK3]) {
-      observeWrite(cpu, address, (value) => value & 0x20 && report('input_capture'));
-    }
-    observeWrite(cpu, REG.MCUCR, (value) => {
-      if (value & 0x02) report('vector_relocation');
-      if (value & 0x10) report('pull_up_disable');
-    });
-    observeWrite(cpu, REG.ADCSRA, (value) => {
-      if ((value & 0xa0) === 0xa0) report('adc_auto_trigger');
-      if (value & 0x40 && data[REG.ADCSRB] & 0x20) report('adc_mux5');
-    });
-    observeWrite(cpu, REG.CLKPR, () => {
-      // The rig runs at 16 MHz whatever the prescaler: a write that changes it is listed.
-      if ((data[REG.CLKPR] & 0x0f) !== 0) report('clock_prescaler');
-    });
-    observeWrite(cpu, REG.SPDR, () => report('spi'));
-    observeWrite(cpu, REG.SPCR, (value) => value & 0x40 && report('spi'));
-    observeWrite(cpu, REG.ACSR, (value) => value & 0x08 && report('analog_comparator'));
-    observeRead(cpu, REG.ACSR, () => report('analog_comparator'));
-    observeWrite(cpu, REG.SPMCSR, (value) => value & 0x80 && report('spm_interrupt'));
-    for (const address of [REG.CLKSEL0, REG.CLKSEL1]) observeWrite(cpu, address, () => report('clock_source'));
-    observeWrite(cpu, REG.UEDATX, () => report('usb_endpoint_data'));
-    observeRead(cpu, REG.UEDATX, () => report('usb_endpoint_data'));
   }
 }
 

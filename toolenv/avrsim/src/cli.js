@@ -7,7 +7,10 @@
 // `run` writes the cycle-stamped trace to --out and the summary beside it (the same name with
 // `.summary.json` for its `.jsonl`), and prints the summary. It reads its two inputs and writes
 // those two files, nothing else, and needs no network. Exit status: 0 done, 2 an input or an
-// argument refused (nothing written), 1 the rig failed.
+// argument refused (nothing written), 1 the rig failed. A status of 0 says the run finished and
+// not that its evidence stands: the summary's `evidence_end` (the run's evidence stopped at that
+// cycle), `timing_evaluable` and `behaviour_evaluable` decide, and `run` says on stderr when one
+// of them is not clean.
 
 import { createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync, readFileSync, readSync, writeSync } from 'node:fs';
@@ -20,7 +23,7 @@ import { MAX_SCENARIO_BYTES, ScenarioError, readScenario } from './scenario.js';
 // and a scenario's check read no more than they need.
 let RigError = class extends Error {};
 
-export const RIG_VERSION = '0.3.0';
+export const RIG_VERSION = '0.4.0';
 const MAX_ELF_BYTES = 4 << 20;
 const USAGE = `usage: avrsim --version
        avrsim check --scenario FILE
@@ -132,6 +135,12 @@ async function run(args) {
   }
   const wall = (performance.now() - started) / 1000;
   process.stderr.write(`avrsim: ${summary.simulated_s.toFixed(3)} s of board time in ${wall.toFixed(1)} s\n`);
+  const caveats = [
+    summary.evidence_end && `the evidence ended at cycle ${summary.evidence_end.cycle} (${summary.evidence_end.cause})`,
+    !summary.timing_evaluable && `timing is not evaluable (${summary.timing_not_evaluable_because.join(', ')})`,
+    !summary.behaviour_evaluable && `values are not evaluable (${summary.behaviour_not_evaluable_because.join(', ')})`,
+  ].filter(Boolean);
+  if (caveats.length) process.stderr.write(`avrsim: not clean evidence: ${caveats.join('; ')}\n`);
   process.stdout.write(text);
 }
 

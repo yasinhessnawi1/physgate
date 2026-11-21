@@ -40,8 +40,8 @@ import { INVALID_SAMPLE_VALUE, lsm6Name } from './imu.js';
 import { WATCHDOG_OSCILLATOR_HZ } from './scenario.js';
 import {
   ATmega32U4,
+  CountingEEPROM,
   EEPROM_BYTES,
-  EEPROMMemoryBackend,
   FREQUENCY_HZ,
   MCUSR_BORF,
   MCUSR_EXTRF,
@@ -51,9 +51,9 @@ import {
   RAMEND,
   REG,
   SRAM_BYTES,
-  UNMODELLED_FEATURES,
   VECTORS,
   VECTOR_TABLE_WORDS,
+  effectsOf,
   observeWrite,
   vectorName,
 } from './mcu.js';
@@ -64,6 +64,7 @@ const F_PROBE = 4;
 const F_SLEEP = 8;
 const F_SPM = 16;
 const F_SEI = 32;
+const F_USB_WRITE = 64;
 const OP_RET = 0x9508;
 const OP_SEI = 0x9478;
 const OP_RETI = 0x9518;
@@ -90,7 +91,10 @@ export function startUpCycles(watchdogHz = WATCHDOG_OSCILLATOR_HZ.nominal) {
 }
 export const START_UP_CYCLES = startUpCycles();
 /** The extra cycles an interrupt takes to respond when it wakes the CPU from sleep: "increased by
- * five clock cycles" ("Interrupt Response Time"; "Power Management and Sleep Modes" gives four). */
+ * five clock cycles" ("Interrupt Response Time"; "Power Management and Sleep Modes" gives four).
+ * The ATmega328P's datasheet, whose program counter is two bytes as the 32U4's 16K words need,
+ * says four, so the five is probably one cycle pessimistic: kept at the 32U4 datasheet's figure,
+ * which only ever lengthens a measured latency. */
 export const SLEEP_WAKE_CYCLES = 5;
 /** What the lateness figures are, as the summary names them. */
 const LATENESS =
@@ -101,18 +105,57 @@ const LATENESS =
   'figure against the first entry: entry_n - (entry_0 + n * period).';
 /** What the output does not show, whatever the run. */
 export const NOT_SHOWN = Object.freeze([
-  'brown-out beyond its reset: the chip resets below VBOT (4.0 to 4.5 V, typically 4.3 V; datasheet Table 8-1), ' +
-    'and the rig refuses a battery below 5 V, where the documents do not say what VCC is',
+  'brown-out beyond its reset: the chip resets below VBOT (4.0 to 4.5 V, typically 4.3 ' +
+    "V; datasheet Table 8-1); the battery range is the model's own, 6.0 V (1.0 V a cell " +
+    "of six) to the motor drivers' 10.8 V, and says nothing of the board below it",
+  "the 5 V rail near its drop-out: VCC and the ADC's reference AVCC stay at exactly " +
+    '5.000 V whatever the battery, and the battery does not sag under motor load',
   'an external reset (the RESET pin or button) and the bootloader path it takes',
-  "the inertial sensor's noise and its filters' delay; start-up settling beyond AN4682's discard tables",
-  'clock tolerance: the crystal is exactly 16 MHz; the watchdog oscillator and the start-up time-out are typical ' +
-    'figures (typical_figures), with no bound in the datasheet',
-  'stack headroom on paths the run did not execute: stack.headroom_bytes covers only the paths taken',
-  '"off" means the DRV8838 brake (EN low, Table 7-2), not the motors free; a motors-off figure is evidence only ' +
-    'with its hold time (motors_off_rule.hold_cycles) and motors_off_until_cycle or stayed_off_to_end',
-  'I2C transfers at their fastest (no clock stretching by the sensor, no level-shifter delay) and the ' +
-    "bootloader's session without its interrupts' latency: both are lower bounds",
+  "the inertial sensor's noise (rate noise density 7 mdps/sqrt(Hz)) and its filters' " +
+    "delay; start-up settling beyond AN4682's discard tables; its temperature output, " +
+    'constant at 25 degC',
+  "the inertial sensor's zero levels are typical figures, not bounds (G_TyOff +-10 dps, " +
+    'LA_TyOff +-40 mg: a scenario may state up to four times either, of either sign), and ' +
+    'its drift with temperature (sensitivity +-1 % and +-1.5 %; zero level 0.5 mg/degC ' +
+    'and 0.05 dps/degC) is not shown',
+  'the magnetometer answers its address and its identity only: a read of its data ends ' +
+    'the evidence, and a setting written to it is reported',
+  'clock tolerance: the crystal is exactly 16 MHz; the watchdog oscillator and the ' +
+    'start-up time-out are typical figures (typical_figures), with no bound in the ' +
+    'datasheet',
+  'stack headroom on paths the run did not execute: stack.headroom_bytes covers only ' +
+    'the paths taken',
+  '"off" means the DRV8838 brake (EN low, Table 7-2), not the motors free; a motors-off ' +
+    'figure is evidence only with its hold time (motors_off_rule.hold_cycles) and ' +
+    'motors_off_until_cycle or stayed_off_to_end',
+  'I2C transfers at their fastest (no clock stretching by the sensor, no level-shifter ' +
+    "delay) and the bootloader's session without its interrupts' latency: both are lower " +
+    'bounds',
+  'the I2C bus has the chip as its only master: the Raspberry Pi the board can be ' +
+    'connected to is not shown, and a firmware that listens as a slave ends the evidence',
+  'the scenario is open loop: the inertial sensor, the encoders and the battery follow ' +
+    'the script and the motor outputs change nothing, so anything that needs the loop ' +
+    'closed is not shown',
+  'USB: detached, no host; blocking Serial writes, USB interrupts and the CDC session ' +
+    "are not shown unless usb_sof is set, and the calls of Serial's write are counted " +
+    '(usb.serial_write_calls) with their cost not shown',
+  "USART1 receive: nothing sends, as on an unconnected pin, so a receive interrupt's " +
+    'load never appears',
+  'ADC accuracy: conversions are exact (the datasheet gives an absolute accuracy of +-2 ' +
+    'LSB at 200 kHz), the 2.56 V and 1.1 V references and the band gap are exact, and its ' +
+    'input noise and offset are not shown; a clock outside 50 to 200 kHz is reported ' +
+    '(adc_clock)',
+  'the encoders are perfect quadrature: no bounce, glitch, missed count or skew between ' +
+    'their channels',
+  'inputs nothing is wired to: a pin with no pull-up reads low and one with its pull-up ' +
+    'reads high; a floating or unattached input is neither',
+  "uninitialised SRAM is one seed's pattern (power_on_sram_seed): a criterion that " +
+    'depends on it must run several seeds',
+  'an edge on INT0 to INT3 or INT6 while its mask bit is clear does not set its flag ' +
+    'here, as in avr8js; the datasheet does not settle whether the part sets it',
 ]);
+/** The EEPROM's endurance (datasheet "EEPROM Data Memory": at least 100,000 write/erase cycles). */
+export const EEPROM_ENDURANCE_CYCLES = 100_000;
 /** The bootloader's own .data, which its start-up copies to 0x0100..0x01CD before main(), and its
  * .bss, zeroed at 0x01CE..0x01E3 (Pololu a-star bootloaders/caterina/Caterina-A-Star.map; the
  * bytes are Caterina-A-Star.hex at 0x7F2A..0x7FF7). */
@@ -158,6 +201,18 @@ const RESET_PATH = {
       'at 16 ms, its count started when the delay ends',
     `the PLL's lock is taken as ${PLL_LOCK_CYCLES} cycles (datasheet: "about several ms")`,
   ],
+};
+
+/** What the zero levels the sensor reads at rest are, as the summary names them. */
+const ZERO_LEVEL_STATEMENT = {
+  gyro:
+    "the gyroscope's zero-rate level is the datasheet's typical figure (G_TyOff, +-10 dps), not a bound: it gives " +
+    'no maximum, and a scenario may state up to four times it, of either sign; a criterion that depends on it ' +
+    'should run at both signs',
+  accel:
+    "the accelerometer's zero-g level is the datasheet's typical figure (LA_TyOff, +-40 mg), not a bound: a " +
+    'scenario may state up to four times it, of either sign; an angle from atan2 of two axes moves by up to ' +
+    'about 2.3 degrees at the typical figure',
 };
 
 /** What the input-to-output figures are, as the summary names them. */
@@ -267,8 +322,9 @@ export class Rig {
    * @param {{flash: Uint8Array, eeprom: Uint8Array | null, symbols: Map}} elf a loaded ELF
    * @param {object} scenario a read scenario
    * @param {Trace} trace where the events go
+   * @param {{nested?: boolean}} options `nested`: a run made for another's watchdog figures
    */
-  constructor(elf, scenario, trace) {
+  constructor(elf, scenario, trace, options = {}) {
     this.scenario = scenario;
     this.trace = trace;
     const { flash } = elf;
@@ -312,8 +368,20 @@ export class Rig {
     const brk = elf.symbols.get('__brkval');
     this.brkAddress = brk && brk.type !== 'function' ? brk.value & 0xffff : null;
     this.heapEndMax = null;
-    this.eeprom = new EEPROMMemoryBackend(EEPROM_BYTES);
+    this.eeprom = new CountingEEPROM(EEPROM_BYTES);
     if (elf.eeprom) this.eeprom.memory.set(elf.eeprom);
+    // Arduino's USB serial port: its calls of `Serial.write` are counted (the cost of a write to a
+    // host is not shown).
+    this.usbSerialWrites = 0;
+    for (const name of ['_ZN7Serial_5writeEh', '_ZN7Serial_5writeEPKhj']) {
+      const symbol = elf.symbols.get(name);
+      if (symbol && symbol.type === 'function' && !(symbol.value & 1) && symbol.value >> 1 < this.program.length) {
+        this.flags[symbol.value >> 1] |= F_USB_WRITE;
+      }
+    }
+    this.elf = elf;
+    this.nested = options.nested ?? false;
+    this.watchdogUsed = false;
 
     this.vectors = new Map();
     this.unwound = {};
@@ -353,6 +421,7 @@ export class Rig {
         if (scenario.trace.input_edges) this.trace.event(this.chip.cpu.cycles, { type: 'input', what, value });
       },
       onUnmodelled: (what) => this.noteUnmodelled(what),
+      onEvidenceEnd: (cause, detail) => this.endEvidence(cause, detail),
       onOutputRead: (sensor, instant) => {
         for (const window of Object.values(this.reads)) {
           if (instant < window.oldest) window.oldest = instant;
@@ -462,7 +531,10 @@ export class Rig {
     for (const [name, [address, timer, field]] of Object.entries(sixteen)) {
       observeWrite(cpu, address, () => this.trace.event(cpu.cycles, { type: 'timer', register: name, value: timer[field] }));
     }
-    observeWrite(cpu, REG.WDTCSR, () => this.trace.event(cpu.cycles, { type: 'watchdog', register: 'WDTCSR', value: cpu.data[REG.WDTCSR] }));
+    observeWrite(cpu, REG.WDTCSR, (value) => {
+      if (value & 0x48) this.watchdogUsed = true;
+      this.trace.event(cpu.cycles, { type: 'watchdog', register: 'WDTCSR', value: cpu.data[REG.WDTCSR] });
+    });
     for (const [letter, port] of Object.entries(chip.ports)) {
       port.addListener((value, previous) => this.pins(letter, port, value, previous));
     }
@@ -612,9 +684,11 @@ export class Rig {
       }
       if (this.chip.resetRequest && !this.evidenceEnd) {
         const cause = this.chip.resetRequest;
+        const period = this.chip.watchdog.period;
         // A reset sets its own flag and leaves the others, which only a written zero clears.
         const mcusr = (cause === 'watchdog' ? MCUSR_WDRF : MCUSR_PORF) | this.chip.cpu.data[REG.MCUSR];
         this.build(mcusr, this.chip.carried(), cause);
+        if (cause === 'watchdog') this.resets[this.resets.length - 1].watchdog_period_cycles = period;
         if (stall) stalledByReset = stallIndex;
       }
       this.board.advance();
@@ -725,6 +799,7 @@ export class Rig {
         if (flag & F_PROBE) this.probeEntry(pc, cpu);
         if (flag & F_SLEEP && data[REG.SMCR] & 0x01) sleeps = true;
         if (flag & F_SPM) this.noteUnmodelled('spm_instruction');
+        if (flag & F_USB_WRITE) this.usbSerialWrites += 1;
         if (flag & (F_RET | F_RETI)) {
           const sp = data[93] | (data[94] << 8);
           avrInstruction(cpu);
@@ -845,8 +920,11 @@ export class Rig {
 
   summary(end) {
     const { cpu, timer1 } = this.chip;
-    const features = new Set(UNMODELLED_FEATURES);
-    const untimed = Object.keys(this.unmodelled).filter((what) => features.has(what)).sort();
+    // What the unmodelled uses make not evaluable: the times, the values read, or (a use with no
+    // effect on a board that runs from its crystal) neither (FEATURE_EFFECTS).
+    const named = Object.keys(this.unmodelled).sort();
+    const untimed = named.filter((what) => effectsOf(what).includes('timing'));
+    const unvalued = named.filter((what) => effectsOf(what).includes('behaviour'));
     const timed = untimed.length === 0;
     // With timing not evaluable, every figure of time is withheld (`withheld` names them).
     const untimedWhy = `timing not evaluable: ${untimed.join(', ')}`;
@@ -883,7 +961,7 @@ export class Rig {
       const shown = (epoch) => ({
         reset_index: epoch.reset,
         entries: epoch.entries,
-        first_entry_cycle: epoch.first,
+        first_entry_cycle: timing(epoch.first),
         period_cycles: timing(report(epoch.periods)),
         duration_cycles: timing(report(epoch.durations)),
         lateness_cycles: lateness(epoch),
@@ -891,7 +969,7 @@ export class Rig {
       });
       probes[probe.symbol] = {
         entries: epochs.reduce((n, epoch) => n + epoch.entries, 0),
-        first_entry_cycle: epochs.length ? epochs[0].first : null,
+        first_entry_cycle: timing(epochs.length ? epochs[0].first : null),
         period_cycles: timing(report(all.periods)),
         duration_cycles: timing(report(all.durations)),
         lateness_cycles: probe.period ? timing(report(all.late)) : null,
@@ -958,9 +1036,24 @@ export class Rig {
         pll_lock_cycles: PLL_LOCK_CYCLES,
         readings: RESET_PATH[this.scenario.bootloader],
       },
-      resets: this.resets,
+      resets: this.resets.map((reset) => ({
+        ...reset,
+        cycle: timing(reset.cycle),
+        sketch_start_cycle: timing(reset.sketch_start_cycle),
+        ...('bootloader_session_cycles' in reset
+          ? { bootloader_session_cycles: timing(reset.bootloader_session_cycles) }
+          : {}),
+        ...('watchdog_period_cycles' in reset
+          ? { watchdog_period_cycles: timing(reset.watchdog_period_cycles) }
+          : {}),
+      })),
+      watchdog: this.watchdogEnds(timed ? null : untimedWhy),
       interrupt_response_cycles: 4,
-      sleep: { ...this.sleep, wake_extra_cycles: SLEEP_WAKE_CYCLES },
+      sleep: {
+        ...this.sleep,
+        cycles_asleep: timing(this.sleep.cycles_asleep),
+        wake_extra_cycles: SLEEP_WAKE_CYCLES,
+      },
       vectors,
       vectors_left_without_reti: this.unwound,
       stack: {
@@ -1000,6 +1093,20 @@ export class Rig {
         read_before_any_sample: this.board.lsm6.counts.read_before_any_sample,
         invalid_sample_value: INVALID_SAMPLE_VALUE,
         gyro_zero_rate_dps: this.scenario.imu.gyro_zero_rate_dps,
+        gyro_zero_rate_statement: ZERO_LEVEL_STATEMENT.gyro,
+        accel_zero_g_mg: this.scenario.imu.accel_zero_g_mg,
+        accel_zero_g_statement: ZERO_LEVEL_STATEMENT.accel,
+      },
+      eeprom: this.eepromSummary(),
+      usb: {
+        host: 'none',
+        usb_sof: this.scenario.usb_sof,
+        serial_write_calls: this.usbSerialWrites,
+        statement:
+          'no USB host is present: the controller is detached and silent (usb_sof adds only the 1 kHz ' +
+          'start-of-frame load of a host that has enumerated); a blocking write to a connected ' +
+          "Serial, the USB interrupts' load and the CDC session are not shown, and the calls of " +
+          'Serial.write are counted here',
       },
       input_to_output: {
         definition: INPUT_TO_OUTPUT_DEFINITION,
@@ -1012,13 +1119,77 @@ export class Rig {
       unmodelled,
       timing_evaluable: timed,
       timing_not_evaluable_because: untimed,
+      behaviour_evaluable: unvalued.length === 0,
+      behaviour_not_evaluable_because: unvalued,
       withheld: timed
         ? []
         : ['vectors.*.inclusive_cycles', 'vectors.*.exclusive_cycles', 'pwm.*', 'probes.*.period_cycles',
             'probes.*.duration_cycles', 'probes.*.lateness_cycles', 'probes.*.lateness_from_first_entry_cycles',
             'input_to_output.upper_bound_cycles', 'input_to_output.newest_sample_cycles',
-            'events.*.motors_off_*', 'events.*.stayed_off_to_end', 'events.*.ocr_zero_cycle'], // prettier-ignore
+            'events.*.motors_off_*', 'events.*.stayed_off_to_end', 'events.*.ocr_zero_cycle',
+            'resets.*.cycle', 'resets.*.sketch_start_cycle', 'resets.*.bootloader_session_cycles',
+            'resets.*.watchdog_period_cycles', 'probes.*.first_entry_cycle',
+            'probes.*.by_reset.*.first_entry_cycle', 'sleep.cycles_asleep'], // prettier-ignore
       trace: { lines: this.trace.lines, truncated_at_cycle: this.trace.truncatedAt },
+    };
+  }
+
+  /** The EEPROM's programming operations, with the datasheet's endurance. */
+  eepromSummary() {
+    const { writes, per_address_max: perAddressMax } = this.eeprom.counts();
+    const over = [];
+    this.eeprom.cells.forEach((count, address) => {
+      if (count > EEPROM_ENDURANCE_CYCLES) over.push(address);
+    });
+    return {
+      write_cycles: writes,
+      per_address_max: perAddressMax,
+      endurance_cycles: EEPROM_ENDURANCE_CYCLES,
+      cells_over_endurance: over,
+      statement:
+        'each erase, write or atomic erase-and-write of a cell is one programming operation on it; the datasheet ' +
+        'gives the EEPROM an endurance of at least 100,000 write/erase cycles: a cell in cells_over_endurance ' +
+        'was programmed more often in this run alone',
+    };
+  }
+
+  /**
+   * The watchdog's figures at both ends of its oscillator (`watchdog_oscillator_hz`'s range): the
+   * datasheet gives the oscillator no bound, so a figure of "does not reset early" must read the
+   * fast end and one of "resets within" the slow end. When the firmware used the watchdog (or a
+   * watchdog reset came) each end is a run of its own; otherwise only what the oscillator changes
+   * without it, the start-up time, differs.
+   */
+  watchdogEnds(notEvaluable) {
+    if (this.nested) return null;
+    const used = this.watchdogUsed || this.resets.some((reset) => reset.cause === 'watchdog');
+    const end = (hz) => {
+      const figures = { oscillator_hz: hz, start_up_cycles: startUpCycles(hz) };
+      if (!used) return figures;
+      if (notEvaluable) return withheld(notEvaluable);
+      const own = hz === this.scenario.watchdog_oscillator_hz;
+      const run = own ? this : new Rig(this.elf, { ...this.scenario, watchdog_oscillator_hz: hz },
+        new Trace(() => {}, 0), { nested: true }); // prettier-ignore
+      if (!own) run.run();
+      const resets = run.resets.map(({ cycle, cause, sketch_start_cycle: start }) => ({ cycle, cause, sketch_start_cycle: start }));
+      const first = run.resets.find((reset) => reset.cause === 'watchdog');
+      return {
+        ...figures,
+        period_cycles: first ? first.watchdog_period_cycles : null,
+        first_watchdog_reset_cycle: first ? first.cycle : null,
+        watchdog_resets: run.resets.filter((reset) => reset.cause === 'watchdog').length,
+        resets,
+      };
+    };
+    return {
+      used,
+      statement:
+        "the watchdog's oscillator is a typical figure with no bound in the datasheet (128 kHz nominal; the " +
+        'typical curves at 5 V lie between about 112.5 and 121.5 kHz): each figure is given at both ends of ' +
+        'scenario_range_hz. Read the fast end for a criterion that the watchdog does not reset early and ' +
+        'the slow end for one that it resets within a time; the run\'s own figures are the scenario\'s oscillator\'s',
+      ends: { fast: end(WATCHDOG_OSCILLATOR_HZ.max), slow: end(WATCHDOG_OSCILLATOR_HZ.min) },
+      read: { does_not_reset_early: 'fast', resets_within: 'slow' },
     };
   }
 
