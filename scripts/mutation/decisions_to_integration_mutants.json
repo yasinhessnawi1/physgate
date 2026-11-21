@@ -1441,7 +1441,8 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
       "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
-      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py"
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_a_persons_noted_decision_is_carried_to_integration_as_a_fenced_open_point.py"
     ]
   },
   {
@@ -1463,7 +1464,8 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
       "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
-      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py"
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_a_persons_noted_decision_is_carried_to_integration_as_a_fenced_open_point.py"
     ]
   },
   {
@@ -1485,7 +1487,8 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
       "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
-      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py"
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_a_persons_noted_decision_is_carried_to_integration_as_a_fenced_open_point.py"
     ]
   },
   {

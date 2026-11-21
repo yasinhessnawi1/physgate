@@ -987,8 +987,12 @@ def test_a_temporary_that_cannot_be_removed_after_a_failed_second_rename_stops_n
 
     monkeypatch.setattr(module.os, "replace", record_then_no_space)
     monkeypatch.setattr(module.os, "unlink", stubborn)
-    with pytest.raises(module.ExportError):
+    with pytest.raises(Exception) as caught:  # noqa: PT011
         module.export_whole_run(run, out)
+    # The rename's own failure is the one reported, not the removal's.
+    assert isinstance(caught.value, module.ExportError), repr(caught.value)
+    assert os.strerror(errno.ENOSPC) in str(caught.value)
     left = sorted(p.name for p in out.parent.iterdir())
+    # The other removals were tried: the record placed is gone, and so is the claim on the answer.
     assert not out.exists() and not module.record_path(out).exists(), left
     assert all(name.startswith(f".{out.name}.") for name in left), left

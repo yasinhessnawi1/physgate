@@ -229,7 +229,9 @@ def test_a_decision_the_cap_cuts_to_its_heading_still_names_its_item_kind_and_ve
         taken(SIGNED, "ctl-1", note="Signed on a condition."),
         sign_offs={SIGNED: SimpleNamespace(module="ctl-1")},
     )
+    assert len(carried.carried(state)) == 4
     body = text(state)
+    assert f'### Open point: item "{SIGNED}"' in body
     for item, kind, verb in (
         ("run-1-ctl-3", "blocked review", "choose"),
         (SIGNED, "sign-off", "approve"),
@@ -259,7 +261,10 @@ def signed(**fields: Any) -> RunState:  # noqa: ANN401
 
 def test_a_sign_off_approved_with_a_note_is_carried_as_its_own_kind() -> None:
     state = signed()
-    (one,) = carried.carried(state)
+    found = carried.carried(state)
+    assert len(found) == 1
+    assert f'### Open point: item "{SIGNED}"' in text(state)
+    (one,) = found
     assert (one.kind, one.verb, one.subtasks, one.acts) == ("sign-off", "approve", ("ctl-1",), True)
     assert 'item kind: "sign-off"' in text(state)
     body = json.loads(record_of(state))["decisions"][0]
@@ -267,12 +272,14 @@ def test_a_sign_off_approved_with_a_note_is_carried_as_its_own_kind() -> None:
 
 
 def test_a_sign_off_is_not_asked_for_by_the_id_check() -> None:
+    assert len(carried.carried(signed())) == 1
     assert carried.ids_missing(signed(), "nothing of it here") == ()
     both = state_of(
         taken(SIGNED, "ctl-1"),
         taken(SECOND, "fw-1"),
         sign_offs={SIGNED: SimpleNamespace(module="ctl-1")},
     )
+    assert [one.item_id for one in carried.carried(both)] == [SIGNED, SECOND]
     assert carried.ids_missing(both, "nothing of it here") == (SECOND,)
 
 
