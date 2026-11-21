@@ -21,6 +21,14 @@ export const RELEASED_HOW = [
   "mutual_readers",
 ] as const;
 
+/** Why a builder is held until the design it implements merges, as the loop writes it. */
+export const BUILDER_HELD_WHY = [
+  "escalated",
+  "ended_unmerged",
+  "designer_held",
+  "not_merged",
+] as const;
+
 /** What raises a decided part again at the release, as the loop writes it. */
 export const RAISED_BY = ["gate", "interface"] as const;
 export type RaisedBy = (typeof RAISED_BY)[number];
@@ -217,8 +225,38 @@ export type RunEvent = Line &
         readonly itemId: string;
         readonly outcome: (typeof RELEASED_HOW)[number];
       }
+    /** The modules that build what another designs, read from the plan before any runs. */
+    | {
+        readonly kind: "design_pairs_planned";
+        readonly pairs: readonly DesignPair[];
+        readonly mutual: readonly DesignPair[];
+      }
+    /** A builder's dispatch held: the module whose design it implements has not merged. */
+    | {
+        readonly kind: "builder_held";
+        readonly subtask: string;
+        readonly designer: string;
+        readonly nodes: readonly string[];
+        readonly why: (typeof BUILDER_HELD_WHY)[number];
+        readonly itemId: string | null;
+        readonly chain: readonly string[] | null;
+      }
+    /** A builder's hold let go: the module whose design it implements merged. */
+    | {
+        readonly kind: "builder_released";
+        readonly subtask: string;
+        readonly designer: string;
+        readonly nodes: readonly string[];
+      }
     | { readonly kind: "other"; readonly recorded: string }
   );
+
+/** A module that builds what another designs: the two subtasks, and the design's nodes. */
+export interface DesignPair {
+  readonly designer: string;
+  readonly builder: string;
+  readonly nodes: readonly string[];
+}
 
 /** Two modules whose shared interfaces a contract holds, each by its name in the plan. */
 export interface ContractPair {
@@ -255,6 +293,15 @@ export interface PlanComponent {
   readonly label: string;
   readonly own: readonly string[];
   readonly shared: readonly string[];
+}
+
+function designPair(value: unknown): DesignPair {
+  const p = object(value, "a design pair");
+  return {
+    designer: text(p.designer, "a designing subtask"),
+    builder: text(p.builder, "a building subtask"),
+    nodes: list(p.nodes, "a design's nodes").map((n) => text(n, "a node")),
+  };
 }
 
 function planComponent(value: unknown): PlanComponent {
@@ -558,6 +605,35 @@ export function runEvent(value: unknown): RunEvent {
         producer: text(e.producer, "a producing subtask"),
         itemId: text(e.item_id, "an item id"),
         outcome: oneOf(e.outcome, RELEASED_HOW, "how a hold was let go"),
+      };
+    case "design_pairs_planned":
+      return {
+        ...line,
+        kind: "design_pairs_planned",
+        pairs: list(e.pairs, "design pairs").map(designPair),
+        mutual: e.mutual === undefined ? [] : list(e.mutual, "design namings").map(designPair),
+      };
+    case "builder_held":
+      return {
+        ...line,
+        kind: "builder_held",
+        subtask: subtask(),
+        designer: text(e.designer, "a designing subtask"),
+        nodes: list(e.nodes, "a design's nodes").map((n) => text(n, "a node")),
+        why: oneOf(e.why, BUILDER_HELD_WHY, "why a builder is held"),
+        itemId: optionalText(e.item_id, "an item id"),
+        chain:
+          e.chain === undefined
+            ? null
+            : list(e.chain, "a chain of designers").map((c) => text(c, "a designing subtask")),
+      };
+    case "builder_released":
+      return {
+        ...line,
+        kind: "builder_released",
+        subtask: subtask(),
+        designer: text(e.designer, "a designing subtask"),
+        nodes: list(e.nodes, "a design's nodes").map((n) => text(n, "a node")),
       };
     default:
       return { ...line, kind: "other", recorded: text(e.kind, "an event kind") };

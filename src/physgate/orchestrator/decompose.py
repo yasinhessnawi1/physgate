@@ -51,6 +51,12 @@ from physgate.orchestrator.credentials import (
     remove_secrets,
     write_login,
 )
+from physgate.orchestrator.design_pairs import (
+    DesignPair,
+    misordered_pairs,
+    plan_design_pairs,
+    plan_mutual_namings,
+)
 from physgate.orchestrator.events import Followable
 from physgate.orchestrator.exceptions import (
     DecompositionError,
@@ -763,7 +769,9 @@ UNIT_SPELLING_SENTENCE = (
 #: not a criterion says so, the designer comes before the implementer (not before every module),
 #: writes its design on a node both specifications name, and the implementer is held to that
 #: node as merged, so what runs is what was analysed; an implementer that starts before the node
-#: is merged reports it and implements no design of its own.
+#: is merged reports it and implements no design of its own. The harness reads which module
+#: implements which from that node, by its id's first part, so the sentence says how the id is
+#: formed: the designing module's name, then what the node holds.
 SOLUTION_SENTENCE = (
     "A specification states its module's interfaces and acceptance criteria, never the internal "
     "law, structure or coefficients of a solution, unless the brief fixes them. The brief fixes "
@@ -780,7 +788,8 @@ SOLUTION_SENTENCE = (
     "Where one module implements "
     "what another designs, such as firmware running the control law that was analysed, the "
     "designing module comes before the implementing module in the plan and writes its design on "
-    "a node of its own, named in both specifications; the implementing module's acceptance "
+    'a node of its own, "<the designing module\'s name>.<what it holds>", named in both '
+    "specifications; the implementing module's acceptance "
     "criteria compare its implementation with that node as merged, and where the node is not "
     "merged when it starts, it reports that and implements no design of its own."
 )
@@ -793,7 +802,21 @@ SOLUTION_SENTENCE = (
 #: nothing but its prompt, so the form is given here in the words the review holds it to, with
 #: the kinds of bundle plans have written as one criterion named in general terms. Splitting a
 #: bundle leaves each part to be traced on its own, so the sentence asks for each criterion's
-#: trace as well; a goal, which is not a requirement, is kept out of the criteria.
+#: trace as well; a goal, which is not a requirement, is kept out of the criteria. A criterion is
+#: written only against what the run can measure: a plan once asked firmware for timing "measured
+#: on the board" in a run with no board, so no session could ever meet it. The plan is written
+#: before a person says which parts they have, so no board is taken as connected unless the
+#: brief says so. A run environment may give firmware a compiler and no simulator, so the prompt
+#: promises none: a simulator is used only where the environment provides one, and otherwise a
+#: criterion is held to what can be measured (the build with no warning in the module's own
+#: files, as the board's core and libraries print their own; its size; a check of its logic with
+#: the environment's own tools), with behaviour on the target said to be unmeasured. No static
+#: analyser or host compiler is named, as the environment may have none.
+#: No product is named here, since the prompt does not know which is installed. A plan that
+#: gave a module no value for its timeouts, limits or fault rules left that module nothing it
+#: could build to, so each is stated with a value in the module's specification; an interface
+#: node carries one only where both sides must agree on it, as the interface paragraph has it, so
+#: a module's own limit is never put on one.
 CRITERION_FORM_SENTENCE = (
     'Write each acceptance criterion as one statement of one thing, in the form "The <module> '
     'shall <verb> <what>, <threshold with its unit and tolerance>, verified by <method>.", '
@@ -803,7 +826,16 @@ CRITERION_FORM_SENTENCE = (
     "holds several figures or conditions (a value and its agreement with another quantity, a "
     "value and a rule for the rest of the module, two margins, a figure and a setting) becomes "
     "one criterion for each, so that each is met or unmet on its own. A goal is written with "
-    '"should", outside the acceptance criteria.'
+    '"should", outside the acceptance criteria. Write each criterion only against what the '
+    "run's environment can measure. No board is connected unless the brief says so; without "
+    "one, behaviour on the target is checked in a simulator only where the run's environment "
+    "provides one, and otherwise the criterion is written against what can be measured (that "
+    "the code compiles without a warning in the module's own files, its size, and a check of "
+    "its logic with the tools the environment provides) and the specification states that "
+    "behaviour on the target is not measured in this run. Each "
+    "module's specification states, with a value, every limit, timeout and fault behaviour the "
+    "module must implement, and names the interface node that carries one only where both sides "
+    "must agree on its value."
 )
 
 
@@ -1014,16 +1046,19 @@ def retry_prompt(
 ) -> str | None:
     """What the one retry of a call is sent: ``prompt`` as it was, or with why a unit was refused.
 
-    A plan refused for an interface unit (:data:`UNIT_REFUSAL_HEAD`) is the one refusal the
+    A plan refused for an interface unit (:data:`UNIT_REFUSAL_HEAD`), or for a module that
+    implements another's design put before it (:data:`ORDER_REFUSAL_HEAD`), is a refusal the
     designer corrects only if told: its retry is sent the prompt the refused call was sent
     (``prompt``, or the brief's own where that is ``None``), then the refusal's exact text, which
-    names the node, the quantity, the unit and the spelling to write, between fences the text
-    cannot close. The text is this module's own and the designer's own unit, never another
-    session's words. Any other refusal by the schema is made again with ``prompt`` as it was.
+    names the node, the quantity, the unit and the spelling to write, or the two modules and the
+    design's nodes, between fences the text cannot close. The text is this module's own and the
+    designer's own names, never another session's words. Any other refusal by the schema is made
+    again with ``prompt`` as it was.
     ``parts`` is as the refused call's own prompt took it, so the brief's prompt rebuilt here
     asks for the components exactly when the first did.
     """
-    if refused.cause != "schema_refused" or not refused.detail.startswith(UNIT_REFUSAL_HEAD):
+    told = (UNIT_REFUSAL_HEAD, ORDER_REFUSAL_HEAD)
+    if refused.cause != "schema_refused" or not refused.detail.startswith(told):
         return prompt
     first = prompt_for(brief, sorted(roles), parts=parts) if prompt is None else prompt
     return (
@@ -1244,12 +1279,48 @@ def judge(
     problems = plan_problems(plan, roles, brief)
     if problems:
         return "invalid_plan", "; ".join(problems), None, seen_model, turns
+    misordered = order_refusal(plan, roles)
+    if misordered is not None:
+        # A schema-stage refusal as a unit's is: the call is made once more, told why.
+        return "schema_refused", misordered, None, seen_model, turns
     return None, "a plan", plan, seen_model, turns
 
 
 #: How the refusal of a plan's interface unit begins: the node and the quantity follow. The
 #: binary's own refusal of an answer never begins so.
 UNIT_REFUSAL_HEAD = "interface node "
+#: How the refusal of a plan that puts a module before the module whose design it implements
+#: begins: the two modules and the design's nodes follow. The binary's own never begins so.
+ORDER_REFUSAL_HEAD = "the plan puts module "
+
+
+def order_refusal(plan: Plan, roles: Sequence[str]) -> str | None:
+    """Why ``plan`` is refused for a builder put before its designer, or ``None``.
+
+    Among the domain modules, whose order in the plan is the run's (ARCH-051): a module whose
+    specification names a node that is a later module's own, which that module's specification
+    names too, would be dispatched before the design it implements and never held to it. Where
+    the later module names a node of the earlier one's own as well, no order could satisfy a
+    refusal, so none is made: the pair follows the plan's order. The refusal names the way out:
+    the two the other way round, or the quantity on an interface node. The module of the role
+    that opens the domain work runs first whatever the plan says and reads the domain's nodes to
+    size them, so it is no builder here.
+    """
+    openings = set(_in_run("cross_nodes", roles))
+    domain = [module.name for module in plan.modules if module.role not in openings]
+    found = misordered_pairs(plan, domain)
+    if not found:
+        return None
+    said = "; ".join(
+        f"{ORDER_REFUSAL_HEAD if at == 0 else 'module '}{builder!r} before module {designer!r}, "
+        f"whose design on {', '.join(nodes)} it implements"
+        for at, (builder, designer, nodes) in enumerate(found)
+    )
+    return (
+        f"{said}: the designing module comes before the implementing module in the plan; put the "
+        "two modules the other way round, or, where both sides must agree on the quantity, put it "
+        "on an interface node and name that instead"
+    )
 
 
 def _units_as_products(plan: Plan, roles: Sequence[str]) -> Plan:
@@ -2356,6 +2427,8 @@ def start_run(
             interface_consumers=consumers,
             system_requirements=requirements,
             contract_pairs=pairs,
+            design_pairs=_design_pairs(plan, planned) or None,
+            design_mutual=_design_pairs(plan, planned, mutual=True) or None,
             brief_words=words or None,
             followable=followable,
             components=plan.components if isinstance(plan, PartsPlan) else None,
@@ -2465,6 +2538,21 @@ def _contract_pairs(plan: Plan, planned: Sequence[_Issued]) -> tuple[ContractPai
         return plan_pairs(plan, subtask_of)
     except ContractError as exc:
         raise DecompositionError(str(exc), **exc.context) from None
+
+
+def _design_pairs(
+    plan: Plan, planned: Sequence[_Issued], *, mutual: bool = False
+) -> tuple[DesignPair, ...]:
+    """The plan's design pairs, with each module's subtask, in the order the run dispatches them.
+
+    The plan modules are the first of ``planned``, one each, in run order; a closing pass and
+    integration follow them and are no module of the plan, so neither is a designer or a builder.
+    With ``mutual``, each of those pairs the other way round instead (:func:`plan_mutual_namings`).
+    """
+    modules = planned[: len(plan.modules)]
+    subtask_of = {one.module: one.entry.subtask_id for one in modules}
+    read = plan_mutual_namings if mutual else plan_design_pairs
+    return read(plan, subtask_of, [one.module for one in modules])
 
 
 def _lists(
