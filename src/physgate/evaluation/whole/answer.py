@@ -176,7 +176,7 @@ FIELD_BOUNDS: dict[str, FieldBound] = {
     "angle_decay_numerator": FieldBound(1, 32767, _LITERAL),
     "angle_decay_denominator": FieldBound(1, 32767, _LITERAL),
     "update_rate": FieldBound(1.0, 1000.0, "the period's bounds, as a rate"),
-    "gyro_output_data_rate": FieldBound(
+    "output_data_rate": FieldBound(
         0.0,
         10_000.0,
         "chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read",
@@ -445,7 +445,7 @@ class Parameters(_Frozen):
     """
 
     update_rate: Measure
-    gyro_output_data_rate: Measure
+    output_data_rate: Measure
     gyro_full_scale: Measure
     pwm_frequency: Measure
     pwm_full_scale: Measure
@@ -456,10 +456,10 @@ class Parameters(_Frozen):
     def _each_positive_in_its_unit(self) -> Parameters:
         _bounded(self.update_rate, "Hz", "the update rate", "update_rate")
         _bounded(
-            self.gyro_output_data_rate,
+            self.output_data_rate,
             "Hz",
             "the gyro's output data rate",
-            "gyro_output_data_rate",
+            "output_data_rate",
         )
         _bounded(self.gyro_full_scale, "deg/s", "the gyro's full scale", "gyro_full_scale")
         _bounded(self.pwm_frequency, "Hz", "the PWM frequency", "pwm_frequency")

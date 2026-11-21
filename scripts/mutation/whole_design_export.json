@@ -851,6 +851,121 @@
     ]
   },
   {
+    "name": "event_log_read_error_raw",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    except OSError as exc:\n        msg = f\"the run's event log cannot be read ({exc.strerror})\"\n",
+    "new": "    except ZeroDivisionError as exc:\n        msg = f\"the run's event log cannot be read ({exc.strerror})\"\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "inside_by_resolved_string_only",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    return any(_same_file(candidate, run_dir) for candidate in (ancestor, *ancestor.parents))\n",
+    "new": "    return False\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "inside_same_file_only_the_nearest",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    return any(_same_file(candidate, run_dir) for candidate in (ancestor, *ancestor.parents))\n",
+    "new": "    return _same_file(ancestor, run_dir)\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "file_mode_left_private",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "                os.fchmod(fd, 0o644 & ~_umask())\n",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "claim_refusal_says_nothing_of_a_killed_write",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        raise ExportError(msg, out=str(out)) from exc\n\n\ndef _write_new",
+    "new": "        raise\n\n\ndef _write_new",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
     "name": "baseline_last",
     "file": "src/physgate/evaluation/whole/export.py",
     "old": "",
