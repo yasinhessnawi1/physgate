@@ -474,6 +474,8 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         elif kind == "design_pairs_planned":
             # Which module builds what another designs, and each naming the other way round.
             step = {"step": "design_pairs", "pairs": e["pairs"], "mutual": e.get("mutual", [])}
+            if e.get("misordered"):
+                step["misordered"] = e["misordered"]
         elif kind == "builder_held":
             # Why it is held, the item a person can act on and the chain, as the line says.
             step = {"step": "builder_held", "subtask_id": e["subtask_id"]}

@@ -6,13 +6,13 @@ other module could be meant, under that name with a hyphen-separated suffix left
 no interface node and no component, which a module dispatched after it names too. A name is read
 in any case and with its module's hyphen, in the id's own form. A node is named by its first two
 parts; a name inside a file path is no node, and nor is a file's own name, one whose last part no
-quantity's name could be (``md``, ``py``, ``json``, ...): ``control.step`` or ``control.m`` is a
-node. A designer dispatched after the module that names its node makes no pair, so the run order
-the harness sets is never changed; where it is the pair the other way round (each module names a
-node of the other's own), that naming holds nothing and is written on the pairs line beside the
-pair. The pairs are recorded once, in the run's opening after the contract pairs, only where there
-are some; replay refuses a set no plan could give, a second one, one after a dispatch, and a
-planning line after it.
+quantity's name could be (``md``, ``py``, ``json``, ``c``, ``h``, ``hex``, ``ld``, ...):
+``control.step`` or ``control.m`` is a node. A designer dispatched after the module that names its
+node makes no pair, so the run order the harness sets is never changed; where it is the pair the
+other way round (each module names a node of the other's own), that naming holds nothing and is
+written on the pairs line beside the pair. The pairs are recorded once, in the run's opening after
+the contract pairs, only where there are some; replay refuses a set no plan could give, a second
+one, one after a dispatch, and a planning line after it.
 """
 
 from __future__ import annotations
@@ -146,10 +146,11 @@ def test_a_file_s_own_name_is_no_node_whatever_its_case() -> None:
 def test_a_last_part_a_quantity_could_be_named_is_a_node_unless_it_lies_in_a_path() -> None:
     # A step response, a time series, a matrix, a model: words a design node may end in, even
     # where a file type is spelt the same.
-    words = ("step", "ts", "mat", "sdf", "ld", "h", "c", "m")
+    words = ("step", "ts", "mat", "sdf", "m")
     spec = " ".join(f"`control.{word}`" for word in words)
     assert named_nodes(spec) == [f"control.{word}" for word in words]
-    paths = " ".join(f"modules/control/control.{word}" for word in words)
+    files = ("c", "h", "cc", "s", "hex", "elf", "ld", "map")
+    paths = " ".join(f"modules/control/control.{word}" for word in (*words, *files))
     assert named_nodes(paths + " and ./firmware.c, .\\firmware.h") == []
     stepped = {"control": CONTROL + " Its `control.step` holds the step response."}
     stepped["firmware"] = FIRMWARE + " Its period follows `control.step`."

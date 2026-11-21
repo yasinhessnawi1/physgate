@@ -503,6 +503,8 @@ class RunState:
         #: The modules that build what another designs, once their line is on the record;
         #: ``None`` in a run whose plan has none, or recorded before they were read.
         self.design_pairs: tuple[DesignPair, ...] | None = None
+        #: The builders the plan lists before the designers they may build, as it was accepted.
+        self.design_misordered: tuple[DesignPair, ...] = ()
         #: The modules recorded complete, by the subtask that planned each. Merged is not
         #: complete: a module's subtask is ``done`` once it merged, whether or not it is here.
         self.completed: dict[str, ModuleCompleted] = {}
@@ -1481,10 +1483,12 @@ class RunState:
             modules=self.modules(),
             interfaces=self.interface_nodes,
             mutual=event.mutual,
+            misordered=event.misordered,
         )
         if why is not None:
             _refuse(f"the run's design pairs are not its plan's: {why}")
         self.design_pairs = event.pairs
+        self.design_misordered = event.misordered
 
     def integrated(self) -> list[str]:
         """The planned subtasks the integration call waits for and judges: all but integration's."""

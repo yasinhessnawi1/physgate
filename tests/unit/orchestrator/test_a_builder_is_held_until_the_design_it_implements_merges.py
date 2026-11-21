@@ -98,11 +98,13 @@ def begin(
     design: bool = True,
     pairs: tuple[DesignPair, ...] = (DESIGN,),
     mutual: tuple[DesignPair, ...] = (),
+    misordered: tuple[DesignPair, ...] = (),
 ) -> None:
     """drive, then fw, then integration; fw builds what drive designs where ``design`` is set.
 
-    ``pairs`` are the design pairs the opening records where ``design`` is set, and ``mutual``
-    the namings the other way round written beside them.
+    ``pairs`` are the design pairs the opening records where ``design`` is set, ``mutual``
+    the namings the other way round written beside them, and ``misordered`` the suspected
+    misorders the plan was accepted with.
     """
     plan = [entry(DRIVE, "control", "drive"), entry(FW, "firmware", "fw")]
     plan.append(entry(INTEG, "integration", "integration"))
@@ -121,6 +123,7 @@ def begin(
         contract_pairs=(P_TILT,),
         design_pairs=pairs if design else None,
         design_mutual=mutual or None,
+        design_misordered=misordered or None,
     )
     loop.record.start(plan, decomposed=summary)
 
@@ -151,12 +154,13 @@ def first_run(
     design: bool = True,
     pairs: tuple[DesignPair, ...] = (DESIGN,),
     mutual: tuple[DesignPair, ...] = (),
+    misordered: tuple[DesignPair, ...] = (),
     kill: Callable[[Any, list[Any]], bool] | None = None,
 ) -> str:
     """The first process, until it stops: the step it stopped at, ``killed``, or what escaped."""
     loop = rig.open()
     hooked(monkeypatch, loop, declared=(DRIVE, FW), kill=kill)
-    begin(loop, design=design, pairs=pairs, mutual=mutual)
+    begin(loop, design=design, pairs=pairs, mutual=mutual, misordered=misordered)
     if rig.config_overrides.get("queue_decisions") == "act":
         _layer(loop)
     try:
@@ -777,6 +781,23 @@ def test_a_run_recorded_without_design_pairs_dispatches_the_builder_as_it_always
     first_run(rig, monkeypatch, design=False)
     rows = lines(rig)
     assert of(rows, "design_pairs_planned") == of(rows, "builder_held") == []
+    assert [r.attempt for r in requests_of(rig, FW)] == [1]
+    assert index_of(rows, "escalated", subtask_id=DRIVE) < dispatched_at(rows, FW)
+    assert refusal(rows) is None
+
+
+def test_a_suspected_misorder_holds_nothing_and_the_modules_are_dispatched_in_the_plan_s_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # drive is listed before fw, whose design it may build, and drive escalates: nothing is held
+    # for a design a text check only suspects, and fw runs where the plan puts it.
+    rig = rigged(tmp_path)
+    suspected = DesignPair(designer=FW, builder=DRIVE, nodes=("fw.timing",))
+    first_run(rig, monkeypatch, design=False, misordered=(suspected,))
+    rows = lines(rig)
+    assert len(of(rows, "design_pairs_planned")) == 1
+    assert of(rows, "design_pairs_planned")[0]["pairs"] == []
+    assert of(rows, "builder_held") == [] and of(rows, "builder_released") == []
     assert [r.attempt for r in requests_of(rig, FW)] == [1]
     assert index_of(rows, "escalated", subtask_id=DRIVE) < dispatched_at(rows, FW)
     assert refusal(rows) is None

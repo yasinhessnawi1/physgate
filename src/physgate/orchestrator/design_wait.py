@@ -284,3 +284,21 @@ def held_builders(state: RunState) -> dict[str, list[dict[str, object]]]:
         for held in open_holds(state)
     ]
     return {"held": holds} if holds else {}
+
+
+def misordered_words(state: RunState) -> list[dict[str, object]]:
+    """The plan's suspected misorders as a run's status prints them, each in plain words.
+
+    A builder the plan lists before the designer whose design it may build: nothing is held for
+    it, so the run's status says so beside the holds.
+    """
+    return [
+        {
+            "builder": one.builder,
+            "designer": one.designer,
+            "nodes": list(one.nodes),
+            "words": f"the plan lists {one.builder} before {one.designer}, whose design it may "
+            "build: check the order",
+        }
+        for one in state.design_misordered
+    ]

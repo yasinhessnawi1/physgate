@@ -484,11 +484,26 @@ export function rowOf(
         (p) =>
           `${subtaskName(p.builder)} also names ${p.nodes.join(", ")} of ${subtaskName(p.designer)}'s, which holds nothing`,
       );
+      // A builder the plan lists before the designer whose design it may build holds nothing:
+      // the page says so in the sentence, where a person reads it.
+      const misordered = event.misordered.map(
+        (p) =>
+          `The plan lists ${subtaskName(p.builder)} before ${subtaskName(p.designer)}, whose design it may build: check the order`,
+      );
+      const nodesOf = event.misordered.map(
+        (p) => `${p.nodes.join(", ")} of ${subtaskName(p.designer)}'s`,
+      );
+      const planned =
+        event.pairs.length === 0
+          ? []
+          : [
+              `Planned ${String(event.pairs.length)} design ${event.pairs.length === 1 ? "pair" : "pairs"}`,
+            ];
       return {
         ...base,
         depth: 0,
-        sentence: `Planned ${String(event.pairs.length)} design ${event.pairs.length === 1 ? "pair" : "pairs"}`,
-        meta: [...built, ...named].join("; "),
+        sentence: [...planned, ...misordered].join(". "),
+        meta: [...built, ...named, ...nodesOf].join("; "),
       };
     }
     case "builder_held":

@@ -7,7 +7,8 @@ no design to build and no hold: the failure the hold exists for, passed in silen
 refused at the schema stage, as a plan whose interface unit the grammar refuses is: the call is made
 once more, told which module was put before which and on what node, and the refusal is on the
 record, with the way out: the two modules the other way round, or the quantity on an interface
-node where both sides must agree on it. A second such plan ends the decomposition. The module of
+node where both sides must agree on it. The call made once more accepts a plan it would refuse
+for its order again, which another file holds. The module of
 the role that opens the domain work runs first whatever the plan says, and sizes from the domain's
 nodes, so its specification naming a domain module's node refuses nothing. Two modules that each
 name a node of the other's own are no misorder, in either order: no order could satisfy a refusal
@@ -237,10 +238,12 @@ def test_a_reviewed_round_journals_the_refusal_and_tells_its_one_retry(
     assert refused["detail"] == misordered
 
 
-def test_a_plan_misordered_twice_ends_the_decomposition_and_no_third_call_is_made(
-    tmp_path: Path, misordered: str
+def test_a_plan_the_retry_refuses_for_another_reason_ends_the_decomposition_and_no_third_call(
+    tmp_path: Path,
 ) -> None:
+    # A first plan misordered, a second refused by the schema: order alone cannot end a run, but
+    # any other refusal on the retry still does.
     steps = [replan_rig.Step(call=REFUSED), replan_rig.Step(call=REFUSED), replan_rig.Step()]
     ran = replan_rig.decompose(tmp_path, "off", steps)
     assert len(ran.script.calls) == 2 and ran.code == 1
-    assert replan_rig.events(ran.run_dir)[-1]["detail"] == f"{REFUSED}: {misordered}"
+    assert replan_rig.events(ran.run_dir)[-1]["detail"].startswith(f"{REFUSED}: ")
