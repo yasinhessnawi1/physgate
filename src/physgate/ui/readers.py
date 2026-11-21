@@ -356,8 +356,11 @@ def sign_offs_open_to_decide(state: RunState) -> list[str]:
 
     In plan order. Undecided, or held and not yet confirmed: a decision there can still sign the
     module. One whose latest item was decided (a reject, recorded only or ordering the fix that
-    then ended unmerged) is owed with nothing left in the run that can sign it.
+    then ended unmerged) is owed with nothing left in the run that can sign it. None where the
+    run only records its decisions: no decision acts there, so none can sign a module.
     """
+    if not state.acts:
+        return []
     return [
         module
         for module in state.sign_offs_open()
@@ -419,6 +422,9 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             # Of those, each whose latest item is still open to a person's decision: in a run that
             # acts, one whose latest item was decided can be signed by nothing left in the run.
             "sign_offs_open_to_decide": sign_offs_open_to_decide(state),
+            # Whether an escalated end is for those sign-offs alone: false where the integration
+            # call failed and its item is open to a person as well.
+            "ends_on_sign_offs_alone": state.ends_on_sign_offs_alone(),
             "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
             # Each builder held while the module whose design it implements has not merged.
             "held": held_builders(state).get("held", []),

@@ -214,7 +214,7 @@ export function standingOf(status: RunStatus, end: RunEnd | null): Standing {
     case "done":
       if (end === null) {
         const sentence =
-          status.kind === "escalated" ? recordedEndSentence(status.signOffsOwed ?? []) : "Ended.";
+          status.kind === "escalated" ? recordedEndSentence(status.signaturesOwed ?? []) : "Ended.";
         return { phase, word: null, sentence, detail: null };
       }
       return {

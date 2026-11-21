@@ -75,18 +75,22 @@ export function waitingFor(
  * or ``null`` for any other run: there a person's decision acts, or the run has not ended so.
  */
 export function recordedEnd(status: RunStatus): readonly string[] | null {
-  return status.kind === "escalated" && status.acts === false ? (status.signOffsOwed ?? []) : null;
+  return status.kind === "escalated" && status.acts === false
+    ? (status.signaturesOwed ?? [])
+    : null;
 }
 
 /**
  * The modules whose sign-off is owed with nothing left to sign it, where the run acts and ended
- * escalated and none of them has an item open to a decision; ``null`` for any other run, and
- * where the server did not say which are open.
+ * escalated and none of them has an item open to a decision; ``null`` for any other run, where
+ * the server did not say which are open, and where the run is escalated for another open item
+ * as well: a person's decision there is still owed, and the run waits for it.
  */
 export function unsignedEnd(status: RunStatus): readonly string[] | null {
-  const owed = status.signOffsOwed ?? [];
-  const open = status.signOffsOpenToDecide;
+  const owed = status.signaturesOwed ?? [];
+  const open = status.signaturesOpenToDecide;
   if (status.kind !== "escalated" || status.acts !== true || open === undefined) return null;
+  if (status.endsOnSignaturesAlone === false) return null;
   return owed.length > 0 && owed.every((m) => !open.includes(m)) ? owed : null;
 }
 

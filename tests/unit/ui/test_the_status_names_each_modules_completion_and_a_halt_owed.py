@@ -179,8 +179,8 @@ def test_the_status_says_the_run_records_decisions_and_names_each_sign_off_owed(
     found = served(live, run)
     assert found["acts"] is False
     assert found["sign_offs_owed"] == [DRIVE]
-    # Its item is open, though no decision on it acts in such a run.
-    assert found["sign_offs_open_to_decide"] == [DRIVE]
+    # Its item is open, but no decision on it acts in such a run: none is open to decide.
+    assert found["sign_offs_open_to_decide"] == []
     assert found["next_step"]["kind"] == "escalated"
 
 
@@ -210,8 +210,8 @@ _RECORDED = Path(__file__).resolve().parents[1] / "evaluation" / "whole" / "reco
         ("acts_rejected_a_sign_off_owed", []),
         # Signed: nothing is owed.
         ("acts_signed", []),
-        # Records decisions: the item stays open, though a decision on it signs nothing.
-        ("records_a_sign_off_owed", ["c1"]),
+        # Records decisions: a decision on the item signs nothing, so none is open to decide.
+        ("records_a_sign_off_owed", []),
     ],
 )
 def test_a_sign_off_owed_is_open_to_decide_only_while_its_latest_item_is_undecided(
@@ -222,3 +222,20 @@ def test_a_sign_off_owed_is_open_to_decide_only_while_its_latest_item_is_undecid
     state = replay(read_events(_RECORDED / f"{recorded}.jsonl"))
     assert sign_offs_open_to_decide(state) == open_to_decide
     assert set(open_to_decide) <= set(state.sign_offs_open())
+
+
+@pytest.mark.parametrize(
+    ("recorded", "alone"),
+    [
+        # Ended escalated with the sign-offs alone owed.
+        ("acts_rejected_a_sign_off_owed", True),
+        # Ended escalated with integration's own item open as well.
+        ("acts_rejected_and_integration_escalated", False),
+    ],
+)
+def test_an_escalated_end_says_whether_the_sign_offs_alone_are_what_is_owed(
+    recorded: str, alone: bool
+) -> None:
+    state = replay(read_events(_RECORDED / f"{recorded}.jsonl"))
+    assert state.next_step().kind == "escalated"
+    assert state.ends_on_sign_offs_alone() is alone

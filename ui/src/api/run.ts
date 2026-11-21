@@ -201,12 +201,18 @@ export interface RunStatus {
    */
   readonly acts?: boolean;
   /** The modules whose sign-off is owed, in plan order. */
-  readonly signOffsOwed?: readonly string[];
+  readonly signaturesOwed?: readonly string[];
   /**
    * Of those, each whose latest item a person may still decide; one not here was decided and
    * nothing left in the run can sign it. Absent where the server did not say.
    */
-  readonly signOffsOpenToDecide?: readonly string[];
+  readonly signaturesOpenToDecide?: readonly string[];
+  /**
+   * Whether an escalated end is for the sign-offs owed alone; ``false`` where another item is open
+   * to a person as well (integration's call refused), which a decision there still answers.
+   * Absent where the server did not say.
+   */
+  readonly endsOnSignaturesAlone?: boolean;
 }
 
 function moduleCompletion(value: unknown): ModuleCompletion {
@@ -276,15 +282,20 @@ export function runStatus(value: unknown): RunStatus {
     silentS: silenceOf(s.last_line_at, s.server_now),
     silenceBoundS: secondsSent(s.silence_bound_s),
     ...(s.acts === undefined ? {} : { acts: flag(s.acts, "whether decisions act") }),
-    signOffsOwed: list(s.sign_offs_owed ?? [], "the sign-offs owed").map((m) =>
+    signaturesOwed: list(s.sign_offs_owed ?? [], "the sign-offs owed").map((m) =>
       text(m, "a module"),
     ),
     ...(s.sign_offs_open_to_decide === undefined
       ? {}
       : {
-          signOffsOpenToDecide: list(s.sign_offs_open_to_decide, "the sign-offs open").map((m) =>
+          signaturesOpenToDecide: list(s.sign_offs_open_to_decide, "the sign-offs open").map((m) =>
             text(m, "a module"),
           ),
+        }),
+    ...(s.ends_on_sign_offs_alone === undefined
+      ? {}
+      : {
+          endsOnSignaturesAlone: flag(s.ends_on_sign_offs_alone, "whether only sign-offs are owed"),
         }),
   };
 }

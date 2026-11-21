@@ -2,10 +2,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import type { RunListing } from "../../api/records";
 import type { RunStatus } from "../../api/run";
 import { RunStanding } from "../../design/components/status/RunStanding";
-import { standingOf } from "../../words/standing";
-import type { RunRead } from "../home/data";
+import { phaseOf, standingOf } from "../../words/standing";
+import { homeOrder, phasesOf, type RunRead } from "../home/data";
 import { statusWords } from "../home/Home";
 import { type RunEnd, recordedEnd, runEnd, runEndWords, unsignedEnd } from "../home/runEnd";
 
@@ -106,7 +107,7 @@ describe("every ended or halted run says why, in one short plain sentence", () =
       ...BASE,
       kind: "escalated",
       acts: false,
-      signOffsOwed: ["control-c2599c"],
+      signaturesOwed: ["control-c2599c"],
       completion: { owner: true, modules: [control] },
     };
     // The sign-off item is open in the queue, and no decision on it acts.
@@ -134,19 +135,19 @@ describe("every ended or halted run says why, in one short plain sentence", () =
       ...BASE,
       kind: "escalated",
       acts: false,
-      signOffsOwed: ["control-c2599c", "chassis-0a1b2c"],
+      signaturesOwed: ["control-c2599c", "chassis-0a1b2c"],
     };
     expect(standingOf(status, null).sentence).toContain(
       "The control and chassis modules still owe a person's sign-off.",
     );
-    const none: RunStatus = { ...status, signOffsOwed: [] };
+    const none: RunStatus = { ...status, signaturesOwed: [] };
     expect(standingOf(none, null).sentence).toBe(
       "Ended: this run recorded its decisions and acted on none, so nothing waits for you.",
     );
   });
 
   it("a run that acts and ended escalated still waits for a person", () => {
-    const status: RunStatus = { ...BASE, kind: "escalated", acts: true, signOffsOwed: ["c1"] };
+    const status: RunStatus = { ...BASE, kind: "escalated", acts: true, signaturesOwed: ["c1"] };
     expect(standingOf(status, null).phase).toBe("waiting-person");
     expect(recordedEnd(status)).toBeNull();
     // A server that does not say whether decisions act is read as before.
@@ -165,8 +166,8 @@ describe("every ended or halted run says why, in one short plain sentence", () =
       ...BASE,
       kind: "escalated",
       acts: true,
-      signOffsOwed: ["control-c2599c"],
-      signOffsOpenToDecide: [],
+      signaturesOwed: ["control-c2599c"],
+      signaturesOpenToDecide: [],
       completion: { owner: true, modules: [control] },
     };
     expect(unsignedEnd(status)).toEqual(["control-c2599c"]);
@@ -191,24 +192,65 @@ describe("every ended or halted run says why, in one short plain sentence", () =
     );
   });
 
+  it("a run that ended owing a decided sign-off beside an item still open to a person waits for them", () => {
+    // The person rejected the control module's item, then integration's call failed and its item
+    // is open: the run is escalated for that item as well, and a decision there is still owed.
+    const status: RunStatus = {
+      ...BASE,
+      kind: "escalated",
+      acts: true,
+      signaturesOwed: ["control-c2599c"],
+      signaturesOpenToDecide: [],
+      endsOnSignaturesAlone: false,
+    };
+    expect(unsignedEnd(status)).toBeNull();
+    expect(phaseOf(status)).toBe("waiting-person");
+    const standing = standingOf(status, null);
+    expect(standing.phase).toBe("waiting-person");
+    expect(standing.word).toBeNull();
+    // Home lists it among the runs waiting for a person, ahead of a run that ended.
+    const listing = (name: string, started: string): RunListing => ({
+      root: 0,
+      name,
+      runId: name,
+      manifestId: "m",
+      gateMode: "on",
+      osLayer: null,
+      error: null,
+      started,
+    });
+    const runs = [
+      listing("newer-ended", "2026-11-02T10:00:00Z"),
+      listing("older", "2026-11-01T10:00:00Z"),
+    ];
+    const statuses = new Map<string, { ok: true; value: RunStatus }>([
+      ["0/newer-ended", { ok: true, value: { ...BASE, kind: "done" } }],
+      ["0/older", { ok: true, value: status }],
+    ]);
+    const phases = phasesOf(runs, statuses);
+    expect(homeOrder(runs, phases).map((r) => r.name)).toEqual(["older", "newer-ended"]);
+    // The same run once only the sign-offs are left reads as ended, as before.
+    expect(phaseOf({ ...status, endsOnSignaturesAlone: true })).toBe("done");
+  });
+
   it("a run that acts and ended owing a sign-off a person can still decide waits for them", () => {
     const status: RunStatus = {
       ...BASE,
       kind: "escalated",
       acts: true,
-      signOffsOwed: ["c1", "c2"],
-      signOffsOpenToDecide: ["c2"],
+      signaturesOwed: ["c1", "c2"],
+      signaturesOpenToDecide: ["c2"],
     };
     expect(unsignedEnd(status)).toBeNull();
     expect(standingOf(status, null).phase).toBe("waiting-person");
     // A server that does not say which are open to decide is read as before.
-    const unsaid: RunStatus = { ...status, signOffsOpenToDecide: [] };
-    expect(unsignedEnd({ ...unsaid, acts: true, signOffsOwed: [] })).toBeNull();
+    const unsaid: RunStatus = { ...status, signaturesOpenToDecide: [] };
+    expect(unsignedEnd({ ...unsaid, acts: true, signaturesOwed: [] })).toBeNull();
     const notSaid: RunStatus = {
       ...BASE,
       kind: "escalated",
       acts: true,
-      signOffsOwed: ["c1"],
+      signaturesOwed: ["c1"],
     };
     expect(unsignedEnd(notSaid)).toBeNull();
   });
@@ -233,8 +275,8 @@ describe("every ended or halted run says why, in one short plain sentence", () =
       ...BASE,
       kind: "escalated",
       acts: true,
-      signOffsOwed: ["control-c2599c", "chassis-0a1b2c"],
-      signOffsOpenToDecide: [],
+      signaturesOwed: ["control-c2599c", "chassis-0a1b2c"],
+      signaturesOpenToDecide: [],
     };
     const end = runEnd([], 0, status.completion, null, unsignedEnd(status));
     expect(standingOf(status, end).sentence).toContain(
@@ -247,7 +289,7 @@ describe("every ended or halted run says why, in one short plain sentence", () =
       ...BASE,
       kind: "escalated",
       acts: false,
-      signOffsOwed: ["control-c2599c"],
+      signaturesOwed: ["control-c2599c"],
     };
     const read = {
       run: { root: 0, name: "r", runId: "r", error: null },

@@ -346,7 +346,7 @@ function planComponent(value: unknown): PlanComponent {
 
 /** One event line as the screens read it; a line of another shape is refused whole. */
 /** A sign-off item a line raised: its id and the module it is about. */
-function raisedSignOff(value: unknown): { readonly itemId: string; readonly module: string } {
+function raisedSignature(value: unknown): { readonly itemId: string; readonly module: string } {
   const r = object(value, "a sign-off item raised");
   return { itemId: text(r.item_id, "an item id"), module: text(r.module, "a module") };
 }
@@ -618,10 +618,10 @@ export function runEvent(value: unknown): RunEvent {
         kind: "sign_offs_raised",
         subtask: subtask(),
         attempt: attempt(),
-        raised: list(e.raised, "the items raised").map(raisedSignOff),
+        raised: list(e.raised, "the items raised").map(raisedSignature),
       };
     case "sign_off_raised_again": {
-      const raised = raisedSignOff(e.raised);
+      const raised = raisedSignature(e.raised);
       return {
         ...line,
         kind: "sign_off_raised_again",

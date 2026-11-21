@@ -2988,11 +2988,7 @@ class RunState:
             signs = self._sign_off_waits() and self.follow_ups_decided()
             waits = self._contract_item_open() or signs
             return Step(kind="wait") if waits else Step(kind="integrate")
-        blocked = (
-            isinstance(ran, IntegrationGateRan)
-            and ran.result.verdict == "fail"
-            and ran.result.mode == "on"
-        )
+        blocked = self._integration_blocked()
         if blocked and self.integration_escalated is None:
             return Step(kind="integrate")
         if blocked:
@@ -3006,6 +3002,23 @@ class RunState:
                 return Step(kind="complete", subtask_id=owed)
         # A module whose sign-off is owed is not complete, and the run ends naming it (ARCH-130).
         return Step(kind="escalated") if self.sign_offs_open() else Step(kind="done")
+
+    def _integration_blocked(self) -> bool:
+        """The integration call ran and failed where a failure blocks."""
+        ran = self.integration
+        return (
+            isinstance(ran, IntegrationGateRan)
+            and ran.result.verdict == "fail"
+            and ran.result.mode == "on"
+        )
+
+    def ends_on_sign_offs_alone(self) -> bool:
+        """The run's next step is its escalated end, and the sign-offs owed are all it ends for.
+
+        False where it ends escalated because the integration call failed, whose item a person may
+        still decide, as well as where it does not end escalated at all.
+        """
+        return self.next_step().kind == "escalated" and not self._integration_blocked()
 
     def owed_halt(self) -> Incident | None:
         """The incident on the record with no halt after it, whose halt comes next, if any.
