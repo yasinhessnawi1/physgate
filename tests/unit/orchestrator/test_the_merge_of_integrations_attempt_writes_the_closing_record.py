@@ -115,3 +115,11 @@ def test_the_module_text_holds_what_an_earlier_merge_wrote_and_this_attempt_left
     again = commit_attempt(worktree, "m2", 1, "sess-2", repo=run.repo)
     assert "run-1-ctl" not in merger.module_text(again, "m2")
     assert "run-1-ctl" in merger.module_text(commit, "m1")
+
+
+def test_the_module_unread_names_each_file_the_text_left_out_for_its_size(tmp_path: Path) -> None:
+    run, commit = module_attempt(tmp_path)
+    merger = GitMerger(run, removal_timeout_s=60.0)
+    # Only the file over the bound: not a link, not a sibling directory's file, not a small one.
+    assert merger.module_unread(commit, "m1") == ("m1/big.md",)
+    assert merger.module_unread(commit, "m10") == ()

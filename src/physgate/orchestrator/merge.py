@@ -483,15 +483,8 @@ class GitMerger:
         pinned = verified_git_dir(run.repo, linked=False)
         return merge_base(run.repo, run.run_branch, attempt_commit, git_dir=pinned)
 
-    def module_text(self, attempt_commit: str, module_dir: str) -> str:
-        """Every regular file under ``module_dir`` as ``attempt_commit`` holds it, as one text.
-
-        Read from git's objects at the commit, never from a worktree, so a file the attempt left
-        alone counts as much as one it changed. A path is whatever bytes the commit names (git
-        lists it unquoted, so a non-ASCII name is read as it is); a link, a submodule and a file
-        over :data:`MODULE_FILE_BYTES` are left out, and bytes that are not UTF-8 read as the
-        replacement character.
-        """
+    def _module_blobs(self, attempt_commit: str, module_dir: str) -> list[tuple[str, str, int]]:
+        """The regular files under ``module_dir`` at the commit, each as (name, object id, size)."""
         run = self._run
         pinned = verified_git_dir(run.repo, linked=False)
         listing = git(
@@ -499,19 +492,41 @@ class GitMerger:
             f":(literal){module_dir}/",
             objects_only=True, git_dir=pinned, errors="surrogateescape",
         )  # fmt: skip
-        texts: list[str] = []
+        blobs: list[tuple[str, str, int]] = []
         for entry in listing.split("\0"):
-            meta, _, _name = entry.partition("\t")
+            meta, _, name = entry.partition("\t")
             found = meta.split()
             if len(found) != 4 or found[0] not in ("100644", "100755") or found[1] != "blob":
                 continue
-            if int(found[3]) > MODULE_FILE_BYTES:
+            blobs.append((name, found[2], int(found[3])))
+        return blobs
+
+    def module_text(self, attempt_commit: str, module_dir: str) -> str:
+        """Every regular file under ``module_dir`` as ``attempt_commit`` holds it, as one text.
+
+        Read from git's objects at the commit, never from a worktree, so a file the attempt left
+        alone counts as much as one it changed. A path is whatever bytes the commit names (git
+        lists it unquoted, so a non-ASCII name is read as it is); a link, a submodule and a file
+        over :data:`MODULE_FILE_BYTES` are left out (:meth:`module_unread` names the last), and
+        bytes that are not UTF-8 read as the replacement character.
+        """
+        run = self._run
+        pinned = verified_git_dir(run.repo, linked=False)
+        texts: list[str] = []
+        for _name, oid, size in self._module_blobs(attempt_commit, module_dir):
+            if size > MODULE_FILE_BYTES:
                 continue
-            raw = git_bytes(
-                run.repo, "cat-file", "blob", found[2], objects_only=True, git_dir=pinned
-            )
+            raw = git_bytes(run.repo, "cat-file", "blob", oid, objects_only=True, git_dir=pinned)
             texts.append(raw.decode("utf-8", errors="replace"))
         return "\n".join(texts)
+
+    def module_unread(self, attempt_commit: str, module_dir: str) -> tuple[str, ...]:
+        """The files under ``module_dir`` that :meth:`module_text` did not read: over the bound."""
+        return tuple(
+            name
+            for name, _oid, size in self._module_blobs(attempt_commit, module_dir)
+            if size > MODULE_FILE_BYTES
+        )
 
     def artefact_diff(self, attempt_commit: str) -> str:
         """The attempt's patch against where it left the run branch, without its disputes.

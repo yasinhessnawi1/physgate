@@ -44,10 +44,10 @@ from test_a_queue_decision_acts_at_a_boundary import (  # noqa: F401 - the rig's
 )
 
 from physgate.orchestrator import carried
-from physgate.orchestrator.events import DecisionTaken, read_events
+from physgate.orchestrator.events import DecisionTaken, Merged, read_events
 from physgate.orchestrator.replay import RunState, replay
 from physgate.reviewers.rubric import evaluation_words
-from physgate.reviewers.transcript import WIDTH
+from physgate.reviewers.transcript import CONTINUED, WIDTH
 
 SIGNED = "run-1-signoff-ctl-1"
 ROOT = Path(__file__).resolve().parents[3]
@@ -99,6 +99,49 @@ def test_a_word_a_piece_break_makes_is_not_delivered() -> None:
     assert evaluation_words(text(state)) == []
     assert evaluation_words(record_of(state)) == []
     assert "a refused word was replaced" in text(state)
+
+
+def joined_pieces(state: RunState) -> str:
+    """The quoted notes of the section as a session reads them whole: the pieces put together."""
+    out: list[str] = []
+    inside = False
+    for line in carried.section(state):
+        if line.startswith("END RECORD"):
+            inside = False
+        elif inside:
+            piece = line.removeprefix(LEAD)
+            out.append(piece.removesuffix(CONTINUED))
+        elif line.startswith("BEGIN RECORD"):
+            inside = True
+    return "".join(out)
+
+
+def test_a_word_only_the_fold_finds_across_a_piece_break_is_not_delivered() -> None:
+    note = "y" * (carried.PIECE - 9) + "/_planted"
+    state = state_of(taken(FIRST, "ctl-1", note=note))
+    assert evaluation_words(joined_pieces(state)) == []
+    assert evaluation_words(record_of(state)) == []
+    assert evaluation_words(text(state)) == []
+
+
+FOLDED = [
+    (word, sep)
+    for word in ("planted", "physgate", "twin", "physics{s}gate", "expected{s}check")
+    for sep in "_-./"
+]
+
+
+@pytest.mark.parametrize(("word", "sep"), FOLDED)
+def test_a_refused_word_and_its_folded_forms_are_not_delivered_at_any_offset_of_the_break(
+    word: str, sep: str
+) -> None:
+    form = sep + word.format(s=sep)
+    for offset in range(-len(form) - 2, 3):
+        fill = carried.PIECE - 1 - offset - len(sep)
+        note = "y" * fill + form + " rest"
+        state = state_of(taken(FIRST, "ctl-1", note=note))
+        for body in (joined_pieces(state), record_of(state), text(state)):
+            assert evaluation_words(body) == [], (word, sep, offset)
 
 
 def test_a_note_stays_readable_letters_are_not_escaped() -> None:
@@ -175,6 +218,28 @@ def test_the_notes_of_a_section_together_are_held_to_a_size_and_the_cut_is_state
     # Nothing is lost: the record holds each note whole.
     notes = [d["note"] for d in json.loads(record_of(state))["decisions"]]
     assert notes == [said[:6000]] * 6
+
+
+def test_a_decision_the_cap_cuts_to_its_heading_still_names_its_item_kind_and_verb() -> None:
+    long = "Blåbærsyltetøy med røde grøt. " * 200
+    state = state_of(
+        taken(FIRST, "ctl-1", note=long[:6000]),
+        taken("run-1-ctl-2", "ctl-1", note=long[:6000]),
+        taken("run-1-ctl-3", "ctl-1", note="Accepted for now.", verb="choose", position="producer"),
+        taken(SIGNED, "ctl-1", note="Signed on a condition."),
+        sign_offs={SIGNED: SimpleNamespace(module="ctl-1")},
+    )
+    body = text(state)
+    for item, kind, verb in (
+        ("run-1-ctl-3", "blocked review", "choose"),
+        (SIGNED, "sign-off", "approve"),
+    ):
+        part = body.split(f'### Open point: item "{item}"', 1)[1].split("### Open point")[0]
+        assert f'item kind: "{kind}"' in part and f'- Decision: "{verb}"' in part
+        assert "cut here" in part and "the whole note is in the closing record" in part
+        assert f'BEGIN RECORD "{item}"' in part and f'END RECORD "{item}"' in part
+    notes = {d["item"]: d["note"] for d in json.loads(record_of(state))["decisions"]}
+    assert notes["run-1-ctl-3"] == "Accepted for now." and notes[SIGNED] == "Signed on a condition."
 
 
 def test_a_section_within_the_size_is_not_cut() -> None:
@@ -285,13 +350,26 @@ def test_the_state_issued_to_the_attempt_that_merged_is_its_latest() -> None:
     assert json.loads(record_of(state))["decisions"][0]["in_issued_state"] is True
 
 
-def test_the_record_is_the_same_bytes_every_time() -> None:
-    def build() -> str:
-        return record_of(
-            state_of(taken(FIRST, "ctl-1", seq=3), taken(SECOND, "fw-1", seq=7), statement=5)
-        )
+def test_the_record_the_merge_wrote_is_the_one_a_replay_of_the_log_rebuilds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing import (
+        INTEG,
+    )
+    from test_integration_carries_what_a_person_decided_and_the_merge_writes_the_closing_record import (  # noqa: E501
+        NOTE,
+        run,
+    )
 
-    assert build() == build()
+    rig, merger = run(tmp_path, monkeypatch, NOTE)
+    (record,) = [r for who, r in merger.written if who == INTEG]
+    assert record is not None
+    # A fresh read of the log from disk, up to the merge's own line, as a resumed run replays it.
+    events = read_events(rig.run_dir / "events.jsonl")
+    (merged,) = [e for e in events if isinstance(e, Merged) and e.subtask_id == INTEG]
+    assert (
+        carried.closing_record(replay(events[: merged.seq])) == record[carried.CLOSING_RECORD_PATH]
+    )
 
 
 # --- an item id that fails the id's shape -----------------------------------------------------

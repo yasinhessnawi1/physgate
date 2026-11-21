@@ -1381,8 +1381,8 @@
   {
     "name": "the_module_text_reads_big_files",
     "file": "src/physgate/orchestrator/merge.py",
-    "old": "if int(found[3]) > MODULE_FILE_BYTES:",
-    "new": "if False:",
+    "old": "            if size > MODULE_FILE_BYTES:\n                continue\n",
+    "new": "",
     "tests": [
       "tests/unit/orchestrator/test_the_merge_of_integrations_attempt_writes_the_closing_record.py"
     ],
@@ -1429,6 +1429,138 @@
     "new": "",
     "tests": [
       "tests/unit/orchestrator/test_what_a_person_decided_is_carried_whole_and_checked_where_it_now_stands.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py"
+    ]
+  },
+  {
+    "name": "the_guard_does_not_read_the_note_unbroken",
+    "file": "src/physgate/orchestrator/carried.py",
+    "old": " or evaluation_words(_quote(text))",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_what_a_person_decided_is_carried_whole_and_checked_where_it_now_stands.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py"
+    ]
+  },
+  {
+    "name": "the_unbroken_check_reads_only_the_first_piece",
+    "file": "src/physgate/orchestrator/carried.py",
+    "old": "or evaluation_words(_quote(text))",
+    "new": "or evaluation_words(_quote(text)[: PIECE])",
+    "tests": [
+      "tests/unit/orchestrator/test_what_a_person_decided_is_carried_whole_and_checked_where_it_now_stands.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py"
+    ]
+  },
+  {
+    "name": "a_refusal_does_not_say_a_file_was_not_read",
+    "file": "src/physgate/orchestrator/loop.py",
+    "old": "        if unread:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/orchestrator/test_integration_carries_what_a_person_decided_and_the_merge_writes_the_closing_record.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py"
+    ]
+  },
+  {
+    "name": "a_refusal_names_a_file_as_a_session_wrote_it",
+    "file": "src/physgate/orchestrator/carried.py",
+    "old": "return _quote(_deliver(name[:ID_MAX])[0])",
+    "new": "return _quote(name)",
+    "tests": [
+      "tests/unit/orchestrator/test_integration_carries_what_a_person_decided_and_the_merge_writes_the_closing_record.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py"
+    ]
+  },
+  {
+    "name": "the_unread_files_are_every_file",
+    "file": "src/physgate/orchestrator/merge.py",
+    "old": "            if size > MODULE_FILE_BYTES\n        )",
+    "new": "            if True\n        )",
+    "tests": [
+      "tests/unit/orchestrator/test_the_merge_of_integrations_attempt_writes_the_closing_record.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py"
+    ]
+  },
+  {
+    "name": "the_unread_files_are_none",
+    "file": "src/physgate/orchestrator/merge.py",
+    "old": "            if size > MODULE_FILE_BYTES\n        )",
+    "new": "            if False\n        )",
+    "tests": [
+      "tests/unit/orchestrator/test_the_merge_of_integrations_attempt_writes_the_closing_record.py"
     ],
     "data": [
       "tests/unit/orchestrator/accounted.py",

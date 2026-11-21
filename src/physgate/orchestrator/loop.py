@@ -40,7 +40,12 @@ from physgate.orchestrator.arbitration import (
     dispute_standing,
 )
 from physgate.orchestrator.budget import ATTEMPT_LIMIT, infra_retry_delay
-from physgate.orchestrator.carried import CLOSING_RECORD_PATH, closing_record, ids_missing
+from physgate.orchestrator.carried import (
+    CLOSING_RECORD_PATH,
+    closing_record,
+    ids_missing,
+    shown_name,
+)
 from physgate.orchestrator.change_sets import change_history, integration_history
 from physgate.orchestrator.common import PLANNED_ID_MAX_LENGTH, SUBTASK_PATTERN, utc_now
 from physgate.orchestrator.completion import sign_off_open
@@ -176,7 +181,7 @@ from physgate.orchestrator.managed import (
     stricter_only,
     traffic_change,
 )
-from physgate.orchestrator.merge import merge_message
+from physgate.orchestrator.merge import MODULE_FILE_BYTES, merge_message
 from physgate.orchestrator.parts_write import (
     TakenPart,
     blocked_parts,
@@ -3713,6 +3718,14 @@ class Loop:
             f"{named}. Write each id whole in the limits statement under {module_dir}/, with what "
             "the decision means for the design."
         )
+        unread = self._merger.module_unread(commit, module_dir)
+        if unread:
+            reason += (
+                f" The check did not read {len(unread)} file{'' if len(unread) == 1 else 's'} "
+                f"under {module_dir}/ over the bound of {MODULE_FILE_BYTES} bytes: "
+                f"{', '.join(shown_name(name) for name in unread)}; an id written there is not "
+                "counted."
+            )
         return check.model_copy(
             update={
                 "refused_by": "declaration",

@@ -25,10 +25,11 @@ module's values, and the id check does not ask for it.
 (only control characters, separators and format characters are escaped; letters are not), cut into
 fixed pieces each led by a fixed prefix, between lines the harness words, so no piece can begin a
 heading or end the block. A word the evaluation-words guard refuses is replaced by a marker, and
-the decision says so. The guard is held to the text as the session reads it, quoted and in
-pieces, and a note in which it still finds one is withheld whole. A long note is cut at a stated
-length, and the section's notes together are held to a stated size. The finding the item raised is
-named by the item's id and kind, never copied: it is a reviewer's or a session's words.
+the decision says so. The guard is held to the text as the session reads it, quoted, in pieces
+and unbroken (as the closing record holds it), and a note in which it still finds one is withheld
+whole. A long note is cut at a stated length, and the section's notes together are held to a
+stated size. The finding the item raised is named by the item's id and kind, never copied: it is
+a reviewer's or a session's words.
 
 **The closing record** holds every decision that qualifies up to the merge, and says of each
 whether it was in the state issued to the attempt that merged.
@@ -58,6 +59,7 @@ __all__ = [
     "closing_record",
     "ids_missing",
     "section",
+    "shown_name",
 ]
 
 #: The issued state's heading for the section, as a session is told it.
@@ -126,8 +128,13 @@ def _quote(text: str) -> str:
 
 
 def _read_by_the_session(text: str) -> list[str]:
-    """The refused words in ``text`` as the section shows it: quoted, in lines led by the bar."""
-    return evaluation_words("\n".join(_pieces(text)))
+    """The refused words in ``text`` as it is delivered, in pieces and unbroken.
+
+    The section shows it quoted, in lines led by the bar; the pieces put together, and the closing
+    record, hold it quoted and whole, where a word the guard finds only after folding a separator
+    can lie across what a piece break hid.
+    """
+    return evaluation_words("\n".join(_pieces(text))) or evaluation_words(_quote(text))
 
 
 def _deliver(text: str) -> tuple[str, bool]:
@@ -338,6 +345,11 @@ def closing_record(state: RunState) -> str | None:
     }
     # Only the harness's own line breaks are left raw; every other break is escaped.
     return _escape(json.dumps(body, indent=2, sort_keys=True, ensure_ascii=False), "\n") + "\n"
+
+
+def shown_name(name: str) -> str:
+    """A file's name as a refusal says it: cut, quoted on one line and guarded like an id."""
+    return _quote(_deliver(name[:ID_MAX])[0])
 
 
 def ids_missing(state: RunState, module_text: str) -> tuple[str, ...]:

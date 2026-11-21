@@ -373,6 +373,10 @@ class Merger(Protocol):
         """Every file under ``module_dir`` as ``attempt_commit`` holds it, as one text."""
         ...
 
+    def module_unread(self, attempt_commit: str, module_dir: str) -> tuple[str, ...]:
+        """The files under ``module_dir`` that ``module_text`` left out for their size, by name."""
+        ...
+
     def review_base(self, attempt_commit: str) -> str:
         """Where the attempt left the run branch: the commit its review diffs against."""
         ...
