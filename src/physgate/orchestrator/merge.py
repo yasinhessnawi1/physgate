@@ -42,6 +42,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from physgate.orchestrator.carried import CLOSING_RECORD_PATH
 from physgate.orchestrator.declaration import DECLARATION_PATH
 from physgate.orchestrator.dispute import DISPUTES_DIR
 from physgate.orchestrator.exceptions import GitError, MergeConflictError, MergeRefusedError
@@ -314,13 +315,15 @@ class GitMerger:
         message: str,
         reopen: int = 0,
         contracts: Mapping[str, str] | None = None,
+        records: Mapping[str, str] | None = None,
     ) -> str:
         """Merge exactly ``attempt_commit`` into the run branch and return the merge.
 
         The merge commit's parents are the run branch and ``attempt_commit``; its tree is the
         merged tree without the disputes directory, with each of ``contracts`` (an interface's
         contract file, by path under the interfaces directory) holding the bytes given: the
-        revisions the attempt followed, so later sessions read them.
+        revisions the attempt followed, so later sessions read them, and with ``records`` (the
+        closing record's one path only) holding the bytes given.
 
         Raises:
             MergeRefusedError: the subtask's branch no longer points at the checked
@@ -352,6 +355,11 @@ class GitMerger:
             ):
                 msg = "a merge rewrites interface contract files only"
                 raise MergeRefusedError(msg, subtask=subtask_id, path=path)
+        for path in records or {}:
+            if path != CLOSING_RECORD_PATH:
+                msg = "a merge writes the closing record only"
+                raise MergeRefusedError(msg, subtask=subtask_id, path=path)
+        rewritten.update(records or {})
         try:
             if (disputed or rewritten) and self._mid_merge_of(attempt_commit, admin):
                 # A process killed between the calls left this very merge in progress: it is
@@ -386,7 +394,7 @@ class GitMerger:
         return head_of(run.integration, "HEAD", git_dir=admin)
 
     def _write_contracts(self, contracts: Mapping[str, str], admin: GitDir) -> None:
-        """Write each contract file into the merge in progress and stage it."""
+        """Write each contract file, and the closing record, into the merge in progress."""
         if not contracts:
             return
         for path, text in sorted(contracts.items()):

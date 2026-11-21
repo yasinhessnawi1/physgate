@@ -353,13 +353,15 @@ class Merger(Protocol):
         message: str,
         reopen: int = 0,
         contracts: Mapping[str, str] | None = None,
+        records: Mapping[str, str] | None = None,
     ) -> str:
         """Merge exactly ``attempt_commit`` and return the merge commit.
 
         Idempotent: a merge already made is returned, not redone. Refuses a commit
         that is no longer what the subtask's branch points at. ``contracts`` are interface
         contract files, by path, the merge commit writes with these bytes: the revisions the
-        attempt followed.
+        attempt followed. ``records`` is the closing record the merge of integration's attempt
+        writes (``carried.CLOSING_RECORD_PATH``), by path, with the bytes given.
         """
         ...
 
