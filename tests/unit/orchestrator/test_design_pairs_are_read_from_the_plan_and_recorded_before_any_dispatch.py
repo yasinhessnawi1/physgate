@@ -158,6 +158,31 @@ def test_a_last_part_a_quantity_could_be_named_is_a_node_unless_it_lies_in_a_pat
     ]
 
 
+def test_a_node_named_only_as_what_a_node_of_its_own_constrains_is_not_a_design_it_runs() -> None:
+    # A node the specification's own node constrains must follow it: the module designs for that
+    # node and implements nothing of it, whether the edge is written as JSON or in prose.
+    assert named_nodes('{"id": "control.law", "constrains": ["firmware.main_loop", "fw.io"]}') == [
+        "control.law"
+    ]
+    assert (
+        named_nodes("Your node's `constrains` edge to `firmware.main_loop` carries the rate.") == []
+    )
+    assert named_nodes('`constrains` is `["firmware.main_loop"]`; and it Constrains fw.io.') == []
+    # Named anywhere else as well, or after the edge's clause has ended, it is read.
+    assert named_nodes('"constrains": [], "model": "runs firmware.main_loop"') == [
+        "firmware.main_loop"
+    ]
+    assert named_nodes("It constrains nothing; it runs control.law.") == ["control.law"]
+    assert named_nodes("Runs control.law; its node constrains control.law.") == ["control.law"]
+    # Firmware naming control's node only as one its own node constrains builds nothing of it.
+    edge = FIRMWARE.replace("Implements the design on control.balance_design.", "").replace(
+        "`control.balance_design`", "`firmware.loop_io`"
+    )
+    edge = edge.replace("`control.balance_design.kp`", "`firmware.loop_io.kp`")
+    edge += ' Its node: {"constrains": ["control.balance_design"]}.'
+    assert pairs_of(balancer(firmware=edge)) == []
+
+
 def test_a_node_in_capitals_or_with_its_module_s_hyphen_is_read_in_the_id_s_form() -> None:
     assert named_nodes("Run `Control.Balance_Design` and Control.Law.Gain.") == [
         "control.balance_design",

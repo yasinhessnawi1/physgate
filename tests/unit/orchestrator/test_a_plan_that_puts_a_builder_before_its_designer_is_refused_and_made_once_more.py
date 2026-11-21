@@ -114,6 +114,25 @@ def test_a_one_way_misorder_is_refused_and_the_plan_reordered_as_told_is_a_plan(
     )
 
 
+def test_an_earlier_module_whose_own_node_constrains_a_later_one_s_is_no_builder_of_it() -> None:
+    # Control first, its own node's constrains edge naming firmware's own node, as a fixture's
+    # specification writes it in JSON and in prose: control designs for firmware's node, the
+    # plan is a plan, and nothing is held.
+    control = (
+        "`control.loop_gain` is this module's own node. Your node's `constrains` edge to "
+        '`firmware.main_loop` carries the rate: {"id": "control.loop_gain", "constrains": '
+        '["firmware.main_loop"]}' + CRITERIA
+    )
+    firmware = "`firmware.main_loop` is this module's own node: the loop's period." + CRITERIA
+    cause, detail, plan = judged(module("control", control), module("firmware", firmware))
+    assert (cause, detail) == (None, "a plan")
+    order = ["control", "firmware"]
+    assert plan_design_pairs(plan, {name: name for name in order}, order) == ()
+    # Named outside the edge as the design control runs, it is a misorder again.
+    runs = control + " It runs the period on `firmware.main_loop` as merged."
+    assert judged(module("control", runs), module("firmware", firmware))[0] == REFUSED
+
+
 #: Each names a node of the other's own: control reads firmware's timing, firmware runs control's
 #: design.
 MUTUAL_CONTROL = CONTROL + " It reads `firmware.timing`, the firmware module's own node."

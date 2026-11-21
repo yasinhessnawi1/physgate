@@ -15,7 +15,11 @@ A node is named by its first two parts, so a specification that writes a quantit
 (``control.law.gain``) names the node (``control.law``). A name inside a file path is no node, and
 neither is a file's own name (``control.md``, ``control.py``): one whose last part is a file
 extension no quantity could be named by. A last part that could name one (``control.step``, a step
-response; ``control.m``, a mass) is read as a node, whatever file type is spelt the same.
+response; ``control.m``, a mass) is read as a node, whatever file type is spelt the same. Nor is
+a node a specification names only as what a node of its own constrains (``"constrains":
+["firmware.main_loop"]``, a ``constrains`` edge to ``firmware.main_loop``): a constrained node
+must follow every change of the node constraining it (ARCH-082), so the module writing that edge
+designs for the node it names and implements nothing of it.
 
 The pairs are fixed from the plan and recorded before the first dispatch. Only a designer that the
 run dispatches before its builder makes a pair, as the prompt asks the plan to order them: the run
@@ -55,6 +59,15 @@ _NAMED = re.compile(
 FILE_EXTENSIONS: frozenset[str] = frozenset(
     {"py", "md", "cpp", "hpp", "ino", "json", "toml", "yaml", "yml", "txt", "csv", "ini"}
 )
+#: What a node's ``constrains`` edges name, as a specification writes them: the field as JSON
+#: (``"constrains": [...]``) or in prose (``constrains firmware.main_loop``, a ``constrains`` edge
+#: to it, ``constrains`` is ``[...]``). The first group is the list, or the one name, the edges
+#: name; a list is read to its closing bracket on its own line.
+_CONSTRAINED = re.compile(
+    r"\bconstrains\b[`\"']?\s*(?::|\bis\b|\bedges?\s+to\b|\bto\b)?\s*[`\"']?\s*"
+    r"(\[[^\]\n]*\]|[A-Za-z][A-Za-z0-9_.-]*)",
+    re.IGNORECASE,
+)
 
 
 class DesignPair(BaseModel):
@@ -76,10 +89,15 @@ def named_nodes(spec: str, excluded: Sequence[str] = ()) -> list[str]:
 
     A name is read in the id's own form: lowercase, with a hyphen in its first part as an
     underscore. A file's own name (its last part a file extension) is no node; nor is a name
-    that is, or lies under, one of ``excluded``, which is left out whole.
+    that is, or lies under, one of ``excluded``, which is left out whole. A name where the
+    specification writes what a node's ``constrains`` edges name is not read there: the module
+    constrains that node, it does not implement it. Named anywhere else as well, it is read.
     """
+    edges = [match.span(1) for match in _CONSTRAINED.finditer(spec)]
     found: dict[str, None] = {}
     for match in _NAMED.finditer(spec):
+        if any(start <= match.start() < end for start, end in edges):
+            continue
         first, *rest = match.group(0).lower().split(".")
         parts = [first.replace("-", "_"), *rest]
         if parts[-1] in FILE_EXTENSIONS:
