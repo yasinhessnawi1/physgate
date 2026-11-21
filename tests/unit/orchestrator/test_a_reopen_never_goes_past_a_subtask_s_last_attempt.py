@@ -19,6 +19,10 @@ from accounted import forged_account_before_each_open  # noqa: F401 - the rig's 
 from arbitration_runs import CLOSING as SLICE
 from arbitration_runs import PerAttempt, events_of
 from loop_fakes import FakeDispatcher, FakeReviewer, Rig, sha
+from sign_off_rig import (
+    before_the_sign_off_rule,  # noqa: F401 - the fixture, by name
+    sign_every_open_item,
+)
 from test_a_blocked_review_is_a_review_that_goes_to_a_person import blocked_review
 from test_a_choice_on_a_failed_contract_reopens_the_other_module import (
     ACTS,
@@ -97,6 +101,7 @@ def followed_up_at_the_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> R
     return rig
 
 
+@pytest.mark.usefixtures("before_the_sign_off_rule")
 def test_a_choice_that_would_reopen_a_module_at_the_cap_records_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -124,6 +129,24 @@ def test_a_choice_that_would_reopen_a_module_at_the_cap_records_only(
     # The run goes on to its end: integration runs, and the pair that failed completes neither.
     assert "integration_gate_ran" in kinds(rows)
     assert [r["subtask_id"] for r in of(rows, "module_completed")] == [BUDGET]
+    assert refusal(rows) is None
+
+
+def test_a_choice_at_the_cap_records_only_and_the_run_ends_once_the_sign_off_it_owes_is_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = followed_up_at_the_cap(tmp_path, monkeypatch)
+    choose(rig.run_dir, "producer", item_id=ITEM)
+    # Nothing reopens; integration waits for the signature the merged control module owes.
+    assert again(rig, monkeypatch, declared=DECLARED) == "wait"
+    assert "integration_gate_ran" not in kinds(lines(rig))
+    assert sign_every_open_item(rig.run_dir)
+    assert again(rig, monkeypatch, declared=DECLARED) == "done"
+    rows = lines(rig)
+    (taken,) = of(rows, "decision_taken", item_id=ITEM)
+    assert (taken["effect"], taken["why_not"]) == ("none", "record_only_source")
+    assert [r["attempt"] for r in of(rows, "subtask_reopened", subtask_id=FW)] == [ATTEMPT_LIMIT]
+    assert "integration_gate_ran" in kinds(rows)
     assert refusal(rows) is None
 
 

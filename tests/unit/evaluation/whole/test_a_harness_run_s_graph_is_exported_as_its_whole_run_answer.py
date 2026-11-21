@@ -10,6 +10,20 @@ The two event logs under ``recorded_runs`` were recorded from the loop over its 
 electrical modules and integration): in ``finished`` integration declared both modules complete
 and both completion lines were written; in ``unfinished`` it declared one, so the run ended with
 a module never recorded complete.
+
+The others were recorded from the loop over the same fakes with a control module, whose role
+owes a person's sign-off (sizing, control, electrical and integration; or the control module and
+integration alone, ``_alone``); each session's stream path is cut to the run's own ``/run``. In a
+run that records decisions, none is taken on the sign-off item: ``records_a_sign_off_owed`` and
+``records_a_sign_off_owed_alone`` end escalated with only the sign-off open, and
+``records_a_sign_off_owed_and_a_failed_call`` with the system-scope call failed as well;
+``records_a_sign_off_owed_and_a_call_failed_under_observe`` with it failed under ``observe``, so
+integration ran and merged declaring nothing;
+``records_a_sign_off_owed_and_integration_escalated`` with the call passed and integration's own
+subtask escalated, every one of its attempts declaring the control module and refused. In a run
+that acts, ``acts_waiting_on_a_sign_off`` waits for the person before the integration call,
+``acts_signed`` is the same run once the person approved, and ``acts_rejected_a_sign_off_owed``
+ended escalated after the person rejected the item and then the fix's item.
 """
 
 from __future__ import annotations
@@ -520,6 +534,251 @@ def test_a_run_that_did_not_record_every_module_complete_is_no_answer(tmp_path: 
     assert not out.exists()
 
 
+def test_a_finished_run_names_no_sign_off_owed(tmp_path: Path) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    record, _ = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert record.sign_offs_owed == ()
+
+
+@pytest.mark.parametrize("recorded", ["records_a_sign_off_owed", "records_a_sign_off_owed_alone"])
+def test_a_run_that_records_decisions_ends_a_module_whose_sign_off_is_owed_and_is_exported(
+    tmp_path: Path, recorded: str
+) -> None:
+    # No decision is taken in such a run, so a control module that merged ends with its sign-off
+    # owed and the run ends escalated; every other precondition held. Its answer is exported,
+    # and the record names the module whose sign-off a person still owes.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
+    record, out = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert record.sign_offs_owed == ("c1",)
+    assert record.sha256 == hashlib.sha256(out.read_bytes()).hexdigest()
+
+
+def test_a_run_whose_modules_owe_a_sign_off_each_names_all_of_them_in_plan_order(
+    tmp_path: Path,
+) -> None:
+    # Two control modules merged and neither is signed; the electrical module is complete. The
+    # run ended escalated with only the two sign-offs open: both are named, c1 before c3.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_two_sign_offs_owed")
+    record, out = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert record.sign_offs_owed == ("c1", "c3")
+    assert json.loads(_record_of(out).read_text())["sign_offs_owed"] == ["c1", "c3"]
+
+
+def test_a_module_owing_a_sign_off_is_named_alone_beside_the_modules_that_are_complete(
+    tmp_path: Path,
+) -> None:
+    # Sizing's module and the electrical one ended complete; only the control module owes.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_a_sign_off_owed")
+    record, _ = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert record.sign_offs_owed == ("c1",)
+
+
+@pytest.mark.parametrize(
+    "recorded",
+    [
+        # Waiting before the integration call for a person to decide.
+        "acts_waiting_on_a_sign_off",
+        # Ended escalated after the person's rejects: no one signed.
+        "acts_rejected_a_sign_off_owed",
+    ],
+)
+def test_a_run_that_acts_is_unfinished_while_a_sign_off_is_owed(
+    tmp_path: Path, recorded: str
+) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
+    assert record.sign_offs_owed == ()
+    assert not out.exists()
+
+
+def test_a_run_that_acts_is_exported_once_a_person_signed(tmp_path: Path) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="acts_signed")
+    record, _ = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert record.sign_offs_owed == ()
+
+
+@pytest.mark.parametrize(
+    "recorded",
+    [
+        # The system-scope call failed under ``on``: integration's subtask never ran.
+        "records_a_sign_off_owed_and_a_failed_call",
+        # It failed under ``observe``: integration ran and merged, declaring nothing.
+        "records_a_sign_off_owed_and_a_call_failed_under_observe",
+    ],
+)
+def test_a_module_whose_sign_off_is_owed_with_another_precondition_open_is_unfinished(
+    tmp_path: Path, recorded: str
+) -> None:
+    """A guard: the check that a module owes its sign-off alone refused both runs already.
+
+    The export's reading of what is owed (the open preconditions being the sign-off and nothing
+    else) turned these away before the record existed; the row keeps it so.
+    """
+    # The run records decisions, and the system-scope call failed: the control module's
+    # sign-off is owed, and so is a passing call. It did not end only for want of a signature.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
+    assert record.sign_offs_owed == ()
+    assert not out.exists()
+
+
+def _record_of(out: Path) -> Path:
+    """Where the export's record of an answer at ``out`` is: beside it, named after it."""
+    return out.parent / f"{out.name}.record.json"
+
+
+def test_the_record_beside_the_answer_names_each_sign_off_owed_and_the_answer_s_digest(
+    tmp_path: Path,
+) -> None:
+    # The scorer reads the answer alone, and the answer of a run that ended owing a sign-off is
+    # byte for byte the answer of a signed one: the record beside it is where that shows.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_a_sign_off_owed")
+    record, out = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert sorted(p.name for p in out.parent.iterdir()) == sorted([out.name, _record_of(out).name])
+    written = json.loads(_record_of(out).read_bytes())
+    assert written["answer"] == out.name
+    assert written["answer_sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
+    assert written["status"] == "exported"
+    assert written["structure"] == "state_feedback"
+    assert written["taken_from"] == {k: list(v) for k, v in record.taken_from.items()}
+    assert written["taken_from"]["update_rate"] == ["firmware.loop_timing"]
+    assert written["left_out"] == list(record.left_out)
+    assert written["sign_offs_owed"] == ["c1"]
+    said = written["sign_off"]
+    assert isinstance(said, str), said
+    assert "sign_offs_owed" in said
+    assert "no person" in said.lower()
+    assert "raw agent" in said
+
+
+def test_the_record_of_a_run_that_owes_no_sign_off_says_none_is_owed(tmp_path: Path) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="acts_signed")
+    _, out = _export(run, tmp_path)
+    written = json.loads(_record_of(out).read_bytes())
+    assert written["sign_offs_owed"] == []
+    assert written["sign_off"] is None
+    assert written["answer_sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize(
+    "recorded",
+    ["unfinished", "acts_waiting_on_a_sign_off", "records_a_sign_off_owed_and_a_failed_call"],
+)
+def test_an_export_that_is_not_exported_writes_no_record(tmp_path: Path, recorded: str) -> None:
+    """A guard, not a row that fails without the record: the answer's own refusal came first.
+
+    A run that is not finished is refused before anything is written, so no file of either kind
+    was ever put down; this holds that to the record as well, now that there is one.
+    """
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
+    assert not out.parent.exists() or list(out.parent.iterdir()) == []
+
+
+def test_an_ambiguous_graph_writes_no_record(tmp_path: Path) -> None:
+    other = _node("drivetrain.motor", {"command_limit": (0.5, "1")}, owner="sizing")
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), other)
+    record, out = _export(run, tmp_path)
+    assert record.status == "ambiguous"
+    assert not out.parent.exists() or list(out.parent.iterdir()) == []
+
+
+@pytest.mark.parametrize("left", ["file", "link", "directory"])
+def test_the_record_is_never_written_over_or_through_what_is_at_its_name_nor_the_answer(
+    tmp_path: Path, left: str
+) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
+    out.parent.mkdir()
+    target = Path(os.path.realpath(tmp_path)) / "elsewhere.json"
+    target.write_text("untouched")
+    at = _record_of(out)
+    if left == "file":
+        at.write_text("earlier")
+    elif left == "link":
+        at.symlink_to(target)
+    else:
+        at.mkdir()
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        _module().export_whole_run(run, out)
+    assert isinstance(caught.value, _module().ExportError)
+    assert target.read_text() == "untouched"
+    assert [p.name for p in out.parent.iterdir()] == [at.name]
+    if left == "file":
+        assert at.read_text() == "earlier"
+
+
+def test_a_run_whose_integration_did_not_merge_is_unfinished_though_only_a_sign_off_is_open(
+    tmp_path: Path,
+) -> None:
+    # The run records decisions, the call passed, and the control module's only open
+    # precondition is its sign-off; but integration declared the module on every attempt, each
+    # was refused, and its subtask ended escalated. The run ended without integration's merge,
+    # so the graph may hold a change no merge kept.
+    recorded = "records_a_sign_off_owed_and_integration_escalated"
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
+    assert record.sign_offs_owed == ()
+    assert not out.parent.exists() or list(out.parent.iterdir()) == []
+
+
+def test_a_run_that_records_decisions_and_halted_after_integration_merged_is_unfinished(
+    tmp_path: Path,
+) -> None:
+    """A guard: a run that did not end escalated was already refused as unfinished.
+
+    The next step of a halted run is not the escalated end, which the reading of what is owed
+    requires; this holds the halt after a merge to that, whatever else the record owes.
+    """
+    # Integration merged and the control module owes only its sign-off, but the run then halted
+    # on an incident: it did not end escalated, and a person looks before anything is read off it.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    raw = (_RECORDED / "records_a_sign_off_owed_alone.jsonl").read_bytes()
+    last = json.loads(raw.splitlines()[-1])
+    envelope = {k: last[k] for k in ("run_id", "gate_mode")} | {"ts": last["ts"]}
+    incident = envelope | {
+        "seq": last["seq"] + 1,
+        "kind": "incident",
+        "subtask_id": None,
+        "cause": "foreign_journal_line",
+        "detail": "a journal line no merge wrote",
+    }
+    halted = envelope | {
+        "seq": last["seq"] + 2,
+        "kind": "halted",
+        "reason": "incident",
+        "detail": "foreign_journal_line",
+    }
+    extra = b"".join(json.dumps(line).encode() + b"\n" for line in (incident, halted))
+    (run / "events.jsonl").write_bytes(raw + extra)
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
+    assert record.sign_offs_owed == ()
+    assert not out.parent.exists() or list(out.parent.iterdir()) == []
+
+
+def test_a_run_that_records_decisions_and_has_not_ended_is_unfinished(tmp_path: Path) -> None:
+    # The control module's only open precondition is its sign-off, but integration's own
+    # attempt has not merged yet: the graph may hold a change no merge kept.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
+    lines = (_RECORDED / "records_a_sign_off_owed_alone.jsonl").read_bytes().splitlines(True)
+    call = next(n for n, line in enumerate(lines) if b'"kind":"integration_gate_ran"' in line)
+    (run / "events.jsonl").write_bytes(b"".join(lines[: call + 1]))
+    record, out = _export(run, tmp_path)
+    assert record.status == "unfinished"
+    assert not out.exists()
+
+
 def test_a_run_with_no_event_log_is_refused_not_scored(tmp_path: Path) -> None:
     run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
     (run / "events.jsonl").unlink()
@@ -648,3 +907,88 @@ def test_a_new_name_that_cannot_be_made_leaves_nothing_at_the_answer_s_name(
         module.export_whole_run(run, out)
     assert isinstance(caught.value, module.ExportError)
     assert list(out.parent.iterdir()) == []
+
+
+def test_a_process_killed_between_the_two_renames_leaves_a_record_and_never_an_answer_without_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_a_sign_off_owed")
+    out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
+    module = _module()
+    replace = os.replace
+    beside = module.record_path(out)
+    # What stood at the answer's name and at the record's, as each rename was about to be made.
+    before: dict[str, tuple[bytes, bytes]] = {}
+
+    def watched(src: str, dst: object) -> None:
+        before[str(dst)] = (out.read_bytes(), beside.read_bytes())
+        replace(src, dst)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(module.os, "replace", watched)
+    module.export_whole_run(run, out)
+    # The first rename puts one whole file down; the second finds that one placed. A kill at the
+    # second leaves what the first put: it is the record, so an answer is never alone.
+    first, second = list(before)
+    assert (first, second) == (str(beside), str(out))
+    assert before[second][1] != b"" and before[second][0] == b""
+
+
+def test_an_answer_that_cannot_be_put_in_place_takes_the_record_put_before_it_away(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The record is renamed into place first; the answer's rename then fails. A record with no
+    # answer is harmless, but neither is left, so the next export is not refused.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_a_sign_off_owed")
+    out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
+    module = _module()
+    replace = os.replace
+    renamed: list[str] = []
+
+    def record_then_no_space(src: str, dst: object) -> None:
+        if renamed:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        replace(src, dst)  # type: ignore[arg-type]
+        renamed.append(str(dst))
+
+    monkeypatch.setattr(module.os, "replace", record_then_no_space)
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        module.export_whole_run(run, out)
+    assert isinstance(caught.value, module.ExportError)
+    assert renamed == [str(module.record_path(out))]
+    assert list(out.parent.iterdir()) == []
+    monkeypatch.undo()
+    record = module.export_whole_run(run, out)
+    assert record.status == "exported"
+    assert _record_of(out).exists()
+
+
+def test_a_temporary_that_cannot_be_removed_after_a_failed_second_rename_stops_nothing_else(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The answer's rename fails, and its temporary then cannot be removed either: the export
+    # removes what it can (the record it placed, and its claim on the answer's name), and says
+    # the answer could not be written, not that a temporary could not be removed.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_a_sign_off_owed")
+    out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
+    module = _module()
+    replace, unlink = os.replace, os.unlink
+    renamed: list[str] = []
+
+    def record_then_no_space(src: str, dst: object) -> None:
+        if renamed:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        replace(src, dst)  # type: ignore[arg-type]
+        renamed.append(str(dst))
+
+    def stubborn(path: str) -> None:
+        if Path(path).name.startswith(f".{out.name}."):
+            raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
+        unlink(path)
+
+    monkeypatch.setattr(module.os, "replace", record_then_no_space)
+    monkeypatch.setattr(module.os, "unlink", stubborn)
+    with pytest.raises(module.ExportError):
+        module.export_whole_run(run, out)
+    left = sorted(p.name for p in out.parent.iterdir())
+    assert not out.exists() and not module.record_path(out).exists(), left
+    assert all(name.startswith(f".{out.name}.") for name in left), left

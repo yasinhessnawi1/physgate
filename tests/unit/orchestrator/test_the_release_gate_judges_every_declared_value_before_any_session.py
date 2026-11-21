@@ -22,6 +22,7 @@ from gate_fixtures import graph, node
 from parts_rig import body, decide, log_of, parts_items, started
 from plan_hold_rig import again, dispatched, kinds
 from release_rig import failing
+from sign_off_rig import signing
 
 from physgate.gate.runner import PhysicsGate
 from physgate.orchestrator.queue import QueueResolution
@@ -70,7 +71,7 @@ def test_the_release_is_judged_once_from_the_head_before_the_first_parts_write(
     tmp_path: Path,
 ) -> None:
     the_rig = _decided(tmp_path)
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     artefact = one(the_rig.gate.releases)
     assert artefact.base_revision == 1
     assert artefact.scopes == ("subtask",)
@@ -123,7 +124,7 @@ def test_a_later_round_judges_every_declared_node_again_from_the_same_base(
     assert again(the_rig) == "wait"
     restated = body({"mass": (0.5, "kg"), "stall_current": (2.0, "A")})
     assert isinstance(decide(the_rig.run_dir, IDS[0] + "-r2", "have", restated), QueueResolution)
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     first, second = the_rig.gate.releases
     # The IMU's node was declared in round one and is not written again in round two: with the
     # base still the head before the first parts write, it stays among the view's own nodes.
@@ -140,7 +141,7 @@ def test_a_later_round_judges_every_declared_node_again_from_the_same_base(
 
 def test_under_observe_a_failing_release_is_recorded_and_the_run_released(tmp_path: Path) -> None:
     the_rig = _decided(tmp_path, gate_mode="observe", results=(_blocked_at(MOTOR),))
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     log = log_of(the_rig.run_dir)
     ran = one(_of(log, "parts_gate_ran"))
     assert (ran["gate_mode"], ran["result"]["verdict"]) == ("observe", "fail")
@@ -150,7 +151,7 @@ def test_under_observe_a_failing_release_is_recorded_and_the_run_released(tmp_pa
 
 def test_under_off_the_release_s_gate_is_skipped_and_the_skip_recorded(tmp_path: Path) -> None:
     the_rig = _decided(tmp_path, gate_mode="off")
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     log = log_of(the_rig.run_dir)
     ran = one(_of(log, "parts_gate_ran"))
     assert (ran["gate_mode"], ran["result"]) == ("off", None)
@@ -163,7 +164,7 @@ def test_a_run_that_declares_nothing_calls_no_gate_at_its_release(tmp_path: Path
     assert again(the_rig) == "wait"
     for item_id in IDS:
         assert isinstance(decide(the_rig.run_dir, item_id, "find"), QueueResolution)
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     assert _of(log_of(the_rig.run_dir), "parts_gate_ran") == []
     assert the_rig.gate is not None
     assert the_rig.gate.releases == []
@@ -226,7 +227,7 @@ def test_replay_refuses_a_release_after_a_blocking_gate_line(tmp_path: Path) -> 
 
 def _released(tmp_path: Path) -> Path:
     the_rig = _decided(tmp_path)
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     return Path(the_rig.run_dir)
 
 

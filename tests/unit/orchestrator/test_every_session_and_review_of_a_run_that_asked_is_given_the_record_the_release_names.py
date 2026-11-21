@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 from parts_rig import COMPONENTS, body, decide, log_of, started
 from plan_hold_rig import again
+from sign_off_rig import signing
 
 from physgate.orchestrator import loop as loop_module
 from physgate.orchestrator import parts_write
@@ -44,7 +45,7 @@ def _released(run_dir: Path) -> dict[str, Any]:
 
 def test_every_request_carries_the_record_the_release_names(tmp_path: Path) -> None:
     run_dir, the_rig = _ran(tmp_path)
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     released = _released(run_dir)
     requests = the_rig.dispatcher.requests
     assert requests, "no session was dispatched"
@@ -61,7 +62,7 @@ def test_every_request_carries_the_record_the_release_names(tmp_path: Path) -> N
 
 def test_every_review_is_shown_the_record_its_session_read(tmp_path: Path) -> None:
     run_dir, the_rig = _ran(tmp_path)
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     released = _released(run_dir)
     seen = the_rig.reviewer.seen
     assert seen, "nothing was reviewed"
@@ -87,7 +88,7 @@ def test_a_record_that_is_not_the_release_s_is_an_incident_and_no_session_is_spa
 
 def test_a_plan_that_names_no_part_has_no_record_to_read(tmp_path: Path) -> None:
     the_rig = started(tmp_path / "run", components=())
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     assert the_rig.dispatcher.requests
     assert all(r.parts_record is None for r in the_rig.dispatcher.requests)
     assert all(a.parts_record is None for a in the_rig.reviewer.seen)

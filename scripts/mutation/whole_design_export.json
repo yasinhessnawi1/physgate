@@ -10,7 +10,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -24,7 +33,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -38,7 +56,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -52,7 +79,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -66,7 +102,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -80,35 +125,62 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
     "name": "unfinished_taken",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "    if not _finished(run_dir):\n",
-    "new": "    if False:\n",
+    "old": "    if not finished:\n        return Export(status=\"unfinished\", revision=revision)",
+    "new": "    if False:\n        return Export(status=\"unfinished\", revision=revision)",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
     "name": "one_module_enough",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "all(m in state.completed for m in modules)",
-    "new": "any(m in state.completed for m in modules)",
+    "old": "all(m in state.completed or m in owed for m in modules)",
+    "new": "any(m in state.completed or m in owed for m in modules)",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -122,7 +194,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -136,7 +217,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -150,7 +240,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -164,7 +263,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -178,7 +286,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -192,7 +309,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -206,7 +332,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -220,7 +355,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -234,7 +378,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -248,7 +401,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -262,7 +424,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -276,7 +447,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -290,7 +470,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -304,7 +493,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -318,7 +516,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -332,7 +539,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -346,7 +562,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -360,7 +585,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -374,7 +608,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -388,7 +631,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -402,21 +654,39 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
     "name": "mkdir_unguarded",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "    try:\n        out.parent.mkdir(parents=True, exist_ok=True)\n        claimed = os.open",
-    "new": "    out.parent.mkdir(parents=True, exist_ok=True)\n    try:\n        claimed = os.open",
+    "old": "    at = files[0][0]\n    try:\n        for out, _ in files:\n            at = out\n            out.parent.mkdir(parents=True, exist_ok=True)\n",
+    "new": "    at = files[0][0]\n    files[0][0].parent.mkdir(parents=True, exist_ok=True)\n    try:\n        for out, _ in files:\n            at = out\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -430,49 +700,154 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
     "name": "taken_name_replaced",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "        if not _ours(out, claim):\n            msg = \"the answer's name was taken",
-    "new": "        if False:\n            msg = \"the answer's name was taken",
+    "old": "            if not _ours(out, claim):\n                msg = \"the answer's name was taken",
+    "new": "            if False:\n                msg = \"the answer's name was taken",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
     "name": "temporary_left",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "                os.unlink(temporary)\n",
-    "new": "                pass\n",
+    "old": "                    os.unlink(temporary)\n",
+    "new": "                    pass\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
     "name": "claim_left",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "            if _ours(out, claim):\n                os.unlink(out)",
-    "new": "            if False:\n                os.unlink(out)",
+    "old": "                    if _ours(out, claim):\n                        os.unlink(out)",
+    "new": "                    if False:\n                        os.unlink(out)",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "record_placed_after_answer",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    _write_new(((record_path(out), _record_bytes(export, out)), (out, raw)))",
+    "new": "    _write_new(((out, raw), (record_path(out), _record_bytes(export, out))))",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "removal_failure_stops_the_rest",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "                with contextlib.suppress(OSError):\n                    os.unlink(temporary)",
+    "new": "                os.unlink(temporary)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "placed_record_left",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "                    if _ours(out, written):\n                        os.unlink(out)",
+    "new": "                    if False:\n                        os.unlink(out)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
+    ],
+    "data": [
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   },
   {
@@ -486,7 +861,16 @@
     "data": [
       "tests/unit/gate/run4/plan_interfaces.json",
       "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
-      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl"
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
     ]
   }
 ]

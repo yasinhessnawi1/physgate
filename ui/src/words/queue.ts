@@ -74,6 +74,12 @@ export const SOURCE_WORDS: Readonly<Record<QueueSource, SourceWords>> = {
       "The run asks which parts you already have or will make: nothing is dispatched until " +
       "you have decided each part of the plan.",
   },
+  sign_off: {
+    kind: "A standing sign-off",
+    why:
+      "A module whose role owes a person's sign-off merged: it is not complete until you sign " +
+      "the values it shows.",
+  },
 };
 
 /** Said while a page keeps what it read last because its latest read again failed. */
@@ -98,6 +104,7 @@ export const FINDING_VERDICT: Readonly<Record<QueueSource, string | null>> = {
   plan_review:
     "Did not pass: the design reviewer did not pass the plan, or reached no verdict on it.",
   parts: null,
+  sign_off: null,
 };
 
 /**
@@ -196,6 +203,7 @@ const HEADLINES: Readonly<Record<QueueSource, string>> = {
   contract: "Two merged modules break an interface contract",
   plan_review: "The plan's review did not pass",
   parts: "A part of the plan to decide",
+  sign_off: "A module's values to sign",
 };
 
 /**
@@ -287,7 +295,12 @@ export const UNSEALED_WORDS = {
 } as const;
 
 /** What a decision on an item a reopen superseded does, for every verb: it is recorded only. */
-export function supersededOutcome(by: string): string {
+export function supersededOutcome(by: string, source?: QueueSource): string {
+  if (source === "sign_off")
+    return (
+      `Recorded only: a later sign-off item on the module, ${by}, replaced this one, so nothing ` +
+      "in the run acts on this decision."
+    );
   return (
     `Recorded only: a choice on ${by} reopened a module this item is about, so nothing in the ` +
     "run acts on this decision."
@@ -324,6 +337,10 @@ const REJECT_WORDS: Readonly<Record<Consequence["onReject"], string>> = {
   end_run:
     "Reject: the run ends with no module dispatched, and your reason is recorded. A new run is " +
     "a new decomposition.",
+  reopen_fix:
+    "Reject: the module's one fix after a rejected sign-off is made by a fresh session of its " +
+    "role, told your note and the values shown, and gated and reviewed as any attempt. If it " +
+    "merges you are asked to sign again; if not, the module stays not complete.",
   record_only: "Reject: the decision is recorded, and nothing in the run acts on it.",
 };
 
@@ -382,6 +399,12 @@ const REJECT_BESIDE: Readonly<Record<Exclude<Consequence["onReject"], "record_on
     `${TOO_LONG}. If the fix is not accepted, the subtask ends rejected.`,
   end_subtask: "Rejecting ends the subtask as rejected. Nothing of it is merged.",
   end_run: "Rejecting ends the run with no module dispatched.",
+  reopen_fix:
+    "Rejecting orders the module's one fix after a rejected sign-off by a fresh session of its " +
+    "role, told your note and the values shown, and gated and reviewed as any attempt. If it " +
+    "merges, you are asked to sign its values again; if not, the module stays not complete. If " +
+    "your note makes the order too long to review, nothing is reopened and the decision is only " +
+    "recorded.",
 };
 
 /** Said once under the sentences: what no decision can be, and what the run may do with it. */
@@ -411,6 +434,10 @@ export function effectWords(c: Consequence): readonly Effect[] {
   let approve: string;
   if (c.onApprove === "release")
     approve = "Approving releases the hold, and the plan runs as it stands.";
+  else if (c.onApprove === "sign")
+    approve =
+      "Approving signs the values this item shows, as shown: the module may then be declared " +
+      "complete while they stand, and a later change to them is a new item.";
   else if (c.onApprove === "merge_attempt") {
     const commit = c.attemptCommit === null ? "" : ` (commit ${c.attemptCommit.slice(0, 12)})`;
     approve =
@@ -464,6 +491,12 @@ export function consequenceWords(c: Consequence): ChoiceWords {
       approve: "Approve: the hold is released, and the plan runs as it stands.",
       reject,
     };
+  if (c.onApprove === "sign")
+    return {
+      approveLabel: "Approve…",
+      approve: "Approve: the values this item shows are signed, as shown.",
+      reject,
+    };
   if (c.onApprove === "merge_attempt") {
     const commit = c.attemptCommit === null ? "" : ` (commit ${c.attemptCommit.slice(0, 12)})`;
     return {
@@ -500,10 +533,40 @@ const NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
   superseded:
     "Recorded only: a choice on another item reopened a module this item is about, so what it " +
     "said was no longer true.",
+  module_reopened:
+    "Recorded only: the module was reopened for its follow-up after the item was listed, so " +
+    "the fix the item offered could no longer be ordered.",
 };
 
-/** The note on an open item a reopen superseded, naming the item whose choice reopened it. */
-export function supersededWords(by: string): string {
+/** What a decision on a sign-off item did not do, where its words differ from another item's. */
+const SIGN_OFF_NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
+  superseded:
+    "Recorded only: a later sign-off item on the module replaced this one, so the values it " +
+    "showed are no longer the module's.",
+  // The item said why a reject records only: its one fix was ordered already, or it was not
+  // merged then or the integration call was made. A module with no attempt left has its own.
+  record_only_source:
+    "Recorded only: as the item said, no fix could be ordered for the module (its one fix was " +
+    "ordered already, or it was not merged then), so it stays not complete and its sign-off " +
+    "owed.",
+  no_attempt_left:
+    "Recorded only: the module has no attempt left to fix its values at, so it stays not " +
+    "complete and its sign-off owed.",
+  order_too_long:
+    "Recorded only: with your note, the fix's order would be longer than its reviewer can read " +
+    "whole, so no fix was ordered; the module stays not complete and its sign-off owed.",
+};
+
+/**
+ * The note on an open item a later one superseded: for a contract item, the item whose choice
+ * reopened a module it is about; for a sign-off item, the module's later sign-off item.
+ */
+export function supersededWords(by: string, source?: QueueSource): string {
+  if (source === "sign_off")
+    return (
+      `A later sign-off item on the module, ${by}, replaced this one: the values it shows are ` +
+      "no longer the module's. A decision on it is recorded only; decide the later item."
+    );
   return (
     `A choice on ${by} reopened a module this item is about, so what it says is no longer ` +
     "true. A decision on it is recorded only. The run lists the contract again if it still " +
@@ -546,14 +609,23 @@ export function reviewTimeWords(d: Decided): string {
 const PART_NOT_COUNTED =
   "stating a part's values is data entry, not a sign that the design was split too coarsely";
 
-/** What the run did with a decision, from its own record of taking it. */
-export function takenWords(t: Taken): string {
+/**
+ * What the run did with a decision, from its own record of taking it; ``source`` is the item's,
+ * where a sign-off item's words differ.
+ */
+export function takenWords(t: Taken, source?: QueueSource): string {
+  const isSignatureItem = source === "sign_off";
   if (!t.acts) {
-    const known = t.whyNot === null ? undefined : NOT_TAKEN_WORDS[t.whyNot];
-    return known ?? `Recorded only (${t.whyNot ?? "no reason recorded"}).`;
+    const why = t.whyNot;
+    const known =
+      why === null
+        ? undefined
+        : ((isSignatureItem ? SIGN_OFF_NOT_TAKEN_WORDS[why] : undefined) ?? NOT_TAKEN_WORDS[why]);
+    return known ?? `Recorded only (${why ?? "no reason recorded"}).`;
   }
   const done: Readonly<Record<Taken["effect"], string>> = {
     merge: "The run took it: the attempt it names was merged.",
+    sign: "The run took it: the values the item shows are signed.",
     retry: "The run took it: the next attempt was ordered, told what the decision said.",
     fix: "The run took it: one fix was ordered.",
     end_subtask: "The run took it: the subtask ended rejected.",
@@ -572,6 +644,12 @@ export function takenWords(t: Taken): string {
     none: "The run took it; it changed nothing.",
   };
   const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;
+  if (isSignatureItem && t.effect === "reopen")
+    return (
+      "The run took it: the module was reopened for its one fix, told your note and the values " +
+      "the item showed." +
+      by
+    );
   if (t.orderTooLong)
     return (
       "The run took it: the subtask ended rejected, and no session was started. What that " +

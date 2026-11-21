@@ -84,6 +84,22 @@ const SKIPPED_REASONS: Readonly<Record<string, string>> = {
 const FIRST_LINE = 160;
 
 /**
+ * What ended a follow-up's, or a fix's after a rejected sign-off, one attempt without a merge, in
+ * words: the record's own reason, never a model's. A reason not known here is shown as written.
+ */
+const NOT_MERGED_WORDS: Readonly<Record<string, string>> = {
+  rejected: "the gate or its review rejected it",
+  blocked: "its review was blocked",
+  no_verdict: "its review reached no verdict",
+  for_a_person: "it was set aside for a person",
+};
+
+/** ``why`` a one-attempt follow-up or fix ended without a merge, in words. */
+export function notMergedWords(why: string): string {
+  return NOT_MERGED_WORDS[why] ?? why.replace(/_/g, " ");
+}
+
+/**
  * A finding as a short first line and the rest: the first sentence (or line), cut at a word when
  * it is still long. Nothing is dropped; the rest is every character after the first line.
  */
@@ -437,7 +453,42 @@ export function rowOf(
       return {
         ...base,
         depth: 1,
-        sentence: `${subtaskName(event.subtask)}'s follow-up ended without a merge (${event.why.replace("_", " ")}), and is not retried; its earlier merge stands`,
+        sentence: `${subtaskName(event.subtask)}'s follow-up ended without a merge (${notMergedWords(event.why)}), and is not retried; its earlier merge stands`,
+        meta: `${event.subtask} · attempt ${String(event.attempt)}`,
+        subtask: event.subtask,
+      };
+    case "sign_offs_raised":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `A person's sign-off was asked for ${event.raised
+          .map((r) => `${subtaskName(r.module)} (${r.itemId})`)
+          .join(", ")}, after ${subtaskName(event.subtask)} merged`,
+        meta: `${event.subtask} · attempt ${String(event.attempt)}`,
+        subtask: event.subtask,
+        attempt: event.attempt,
+      };
+    case "sign_off_raised_again":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.module)}'s sign-off was asked for again (${event.itemId}): the values it binds had moved with no item raised on them, found ${event.found === "merge" ? `after ${subtaskName(event.subtask)} merged` : "where its completion was due"}`,
+        meta: `${event.subtask} · attempt ${String(event.attempt)}`,
+        subtask: event.module,
+      };
+    case "no_follow_up_owed":
+      return {
+        ...base,
+        depth: 0,
+        sentence:
+          "No follow-up is owed before the integration call; the run waits for a person's sign-off",
+        meta: "integration",
+      };
+    case "sign_off_fix_ended":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.subtask)}'s one fix after a rejected sign-off ended without a merge (${notMergedWords(event.why)}), and is not retried: its earlier merge stands, its sign-off stays owed, and nothing left in this run can give it`,
         meta: `${event.subtask} · attempt ${String(event.attempt)}`,
         subtask: event.subtask,
       };

@@ -16,6 +16,8 @@ from typing import Any
 
 import pytest
 import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as runner
+from loop_fakes import Rig
+from sign_off_rig import declaring
 
 from physgate import roles
 from physgate.evaluation.observe.sequence import decisions
@@ -28,8 +30,34 @@ def _sizing_registered(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
 
 
-def records(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **kw: Any) -> list[dict[str, Any]]:  # noqa: ANN401
-    rig, _ = runner.finished(tmp_path, monkeypatch, **kw)
+def finished_with_the_sign_off_rule(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    declared: tuple[str, ...],
+    **kw: Any,  # noqa: ANN401 - the rig's own
+) -> Rig:
+    """The contract rig's run to its end, its control module owing a sign-off.
+
+    Integration's first declaration names ``declared``, the control module included, and is
+    refused for it; its next attempt declares the rest, as an integration told so would.
+    """
+    rig = runner.rig_for(tmp_path, **kw)
+    loop = rig.open()
+    runner.hooked(monkeypatch, loop, declared=declared)
+    declaring(loop, declared, then=tuple(m for m in declared if m != DRIVE))
+    runner.start(loop)
+    loop.run()
+    loop.close()
+    return rig
+
+
+def records(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    declared: tuple[str, ...],
+    **kw: Any,  # noqa: ANN401
+) -> list[dict[str, Any]]:
+    rig = finished_with_the_sign_off_rule(tmp_path, monkeypatch, declared, **kw)
     lines = (rig.run_dir / "events.jsonl").read_text().splitlines()
     return [json.loads(line) for line in lines]
 
@@ -41,21 +69,30 @@ def steps(found: list[dict[str, Any]], *names: str) -> list[dict[str, Any]]:
 def test_the_decision_sequence_carries_the_declaration_and_each_completion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    found = decisions(records(tmp_path, monkeypatch, declared=(DRIVE, FW)))
-    assert steps(found, "declared", "completed") == [
-        {"step": "declared", "subtask_id": INTEG, "attempt": 1, "modules": [DRIVE, FW]},
-        {"step": "completed", "subtask_id": DRIVE, "declared_by": INTEG, "attempt": 1},
-        {"step": "completed", "subtask_id": FW, "declared_by": INTEG, "attempt": 1},
+    found = decisions(records(tmp_path, monkeypatch, (DRIVE, FW)))
+    # The control module owes a sign-off, so the first declaration naming it is refused; the
+    # sequence carries that refusal, then the next attempt's declaration and its one completion.
+    assert steps(found, "rejected") == [
+        {
+            "step": "rejected",
+            "subtask_id": INTEG,
+            "attempt": 1,
+            "finding_key": "declaration|.physgate/completion/declaration.json|-",
+        }
     ]
-    # In log order: the declaration before the gate's verdict on the attempt that made it.
+    assert steps(found, "declared", "completed") == [
+        {"step": "declared", "subtask_id": INTEG, "attempt": 2, "modules": [FW]},
+        {"step": "completed", "subtask_id": FW, "declared_by": INTEG, "attempt": 2},
+    ]
+    # In log order: the refusal, then the declaration before the gate's verdict on its attempt.
     order = [s["step"] for s in found if s.get("subtask_id") == INTEG]
-    assert order.index("declared") < order.index("gate")
+    assert order.index("rejected") < order.index("declared") < order.index("gate")
 
 
 def test_the_decision_sequence_carries_the_pairs_and_each_contract_result_and_never_its_commit_revision_or_digest(  # noqa: E501
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    lines = records(tmp_path, monkeypatch, declared=(DRIVE, FW), fw_volts=11)
+    lines = records(tmp_path, monkeypatch, (DRIVE, FW), fw_volts=11)
     found = decisions(lines)
     (planned,) = [r for r in lines if r["kind"] == "contract_pairs_planned"]
     tested = [r for r in lines if r["kind"] == "contract_tested"]

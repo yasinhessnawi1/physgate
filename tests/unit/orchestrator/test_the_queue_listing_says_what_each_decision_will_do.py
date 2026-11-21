@@ -14,7 +14,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_a_reopen_supersedes_the_other_items_on_its_module import OTHER, reopened
+from test_a_choice_on_a_failed_contract_reopens_the_other_module import (
+    again,
+    choose,
+    opened,
+)
+from test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item import (
+    ITEM,
+    escaped,
+)
+from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing import FW
+from test_a_reopen_supersedes_the_other_items_on_its_module import BOTH_LOW, HALF, OTHER
 
 from physgate.cli import main
 from physgate.orchestrator.exceptions import CorruptEventLogError
@@ -116,7 +126,14 @@ def test_the_record_is_not_changed_by_listing_it(
 def test_a_superseded_contract_item_says_nothing_of_what_a_choice_does(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    rig = reopened(tmp_path, monkeypatch)
+    # Both of fw's pairs fail and each has an item; a choice on the first reopens fw. The
+    # control module's own sign-off item sits in the same queue, so the contract items are
+    # told apart by source.
+    rig = opened(tmp_path, monkeypatch, writes={FW: [BOTH_LOW]}, mended={FW: HALF})
+    contract = [i.item_id for i in read_queue(rig.run_dir).items if i.source != "sign_off"]
+    assert contract == [ITEM, OTHER]
+    choose(rig.run_dir, "producer")
+    assert escaped(lambda: again(rig, monkeypatch)) is None
     stored = next(i for i in read_queue(rig.run_dir).items if i.item_id == OTHER)
     # The line still says a choice reopens a module; the run will not do that.
     assert stored.consequence is not None and stored.consequence.on_choose is not None
