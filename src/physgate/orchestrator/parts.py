@@ -10,6 +10,9 @@ fixed, and sourcing checks only the parts a person does not have or make. Both r
   never reads more than a plan may name. A run that does not ask names nothing; a run that asks
   and is not released is refused, since a reader then would take every owned part as one to find.
 - :func:`choice_of` says what a node was decided as: a node the map does not name is to find.
+- :func:`bom_lines` names the bill of materials' lines from the nodes alone, and
+  :func:`bom_lines_to_check` the ones a check of the bill of materials will consider: those a
+  person left to find. No such check is built yet; these give it what to look at.
 - :func:`sourcing_lines` stands where sourcing will. A part a person has is skipped as owned, one
   a person makes as custom, and a part to find is left unchecked: the stub validates nothing, so
   no line it records is ever validated.
@@ -30,6 +33,7 @@ from physgate.orchestrator.plan import MAX_COMPONENTS
 
 if TYPE_CHECKING:
     from physgate.orchestrator.replay import RunState
+    from physgate.state.schema import Node
 
 PartChoice = Literal["have", "make", "find"]
 SourcingStatus = Literal["skipped", "unchecked"]
@@ -108,3 +112,23 @@ def sourcing_lines(
         status: SourcingStatus = "unchecked" if reason is None else "skipped"
         lines.append(SourcingLine(node=node, status=status, reason=reason))
     return tuple(lines)
+
+
+def bom_lines(nodes: Iterable[Node]) -> tuple[str, ...]:
+    """The bill of materials' lines: the id of every electrical component, in the order given.
+
+    Read from the nodes alone, with no mark on a node: a sizing node, a mechanical component and an
+    interface are no line.
+    """
+    return tuple(
+        node.id for node in nodes if node.kind == "component" and node.domain == "electrical"
+    )
+
+
+def bom_lines_to_check(nodes: Iterable[Node], choices: Mapping[str, Choice]) -> tuple[str, ...]:
+    """The lines a check of the bill of materials will consider: those a person left to find.
+
+    A part a person has or makes is not checked. A line the choices do not name is to find, so a
+    run that does not ask gives every line. No such check is built yet.
+    """
+    return tuple(line for line in bom_lines(nodes) if choice_of(choices, line) == "find")
