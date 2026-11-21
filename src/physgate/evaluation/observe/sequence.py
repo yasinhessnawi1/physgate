@@ -471,6 +471,17 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             step |= {"quantity": conflict["quantity"], "level": e["level"]}
         elif kind == "contract_item_raised":
             step = {"step": "contract_item", "item_id": e["item_id"]}
+        elif kind == "design_pairs_planned":
+            # Which module builds what another designs, and each naming the other way round.
+            step = {"step": "design_pairs", "pairs": e["pairs"], "mutual": e.get("mutual", [])}
+        elif kind == "builder_held":
+            # Why it is held, the item a person can act on and the chain, as the line says.
+            step = {"step": "builder_held", "subtask_id": e["subtask_id"]}
+            step |= {"designer": e["designer"], "nodes": e["nodes"], "why": e["why"]}
+            step |= {"item_id": e.get("item_id"), "chain": e.get("chain")}
+        elif kind == "builder_released":
+            step = {"step": "builder_released", "subtask_id": e["subtask_id"]}
+            step |= {"designer": e["designer"], "nodes": e["nodes"]}
         if step is not None:
             out.append({**step, "seq": e["seq"]})
     return out
