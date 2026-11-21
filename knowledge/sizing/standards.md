@@ -18,8 +18,8 @@ Sizing owns "every quantity constraining more than one domain" [the project's ar
 specification, ARCH-051]: a supply voltage, a motor's command limit, torque and current, a current
 budget, a mass, a gear ratio, any other quantity two domains read. It writes them on nodes of
 domain `cross` that are not interface nodes, and writes no node of a domain role and no interface
-node. A quantity only one domain reads is that domain's, not sizing's; a quantity two domains read
-and the plan left off sizing's nodes is recorded in sizing's work as unowned, with the domains that
+node. A quantity only one domain reads is that domain's; a quantity two domains read and
+the plan left off sizing's nodes is recorded in sizing's work as unowned, with the domains that
 read it, not written by a domain in sizing's place.
 
 **Enforced:** the hook layer and the change check refuse a write to a non-interface `cross` node by
@@ -76,7 +76,7 @@ discharge for individual battery applications (<1C)"; at 1–4C that cut-off "ma
 "75 percent of the mid-point voltage at that discharge rate" is the better choice [Energizer, *Nickel
 Metal Hydride (NiMH) Handbook and Application Manual*, NiMH02.01, 2010, pp. 6 and 10] (*typical
 value*). Six cells span about 8.4 V to 5.4 V (*derived*), the window the electrical standards use;
-for a pack loaded above 1C (motors at stall) the bottom so taken is optimistic, and is stated so.
+for a pack loaded above 1C (motors at stall) the bottom so taken is optimistic, and said so.
 So a supply quantity carries its nominal value and the range it takes in use, each end with its
 source: the top is the charged open-circuit voltage, and the bottom the cut-off less any drop under
 load the design knows. A demand that grows with voltage (a stall current, the voltage across a part
@@ -101,21 +101,24 @@ speed and voltage; the stall figures extrapolated). The fit chosen is stated and
 At another voltage `V` the stall current is `V / R` and the no-load speed `(V − I_noload·R) / K_e`
 (*derived* from the model). For an ideal motor `K_t = K_e` in SI units, from the power balance
 `K_e·ω·I = T·ω`; constants fitted at a gearbox output differ, because the output torque carries the
-gearbox's losses and the friction current and the speed does not, so each is used where it was
-fitted and neither is substituted for the other. A further gear stage multiplies `K_e` by its ratio
-and `K_t` by its ratio times the stage's efficiency, taken as 1 where no efficiency is sourced and
+gearbox's losses and the friction current and the speed does not, so each is used only where it was
+fitted. A further gear stage multiplies `K_e` by its ratio and
+`K_t` by its ratio times the stage's efficiency, taken as 1 where no efficiency is sourced and
 stated as an assumption. A maker's stall figures may be extrapolated: Pololu's micro metal gearmotor
-pages call them "theoretical values; stalls could damage the motor or gearbox", and give "a general
-recommendation for brushed DC motor operation is 25% or less of the stall current" [Pololu, 50:1
-Micro Metal Gearmotor HPCB 6V with Extended Motor Shaft, item #3073, retrieved 31.10.2026] (*rule
-of thumb*; a sourced analysis may override it).
+pages call them "theoretical values; stalls could damage the motor or gearbox", and advise "25% or
+less of the stall current" for brushed DC operation [Pololu, 50:1 Micro Metal Gearmotor HPCB 6V
+with Extended Motor Shaft, item #3073, retrieved 31.10.2026] (*rule of thumb*; a sourced analysis
+may override it).
 
 A motor's rotor inertia `J_m` (kg·m², at the motor shaft) is a motor constant, written beside `R`,
 `K_t` and `K_e`. Where the maker gives none, it is a TBR estimate (§2): a nominal, a low and a high
 value, each with its basis (published inertias of motors of comparable size, construction named; a
-solid-cylinder bound `J = π·ρ·L·D⁴/32`, *derived*, from the can's dimensions, each assumption
-stated), cross-checked by `τ_m = R·J_m/(K_t·K_e)` (*derived*, no load), with the measurement that
-resolves it named (a voltage step on a spare motor, encoder logged). Through a gearing `N` it adds
+solid-cylinder bound `J = π·ρ·L·D⁴/32`, *derived*, from the rotor's dimensions inside the
+magnets' bore, each assumption stated, with the bore sourced or the mass it implies leaving room
+in the motor's published mass for the stator, magnets, case and gearbox, each with its basis; a
+bound that leaves them no mass is not a basis), cross-checked by
+`τ_m = R·J_m/(K_t·K_e)` (*derived*, no load), with the measurement that resolves
+it named (a voltage step on a spare motor, encoder logged). Through a gearing `N` it adds
 `N²·J_m` on the wheel's speed relative to the motor's housing (*derived*); where the housing moves
 (a balancing robot's body), that is the wheel's speed relative to the body.
 
@@ -221,8 +224,8 @@ own joined to it: a node of domain `cross`, not an interface, that names the int
 first pass's change check the harness writes the interface from that node: each quantity takes its
 value and unit, and its source names the node and the attempt; nothing else of the interface
 changes. The gate and the reviewer judge the revised interface with the attempt, and the domains
-read it once the pass merges. The node holds the values the domains are to read; a value at another
-condition goes under a suffixed name, as above. Sizing never writes the interface node itself.
+read it once the pass merges. The node holds the values the domains are to read.
+Sizing never writes the interface node itself.
 
 **Enforced:** gate checks 2, 4, 5 and 7 run on the names and edges the design declares; an unknown
 name is recorded unchecked. The change check refuses a first-pass attempt in which no node is
@@ -241,8 +244,7 @@ a mass to a part a domain chose), citing the node it follows, or keeps its value
 its `no_change_justified`, under the changed node's id (cross §5). A value a person chose on a
 dispute is written exactly as chosen, value and unit. A rewrite of a value whose edges reach a
 domain node leaves that node owing a follow-up that no later pass may give: the closing pass records
-each one, with the node and the value, for integration and a person to see. The closing pass writes
-no node of another role.
+each one, with the node and the value, for integration and a person to see.
 
 **Enforced:** in part: gate check 7 runs on the whole design before integration and finds a changed
 quantity whose `constrains` edges name a node with neither a later follow-up nor its owner's reason;

@@ -334,6 +334,15 @@ are judged by reading like the rest.
   one only the assembled system can show is allocated to integration instead, with the module
   criteria that contribute, where PA-8 says (§6, NASA SE Handbook Appendix C.4 "Verifiability";
   cat. 2).
+  - Each criterion can be measured in the run environment. No board is connected to it unless the
+    brief says one is. Then a criterion verified by a measurement on the board fails, and one on
+    the board's own behaviour names a simulator the run environment provides (§6 says what it
+    provides); a criterion written against a simulator it does not provide fails. Where none is
+    provided, such a criterion is written against what the run can measure (the build with the
+    target's compiler, its size, static checks, host-side tests). A requirement the run cannot
+    show (on-target behaviour where no simulator is provided, or what the simulator cannot show) is
+    recorded as not shown in this run, with the reason, and is not a module criterion (§6, §1;
+    cat. 2).
 
 ### Wording
 
@@ -490,4 +499,4 @@ of the brief is not an indicator against the plan.
   and the plan fails the corresponding rule when judged by reading; without that reasoning, at most
   `noted`.
 
-<!-- 4825104a5aa2839faa94d040b5f03687 -->
+<!-- 0c5b41d0d6e215ee5b80fdda13cc8e54 -->
