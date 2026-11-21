@@ -555,6 +555,28 @@ def test_a_run_that_records_decisions_ends_a_module_whose_sign_off_is_owed_and_i
     assert record.sha256 == hashlib.sha256(out.read_bytes()).hexdigest()
 
 
+def test_a_run_whose_modules_owe_a_sign_off_each_names_all_of_them_in_plan_order(
+    tmp_path: Path,
+) -> None:
+    # Two control modules merged and neither is signed; the electrical module is complete. The
+    # run ended escalated with only the two sign-offs open: both are named, c1 before c3.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_two_sign_offs_owed")
+    record, out = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert record.sign_offs_owed == ("c1", "c3")
+    assert json.loads(_record_of(out).read_text())["sign_offs_owed"] == ["c1", "c3"]
+
+
+def test_a_module_owing_a_sign_off_is_named_alone_beside_the_modules_that_are_complete(
+    tmp_path: Path,
+) -> None:
+    # Sizing's module and the electrical one ended complete; only the control module owes.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_a_sign_off_owed")
+    record, _ = _export(run, tmp_path)
+    assert record.status == "exported"
+    assert record.sign_offs_owed == ("c1",)
+
+
 @pytest.mark.parametrize(
     "recorded",
     [
@@ -872,28 +894,52 @@ def test_a_new_name_that_cannot_be_made_leaves_nothing_at_the_answer_s_name(
     assert list(out.parent.iterdir()) == []
 
 
-def test_a_record_that_cannot_be_put_in_place_takes_the_answer_put_before_it_away(
+def test_a_process_killed_between_the_two_renames_leaves_a_record_and_never_an_answer_without_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The answer is renamed into place first; the record's rename then fails. An answer with
-    # no record beside it would read as one that owes nothing, so neither is left.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_a_sign_off_owed")
+    out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
+    module = _module()
+    replace = os.replace
+    beside = module.record_path(out)
+    # What stood at the answer's name and at the record's, as each rename was about to be made.
+    before: dict[str, tuple[bytes, bytes]] = {}
+
+    def watched(src: str, dst: object) -> None:
+        before[str(dst)] = (out.read_bytes(), beside.read_bytes())
+        replace(src, dst)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(module.os, "replace", watched)
+    module.export_whole_run(run, out)
+    # The first rename puts one whole file down; the second finds that one placed. A kill at the
+    # second leaves what the first put: it is the record, so an answer is never alone.
+    first, second = list(before)
+    assert (first, second) == (str(beside), str(out))
+    assert before[second][1] != b"" and before[second][0] == b""
+
+
+def test_an_answer_that_cannot_be_put_in_place_takes_the_record_put_before_it_away(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The record is renamed into place first; the answer's rename then fails. A record with no
+    # answer is harmless, but neither is left, so the next export is not refused.
     run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_a_sign_off_owed")
     out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
     module = _module()
     replace = os.replace
     renamed: list[str] = []
 
-    def answer_then_no_space(src: str, dst: object) -> None:
+    def record_then_no_space(src: str, dst: object) -> None:
         if renamed:
             raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
         replace(src, dst)  # type: ignore[arg-type]
         renamed.append(str(dst))
 
-    monkeypatch.setattr(module.os, "replace", answer_then_no_space)
+    monkeypatch.setattr(module.os, "replace", record_then_no_space)
     with pytest.raises(Exception) as caught:  # noqa: PT011
         module.export_whole_run(run, out)
     assert isinstance(caught.value, module.ExportError)
-    assert renamed == [str(out)]
+    assert renamed == [str(module.record_path(out))]
     assert list(out.parent.iterdir()) == []
     monkeypatch.undo()
     record = module.export_whole_run(run, out)

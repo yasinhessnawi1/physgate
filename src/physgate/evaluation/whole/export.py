@@ -59,7 +59,9 @@ symmetric on it. An export that is not ``exported`` writes neither file.
 **The write.** Nothing is ever written inside the run's directory. The answer's name and its
 record's are each claimed first by creating them, so nothing left at either is overwritten or
 written through; each file is written whole to a new name beside it and renamed onto its claim,
-and a write that fails at any point leaves neither file behind.
+and a write that fails at any point leaves neither file behind. The record is put in place
+first, so a process killed between the two renames leaves a record and never an answer without
+one.
 """
 
 from __future__ import annotations
@@ -355,7 +357,7 @@ def export_whole_run(run_dir: Path, out: Path) -> Export:
         sign_offs_owed=owed,
         sha256=hashlib.sha256(raw).hexdigest(),
     )
-    _write_new(((out, raw), (record_path(out), _record_bytes(export, out))))
+    _write_new(((record_path(out), _record_bytes(export, out)), (out, raw)))
     return export
 
 
@@ -394,6 +396,8 @@ def _ours(out: Path, claim: os.stat_result) -> bool:
 
 def _write_new(files: tuple[tuple[Path, bytes], ...]) -> None:
     """Each ``raw`` at its ``out``, where nothing may be yet: all claimed, then each put there.
+
+    They are put in the order given, so a file that must never stand alone comes last.
 
     Every ``out`` is claimed first by creating it empty, which fails if anything is at it, a
     link included, so no file is written unless every name is free. Each is then written whole
