@@ -82,6 +82,7 @@ import re
 import stat
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -90,6 +91,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     ValidationError,
     field_validator,
     model_validator,
@@ -472,6 +474,36 @@ class SampledLaw(_Loop, law_module.Body):
     no_interface_statement: tuple[
         Literal["command_limit", "compute_delay", "period", "sensor_delay"], ...
     ] = ()
+    #: What the export found wrong with where the compute delay comes from, each by its own name
+    #: (distinct from the flag above): it leaves out time-valued quantities of the interface
+    #: nodes it draws on (``compute_delay_omitted`` names them), or it draws on a quantity the
+    #: run's interface does not state.
+    compute_delay_flags: tuple[
+        Literal[
+            "compute_delay_omits_interface_times",
+            "compute_delay_names_a_non_interface_quantity",
+        ],
+        ...,
+    ] = ()
+    compute_delay_omitted: tuple[Annotated[str, Field(max_length=80)], ...] = Field(
+        default=(), max_length=law_module.MAX_COEFFICIENTS * 4
+    )
+
+    #: Each number of the law as written in the text it was read from (:func:`parse_answer` sets
+    #: it), and each out-of-scope term that cannot affect the command and was set aside: neither is
+    #: a field of the answer.
+    _written: law_module.Written | None = PrivateAttr(default=None)
+    _set_aside: tuple[law_module.Outside, ...] = PrivateAttr(default=())
+
+    @property
+    def written(self) -> law_module.Written | None:
+        """The numbers as written, where the answer was read from text; else ``None``."""
+        return self._written
+
+    @property
+    def set_aside(self) -> tuple[law_module.Outside, ...]:
+        """The out-of-scope terms that cannot affect the command, taken out before judging."""
+        return self._set_aside
 
     @model_validator(mode="after")
     def _law_holds(self) -> SampledLaw:
@@ -486,15 +518,32 @@ class SampledLaw(_Loop, law_module.Body):
             law_module.check(self, units)
         except law_module.LawRefused as exc:
             raise ValueError(str(exc)) from exc
+        divisors = law_module.zero_divisors(
+            self, {name: float(m.value) for name, m in self.coefficients.items()}
+        )
+        if divisors:
+            msg = (
+                f"zero_divisor: a term divides by the coefficient {divisors[0]!r}, whose number "
+                "is 0; nothing is defined there"
+            )
+            raise ValueError(msg)
         for line in self.lines:
             for term in line.terms:
                 if not 0 < abs(term.number) <= LAW_MAGNITUDE:
                     msg = (
-                        f"line {line.name!r} has the number {term.number:g}, "
+                        f"line {line.name!r} has the number {_shown(term.number)}, "
                         f"outside 0 to {LAW_MAGNITUDE:g}"
                     )
                     raise ValueError(msg)
         return self
+
+
+def _shown(value: float) -> str:
+    """``value`` as a short ``%g`` text; an integer past a float is said by its digits."""
+    try:
+        return f"{value:g}"
+    except OverflowError:
+        return f"an integer of {len(str(value))} digits"
 
 
 def _unit_bounded(measure: Measure, name: str) -> None:
@@ -505,7 +554,7 @@ def _unit_bounded(measure: Measure, name: str) -> None:
         msg = f"the coefficient {name!r} is in {measure.unit!r}, which is not a unit"
         raise ValueError(msg) from exc
     if not abs(measure.value) <= LAW_MAGNITUDE:
-        msg = f"the coefficient {name!r} is {measure.value:g}; it is within {LAW_MAGNITUDE:g}"
+        msg = f"the coefficient {name!r} is {_shown(measure.value)}; it is within {LAW_MAGNITUDE:g}"
         raise ValueError(msg)
 
 
@@ -788,37 +837,66 @@ class OutsideScope(TaskFormatError):  # noqa: N818 - a refusal by name, not an e
         self.name = name
 
 
-def _scope_refusals(document: dict[str, Any], where: str) -> dict[str, OutsideScope]:
-    """Each law the scorer cannot judge, by the field that holds it, refused by name.
+def _scoped(
+    document: dict[str, Any], where: str
+) -> tuple[dict[str, Any], dict[str, OutsideScope], dict[str, tuple[law_module.Outside, ...]]]:
+    """The document with each law's out-of-scope terms sorted by whether they can matter.
 
-    A law that is not linear, or reads a signal outside the closed list. Read from the document
-    as written, since a schema would name only the field it fails on.
+    Returns the document to validate (a term that cannot affect the command taken out, one that
+    can marked, so that every other check still runs on its law), the laws refused by name for a
+    term that can matter, by the field that holds them, and the terms set aside, by field. Read
+    from the document as written, since a schema would name only the field it fails on.
     """
+    probe = dict(document)
     refused: dict[str, OutsideScope] = {}
+    aside: dict[str, tuple[law_module.Outside, ...]] = {}
     for key in ("controller", "analysed_controller"):
         controller = document.get(key)
-        if isinstance(controller, dict) and controller.get("structure") == "sampled_law":
-            try:
-                law_module.scope(controller)
-            except law_module.LawRefused as exc:
-                msg = f"{key} is out of the scorer's reach: {exc}"
-                refused[key] = OutsideScope(msg, name=exc.code, where=where)
-    return refused
+        if not (isinstance(controller, dict) and controller.get("structure") == "sampled_law"):
+            continue
+        coefficients = controller.get("coefficients")
+        values = (
+            {n: m.get("value") for n, m in coefficients.items() if isinstance(m, dict)}
+            if isinstance(coefficients, dict)
+            else None
+        )
+        sorted_out = law_module.scoped(controller, values)
+        probe[key] = sorted_out.body
+        if sorted_out.dead:
+            aside[key] = sorted_out.dead
+        if sorted_out.live:
+            first = sorted_out.live[0]
+            msg = f"{key} is out of the scorer's reach: {first.code}: {first.detail}"
+            refused[key] = OutsideScope(msg, name=first.code, where=where)
+    return probe, refused, aside
 
 
-#: A controller that stands in for a refused law while the rest of the answer is validated: any
-#: scorable one, so the answer's other fields are held to their own rules and nothing else.
-_STAND_IN: dict[str, Any] = {
-    "structure": "state_feedback",
-    "period": {"value": 0.01, "unit": "s"},
-    "command_limit": {"value": 0.5, "unit": "1"},
-    "sensor_delay": {"value": 0.001, "unit": "s"},
-    "compute_delay": {"value": 0.001, "unit": "s"},
-    "angle_gain": {"value": 1, "unit": "1/rad"},
-    "rate_gain": {"value": 0.1, "unit": "s/rad"},
-    "distance_gain": {"value": 0.1, "unit": "1/m"},
-    "speed_gain": {"value": 0.1, "unit": "s/m"},
-}
+def _attach(answer: Answer, text: str, aside: dict[str, tuple[law_module.Outside, ...]]) -> Answer:
+    """Give each sampled law of ``answer`` its numbers as ``text`` wrote them, and what went.
+
+    The numbers are read again from the same text with decimals kept as decimals, so that what is
+    decided on the law's structure is decided on ``0.1`` and not on the bits of its binary form.
+    """
+    if not isinstance(answer, WholeRunV3):
+        return answer
+    written = json.loads(text, parse_float=Decimal)
+    for key in ("controller", "analysed_controller"):
+        controller = getattr(answer, key)
+        if not isinstance(controller, SampledLaw):
+            continue
+        as_written = written.get(key)
+        if isinstance(as_written, dict):
+            # The same document the answer was validated from: the same terms taken out.
+            coefficients = as_written.get("coefficients")
+            values = (
+                {n: m.get("value") for n, m in coefficients.items() if isinstance(m, dict)}
+                if isinstance(coefficients, dict)
+                else None
+            )
+            as_written = law_module.scoped(as_written, values).body
+            controller._written = law_module.written_from(as_written)  # noqa: SLF001
+        controller._set_aside = aside.get(key, ())  # noqa: SLF001
+    return answer
 
 
 def parse_whole_run(raw: bytes, *, where: str = "answer") -> WholeRun:
@@ -874,23 +952,26 @@ def _parse(
     model: type[WholeRun] | type[WholeRunV3] = (
         WholeRunV3 if version == 3 and 3 in versions and not isinstance(version, bool) else WholeRun
     )
-    refused = _scope_refusals(document, where) if model is WholeRunV3 else {}
-    if not refused:
+    if model is WholeRun:
         return _validate(model, text, where), None
-    # A scope refusal speaks only for an answer that is otherwise valid: the rest is validated
-    # first, each refused law put aside, so no other fault can be hidden behind a law.
-    probe = dict(document)
-    for key in refused:
-        if key == "controller":
-            probe[key] = _STAND_IN
-        else:
-            del probe[key]
+    probe, refused, aside = _scoped(document, where)
+    if probe == document:
+        return _attach(_validate(model, text, where), text, {}), None
+    # A law's out-of-scope term that cannot affect the command is taken out and the law judged as
+    # it is. One that can matter is a refusal by name, but only for an answer that is otherwise
+    # valid: the rest (every name declared, the units of every line that can be checked, the
+    # settings) is validated first, each refused term marked, so no other fault is hidden behind it.
     answer = _validate(model, json.dumps(probe), where)
+    if not refused:
+        return _attach(answer, text, aside), None
     if "controller" in refused:
         raise refused["controller"]
     if not tolerate_analysed:
         raise refused["analysed_controller"]
-    return answer, refused["analysed_controller"]
+    rest = {k: v for k, v in probe.items() if k != "analysed_controller"}
+    return _attach(_validate(model, json.dumps(rest), where), text, aside), refused[
+        "analysed_controller"
+    ]
 
 
 def _validate(model: type[WholeRun] | type[WholeRunV3], text: str, where: str) -> Answer:

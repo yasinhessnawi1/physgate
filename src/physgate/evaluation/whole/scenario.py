@@ -21,11 +21,20 @@ not searched, so a margin that dips between corners is not seen.
 **Outcomes.** ``fail`` when any headline spec fails; otherwise ``unscored`` when any headline
 spec could not be judged; ``pass`` only when every headline spec passes. ``unscored`` is never
 ``fail``. An answer that is not a whole-run answer fails, with its reason; it is never an
-error of the scorer. A sampled law that is not linear (``nonlinear``) or reads a signal outside
-the closed list (``out_of_scope``) is the exception: the scorer cannot judge it, so it is
-``unscored`` with a ``refusal`` of that name, never a fail. Nor is an answer the analysis cannot
-compute with, or one whose analysis would cost more than :data:`MAX_WORK`: each fails as a
-named ``refusal``, the work bound decided before any of the work is done.
+error of the scorer. A sampled law with a term that is not linear (``nonlinear``) or reads a
+signal outside the closed list (``out_of_scope``) is the exception, but only if that term can
+affect the command: a term of weight 0, or in a line nothing the command reads reads, is taken
+out and the law judged without it (the record lists what was set aside). A law with such a term
+that can matter cannot be judged, so it is ``unscored`` with a ``refusal`` of that name, never a
+fail, and only after every other check has run on it: a fault anywhere else in the answer
+(a name not declared, a unit that does not balance, a setting, a zero divisor) is the ordinary
+fail, so a scope refusal never covers an invalid or failing answer. Nor is an answer the analysis
+cannot compute with, or one whose analysis would cost more than :data:`MAX_WORK`: each fails as a
+named ``refusal``, the work bound decided before any of the work is done. The ways an answer ends
+``unscored`` are exactly: a law with a live term out of scope in the primary controller; and a
+headline row that cannot be judged (a dynamic metric, criterion 19 with no analysed controller or
+a different structure, an analysed law out of scope or with other lines or coefficients, corners
+that disagree).
 
 **The plant judged on.** The scenario judges on a frozen plant (one of
 :data:`~physgate.evaluation.whole.plant.FROZEN_PLANTS`, by digest) unless it is told it judges a
@@ -55,6 +64,7 @@ from physgate.evaluation.per_role.exceptions import TaskFormatError
 from physgate.evaluation.tiers.base import Identifier
 from physgate.evaluation.tiers.scenario import Outcome, ScenarioError
 from physgate.evaluation.tiers.task import COMPOSES_AT_LEAST, Spec, TaskId
+from physgate.evaluation.whole import law as law_module
 from physgate.evaluation.whole import loop as loop_module
 from physgate.evaluation.whole.answer import (
     Answer,
@@ -303,7 +313,7 @@ class WholeDesignScenario:
                 "reason": str(analysed_refusal),
             }
         if isinstance(read.controller, SampledLaw):
-            record["no_interface_statement"] = list(read.controller.no_interface_statement)
+            record.update(_law_record(read.controller))
         work = self._work(read)
         record["work"] = {name: _quantity(value, "1") for name, value in work.items()}
         record["work"]["bound"] = _quantity(MAX_WORK, "1")
@@ -399,7 +409,7 @@ class WholeDesignScenario:
             "composes": list(spec.composes),
         }
         if isinstance(read.controller, SampledLaw):
-            row["no_interface_statement"] = list(read.controller.no_interface_statement)
+            row.update(_flags(read.controller))
         if kind == "dynamic":
             row.update(verdict="unscored", measured=None, reason=DYNAMIC_REASON)
             return row
@@ -459,6 +469,37 @@ class WholeDesignScenario:
                 ),
             )
         return row
+
+
+def _flags(law: SampledLaw) -> dict[str, Any]:
+    """What the export flagged about the law's timing, by name: on the record and on every row."""
+    return {
+        "no_interface_statement": list(law.no_interface_statement),
+        "compute_delay_flags": list(law.compute_delay_flags),
+        "compute_delay_omitted": list(law.compute_delay_omitted),
+    }
+
+
+def _law_record(law: SampledLaw) -> dict[str, Any]:
+    """What the record says of a sampled law beside its flags.
+
+    The signals it reads (a law that reads the true tilt is judged as if tilt were measured
+    directly, as the named state feedback is); each mode the stability test sets aside, with the
+    memory states in it, what feeds them and whether the command reads them, and the note that a
+    held state is bounded in the model and not in the firmware; and each out-of-scope term that
+    cannot affect the command, taken out before judging.
+    """
+    values = {name: float(m.value) for name, m in law.coefficients.items()}
+    modes = law_module.held_report(law, values, period=float(law.period.value), written=law.written)
+    return {
+        **_flags(law),
+        "law_signals": list(law_module.signals_read(law)),
+        "held_modes": [mode.as_record() for mode in modes],
+        "set_aside": [
+            {"line": o.line, "term": o.index + 1, "code": o.code, "detail": o.detail}
+            for o in law.set_aside
+        ],
+    }
 
 
 def _output_data_rate(p: Any) -> Any:

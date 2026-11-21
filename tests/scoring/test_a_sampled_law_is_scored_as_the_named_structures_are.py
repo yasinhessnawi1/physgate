@@ -429,13 +429,18 @@ def test_a_law_with_no_wheel_angle_gain_is_unstable_with_or_without_an_inert_mem
         assert loop_module.margins(values, loop).stable is False
 
 
-def test_only_the_inert_state_is_set_aside_never_the_plant_s_own_travel() -> None:
+def test_a_law_that_reads_no_wheel_angle_sets_nothing_aside_the_inert_state_included() -> None:
+    """The wheels are not restored, so the pole at 1 stays in the test, and the loop is unstable.
+
+    The inert state's own mode is held at 1 as before, but a mode is set aside only where the
+    wheels, displaced alone, return; here the plant's travel is itself a held vector.
+    """
     values = nominal(_plant())
     plain = _law(_no_travel_terms(), _good_coefficients(values["wheel_radius"]))
-    system = loop_module.system(values, _loop_of(_with_inert_state(plain, 1.0), values))
-    assert system.held is not None
-    assert system.held.shape[1] == 1
+    inert = _loop_of(_with_inert_state(plain, 1.0), values)
+    assert loop_module.system(values, inert).held is None
     assert loop_module.system(values, _loop_of(plain, values)).held is None
+    assert loop_module.margins(values, inert).stable is False
 
 
 @pytest.mark.parametrize("gain", [-1e-6, -1e-8])

@@ -28,21 +28,26 @@ on its other modes; that one is set aside exactly, by a change of basis that hol
 With no distance gain nothing holds the travel, and no mode is set aside.
 
 **What "held by structure" means for a sampled law.** A mode may be set aside only if the law's
-own lines hold it at exactly 1 whatever the gain, and it has controller memory in it. In
+own lines hold it at exactly 1 whatever the gain, *and the wheels, displaced alone, return*. In
 plain words: put the body upright and still, the wheels anywhere (the travel is the plant's one
 pole at 1), and some value in the law's memory; the mode is held if one update then gives a
-command of exactly 0 and gives the very same memory back. That is decided on the numbers the
-law has, in exact arithmetic (:func:`physgate.evaluation.whole.law.held_modes`), with no
-window: a memory state whose update is itself and nothing else, a sum of states the updates
-conserve, a state nothing reads, and the leak-free angle's offset (where the wheels' angle is
-part of the mode, balanced against the memory) are held; a pole at ``1 + 1e-6``, or an
-integrator fed from the command with a gain of ``1e-6``, is not, whatever other coefficient
-the law has. The plant's own travel is never set aside: a mode that is the wheels' angle
-alone, no memory in it, is not returned, so a law that reads the wheel angle nowhere keeps its
-travel pole at 1 whether or not it also has an inert state. A mode that is the wheels' angle
-*and* memory is set aside: it is exactly the leak-free incremental structure's offset, and the
-named structure sets that aside as well. Every other pole is judged by the one stated rule:
-the closed loop is stable when its spectral radius is below 1 by at least
+command of exactly 0 and gives the very same memory back. A held mode is the offset of something
+the law conserves at rest; displace the wheels alone and the loop settles where that conserved
+quantity says. The mode is set aside only if nothing the wheels' motion can add feeds that
+quantity: not the command, and no wheel speed (the plant's motor force is one combination of the
+command and the wheel speed, so a steady cruise has the body upright and still, and the tilt and
+its rate feed nothing the wheels can move). Then the wheels return, whatever is in memory. Both
+are decided on the numbers the law has, in exact arithmetic, as written
+(:func:`physgate.evaluation.whole.law.held_modes`), with no window: a memory state whose update is
+itself and nothing else, a sum of states the updates conserve, a state nothing reads or only the
+tilt or its rate feed, and the leak-free angle's offset (where the wheels' angle is part of the
+mode, balanced against the memory) are held and set aside; a pole at ``1 + 1e-6``, or an integrator
+fed from the command with a gain of ``1e-6``, is not held, whatever other coefficient the law has.
+A memory that merely follows the wheel angle (a backward-difference speed with no position gain,
+a washout, a position gain of zero) holds a mode at 1 that is the travel itself: the wheels do not
+return, nothing is set aside, and the loop is unstable. So is a law that reads the wheel angle
+nowhere, whether or not it also has an inert state. Every other pole is judged by the one stated
+rule: the closed loop is stable when its spectral radius is below 1 by at least
 :data:`STABILITY_EPSILON`.
 
 **Margins.** With the controller's command multiplied by a gain ``κ`` before the plant, the
@@ -90,11 +95,15 @@ GAIN_TOLERANCE = 1e-9
 POINTS_PER_DECADE = 400
 LOWEST_FREQUENCY = 1e-4
 #: A closed loop is stable when its spectral radius is below one by at least this, an absolute
-#: number, whatever the law's coefficients. Chosen: a few thousand times the rounding of a
-#: spectral radius near 1 for matrices of the size the law allows, so a loop within it of the
-#: unit circle is not told from one on it; a pole above 1 by more than this is unstable, however
-#: large another coefficient is. (With a coefficient near the bound of 1e6 the rounding of the
-#: eigenvalues is itself near 1e-10, which is why the answer bounds a coefficient.)
+#: number, whatever the law's coefficients. Chosen from what was measured: the same recorded law
+#: written with a memory state scaled from 1e-6 to 1e6 moves its spectral radius by up to 3.6e-13
+#: (0.999039737170975 to 0.999039737171331) with the margins identical to nine digits, so 1e-12 is
+#: about three times that rounding, not "thousands of times": a loop within it of the unit
+#: circle is not told from one on it, and is called unstable; a pole above 1 by more than this is
+#: unstable, however large another coefficient is. Where the rounding is larger than this (with a
+#: coefficient near the bound of 1e6 the rounding of the eigenvalues can reach 1e-10, which is
+#: why the answer bounds a coefficient) a loop within that rounding of the unit circle can be
+#: called either: the verdict is exact only outside it.
 STABILITY_EPSILON = 1e-12
 #: A fraction of a period below this is no fraction at all.
 FRACTION_EPSILON = 1e-12
@@ -465,7 +474,16 @@ def search_grid(period: float) -> dict[str, dict[str, float | int | str]]:
 
 
 def system(values: dict[str, float], loop: SiLoop) -> System:
-    """The pendulum of ``values`` under ``loop``, discretised as the module's docstring says."""
+    """The pendulum of ``values`` under ``loop``, discretised as the module's docstring says.
+
+    A number that overflows is a :class:`SimulationError` (the scenario names it), and the
+    floating-point warning that came with it is not left in the scorer's log.
+    """
+    with np.errstate(over="ignore", invalid="ignore"):
+        return _system(values, loop)
+
+
+def _system(values: dict[str, float], loop: SiLoop) -> System:
     a, b = continuous(values)
     ap, bp, held = discretise(a, b, loop.period, loop.sensor_delay + loop.compute_delay)
     cp = measurement(values) @ held
@@ -502,6 +520,11 @@ class Margins:
 
 def margins(values: dict[str, float], loop: SiLoop) -> Margins:
     """The phase and gain margins of the pendulum of ``values`` under ``loop``."""
+    with np.errstate(over="ignore", invalid="ignore"):
+        return _margins(values, loop)
+
+
+def _margins(values: dict[str, float], loop: SiLoop) -> Margins:
     s = system(values, loop)
     if not stable(s, 1.0):
         return Margins(stable=False, phase_margin=None, crossed=False, upward=None, downward=None)

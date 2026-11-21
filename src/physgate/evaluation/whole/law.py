@@ -32,7 +32,12 @@ the test vectors carry the converted numbers, so a wrong counts-to-rad conversio
 transcription is invisible to them. The export's record says so beside the settings it reads.
 
 A design that needs a signal outside the list (an accelerometer's tilt, say) is out of the
-scorer's scope, refused by name (``out_of_scope``) and never scored as a fail.
+scorer's scope, refused by name (``out_of_scope``) and never scored as a fail, *if that term can
+matter*: scope is decided on what the law computes, so a term of weight 0 or in a line nothing
+the command reaches reads is taken out, and the law judged as it is (:func:`scoped`). A law
+refused for scope has every other check run on it first (every name declared, the units of every
+line that can be checked, the settings, the timing), and any other fault is the ordinary fail:
+a scope refusal never covers an invalid or failing answer.
 
 **The coefficients** are named by the design, each ``{value, unit}`` as the graph holds it. The
 reserved name ``period`` is the loop's own period, in s. Units are checked line by line: every
@@ -47,18 +52,21 @@ rounding are outside the linear loop, as for every named structure.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from fractions import Fraction
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     StringConstraints,
     ValidationError,
     model_validator,
@@ -104,10 +112,10 @@ class LawRefused(Exception):  # noqa: N818 - a refusal by name, not an error of 
     """The description cannot be used, for the reason named by ``code``.
 
     ``code`` is one of ``malformed``, ``nonlinear``, ``out_of_scope``, ``units_do_not_balance``,
-    ``coefficient_not_held``, ``vector_not_reproduced``, ``vectors_too_few``,
-    ``vectors_do_not_exercise``, ``vectors_do_not_pin``, ``answer_not_valid`` and
-    ``delay_or_limit_not_stated_by_the_interface``; ``detail`` says
-    what, in words.
+    ``zero_divisor``, ``coefficient_not_held``, ``vector_not_reproduced``, ``vectors_too_few``,
+    ``vectors_do_not_exercise``, ``vectors_do_not_pin``, ``answer_not_valid``,
+    ``delay_or_limit_not_stated_by_the_interface`` and ``period_is_not_the_interface_s``;
+    ``detail`` says what, in words.
     """
 
     def __init__(self, code: str, detail: str) -> None:
@@ -151,7 +159,8 @@ class _Frozen(BaseModel):
 
 
 def _finite_number(value: float) -> float:
-    if not math.isfinite(value):
+    # an integer is always finite (and past a float, it is the bound that refuses it)
+    if isinstance(value, float) and not math.isfinite(value):
         msg = "a number is finite"
         raise ValueError(msg)
     return value
@@ -202,52 +211,272 @@ class Body(_Frozen):
 
 #: What a term's ``of`` may be written as: a bare name, or ``previous.`` or ``line.`` and a name.
 _OF = re.compile(r"(?:(previous|line)\.)?([a-z][a-z0-9_]*)")
+#: A name a term reads as a line or a memory state, wherever it stands in what was written: how a
+#: term that is not one variable is still seen to reach a line.
+_REFERENCE = re.compile(r"\b(previous|line)\.([a-z][a-z0-9_]*)")
+#: What the variable of a term that no linear law over the closed list can be is replaced by once
+#: it has been named, so that every other check can run on the rest of the law: it is no
+#: variable, and a law holding it is never evaluated.
+OUTSIDE = "outside the scorer's scope"
+
+
+@dataclass(frozen=True)
+class Outside:
+    """A term no linear law over the closed list of signals can be: where it is, and why."""
+
+    line: str
+    index: int
+    code: str
+    detail: str
+
+
+def _outside(line: Mapping[str, Any], term: object, index: int) -> Outside | None:
+    """Why ``term`` (the ``index``-th of ``line``, as written) is out of scope, or ``None``."""
+    if not isinstance(term, dict):
+        return None
+    name = str(line.get("name"))
+    extra = sorted(str(key) for key in set(term) - set(Term.model_fields))
+    if extra:
+        msg = (
+            f"line {name!r} has a term with {', '.join(extra)}; a term is a sign, a number, "
+            "coefficients and one variable"
+        )
+        return Outside(name, index, "nonlinear", msg)
+    of = term.get("of")
+    if not isinstance(of, str) or of == OUTSIDE:
+        return None
+    found = _OF.fullmatch(of)
+    if found is None:
+        return Outside(
+            name, index, "nonlinear", f"line {name!r} reads {of!r}, which is not one variable"
+        )
+    kind, reading = found.groups()
+    if kind is None and reading not in SIGNALS:
+        msg = (
+            f"line {name!r} reads {reading!r}, a signal outside the closed list "
+            f"({', '.join(SIGNALS)})"
+        )
+        return Outside(name, index, "out_of_scope", msg)
+    return None
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, int | float | Decimal) and not isinstance(value, bool)
+
+
+def _zero_weight(term: Mapping[str, Any], values: Mapping[str, object] | None) -> bool:
+    """Whether ``term`` as written has no weight: its number or a coefficient of it is 0."""
+    number = term.get("number", 1)
+    if _is_number(number) and number == 0:
+        return True
+    coefficients = term.get("coefficients")
+    if values is None or not isinstance(coefficients, list):
+        return False
+    return any(
+        isinstance(c, str) and _is_number(values.get(c)) and values[c] == 0 for c in coefficients
+    )
+
+
+@dataclass(frozen=True)
+class Scoped:
+    """A law's document with its out-of-scope terms sorted by whether they can matter.
+
+    ``body`` is the document with each ``dead`` term taken out and each ``live`` one's variable
+    replaced by :data:`OUTSIDE`; ``live`` terms reach the command (or a memory state the command
+    reads) with a weight, ``dead`` ones cannot affect it.
+    """
+
+    body: dict[str, Any]
+    live: tuple[Outside, ...]
+    dead: tuple[Outside, ...]
+
+
+def scoped(raw: object, values: Mapping[str, object] | None = None) -> Scoped:
+    """Sort the out-of-scope terms of the document ``raw`` by whether they can matter.
+
+    A term is out of scope when no linear law over the closed list of signals can be one (not
+    one variable: ``nonlinear``; a signal outside the list: ``out_of_scope``). The scope is
+    decided on what the law computes, so such a term that cannot affect the command is not a
+    ground for refusing it. It cannot when its weight is 0 (its number is 0, or a coefficient it
+    multiplies is, ``values`` giving each coefficient's number where they are known) or when
+    its line is read by nothing the command reaches (not the command, not read by a live term,
+    not the next value of a memory state a live term reads). A dead term of a live line is taken
+    out of it; a dead term in a line nothing live reads takes the whole line out, and with it
+    whatever else only that line gave meaning to (another unread line that reads it, a memory
+    state taking its next value from it): none of them can affect the command. A dead term that is
+    the only one of a live line cannot be taken out (the line would be empty), and counts as live.
+
+    Looks at the document as written, before a schema reads it, so a term that tries a function, a
+    product, or a signal outside the list is named for what it is. Nothing here raises.
+    """
+    if not isinstance(raw, dict) or not isinstance(raw.get("lines"), list):
+        return Scoped(raw if isinstance(raw, dict) else {}, (), ())
+    lines = [x for x in raw["lines"] if isinstance(x, dict) and isinstance(x.get("name"), str)]
+    named: dict[str, list[Any]] = {
+        x["name"]: x["terms"] for x in lines if isinstance(x.get("terms"), list)
+    }
+    found: dict[tuple[str, int], Outside] = {}
+    for name, terms in named.items():
+        for at, term in enumerate(terms):
+            outside = _outside({"name": name}, term, at)
+            if outside is not None:
+                found[(name, at)] = outside
+    if not found:
+        return Scoped(raw, (), ())
+    states = raw.get("memory")
+    memory: dict[str, Any] = {
+        m["name"]: m.get("next")
+        for m in (states if isinstance(states, list) else ())
+        if isinstance(m, dict) and isinstance(m.get("name"), str)
+    }
+    live_lines = _live_lines(named, memory, raw.get("command"), values)
+    dead = {
+        key
+        for key in found
+        if key[0] not in live_lines
+        or (isinstance(named[key[0]][key[1]], dict) and _zero_weight(named[key[0]][key[1]], values))
+    }
+    gone, gone_states = _unmeant(named, memory, live_lines, {n for n, _ in dead} - live_lines)
+    out_lines: list[Any] = []
+    set_aside: list[Outside] = []
+    live: list[Outside] = []
+    for item in raw["lines"]:
+        label = item.get("name") if isinstance(item, dict) else None
+        if not isinstance(label, str) or label not in named:
+            out_lines.append(item)
+            continue
+        if label in gone:
+            set_aside.extend(
+                found[(label, at)] for at in range(len(named[label])) if (label, at) in found
+            )
+            continue
+        kept: list[Any] = []
+        others = sum(1 for at in range(len(named[label])) if (label, at) not in dead)
+        for at, term in enumerate(named[label]):
+            if (label, at) in dead and others:
+                set_aside.append(found[(label, at)])
+            elif (
+                (label, at) not in found
+                and others > 1
+                and _reads_what_went(term, gone, gone_states)
+            ):
+                # a term of weight 0 that read a line or a state taken out: it has nothing to read
+                continue
+            elif (label, at) in found:
+                live.append(found[(label, at)])
+                kept.append(_marked(term))
+            else:
+                kept.append(term)
+        out_lines.append({**item, "terms": kept})
+    body = {**raw, "lines": out_lines}
+    if "memory" in raw and isinstance(raw["memory"], list):
+        body["memory"] = [
+            m
+            for m in raw["memory"]
+            if not (
+                isinstance(m, dict) and isinstance(m.get("name"), str) and m["name"] in gone_states
+            )
+        ]
+    return Scoped(body, tuple(live), tuple(set_aside))
+
+
+def _reads_what_went(term: object, lines: set[str], states: set[str]) -> bool:
+    return any(
+        (kind == "line" and r in lines) or (kind == "previous" and r in states)
+        for kind, r in _references(term)
+    )
+
+
+def _unmeant(
+    named: Mapping[str, list[Any]],
+    memory: Mapping[str, Any],
+    live_lines: set[str],
+    start: set[str],
+) -> tuple[set[str], set[str]]:
+    """The lines and memory states that go with the lines ``start``, which are taken out whole.
+
+    A memory state goes when it takes its next value from a line that goes; a line nothing live
+    reads goes when it reads a line or a state that goes, for its terms would name what is no
+    more. Only what the command cannot reach is ever taken: a live line never goes.
+    """
+    lines, states = set(start), set()
+    changed = True
+    while changed:
+        changed = False
+        for state, following in memory.items():
+            if state not in states and isinstance(following, str) and following in lines:
+                states.add(state)
+                changed = True
+        for name, terms in named.items():
+            if name in live_lines or name in lines:
+                continue
+            if any(_reads_what_went(term, lines, states) for term in terms):
+                lines.add(name)
+                changed = True
+    return lines, states
+
+
+def _marked(term: Mapping[str, Any]) -> dict[str, Any]:
+    """``term`` with only the keys a term has, and :data:`OUTSIDE` as its variable."""
+    return {key: value for key, value in term.items() if key in Term.model_fields} | {"of": OUTSIDE}
+
+
+def _references(term: object) -> list[tuple[str, str]]:
+    """The lines and memory states ``term`` reads, as ``(kind, name)``, even if it is nonlinear."""
+    if not isinstance(term, dict) or not isinstance(term.get("of"), str):
+        return []
+    return [(kind, name) for kind, name in _REFERENCE.findall(term["of"])]
+
+
+def _live_lines(
+    named: Mapping[str, list[Any]],
+    memory: Mapping[str, Any],
+    command: object,
+    values: Mapping[str, object] | None,
+) -> set[str]:
+    """The lines whose value can reach the command, through weights that are not 0."""
+    live: set[str] = set()
+    todo = [command] if isinstance(command, str) else []
+    live.update(todo)
+    states: set[str] = set()
+    while todo:
+        for term in named.get(todo.pop(), ()):
+            if not isinstance(term, dict) or _zero_weight(term, values):
+                continue
+            for kind, reading in _references(term):
+                if kind == "previous" and reading not in states:
+                    states.add(reading)
+                    following = memory.get(reading)
+                    if isinstance(following, str) and following not in live:
+                        live.add(following)
+                        todo.append(following)
+                elif kind == "line" and reading not in live:
+                    live.add(reading)
+                    todo.append(reading)
+    return live
 
 
 def scope(raw: object) -> None:
     """Refuse by name what no linear law over the closed list of signals can be.
 
-    Looks at the description as written, before a schema reads it, so a term that tries a
-    function, a product, or a signal outside the list is named for what it is.
+    The first term of the document that is out of scope and that can matter (see
+    :func:`scoped`, judged on the document alone: a zero weight needs the numbers).
 
     Raises:
         LawRefused: ``nonlinear``, or ``out_of_scope``.
     """
-    if not isinstance(raw, dict):
-        return
-    for line in raw.get("lines", ()):
-        if not isinstance(line, dict):
-            continue
-        for term in line.get("terms", ()):
-            if not isinstance(term, dict):
-                continue
-            extra = sorted(set(term) - set(Term.model_fields))
-            if extra:
-                msg = (
-                    f"line {line.get('name')!r} has a term with {', '.join(extra)}; a term is "
-                    "a sign, a number, coefficients and one variable"
-                )
-                raise LawRefused("nonlinear", msg)
-            of = term.get("of")
-            if not isinstance(of, str):
-                continue
-            found = _OF.fullmatch(of)
-            if found is None:
-                msg = f"line {line.get('name')!r} reads {of!r}, which is not one variable"
-                raise LawRefused("nonlinear", msg)
-            kind, name = found.groups()
-            if kind is None and name not in SIGNALS:
-                msg = (
-                    f"line {line.get('name')!r} reads {name!r}, a signal outside the closed "
-                    f"list ({', '.join(SIGNALS)})"
-                )
-                raise LawRefused("out_of_scope", msg)
+    live = scoped(raw).live
+    if live:
+        raise LawRefused(live[0].code, live[0].detail)
 
 
 def check(body: Body, units: Mapping[str, str]) -> None:
     """Hold ``body`` to its own names, its order and its units, ``units`` the coefficients'.
 
     ``units`` maps each coefficient name the law may use to its unit; ``period`` is added.
+
+    A term whose variable is :data:`OUTSIDE` (named out of scope by :func:`scoped`) has its
+    coefficients checked as declared and nothing more: it has no unit to balance.
 
     Raises:
         LawRefused: ``malformed`` (a name used before it exists, a command that is not a
@@ -264,6 +493,10 @@ def check(body: Body, units: Mapping[str, str]) -> None:
                 parts.append((_known(coefficient_units, name, line.name), 1))
             for name in term.per:
                 parts.append((_known(coefficient_units, name, line.name), -1))
+            if term.of == OUTSIDE:
+                # Named out of scope (see :func:`scoped`): its variable has no unit to check,
+                # and nothing else about it is left unchecked above.
+                continue
             parts.append((_variable(term.of, memory, lines, line.name), 1))
             if _product(parts) != line_dim:
                 msg = (
@@ -327,6 +560,18 @@ def _variable(
 # ── what the law does ───────────────────────────────────────────────────────────────────────
 
 
+def zero_divisors(body: Body, values: Mapping[str, float]) -> tuple[str, ...]:
+    """The coefficients a term divides by whose number is 0, sorted: nothing is defined there."""
+    divisors = {name for line in body.lines for term in line.terms for name in term.per}
+    return tuple(sorted(name for name in divisors if name in values and values[name] == 0))
+
+
+def zero_refusal(name: str) -> LawRefused:
+    """The refusal for a term that divides by the coefficient ``name``, whose number is 0."""
+    msg = f"a term divides by the coefficient {name!r}, whose number is 0; nothing is defined there"
+    return LawRefused("zero_divisor", msg)
+
+
 def _term(
     term: Term,
     coefficients: Mapping[str, float],
@@ -336,11 +581,13 @@ def _term(
     for name in term.coefficients:
         scale *= coefficients[name]
     for name in term.per:
+        if coefficients[name] == 0:
+            raise zero_refusal(name)
         scale /= coefficients[name]
     return [scale * v for v in variable]
 
 
-def _coefficients(values: Mapping[str, float], period: float) -> dict[str, float]:
+def _coefficients[N: (float, Fraction)](values: Mapping[str, N], period: N) -> dict[str, N]:
     return {**values, PERIOD: period}
 
 
@@ -360,6 +607,9 @@ def evaluate(
     state before the update, ``signals`` each signal this update (a missing one is 0).
     ``scaled`` is ``(line, term, factor)``: that term's value times ``factor``, for the vector
     check's perturbation; ``seen`` collects each ``(line, term)`` whose variable was not zero.
+
+    Raises:
+        LawRefused: ``zero_divisor``: a term divides by a coefficient whose number is 0.
     """
     coefficients = _coefficients(values, period)
     lines: dict[str, float] = {}
@@ -383,37 +633,55 @@ def evaluate(
     return lines[body.command], {m.name: lines[m.next] for m in body.memory}
 
 
-def _rows[N: (float, Fraction)](
-    body: Body, coefficients: Mapping[str, N], number: Callable[[float], N]
-) -> tuple[list[list[N]], list[N]]:
-    """Each memory state's next value and the command, as rows over (previous memory, inputs).
+def _number(_line: int, _term_at: int, term: Term) -> float:
+    return float(term.sign) * float(term.number)
 
-    ``number`` is ``float`` for the loop's matrices and ``Fraction`` for the exact ones the held
-    modes are decided on: the same lines, the same order, the same arithmetic in either.
+
+def _rows[N: (float, Fraction)](
+    body: Body,
+    coefficients: Mapping[str, N],
+    number: Callable[[int, int, Term], N],
+) -> tuple[list[list[N]], list[N], list[list[N]]]:
+    """Each memory state's next value and the command as rows over (previous memory, inputs).
+
+    ``number`` gives a term's sign times its number, as ``float`` for the loop's matrices and
+    as an exact ``Fraction`` for the ones the held modes are decided on: the same lines, the
+    same order, the same arithmetic in either. The third value is each term's scale (its sign,
+    number and coefficients, divided by its reciprocals), line by line.
+
+    Raises:
+        LawRefused: ``zero_divisor``: a term divides by a coefficient whose number is 0.
     """
     n, k = len(body.memory), len(LOOP_SIGNALS)
-    zero, one = number(0.0), number(1.0)
+    zero = coefficients[PERIOD] * 0
+    one = zero + 1
     basis: dict[str, list[N]] = {}
     for i, m in enumerate(body.memory):
         basis[f"previous.{m.name}"] = [one if j == i else zero for j in range(n + k)]
     for i, name in enumerate(LOOP_SIGNALS):
         basis[name] = [one if j == n + i else zero for j in range(n + k)]
     basis["wheel_reference"] = [zero] * (n + k)
-    for line in body.lines:
+    scales: list[list[N]] = []
+    for li, line in enumerate(body.lines):
         row = [zero] * (n + k)
-        for term in line.terms:
+        line_scales: list[N] = []
+        for ti, term in enumerate(line.terms):
             found = _OF.fullmatch(term.of)
             assert found is not None  # held by check()
             kind, name = found.groups()
             key = name if kind is None else f"{kind}.{name}"
-            scale = number(float(term.sign)) * number(float(term.number))
+            scale = number(li, ti, term)
             for factor in term.coefficients:
                 scale = scale * coefficients[factor]
             for factor in term.per:
+                if coefficients[factor] == 0:
+                    raise zero_refusal(factor)
                 scale = scale / coefficients[factor]
+            line_scales.append(scale)
             row = [a + scale * b for a, b in zip(row, basis[key], strict=True)]
+        scales.append(line_scales)
         basis[f"line.{line.name}"] = row
-    return [basis[f"line.{m.next}"] for m in body.memory], basis[f"line.{body.command}"]
+    return [basis[f"line.{m.next}"] for m in body.memory], basis[f"line.{body.command}"], scales
 
 
 def linear(
@@ -430,9 +698,12 @@ def linear(
 
     The inputs are :data:`LOOP_SIGNALS`, the reference being zero. Exact for a linear law: each
     variable is carried as its row over (the previous memory, the inputs).
+
+    Raises:
+        LawRefused: ``zero_divisor``: a term divides by a coefficient whose number is 0.
     """
     n = len(body.memory)
-    rows, command = _rows(body, _coefficients(values, period), float)
+    rows, command, _ = _rows(body, _coefficients(values, period), _number)
     return (
         tuple(tuple(r[:n]) for r in rows),
         tuple(tuple(r[n:]) for r in rows),
@@ -441,54 +712,254 @@ def linear(
     )
 
 
-def held_modes(
-    body: Body, values: Mapping[str, float], *, period: float
-) -> tuple[tuple[float, ...], ...]:
-    """The modes the law itself holds at exactly 1 whatever the gain: its structure, not a window.
+def exact(number: float | int | Decimal | Fraction) -> Fraction:
+    """``number`` as the exact rational of the decimal it was written as.
 
-    A mode is *held by the law's structure* when, with the plant at rest but for the wheels'
-    angle ``β`` (the travel, the plant's one pole at 1) and the memory at some ``m``, one update
-    gives the command 0 and gives the same memory back::
+    A decimal (``Decimal``) and an integer are themselves. A ``float`` is the one number that
+    reads back as it: the shortest decimal that round-trips (``repr``), so ``0.1`` is one tenth,
+    not the binary fraction nearest it. That is the written decimal for any number written with up
+    to 15 significant digits, and the shortest decimal of the same float for one written with more
+    (a reader that kept only the float has nothing finer).
+    """
+    if isinstance(number, Fraction):
+        return number
+    if isinstance(number, Decimal | int):
+        return Fraction(number)
+    return Fraction(Decimal(repr(number)))
+
+
+@dataclass(frozen=True)
+class Written:
+    """The numbers of a law as written: each coefficient and the period, and each term's number.
+
+    Exact rationals of the decimals in the text the law was read from (:func:`written_from`),
+    so that a decision on the law's structure is made on ``0.1`` and ``0.9`` and not on the bits
+    of their binary forms. ``numbers`` is keyed by ``(line index, term index)``. A number not
+    here is taken as :func:`exact` takes a float.
+    """
+
+    coefficients: Mapping[str, Fraction]
+    numbers: Mapping[tuple[int, int], Fraction]
+
+
+def written_from(document: Mapping[str, Any]) -> Written:
+    """The numbers of the law ``document`` states, read from a document parsed with ``Decimal``.
+
+    ``document`` is a controller's or a body's JSON, parsed with ``parse_float=Decimal``, so the
+    text ``0.1`` is the decimal ``0.1``. What is not a number there is left out.
+    """
+    coefficients: dict[str, Fraction] = {}
+    for name, measure in (document.get("coefficients") or {}).items():
+        if isinstance(measure, dict) and _is_number(measure.get("value")):
+            coefficients[name] = exact(measure["value"])
+    period = document.get("period")
+    if isinstance(period, dict) and _is_number(period.get("value")):
+        coefficients[PERIOD] = exact(period["value"])
+    numbers: dict[tuple[int, int], Fraction] = {}
+    for li, line in enumerate(document.get("lines") or ()):
+        for ti, term in enumerate(line.get("terms") or () if isinstance(line, dict) else ()):
+            if isinstance(term, dict) and _is_number(term.get("number", 1)):
+                numbers[(li, ti)] = exact(term.get("number", 1))
+    return Written(coefficients, numbers)
+
+
+@dataclass(frozen=True)
+class _Held:
+    """What the exact conditions at rest say: the modes held at 1, and whether any is set aside.
+
+    ``kernel`` is a basis of the held vectors ``(β, m_1, .., m_n)``; ``rows``, ``command`` and
+    ``scales`` are the law's exact rows and each term's scale (:func:`_rows`). ``set_aside`` is
+    whether those modes may be set aside: they exist, none is the wheels alone, and every
+    quantity the law conserves at rest is settled whatever the wheels do first.
+    """
+
+    kernel: list[list[Fraction]]
+    rows: list[list[Fraction]]
+    command: list[Fraction]
+    scales: list[list[Fraction]]
+    set_aside: bool
+
+
+def _held(body: Body, values: Mapping[str, float], period: float, written: Written | None) -> _Held:
+    n = len(body.memory)
+    exact_values = {name: exact(v) for name, v in values.items()}
+    exact_period = exact(period)
+    if written is not None:
+        exact_values.update({k: v for k, v in written.coefficients.items() if k != PERIOD})
+        exact_period = written.coefficients.get(PERIOD, exact_period)
+
+    def number(li: int, ti: int, term: Term) -> Fraction:
+        if written is not None and (li, ti) in written.numbers:
+            return exact(term.sign) * written.numbers[(li, ti)]
+        return exact(term.sign) * exact(term.number)
+
+    rows, command, scales = _rows(body, _coefficients(exact_values, exact_period), number)
+    if n == 0:
+        return _Held([], rows, command, scales, False)
+    wheel = n + LOOP_SIGNALS.index("wheel_angle")
+    stacked = [[command[wheel], *command[:n]]]
+    for i, row in enumerate(rows):
+        stacked.append([row[wheel], *(row[j] - (1 if i == j else 0) for j in range(n))])
+    kernel = _null_space(stacked)
+    if not kernel:
+        return _Held(kernel, rows, command, scales, False)
+    # A vector of the kernel that is the wheels alone is the plant's own travel, held by nothing:
+    # then the memory parts are fewer than the vectors.
+    if _rank([v[1:] for v in kernel]) < len(kernel):
+        return _Held(kernel, rows, command, scales, False)
+    cruise = n + LOOP_SIGNALS.index("wheel_speed")
+    for y in _null_space([list(column) for column in zip(*stacked, strict=True)]):
+        fed = sum((y[1 + i] * rows[i][cruise] for i in range(n)), Fraction(0))
+        if y[0] != 0 or fed != 0:
+            return _Held(kernel, rows, command, scales, False)
+    return _Held(kernel, rows, command, scales, True)
+
+
+def held_modes(
+    body: Body,
+    values: Mapping[str, float],
+    *,
+    period: float,
+    written: Written | None = None,
+) -> tuple[tuple[float, ...], ...]:
+    """The modes the law holds at exactly 1 and the wheels' restoring does not depend on.
+
+    **Held by the law's structure.** With the plant at rest but for the wheels' angle ``β`` (the
+    travel, the plant's one pole at 1) and the memory at some ``m``, one update gives the command 0
+    and the same memory back::
 
         D_w·β + C·m = 0        B_w·β + (A - I)·m = 0
 
     ``A, B, C, D`` are the law's matrices (:func:`linear`), ``D_w`` and ``B_w`` the column that
     reads the wheel angle. Then ``(β, m)`` is held at every gain: the command that would move the
-    plant is 0 and nothing changes. The two equations are solved in exact rational arithmetic on
-    the numbers the law has (a float is one exact rational), so a mode is held or it is not,
-    whatever the size of any coefficient in the law and with no tolerance to widen: a memory state
-    that carries itself and nothing else, a sum of states conserved by the updates, the velocity
-    form's offset (the angle estimate's start against the travel it settles to), a state read by
-    nothing. A pole at ``1 + 1e-6``, or a command-fed integrator with a gain of ``1e-6``, is no
-    solution, exactly.
+    plant is 0 and nothing changes. The equations are solved in exact rational arithmetic on the
+    numbers as written (:func:`exact`, :class:`Written`), so a mode is held or it is not, whatever
+    the size of any coefficient and however a decimal is spelt in binary, with no tolerance to
+    widen: a state that carries itself and nothing else, a sum of states the updates conserve, the
+    velocity form's offset (the angle estimate's start against the travel it settles to), a
+    state read by nothing. A pole at ``1 + 1e-6``, or a command-fed integrator with a gain of
+    ``1e-6``, is no solution, exactly.
 
-    The solutions that are the plant alone (``m = 0``, which exist only when the law reads the
-    wheel angle nowhere) are the plant's own travel, never set aside; the others are returned,
-    one for each independent memory part, each as ``(β, m_1, .., m_n)`` scaled to its largest
-    entry 1. The travel and a memory-only mode can be in one space; only the second is returned.
+    **Set aside only where the wheels return.** A held mode is the offset of something the law
+    conserves at rest: a combination of the command and of the memory's updates that vanishes
+    identically (a left null vector ``y`` of the conditions above). Displace the wheels alone and
+    the loop settles where the conserved quantity says; the wheels return, and the mode may be
+    set aside, only if that quantity gathers nothing the wheels' motion can add: ``y`` has no
+    weight on the command, and the memory it weighs is fed by no wheel speed. The reason is the
+    plant's own: the motor's force is one combination of the command and the wheel speed, so a
+    steady cruise has the body upright and still (no tilt, no rate) and only the wheel speed
+    moves: whatever the law conserves that is fed by the tilt or its rate is settled when the
+    wheels are put back, and what is fed by the wheel speed or the command is not. The test is
+    on the law's numbers and holds for every plant and every gain; a law that would pass it only
+    at a plant's one special value is judged as one that does not (the conservative side).
+    Where any conserved quantity fails it, or one of the held vectors is the wheels alone (the
+    law reads the wheel angle nowhere), nothing is set aside, and the loop is judged with the
+    pole at 1 in it: the wheels are not restored, the loop is unstable. The leak-free incremental
+    form's offset passes (it is fed by the tilt rate only); the backward-difference speed with
+    no position gain, a washout without one, and a position gain of zero do not.
+
+    The modes returned are a basis of the held vectors, each ``(β, m_1, .., m_n)`` scaled to its
+    largest entry 1, or ``()``.
+
+    Raises:
+        LawRefused: ``zero_divisor``: a term divides by a coefficient whose number is 0.
     """
-    n = len(body.memory)
-    if n == 0:
+    held = _held(body, values, period, written)
+    if not held.set_aside:
         return ()
-    rows, command = _rows(
-        body, {k: Fraction(v) for k, v in _coefficients(values, period).items()}, Fraction
-    )
-    wheel = n + LOOP_SIGNALS.index("wheel_angle")
-    stacked = [[command[wheel], *command[:n]]]
-    for i, row in enumerate(rows):
-        stacked.append([row[wheel], *(row[j] - (1 if i == j else 0) for j in range(n))])
-    chosen: list[list[Fraction]] = []
-    memory_parts: list[list[Fraction]] = []
-    for vector in _null_space(stacked):
-        part = vector[1:]
-        if _rank([*memory_parts, part]) > len(memory_parts):
-            memory_parts.append(part)
-            chosen.append(vector)
     out = []
-    for vector in chosen:
+    for vector in held.kernel:
         top = max(abs(x) for x in vector)
         out.append(tuple(float(x / top) for x in vector))
     return tuple(out)
+
+
+#: Said beside every mode set aside: the loop analysis bounds it, the firmware does not.
+HELD_NOTE = (
+    "A held state is set aside in the stability test and its margins are those of the rest of the "
+    "loop. In the firmware it can grow without bound under a sensor bias (the gyro's, the "
+    "encoder's) or a constant reference, to overflow or saturation, which this score cannot see."
+)
+
+
+@dataclass(frozen=True)
+class HeldMode:
+    """One mode set aside: its memory states, what feeds them, whether the command reads them."""
+
+    states: tuple[str, ...]
+    wheel_angle: bool
+    fed_by_signals: tuple[str, ...]
+    fed_by_memory: tuple[str, ...]
+    read_by_command: bool
+    note: str = HELD_NOTE
+
+    def as_record(self) -> dict[str, Any]:
+        """The mode as a plain record."""
+        return {
+            "memory_states": list(self.states),
+            "involves_wheel_angle": self.wheel_angle,
+            "fed_by_signals": list(self.fed_by_signals),
+            "fed_by_memory_states": list(self.fed_by_memory),
+            "fed_by_the_reference": "wheel_reference" in self.fed_by_signals,
+            "read_by_the_command": self.read_by_command,
+            "note": self.note,
+        }
+
+
+def held_report(
+    body: Body,
+    values: Mapping[str, float],
+    *,
+    period: float,
+    written: Written | None = None,
+) -> tuple[HeldMode, ...]:
+    """Each mode :func:`held_modes` sets aside: its memory states, their feeders, who reads them.
+
+    ``fed_by_signals`` are the signals (the reference among them, which the loop analysis holds
+    at zero) whose terms of nonzero weight reach the next value of any state in the mode,
+    through lines and through other states; ``read_by_command`` is whether the command reads any
+    of its states, directly or through the states that feed the command.
+    """
+    held = _held(body, values, period, written)
+    if not held.set_aside:
+        return ()
+    line_reads: dict[str, set[str]] = {}
+    for li, line in enumerate(body.lines):
+        reads: set[str] = set()
+        for ti, term in enumerate(line.terms):
+            if held.scales[li][ti] == 0:
+                continue
+            kind, name = _OF.fullmatch(term.of).groups()  # type: ignore[union-attr]
+            if kind == "line":
+                reads |= line_reads[name]
+            else:
+                reads.add(name if kind is None else f"previous.{name}")
+        line_reads[line.name] = reads
+    following = {m.name: m.next for m in body.memory}
+    reached = {r.removeprefix("previous.") for r in line_reads[body.command] if "." in r}
+    pending = list(reached)
+    while pending:
+        for r in line_reads[following[pending.pop()]]:
+            state = r.removeprefix("previous.")
+            if "." in r and state not in reached:
+                reached.add(state)
+                pending.append(state)
+    modes = []
+    for vector in held.kernel:
+        states = tuple(m.name for m, x in zip(body.memory, vector[1:], strict=True) if x != 0)
+        feeds: set[str] = set()
+        for name in states:
+            feeds |= line_reads[following[name]]
+        modes.append(
+            HeldMode(
+                states=states,
+                wheel_angle=vector[0] != 0,
+                fed_by_signals=tuple(s for s in SIGNALS if s in feeds),
+                fed_by_memory=tuple(sorted(r.removeprefix("previous.") for r in feeds if "." in r)),
+                read_by_command=any(state in reached for state in states),
+            )
+        )
+    return tuple(modes)
 
 
 def _echelon(rows: list[list[Fraction]]) -> tuple[list[list[Fraction]], list[int]]:
@@ -609,16 +1080,46 @@ MIN_ROWS = 10
 #: margin by at most 0.11 of 5.17 (any one coefficient, either way); it is twice the loosest
 #: pin that design's vectors hold (one coefficient, 1.0 %), so that design passes it with room.
 PIN_RELATIVE = 0.02
-#: The most term evaluations the vector check may make, so a crafted file cannot cost hours.
+#: How many times the interval from nothing to :data:`PIN_RELATIVE` is halved to find the smallest
+#: change the vectors notice: the pin is found to within ``PIN_RELATIVE / 2**PIN_STEPS``.
+PIN_STEPS = 20
+#: The most term evaluations the vector check may make (counting the search for each pin), so a
+#: crafted file cannot cost hours.
 MAX_CHECK_WORK = 50_000_000
 
 
 @dataclass(frozen=True)
+class Pin:
+    """The pin the vectors achieve for one term, or one coefficient in all its terms.
+
+    The smallest relative change, up and down, that the vectors notice. ``None``: it was not
+    moved (its number is 0).
+    """
+
+    up: float | None
+    down: float | None
+
+    @property
+    def smallest(self) -> float | None:
+        """The smaller of the two, ``None`` where neither was moved."""
+        found = [x for x in (self.up, self.down) if x is not None]
+        return min(found) if found else None
+
+    def as_record(self) -> dict[str, float | None]:
+        """The pin as a plain record."""
+        return {"up": self.up, "down": self.down, "smallest": self.smallest}
+
+
+@dataclass(frozen=True)
 class Verified:
-    """What the vectors verified: the rows reproduced and the signals the law reads."""
+    """What the vectors verified: the rows reproduced, the signals the law reads and each pin.
+
+    ``pins`` maps ``coefficient <name>`` and ``<term position>`` to what the vectors pin it to.
+    """
 
     rows: int
     signals: tuple[str, ...]
+    pins: Mapping[str, Pin]
 
 
 def signals_read(body: Body) -> tuple[str, ...]:
@@ -668,9 +1169,16 @@ def verify(
     a coefficient: the rows' own tolerances are absolute, and a number that the rows are blind
     to, as a small signal is to a large tolerance, is what the last rule finds.
 
+    The pin each term and coefficient achieves (the smallest relative change, up and down, that
+    some row notices, found by halving the interval to :data:`PIN_RELATIVE`) is returned with the
+    rows reproduced: the check says no more than a pin it can state.
+
     Raises:
-        LawRefused: by one of the codes above.
+        LawRefused: by one of the codes above, or ``zero_divisor``.
     """
+    divisors = zero_divisors(body, values)
+    if divisors:
+        raise zero_refusal(divisors[0])
     total = sum(len(v.rows) for v in vectors)
     if total < MIN_ROWS:
         msg = (
@@ -685,9 +1193,9 @@ def verify(
         raise LawRefused("vector_not_reproduced", mismatch)
     terms = sum(len(line.terms) for line in body.lines)
     coefficients = sorted(
-        {n for line in body.lines for t in line.terms for n in (*t.coefficients, *t.per)}
+        {n for line in body.lines for t in line.terms for n in (*t.coefficients, *t.per)} - {PERIOD}
     )
-    if (2 * (terms + len(coefficients)) + 1) * total * terms > MAX_CHECK_WORK:
+    if (2 * (terms + len(coefficients)) * (1 + PIN_STEPS) + 1) * total * terms > MAX_CHECK_WORK:
         msg = "the law and its vectors are too large for the vectors to be checked"
         raise LawRefused("malformed", msg)
     seen: set[tuple[str, int]] = set()
@@ -720,29 +1228,68 @@ def verify(
         )
 
     loose = []
+    pins: dict[str, Pin] = {}
     for name in coefficients:
         if values.get(name, 0.0) == 0.0:
+            pins[f"coefficient {name}"] = Pin(None, None)
             continue
-        both = [
-            notices({**values, name: values[name] * (1 + sign * PIN_RELATIVE)}, None)
-            for sign in (1, -1)
-        ]
+
+        def moved_by(change: float, name: str = name) -> bool:
+            return notices({**values, name: values[name] * (1 + change)}, None)
+
+        both = [moved_by(sign * PIN_RELATIVE) for sign in (1, -1)]
         if not all(both):
             loose.append(f"the coefficient {name!r}")
+            continue
+        pins[f"coefficient {name}"] = _pin(moved_by)
     for line in body.lines:
         for at, term in enumerate(line.terms):
-            if any(values.get(n, 0.0) == 0.0 for n in term.coefficients):
+            key = _where(line, at)
+            if any({**values, PERIOD: period}.get(n, 0.0) == 0.0 for n in term.coefficients):
+                pins[key] = Pin(None, None)
                 continue
-            both = [notices(values, (line.name, at, 1 + sign * PIN_RELATIVE)) for sign in (1, -1)]
+
+            def term_moved_by(change: float, line: Line = line, at: int = at) -> bool:
+                return notices(values, (line.name, at, 1 + change))
+
+            both = [term_moved_by(sign * PIN_RELATIVE) for sign in (1, -1)]
             if not all(both):
-                loose.append(_where(line, at))
+                loose.append(key)
+                continue
+            pins[key] = _pin(term_moved_by)
     if loose:
         msg = (
             f"the vectors do not pin {'; '.join(loose)}: changed by {PIN_RELATIVE:.0%} up or "
             "down, every row is still reproduced"
         )
         raise LawRefused("vectors_do_not_pin", msg)
-    return Verified(rows=checked, signals=signals_read(body))
+    return Verified(rows=checked, signals=signals_read(body), pins=pins)
+
+
+def _pin(noticed: Callable[[float], bool]) -> Pin:
+    """The pin of a change ``noticed`` tells (a relative change, signed): up, then down."""
+
+    def downward(change: float) -> bool:
+        return noticed(-change)
+
+    return Pin(_smallest(noticed), _smallest(downward))
+
+
+def _smallest(noticed: Callable[[float], bool]) -> float:
+    """The smallest relative change up to :data:`PIN_RELATIVE` that ``noticed`` says is noticed.
+
+    ``noticed`` is false for no change and true at :data:`PIN_RELATIVE` (the caller has checked),
+    and the interval is halved :data:`PIN_STEPS` times; the answer is the upper end, a change
+    that is noticed, within ``PIN_RELATIVE / 2**PIN_STEPS`` of the smallest.
+    """
+    low, high = 0.0, PIN_RELATIVE
+    for _ in range(PIN_STEPS):
+        middle = (low + high) / 2
+        if noticed(middle):
+            high = middle
+        else:
+            low = middle
+    return high
 
 
 # ── the file ────────────────────────────────────────────────────────────────────────────────
@@ -816,6 +1363,46 @@ class LawFile(Body):
     coefficients: dict[Name, Name] = Field(max_length=MAX_COEFFICIENTS)
     vectors: tuple[Vector, ...] = Field(min_length=1, max_length=MAX_VECTORS)
 
+    #: The file as read, before any term was set aside, and the out-of-scope terms that matter
+    #: (``outside``, each marked) and those set aside (``set_aside``): see :func:`scoped`.
+    _document: dict[str, Any] = PrivateAttr(default_factory=dict)
+    _outside: tuple[Outside, ...] = PrivateAttr(default=())
+    _set_aside: tuple[Outside, ...] = PrivateAttr(default=())
+
+    @property
+    def outside(self) -> tuple[Outside, ...]:
+        """The terms out of scope that can matter, still in the law marked :data:`OUTSIDE`."""
+        return self._outside
+
+    @property
+    def set_aside(self) -> tuple[Outside, ...]:
+        """The out-of-scope terms that cannot affect the command, taken out of the law."""
+        return self._set_aside
+
+    def with_numbers(self, values: Mapping[str, float]) -> LawFile:
+        """The file with each out-of-scope term of no weight, now the numbers are known, set aside.
+
+        ``values`` gives each coefficient's number by the law's own name. A term of weight 0, or in
+        a line only such terms reach, cannot affect the command.
+        """
+        sorted_out = scoped(self._document, values)
+        if len(sorted_out.live) == len(self._outside):
+            return self
+        body = Body.model_validate_json(
+            json.dumps(
+                {
+                    k: sorted_out.body[k]
+                    for k in ("memory", "lines", "command")
+                    if k in sorted_out.body
+                }
+            )
+        )
+        return _with_scope(
+            self.model_copy(update={"memory": body.memory, "lines": body.lines}),
+            self._document,
+            sorted_out,
+        )
+
     @model_validator(mode="after")
     def _bounded_vectors(self) -> LawFile:
         if PERIOD in self.coefficients:
@@ -834,15 +1421,24 @@ class LawFile(Body):
         return tuple(sorted(names))
 
 
-def parse_file(raw: bytes) -> LawFile:
+def _with_scope(file: LawFile, document: dict[str, Any], sorted_out: Scoped) -> LawFile:
+    file._document = document  # noqa: SLF001 - private state of the model, set where it is made
+    file._outside = sorted_out.live  # noqa: SLF001
+    file._set_aside = sorted_out.dead  # noqa: SLF001
+    return file
+
+
+def parse_file(raw: bytes, *, defer_scope: bool = False) -> LawFile:
     """``raw`` as a law file, or refused by name.
+
+    Out-of-scope terms that cannot affect the command are set aside (:func:`scoped`, judged on the
+    file alone). One that can is a refusal by name, unless ``defer_scope``: then the file is
+    returned with the term marked, and the caller runs every other check before refusing.
 
     Raises:
         LawRefused: ``malformed`` (not JSON, not the schema, too large), ``nonlinear`` or
             ``out_of_scope``.
     """
-    import json  # noqa: PLC0415
-
     if len(raw) > MAX_FILE_BYTES:
         raise LawRefused("malformed", f"the law file is larger than {MAX_FILE_BYTES} bytes")
     try:
@@ -850,11 +1446,15 @@ def parse_file(raw: bytes) -> LawFile:
         document = json.loads(text)
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise LawRefused("malformed", "the law file is not JSON") from exc
-    scope(document)
+    sorted_out = scoped(document)
+    if sorted_out.live and not defer_scope:
+        raise LawRefused(sorted_out.live[0].code, sorted_out.live[0].detail)
+    changed = sorted_out.live or sorted_out.dead
     try:
-        return LawFile.model_validate_json(text)
+        file = LawFile.model_validate_json(json.dumps(sorted_out.body) if changed else text)
     except ValidationError as exc:
         raise LawRefused("malformed", exc.errors()[0]["msg"]) from exc
+    return _with_scope(file, document, sorted_out)
 
 
 #: The largest law file read: 256 KiB, well past the reference law's few kilobytes.

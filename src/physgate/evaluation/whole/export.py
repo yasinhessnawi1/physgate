@@ -180,6 +180,13 @@ class Export(BaseModel):
     #: states nothing to hold it against.
     law_timing: dict[str, dict[str, Any]] = {}
     supplied: dict[str, dict[str, float | int | str]] = {}
+    #: Each mode the loop analysis will set aside (memory states, what feeds them, whether the
+    #: command reads them, the note that a held state can grow in the firmware); the pin the
+    #: vectors achieve for each term and coefficient (the smallest relative change they notice);
+    #: and the out-of-scope terms that cannot affect the command, taken out of the law.
+    law_held_modes: tuple[dict[str, Any], ...] = ()
+    law_pins: dict[str, dict[str, float | None]] = {}
+    law_set_aside: tuple[dict[str, Any], ...] = ()
 
 
 def _literal(model: type[BaseModel], field: str) -> Any:
@@ -398,7 +405,7 @@ def _law_source(run_dir: Path, repository: Path) -> _LawSource | None:
         msg = f"the law file cannot be read at {commit}"
         raise ExportError(msg, repository=str(repository), commit=commit)
     return _LawSource(
-        file=law_module.parse_file(blob.stdout),
+        file=law_module.parse_file(blob.stdout, defer_scope=True),
         sha256=hashlib.sha256(blob.stdout).hexdigest(),
         commit=commit,
         path=path,
@@ -655,6 +662,11 @@ def _export_law(
             conflicts=conflicts,
             **base,  # type: ignore[arg-type]
         )
+    # An out-of-scope term that has no weight with the graph's numbers cannot affect the command:
+    # it is set aside, and the law is judged as it is.
+    file = file.with_numbers(
+        {name: found[quantity][0] for name, quantity in file.coefficients.items()}
+    )
     settings = tuple(
         n
         for n, required in PARAMETERS_V3.items()
@@ -670,7 +682,7 @@ def _export_law(
             **base,  # type: ignore[arg-type]
         )
     try:
-        controller, verified, timing = _law_controller(file, found, supplied, nodes)
+        result = _law_controller(file, found, supplied, nodes)
     except law_module.LawRefused as exc:
         return Export(
             status="law_unverified",
@@ -684,7 +696,7 @@ def _export_law(
     answer = {
         "form": _FORM,
         "version": _VERSION_3,
-        "controller": controller,
+        "controller": result.controller,
         "parameters": dict(sorted(parameters.items())),
         "files": [],
     }
@@ -710,10 +722,16 @@ def _export_law(
         conflicts=conflicts,
         left_out=(),
         sha256=hashlib.sha256(raw).hexdigest(),
-        vector_rows=verified.rows,
-        law_signals=verified.signals,
-        law_timing=timing,
+        vector_rows=result.verified.rows,
+        law_signals=result.verified.signals,
+        law_timing=result.timing,
         supplied={n: {"value": v, "unit": u} for n, (v, u) in sorted(supplied.items())},
+        law_held_modes=result.held_modes,
+        law_pins={key: pin.as_record() for key, pin in result.verified.pins.items()},
+        law_set_aside=tuple(
+            {"line": o.line, "term": o.index + 1, "code": o.code, "detail": o.detail}
+            for o in file.set_aside
+        ),
         **base,  # type: ignore[arg-type]
     )
     _write_new(((record_path(out), _record_bytes(export, out)), (out, raw)))
@@ -762,6 +780,43 @@ def _writers(nodes: Mapping[str, dict[str, Any]], name: str, ids: tuple[str, ...
     )
 
 
+#: A relative slack for the period against the interface's update rate: the spelling of a decimal.
+PERIOD_SLACK = 1e-9
+#: The units a time is held in, any of which makes a quantity time-valued.
+TIME_UNITS = frozenset({"s", "ms", "us", "\u00b5s", "\u03bcs", "ns"})
+#: The flags on the compute delay, each by its own name (apart from the no-statement flag).
+OMITS_FLAG = "compute_delay_omits_interface_times"
+NON_INTERFACE_FLAG = "compute_delay_names_a_non_interface_quantity"
+
+
+def _compute_delay_flags(
+    nodes: Mapping[str, dict[str, Any]], names: tuple[str, ...]
+) -> tuple[list[str], list[str], list[str]]:
+    """What is wrong with where the compute delay comes from: the flags, and what they name.
+
+    The compute delay has no catalogue name to hold a number against, so it is held to where it
+    comes from. It is flagged when it does not include every time-valued quantity (a quantity in a
+    unit of time, not written by control) of each interface node it draws on: those left out are
+    named; and when it draws on a quantity that no interface node, apart from control's own copy,
+    states. Returns ``(flags, left_out, not_the_interface's)``.
+    """
+    outside = sorted(n for n in names if not _interface_statements(nodes, n))
+    drawn = sorted({node for n in names for node, _, _ in _interface_statements(nodes, n)})
+    named = set(names)
+    omitted: set[str] = set()
+    for node_id in drawn:
+        node = nodes[node_id]
+        for quantity_name, quantity in node.get("quantities", {}).items():
+            writer = quantity.get("written_by") or node.get("owner_role")
+            time_valued = writer != CONTROL_ROLE and quantity["unit"] in TIME_UNITS
+            if time_valued and quantity_name not in named:
+                omitted.add(quantity_name)
+    flags = [OMITS_FLAG] if omitted else []
+    if outside:
+        flags.append(NON_INTERFACE_FLAG)
+    return flags, sorted(omitted), outside
+
+
 def _timing(
     file: law_module.LawFile,
     found: Mapping[str, tuple[Any, str, tuple[str, ...]]],
@@ -775,18 +830,23 @@ def _timing(
 
     The scored sensor delay may not be smaller than ``1/output_data_rate`` as an interface node
     (not written by control) states it, the scored command limit not larger than the interface's
-    ``duty_cycle``; a larger delay and a smaller limit are pessimistic and allowed. A copy of the
-    interface's number in control's own node may be pointed at: it counts only if it equals the
-    interface's. The compute delay has no catalogue name, so only its provenance is checked: the
-    quantities it names must be held by an interface node, else it is flagged. Where the
-    interface states nothing, the answer is still exported, with the flag by name.
+    ``duty_cycle``; a larger delay and a smaller limit are pessimistic and allowed. The scored
+    period is the reciprocal of the interface's ``update_rate`` where one is stated: a shorter
+    period runs the loop faster than the interface says, a longer one is not the loop it runs.
+    A copy of the interface's number in control's own node may be pointed at: it counts only if
+    it equals the interface's. The compute delay has no catalogue name, so it is held to where it
+    comes from and flagged by name (:func:`_compute_delay_flags`): it must include every
+    time-valued quantity of the interface nodes it draws on, and draw on no quantity that is not
+    the interface's; the flag is on the answer, never a refusal. Where the interface states
+    nothing, the answer is still exported, with the no-statement flag.
 
     Known difference: the named structures of version 2 read ``sensor_delay``, ``compute_delay``
     and ``command_limit`` by name from any node, unchecked against the interface; version 2 keeps
     its bytes and behaviour, so this floor is not applied there.
 
     Raises:
-        law_module.LawRefused: ``delay_or_limit_not_stated_by_the_interface``.
+        law_module.LawRefused: ``delay_or_limit_not_stated_by_the_interface`` or
+            ``period_is_not_the_interface_s``.
     """
     sources = {
         "period": (file.period, "the period", "s"),
@@ -804,6 +864,8 @@ def _timing(
         value = timing[key]["value"]
         held: dict[str, Any] | None = None
         refusal = ""
+        code = "delay_or_limit_not_stated_by_the_interface"
+        extra: dict[str, Any] = {}
         if key == "sensor_delay":
             rates = [s for s in _interface_statements(nodes, SENSOR_FLOOR_NAME) if s[2] == "Hz"]
             rates = [s for s in rates if s[1] > 0]
@@ -825,17 +887,32 @@ def _timing(
                 total = sum(max(v for _, v, u in s if u == "s") for s in stated)
                 node = ", ".join(sorted({n for s in stated for n, _, _ in s}))
                 held = {"name": "+".join(names), "node": node, "value": total}
+            flags, omitted, outside = _compute_delay_flags(nodes, names)
+            extra = {
+                "flags": flags,
+                "omitted_interface_times": omitted,
+                "not_the_interface_s": outside,
+            }
         else:
             rates = [s for s in _interface_statements(nodes, PERIOD_REFERENCE_NAME) if s[2] == "Hz"]
-            if rates and rates[0][1] > 0:
+            rates = [s for s in rates if s[1] > 0]
+            if rates:
                 held = {
                     "name": PERIOD_REFERENCE_NAME,
                     "node": rates[0][0],
                     "value": 1 / rates[0][1],
                 }
+                code = "period_is_not_the_interface_s"
+                for _, rate, _ in rates:
+                    if abs(value - 1 / rate) > PERIOD_SLACK * (1 / rate):
+                        refusal = (
+                            f"is {value:g} s, not the interface's 1/{PERIOD_REFERENCE_NAME} "
+                            f"({1 / rate:g} s)"
+                        )
+                        break
         if refusal:
             msg = f"{what} {refusal}; a law file may not make it kinder than the run's interface"
-            raise law_module.LawRefused("delay_or_limit_not_stated_by_the_interface", msg)
+            raise law_module.LawRefused(code, msg)
         report[key] = {
             "names": list(names),
             "nodes": list(ids),
@@ -844,8 +921,19 @@ def _timing(
             "unit": timing[key]["unit"],
             "held_against": held,
             "no_interface_statement": held is None,
+            **extra,
         }
     return timing, report
+
+
+@dataclass(frozen=True)
+class _LawResult:
+    """What the law file and the graph make: the answer's controller, and what was found."""
+
+    controller: dict[str, Any]
+    verified: law_module.Verified
+    timing: dict[str, dict[str, Any]]
+    held_modes: tuple[dict[str, Any], ...]
 
 
 def _law_controller(
@@ -853,25 +941,36 @@ def _law_controller(
     found: Mapping[str, tuple[Any, str, tuple[str, ...]]],
     supplied: Mapping[str, tuple[float | int, str]],
     nodes: Mapping[str, dict[str, Any]],
-) -> tuple[dict[str, Any], law_module.Verified, dict[str, dict[str, Any]]]:
+) -> _LawResult:
     """The answer's controller from the law file and the graph, what its vectors verified, timing.
 
+    Every check that can run on a law runs before the law is refused for a term out of scope, so
+    that term is never the cover for another fault: the timing against the interface, a coefficient
+    that divides by zero, the units of every line, and only then the scope. A law with such a term
+    cannot be evaluated, so its vectors are not.
+
     Raises:
-        law_module.LawRefused: the units do not balance, the timing is kinder than the
-            interface's, or a vector is not reproduced.
+        law_module.LawRefused: the units do not balance, the timing is not the interface's, a term
+            divides by zero, a term is out of scope, or a vector is not reproduced.
     """
     timing, report = _timing(file, found, nodes)
     coefficients = {
         name: {"value": found[quantity][0], "unit": found[quantity][1]}
         for name, quantity in sorted(file.coefficients.items())
     }
-    law_module.check(file, {name: m["unit"] for name, m in coefficients.items()})
     values = {name: float(m["value"]) for name, m in coefficients.items()}
+    divisors = law_module.zero_divisors(file, values)
+    if divisors:
+        raise law_module.zero_refusal(divisors[0])
+    law_module.check(file, {name: m["unit"] for name, m in coefficients.items()})
+    if file.outside:
+        raise law_module.LawRefused(file.outside[0].code, file.outside[0].detail)
+    period = float(timing["period"]["value"])
     verified = law_module.verify(
         file,
         values,
         file.vectors,
-        period=float(timing["period"]["value"]),
+        period=period,
         limit=float(timing["command_limit"]["value"]),
         full_scale=float(
             found["pwm_full_scale"][0]
@@ -883,16 +982,21 @@ def _law_controller(
         mode="json", include={"memory", "lines", "command"}, exclude_defaults=True
     )
     flagged = sorted(key for key, row in report.items() if row["no_interface_statement"])
-    return (
+    compute = report["compute_delay"]
+    held = law_module.held_report(file, values, period=period)
+    return _LawResult(
         {
             "structure": LAW_STRUCTURE,
             **timing,
             "no_interface_statement": flagged,
+            "compute_delay_flags": compute["flags"],
+            "compute_delay_omitted": compute["omitted_interface_times"],
             "coefficients": coefficients,
             **body,
         },
         verified,
         report,
+        tuple(mode.as_record() for mode in held),
     )
 
 
@@ -914,6 +1018,9 @@ def _record_bytes(export: Export, out: Path) -> bytes:
         "law_signals",
         "law_timing",
         "supplied",
+        "law_held_modes",
+        "law_pins",
+        "law_set_aside",
     }
     left = set() if export.structure == LAW_STRUCTURE else law_fields
     found = export.model_dump(mode="json", exclude={"sha256", "missing", *left})

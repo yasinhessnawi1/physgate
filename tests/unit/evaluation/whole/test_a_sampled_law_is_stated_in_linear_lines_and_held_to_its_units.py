@@ -668,11 +668,12 @@ def test_a_sum_the_updates_conserve_is_held_once_not_per_state() -> None:
     assert mode == (0.0, 1.0, 1.0)
 
 
-def test_the_travel_alone_is_never_returned_and_a_law_with_no_memory_holds_nothing() -> None:
-    # No term reads the wheel angle, so the plant's travel is a mode at 1 with no memory in it.
+def test_the_travel_alone_is_never_set_aside_and_a_law_with_no_memory_holds_nothing() -> None:
+    # No term reads the wheel angle, so the plant's travel is a mode at 1 with no memory in it:
+    # the wheels are not restored, and nothing is set aside, the inert state's own mode included.
     reads = [{"sign": 1, "coefficients": ["g"], "of": "tilt"}]
     body = _held_body([("z", "z_now")], [_carry("z", "pole")], reads)
-    assert _law().held_modes(body, {"pole": 1.0, "g": 0.3}, period=0.01) == ((0.0, 1.0),)
+    assert _law().held_modes(body, {"pole": 1.0, "g": 0.3}, period=0.01) == ()
     stateless = _held_body([], [], reads)
     assert _law().held_modes(stateless, {"g": 0.3}, period=0.01) == ()
     only = _held_body([("z", "z_now")], [_carry("z", "pole")], reads)
