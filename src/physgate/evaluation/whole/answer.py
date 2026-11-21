@@ -41,6 +41,14 @@ failure of the answer, never an error of the scorer.
   converts it to SI only where a predicate needs SI, every scale factor named with its
   source; a brief's "relative difference of 0" compares the integers themselves.
 
+**Version 3** adds a fourth structure and names the settings as the gate's catalogue does
+(``output_data_rate`` for version 2's ``gyro_output_data_rate``):
+
+- ``sampled_law``, a general sampled linear law over the tilt and its rate and the wheels'
+  angle and speed, with memory states, stated as the design states it
+  (:mod:`physgate.evaluation.whole.law`). Version 2 is read exactly as it was; a version 2
+  answer is never read as a version 3 one nor the reverse.
+
 In each, the measurements used at update ``k`` were taken ``sensor_delay`` earlier, and the
 command computed at ``k`` reaches the motors ``compute_delay`` later. Both are times in s,
 not whole updates: the kit's own sensor and computation delay is a few milliseconds, less
@@ -67,12 +75,14 @@ nothing outside that directory.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AfterValidator,
@@ -87,6 +97,7 @@ from pydantic import (
 from physgate.evaluation.per_role.exceptions import TaskFormatError
 from physgate.evaluation.tiers.authoring import AuthoringError, _open_chain
 from physgate.evaluation.tiers.base import Measure
+from physgate.evaluation.whole import law as law_module
 
 #: The largest answer file read: a controller, six settings and a list of paths.
 MAX_ANSWER_BYTES = 64 * 1024
@@ -434,6 +445,70 @@ Controller = Annotated[
 ]
 
 
+#: The largest magnitude a law's coefficient or number may have. Chosen: a gain of a million
+#: per unit is past any a 10 ms loop on this kit can hold, and its products stay finite.
+LAW_MAGNITUDE = 1e6
+
+
+class SampledLaw(_Loop, law_module.Body):
+    """A general sampled linear law, stated as the design states it (version 3).
+
+    The command is the line ``command`` (see :mod:`physgate.evaluation.whole.law`): a sum of
+    terms, each one coefficient-weighted variable, over the signals the loop analysis feeds
+    (the tilt and its rate, the wheels' angle and speed relative to the body) and the memory
+    the law keeps. Each coefficient is ``{value, unit}``, named by the design; every line is
+    checked for units, and a law that is not linear in its signals, or that reads a signal
+    outside the closed list, is refused by name and never judged. The limit and the integer
+    rounding are outside the linear loop, as for every other structure. The two delays are
+    times in s, the same as for every other structure.
+    """
+
+    structure: Literal["sampled_law"]
+    coefficients: dict[law_module.Name, Measure] = Field(max_length=law_module.MAX_COEFFICIENTS)
+
+    @model_validator(mode="after")
+    def _law_holds(self) -> SampledLaw:
+        units: dict[str, str] = {}
+        for name, measure in self.coefficients.items():
+            if name == law_module.PERIOD:
+                msg = "the period is the loop's own, not a coefficient"
+                raise ValueError(msg)
+            _unit_bounded(measure, name)
+            units[name] = measure.unit
+        try:
+            law_module.check(self, units)
+        except law_module.LawRefused as exc:
+            raise ValueError(str(exc)) from exc
+        for line in self.lines:
+            for term in line.terms:
+                if not 0 < abs(term.number) <= LAW_MAGNITUDE:
+                    msg = (
+                        f"line {line.name!r} has the number {term.number:g}, "
+                        f"outside 0 to {LAW_MAGNITUDE:g}"
+                    )
+                    raise ValueError(msg)
+        return self
+
+
+def _unit_bounded(measure: Measure, name: str) -> None:
+    """A law coefficient in a unit that is one, and its magnitude inside :data:`LAW_MAGNITUDE`."""
+    try:
+        law_module.dimension(measure.unit)
+    except law_module.LawRefused as exc:
+        msg = f"the coefficient {name!r} is in {measure.unit!r}, which is not a unit"
+        raise ValueError(msg) from exc
+    if not abs(measure.value) <= LAW_MAGNITUDE:
+        msg = f"the coefficient {name!r} is {measure.value:g}; it is within {LAW_MAGNITUDE:g}"
+        raise ValueError(msg)
+
+
+#: A version 3 controller: the closed list of version 2 and the general sampled law.
+ControllerV3 = Annotated[
+    IncrementalRisingOffset | StateFeedback | NativeRisingOffset | SampledLaw,
+    Field(discriminator="structure"),
+]
+
+
 class Parameters(_Frozen):
     """The settings a brief constrains that the design chooses, each in its own unit.
 
@@ -479,6 +554,48 @@ class Parameters(_Frozen):
             _bounded(
                 self.gyro_sensitivity, "count*s/deg", "the gyro's sensitivity", "gyro_sensitivity"
             )
+        return self
+
+
+def _settings_hold(p: Parameters | ParametersV3) -> None:
+    """The settings of either version in their units and bounds, each field by its own name."""
+    odr = p.output_data_rate if isinstance(p, ParametersV3) else p.gyro_output_data_rate
+    _bounded(p.update_rate, "Hz", "the update rate", "update_rate")
+    _bounded(odr, "Hz", "the gyro's output data rate", "gyro_output_data_rate")
+    _bounded(p.gyro_full_scale, "deg/s", "the gyro's full scale", "gyro_full_scale")
+    _bounded(p.pwm_frequency, "Hz", "the PWM frequency", "pwm_frequency")
+    full_scale = _bounded(p.pwm_full_scale, "count", "the PWM full scale", "pwm_full_scale")
+    if not _whole(full_scale):
+        msg = f"the PWM full scale is {full_scale}; it is a whole number of counts"
+        raise ValueError(msg)
+    _bounded(
+        p.encoder_counts_per_wheel_revolution,
+        "count",
+        "the encoder counts per wheel revolution",
+        "encoder_counts_per_wheel_revolution",
+    )
+    if p.gyro_sensitivity is not None:
+        _bounded(p.gyro_sensitivity, "count*s/deg", "the gyro's sensitivity", "gyro_sensitivity")
+
+
+class ParametersV3(_Frozen):
+    """The settings of version 3: those of version 2 under the gate catalogue's names.
+
+    The gyro's rate is ``output_data_rate``, as the catalogue names it; every other setting,
+    its unit and its bound are version 2's.
+    """
+
+    update_rate: Measure
+    output_data_rate: Measure
+    gyro_full_scale: Measure
+    pwm_frequency: Measure
+    pwm_full_scale: Measure
+    encoder_counts_per_wheel_revolution: Measure
+    gyro_sensitivity: Measure | None = None
+
+    @model_validator(mode="after")
+    def _each_positive_in_its_unit(self) -> ParametersV3:
+        _settings_hold(self)
         return self
 
 
@@ -548,12 +665,110 @@ class WholeRun(_Frozen):
         return self
 
 
+class WholeRunV3(_Frozen):
+    """One whole-run answer of version 3: version 2's, with the catalogue's names and the law.
+
+    The controller is any structure of the closed list, the general sampled law included, and
+    the settings carry the gate catalogue's names. Version 2 is unchanged and still read.
+    """
+
+    form: Literal["whole_run"]
+    version: Literal[3]
+    controller: ControllerV3
+    analysed_controller: ControllerV3 | None = None
+    parameters: ParametersV3
+    files: tuple[ModulePath, ...] = Field(default=(), max_length=MAX_FILES)
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _version_is_a_number(cls, value: object) -> object:
+        if isinstance(value, bool):
+            msg = "the version is a number, not a truth value"
+            raise ValueError(msg)
+        return value
+
+    @model_validator(mode="after")
+    def _each_file_once(self) -> WholeRunV3:
+        seen: set[str] = set()
+        for path in self.files:
+            if path.lower() in seen:
+                msg = f"the answer names the file {path!r} twice"
+                raise ValueError(msg)
+            seen.add(path.lower())
+        return self
+
+    @model_validator(mode="after")
+    def _native_needs_its_scales(self) -> WholeRunV3:
+        full_scale = float(self.parameters.pwm_full_scale.value)
+        for controller in (self.controller, self.analysed_controller):
+            if not isinstance(controller, NativeRisingOffset):
+                continue
+            if self.parameters.gyro_sensitivity is None:
+                msg = (
+                    "a controller written natively needs the gyro's sensitivity stated in "
+                    "the parameters: its divisor is what the code believes, not the sensor"
+                )
+                raise ValueError(msg)
+            if controller.motor_speed_limit.value > full_scale:
+                msg = (
+                    f"the motor speed limit is {controller.motor_speed_limit.value} counts, "
+                    f"past the PWM full scale of {full_scale:g}"
+                )
+                raise ValueError(msg)
+        return self
+
+
+#: A whole-run answer of either version.
+Answer = WholeRun | WholeRunV3
+
+
+def _document(text: str) -> dict[str, Any]:
+    """The JSON document ``text`` is, if an object, or an empty one where it is not readable."""
+    try:
+        document = json.loads(text)
+    except (ValueError, RecursionError):
+        return {}
+    return document if isinstance(document, dict) else {}
+
+
+def _scope(document: dict[str, Any], where: str) -> None:
+    """Refuse by name a law that is not linear, or reads a signal outside the closed list.
+
+    Read from the document as written, since a schema would name only the field it fails on.
+    """
+    for key in ("controller", "analysed_controller"):
+        controller = document.get(key)
+        if isinstance(controller, dict) and controller.get("structure") == "sampled_law":
+            try:
+                law_module.scope(controller)
+            except law_module.LawRefused as exc:
+                msg = f"the answer is not a whole-run answer: {key}: {exc}"
+                raise TaskFormatError(msg, where=where) from exc
+
+
 def parse_whole_run(raw: bytes, *, where: str = "answer") -> WholeRun:
-    """``raw`` validated whole as a whole-run answer, or refused with the reason.
+    """``raw`` validated whole as a version 2 whole-run answer, or refused with the reason.
+
+    Version 2 is read exactly as it always was; :func:`parse_answer` reads either version.
+
+    Raises:
+        TaskFormatError: it is too large, not UTF-8, not JSON, or not a version 2 answer.
+    """
+    answer = _parse(raw, where, versions=(2,))
+    assert isinstance(answer, WholeRun)
+    return answer
+
+
+def parse_answer(raw: bytes, *, where: str = "answer") -> Answer:
+    """``raw`` validated whole as a whole-run answer of version 2 or 3, or refused with the reason.
 
     Raises:
         TaskFormatError: it is too large, not UTF-8, not JSON, or not a whole-run answer.
     """
+    return _parse(raw, where, versions=(2, 3))
+
+
+def _parse(raw: bytes, where: str, *, versions: tuple[int, ...]) -> Answer:
     if len(raw) > MAX_ANSWER_BYTES:
         msg = f"the answer is larger than any whole-run answer ({len(raw)} bytes)"
         raise TaskFormatError(msg, where=where)
@@ -562,8 +777,15 @@ def parse_whole_run(raw: bytes, *, where: str = "answer") -> WholeRun:
     except UnicodeDecodeError as exc:
         msg = "the answer is not UTF-8 text"
         raise TaskFormatError(msg, where=where) from exc
+    document = _document(text)
+    version = document.get("version")
+    model: type[WholeRun] | type[WholeRunV3] = (
+        WholeRunV3 if version == 3 and 3 in versions and not isinstance(version, bool) else WholeRun
+    )
+    if model is WholeRunV3:
+        _scope(document, where)
     try:
-        return WholeRun.model_validate_json(text)
+        return model.model_validate_json(text)
     except ValidationError as exc:
         first = exc.errors()[0]
         reason = (
@@ -580,7 +802,30 @@ _FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 
 
 def read_whole_run(path: Path, *, root: Path) -> WholeRun:
-    """The whole-run answer at ``path``, which lies inside ``root``, or refused with the reason.
+    """The version 2 whole-run answer at ``path``, inside ``root``, or refused with the reason.
+
+    Read as :func:`read_answer` reads, but a version 3 answer is refused.
+
+    Raises:
+        TaskFormatError: as :func:`read_answer`.
+    """
+    answer = _read(path, root, parse_whole_run)
+    assert isinstance(answer, WholeRun)
+    return answer
+
+
+def read_answer(path: Path, *, root: Path) -> Answer:
+    """The whole-run answer, of version 2 or 3, at ``path``, inside ``root``, or refused.
+
+    Raises:
+        TaskFormatError: it is missing, outside ``root``, not spelt plainly, reached through a
+            link, not a regular file with one name, too large, or not an answer.
+    """
+    return _read(path, root, parse_answer)
+
+
+def _read(path: Path, root: Path, parse: Callable[..., Answer]) -> Answer:
+    """Either version's answer at ``path``, inside ``root``, read with ``parse``.
 
     The file is opened once and read from that one descriptor; nothing is looked up by path
     again, so nothing put in place between a check and the read is read. Its directory is
@@ -622,7 +867,7 @@ def read_whole_run(path: Path, *, root: Path) -> WholeRun:
             os.close(fd)
     finally:
         os.close(directory)
-    return parse_whole_run(raw, where=spelt)
+    return parse(raw, where=spelt)
 
 
 def _read_bounded(fd: int, where: str) -> bytes:

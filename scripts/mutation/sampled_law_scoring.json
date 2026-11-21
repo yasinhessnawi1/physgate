@@ -1,0 +1,184 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_wheel_angle_is_in_metres",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    read[2, 2] = 1.0 / wheel_radius\n",
+    "new": "    read[2, 2] = 1.0\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_wheel_speed_is_in_metres",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    read[3, 3] = 1.0 / wheel_radius\n",
+    "new": "    read[3, 3] = 1.0\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_tilt_is_not_read",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    read[0, 0] = 1.0\n    read[1, 1] = 1.0\n",
+    "new": "    read[0, 0] = 0.0\n    read[1, 1] = 1.0\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_law_s_memory_is_not_counted",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "        return PLANT_STATES + whole + 1 + loop.law.states\n",
+    "new": "        return PLANT_STATES + whole + 1 + 2\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_mode_with_no_memory_is_set_aside",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    if null.shape[1] == 0 or float(np.max(np.abs(null[n_p:, :]))) <= HELD_TOLERANCE:\n",
+    "new": "    if null.shape[1] == 0:\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_held_mode_is_not_set_aside",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    if system.held is not None:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_law_s_held_modes_are_not_found",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "            held=_held_modes(ap, bp, cp, ac, bc, cc, dc),\n",
+    "new": "            held=None,\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_command_limit_is_not_the_law_s",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "        command_limit=float(controller.command_limit.value),\n        sensor_delay=float(controller.sensor_delay.value),\n        compute_delay=float(controller.compute_delay.value),\n        factors=(),\n        law=",
+    "new": "        command_limit=1.0,\n        sensor_delay=float(controller.sensor_delay.value),\n        compute_delay=float(controller.compute_delay.value),\n        factors=(),\n        law=",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_law_s_limit_is_not_compared",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "        for name in (\"period\", \"command_limit\"):\n",
+    "new": "        for name in (\"period\",):\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "two_laws_with_other_names_are_compared",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        and set(c.coefficients) != set(analysed.coefficients)\n",
+    "new": "        and set(c.coefficients) == set(analysed.coefficients)\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "a_law_is_blamed_for_a_distance_gain",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "loop.law is None and loop.distance == 0.0",
+    "new": "loop.distance == 0.0",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_rate_is_the_update_rate",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "\"gyro_output_data_rate\": lambda: float(_output_data_rate(p).value),",
+    "new": "\"gyro_output_data_rate\": lambda: float(p.update_rate.value),",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  }
+]

@@ -80,6 +80,8 @@ FRACTION_EPSILON = 1e-12
 #: a leak just below 1 would leave a mode inside :data:`STABILITY_EPSILON` of the unit circle,
 #: judged unstable though it decays, while the leak-free loop sets that mode aside.
 DECAY_TOLERANCE = 1e-9
+#: How near zero a singular value or a component is, for the held modes of a sampled law.
+HELD_TOLERANCE = 1e-9
 #: The plant's own states, ``[θ, θ̇, x, v]``.
 PLANT_STATES = 4
 
@@ -180,11 +182,40 @@ def discretise(a: Matrix, b: Matrix, period: float, delay: float) -> tuple[Matri
     return ap, bp, cp
 
 
-def controller(loop: SiLoop) -> tuple[Matrix, Matrix, Matrix, Matrix]:
+def _law_reads(wheel_radius: float) -> Matrix:
+    """The law's signals from the measurements: the tilt, its rate, the wheels' angle and speed.
+
+    The wheels' angle and speed are the encoders' travel and speed over the wheel radius.
+    """
+    read = np.zeros((4, 4))
+    read[0, 0] = 1.0
+    read[1, 1] = 1.0
+    read[2, 2] = 1.0 / wheel_radius
+    read[3, 3] = 1.0 / wheel_radius
+    return read
+
+
+def controller(
+    loop: SiLoop, wheel_radius: float | None = None
+) -> tuple[Matrix, Matrix, Matrix, Matrix]:
     """The controller from the measurements ``[θ, θ̇, x, v]`` to the command: ``(Ac, Bc, Cc, Dc)``.
 
-    An incremental structure's state is ``[θ̂[k-1], u[k-1]]``; a state feedback has none.
+    An incremental structure's state is ``[θ̂[k-1], u[k-1]]``; a state feedback has none. A
+    sampled law's state is its memory before the update, and ``wheel_radius`` (the plant's)
+    takes the encoders' travel and speed to the law's wheel angle and speed.
     """
+    if loop.law is not None:
+        if wheel_radius is None:
+            msg = "a sampled law is read through the plant's wheel radius"
+            raise ValueError(msg)
+        law = loop.law
+        reads = _law_reads(wheel_radius)
+        n = law.states
+        ac = np.array(law.a, dtype=float).reshape(n, n)
+        bc = np.array(law.b, dtype=float).reshape(n, 4) @ reads
+        cc = np.array(law.c, dtype=float).reshape(1, n)
+        dc = np.array(law.d, dtype=float).reshape(1, 4) @ reads
+        return ac, bc, cc, dc
     gains = np.array([[loop.angle, loop.rate, loop.distance, loop.speed]])
     if not loop.incremental:
         return np.zeros((0, 0)), np.zeros((0, 4)), np.zeros((1, 0)), gains
@@ -211,6 +242,7 @@ class System:
     dc: Matrix
     period: float
     neutral: Matrix | None = None
+    held: Matrix | None = None
 
 
 def leak_free(loop: SiLoop) -> bool:
@@ -232,6 +264,35 @@ def _neutral(loop: SiLoop, plant_size: int, size: int) -> Matrix | None:
     return mode
 
 
+def _held_modes(
+    ap: Matrix, bp: Matrix, cp: Matrix, ac: Matrix, bc: Matrix, cc: Matrix, dc: Matrix
+) -> Matrix | None:
+    """The modes a sampled law holds at exactly 1 whatever the gain, as columns, or ``None``.
+
+    A closed-loop state ``(v_p, v_c)`` that the loop holds at every gain solves
+    ``(Ap - I) v_p = 0``, ``Dc Cp v_p + Cc v_c = 0`` and ``Bc Cp v_p + (Ac - I) v_c = 0``.
+    The plant's own travel is one with no memory in it, never set aside: no distance gain means
+    nothing holds the travel, as for the named structures. A mode with memory in it is the
+    leak-free estimate's offset, which the named incremental structure sets aside the same way.
+    """
+    n_p, n_c = ap.shape[0], ac.shape[0]
+    if n_c == 0:
+        return None
+    rows = np.vstack(
+        [
+            np.hstack([ap - np.eye(n_p), np.zeros((n_p, n_c))]),
+            np.hstack([dc @ cp, cc]),
+            np.hstack([bc @ cp, ac - np.eye(n_c)]),
+        ]
+    )
+    _, singular, vt = np.linalg.svd(rows)
+    rank = int(np.sum(singular > HELD_TOLERANCE * max(1.0, float(singular[0]))))
+    null = vt[rank:].T
+    if null.shape[1] == 0 or float(np.max(np.abs(null[n_p:, :]))) <= HELD_TOLERANCE:
+        return None
+    return null
+
+
 def closed(system: System, gain: float) -> Matrix:
     """The closed loop's state matrix with the command multiplied by ``gain``."""
     s = system
@@ -248,7 +309,13 @@ def stable(system: System, gain: float) -> bool:
     other poles are those of what remains.
     """
     matrix = closed(system, gain)
-    if system.neutral is not None:
+    if system.held is not None:
+        # The held modes span an invariant subspace at 1: in an orthonormal basis that starts
+        # with it, the matrix is block upper triangular and the other poles are the last block.
+        q, _ = np.linalg.qr(system.held, mode="complete")
+        k = system.held.shape[1]
+        matrix = (q.T @ matrix @ q)[k:, k:]
+    elif system.neutral is not None:
         at = system.ap.shape[0]
         basis = np.eye(matrix.shape[0])
         basis[:, at : at + 1] = system.neutral
@@ -358,6 +425,8 @@ def states(loop: SiLoop) -> int:
     The delay line holds the last ``d + 1`` commands, ``d`` the whole periods of the delay.
     """
     whole, _ = _split(loop.sensor_delay + loop.compute_delay, loop.period)
+    if loop.law is not None:
+        return PLANT_STATES + whole + 1 + loop.law.states
     return PLANT_STATES + whole + 1 + (2 if loop.incremental else 0)
 
 
@@ -391,8 +460,20 @@ def system(values: dict[str, float], loop: SiLoop) -> System:
     a, b = continuous(values)
     ap, bp, held = discretise(a, b, loop.period, loop.sensor_delay + loop.compute_delay)
     cp = measurement(values) @ held
-    ac, bc, cc, dc = controller(loop)
+    ac, bc, cc, dc = controller(loop, values["wheel_radius"])
     _finite("the plant held at the period, or the controller,", ap, bp, cp, ac, bc, cc, dc)
+    if loop.law is not None:
+        return System(
+            ap=ap,
+            bp=bp,
+            cp=cp,
+            ac=ac,
+            bc=bc,
+            cc=cc,
+            dc=dc,
+            period=loop.period,
+            held=_held_modes(ap, bp, cp, ac, bc, cc, dc),
+        )
     neutral = _neutral(loop, ap.shape[0], ap.shape[0] + ac.shape[0])
     return System(
         ap=ap, bp=bp, cp=cp, ac=ac, bc=bc, cc=cc, dc=dc, period=loop.period, neutral=neutral

@@ -209,7 +209,7 @@
   {
     "name": "every_name_read",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "            if name in CONTRACT_NAMES:\n",
+    "old": "            if name in names:\n",
     "new": "            if True:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
@@ -416,8 +416,8 @@
   {
     "name": "exported_conflicts_unsaid",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "        conflicts=conflicts,\n        left_out=",
-    "new": "        left_out=",
+    "old": "        conflicts=conflicts,\n        left_out=tuple(sorted(set(found) - read)),",
+    "new": "        left_out=tuple(sorted(set(found) - read)),",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
@@ -439,8 +439,8 @@
   {
     "name": "optional_required",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "if required and n not in found",
-    "new": "if n not in found",
+    "old": "if required and n not in found))",
+    "new": "if n not in found))",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
@@ -554,8 +554,8 @@
   {
     "name": "one_node_named",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "taken_from={name: found[name][2] for",
-    "new": "taken_from={name: found[name][2][:1] for",
+    "old": "taken_from={name: found[name][2] for name in sorted(read)",
+    "new": "taken_from={name: found[name][2][:1] for name in sorted(read)",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
@@ -784,8 +784,8 @@
   {
     "name": "record_placed_after_answer",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "    _write_new(((record_path(out), _record_bytes(export, out)), (out, raw)))",
-    "new": "    _write_new(((out, raw), (record_path(out), _record_bytes(export, out))))",
+    "old": "        sha256=hashlib.sha256(raw).hexdigest(),\n    )\n    _write_new(((record_path(out), _record_bytes(export, out)), (out, raw)))",
+    "new": "        sha256=hashlib.sha256(raw).hexdigest(),\n    )\n    _write_new(((out, raw), (record_path(out), _record_bytes(export, out))))",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],

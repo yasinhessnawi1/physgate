@@ -54,7 +54,11 @@ from physgate.evaluation.tiers.base import Identifier
 from physgate.evaluation.tiers.scenario import Outcome, ScenarioError
 from physgate.evaluation.tiers.task import COMPOSES_AT_LEAST, Spec, TaskId
 from physgate.evaluation.whole import loop as loop_module
-from physgate.evaluation.whole.answer import WholeRun, read_whole_run
+from physgate.evaluation.whole.answer import (
+    Answer,
+    SampledLaw,
+    read_answer,
+)
 from physgate.evaluation.whole.convert import ScaleFactor, SiLoop, coefficients, to_si
 from physgate.evaluation.whole.plant import (
     FROZEN_PLANTS,
@@ -144,7 +148,7 @@ def _relative(a: float, b: float) -> float:
     return abs(a - b) / abs(b)
 
 
-def _static(answer: WholeRun, metric: str) -> tuple[float | None, str | None]:
+def _static(answer: Answer, metric: str) -> tuple[float | None, str | None]:
     """A static metric's value, or ``None`` with the reason it has none."""
     p, c = answer.parameters, answer.controller
     si = to_si(c, p, wheel_radius=ScaleFactor("wheel_radius", 1.0, "m", "unused"))
@@ -154,7 +158,7 @@ def _static(answer: WholeRun, metric: str) -> tuple[float | None, str | None]:
         "command_limit_counts": lambda: si.command_limit * full_scale,
         "update_rate": lambda: float(p.update_rate.value),
         "controller_rate": lambda: 1.0 / si.period,
-        "gyro_output_data_rate": lambda: float(p.gyro_output_data_rate.value),
+        "gyro_output_data_rate": lambda: float(_output_data_rate(p).value),
         "gyro_full_scale": lambda: float(p.gyro_full_scale.value),
         "pwm_frequency": lambda: float(p.pwm_frequency.value),
         "pwm_full_scale": lambda: full_scale,
@@ -174,6 +178,15 @@ def _static(answer: WholeRun, metric: str) -> tuple[float | None, str | None]:
         return None, (
             "the firmware's and the analysed controller are written in different structures; "
             "coefficients are compared as written, never through a conversion"
+        )
+    if (
+        isinstance(c, SampledLaw)
+        and isinstance(analysed, SampledLaw)
+        and set(c.coefficients) != set(analysed.coefficients)
+    ):
+        return None, (
+            "the firmware's and the analysed law name different coefficients; they are "
+            "compared as written, never through a conversion"
         )
     pairs = zip(coefficients(c), coefficients(analysed), strict=True)
     return max(_relative(float(a[1]), float(b[1])) for a, b in pairs), None
@@ -259,7 +272,7 @@ class WholeDesignScenario:
             },
         }
         try:
-            read = read_whole_run(answer, root=self._root)
+            read = read_answer(answer, root=self._root)
         except TaskFormatError as exc:
             record.update(answer_valid=False, reason=str(exc), specs=[], outcome="fail")
             return record
@@ -304,7 +317,7 @@ class WholeDesignScenario:
             "the plant's wheel_radius: " + self._plant.parameters["wheel_radius"].source,
         )
 
-    def _work(self, read: WholeRun) -> dict[str, int]:
+    def _work(self, read: Answer) -> dict[str, int]:
         """The loop analyses' work, known before any is done: corners, steps, states, total."""
         loop = to_si(
             read.controller, read.parameters, wheel_radius=self._radius(nominal(self._plant))
@@ -319,7 +332,7 @@ class WholeDesignScenario:
             "total": corners * steps * states,
         }
 
-    def _corner_sets(self, read: WholeRun) -> dict[str, list[_Corner]]:
+    def _corner_sets(self, read: Answer) -> dict[str, list[_Corner]]:
         sets: dict[str, list[_Corner]] = {"nominal": [_Corner(nominal(self._plant))]}
         for inputs in {
             METRIC_INPUTS[s.metric] for s in self._task.specs if s.metric in METRIC_INPUTS
@@ -332,7 +345,7 @@ class WholeDesignScenario:
                 corner.factors = corner.loop.factors
         return sets
 
-    def _computed(self, metric: str, read: WholeRun, corner: _Corner) -> float:
+    def _computed(self, metric: str, read: Answer, corner: _Corner) -> float:
         assert corner.loop is not None
         if metric == "stall_current":
             return stall_current(corner.values, corner.loop.command_limit)
@@ -349,7 +362,7 @@ class WholeDesignScenario:
         assert value is not None
         return value
 
-    def _row(self, spec: Spec, read: WholeRun, sets: dict[str, list[_Corner]]) -> dict[str, Any]:
+    def _row(self, spec: Spec, read: Answer, sets: dict[str, list[_Corner]]) -> dict[str, Any]:
         unit, kind = METRICS[spec.metric]
         row: dict[str, Any] = {
             "name": spec.name,
@@ -419,6 +432,11 @@ class WholeDesignScenario:
         return row
 
 
+def _output_data_rate(p: Any) -> Any:
+    """The gyro's output data rate under either version's name for it."""
+    return p.output_data_rate if hasattr(p, "output_data_rate") else p.gyro_output_data_rate
+
+
 def _unstable_reason(nominal_corner: _Corner, at_nominal: float, values: list[float]) -> str:
     """Why a margin has no number, when the loop is unstable somewhere: a clause, or ``""``."""
     count = sum(math.isnan(v) for v in values)
@@ -429,7 +447,7 @@ def _unstable_reason(nominal_corner: _Corner, at_nominal: float, values: list[fl
         where += " and at the nominal values"
     clause = f"; the closed loop is unstable {where}, and an unstable loop has no margin"
     loop = nominal_corner.loop
-    if loop is not None and loop.distance == 0.0:
+    if loop is not None and loop.law is None and loop.distance == 0.0:
         clause += (
             "; with no distance gain nothing holds the travel, so the plant's travel stays a "
             "pole at 1 and the loop is never strictly stable"

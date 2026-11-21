@@ -938,8 +938,8 @@
   {
     "name": "export_record_not_written",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "    _write_new(((record_path(out), _record_bytes(export, out)), (out, raw)))",
-    "new": "    _write_new(((out, raw),))",
+    "old": "        sha256=hashlib.sha256(raw).hexdigest(),\n    )\n    _write_new(((record_path(out), _record_bytes(export, out)), (out, raw)))",
+    "new": "        sha256=hashlib.sha256(raw).hexdigest(),\n    )\n    _write_new(((out, raw),))",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
@@ -1345,8 +1345,8 @@
   {
     "name": "export_answer_placed_before_record",
     "file": "src/physgate/evaluation/whole/export.py",
-    "old": "    _write_new(((record_path(out), _record_bytes(export, out)), (out, raw)))",
-    "new": "    _write_new(((out, raw), (record_path(out), _record_bytes(export, out))))",
+    "old": "        sha256=hashlib.sha256(raw).hexdigest(),\n    )\n    _write_new(((record_path(out), _record_bytes(export, out)), (out, raw)))",
+    "new": "        sha256=hashlib.sha256(raw).hexdigest(),\n    )\n    _write_new(((out, raw), (record_path(out), _record_bytes(export, out))))",
     "tests": [
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py"
     ],
