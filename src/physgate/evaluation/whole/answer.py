@@ -466,6 +466,12 @@ class SampledLaw(_Loop, law_module.Body):
 
     structure: Literal["sampled_law"]
     coefficients: dict[law_module.Name, Measure] = Field(max_length=law_module.MAX_COEFFICIENTS)
+    #: The loop quantities (``period``, ``sensor_delay``, ``compute_delay``, ``command_limit``)
+    #: the run's interface states nothing to hold against: the export's flag, carried to the
+    #: scorer's rows. Empty where every one was held against the interface.
+    no_interface_statement: tuple[
+        Literal["command_limit", "compute_delay", "period", "sensor_delay"], ...
+    ] = ()
 
     @model_validator(mode="after")
     def _law_holds(self) -> SampledLaw:
@@ -782,11 +788,13 @@ class OutsideScope(TaskFormatError):  # noqa: N818 - a refusal by name, not an e
         self.name = name
 
 
-def _scope(document: dict[str, Any], where: str) -> None:
-    """Refuse by name a law that is not linear, or reads a signal outside the closed list.
+def _scope_refusals(document: dict[str, Any], where: str) -> dict[str, OutsideScope]:
+    """Each law the scorer cannot judge, by the field that holds it, refused by name.
 
-    Read from the document as written, since a schema would name only the field it fails on.
+    A law that is not linear, or reads a signal outside the closed list. Read from the document
+    as written, since a schema would name only the field it fails on.
     """
+    refused: dict[str, OutsideScope] = {}
     for key in ("controller", "analysed_controller"):
         controller = document.get(key)
         if isinstance(controller, dict) and controller.get("structure") == "sampled_law":
@@ -794,7 +802,23 @@ def _scope(document: dict[str, Any], where: str) -> None:
                 law_module.scope(controller)
             except law_module.LawRefused as exc:
                 msg = f"{key} is out of the scorer's reach: {exc}"
-                raise OutsideScope(msg, name=exc.code, where=where) from exc
+                refused[key] = OutsideScope(msg, name=exc.code, where=where)
+    return refused
+
+
+#: A controller that stands in for a refused law while the rest of the answer is validated: any
+#: scorable one, so the answer's other fields are held to their own rules and nothing else.
+_STAND_IN: dict[str, Any] = {
+    "structure": "state_feedback",
+    "period": {"value": 0.01, "unit": "s"},
+    "command_limit": {"value": 0.5, "unit": "1"},
+    "sensor_delay": {"value": 0.001, "unit": "s"},
+    "compute_delay": {"value": 0.001, "unit": "s"},
+    "angle_gain": {"value": 1, "unit": "1/rad"},
+    "rate_gain": {"value": 0.1, "unit": "s/rad"},
+    "distance_gain": {"value": 0.1, "unit": "1/m"},
+    "speed_gain": {"value": 0.1, "unit": "s/m"},
+}
 
 
 def parse_whole_run(raw: bytes, *, where: str = "answer") -> WholeRun:
@@ -805,7 +829,7 @@ def parse_whole_run(raw: bytes, *, where: str = "answer") -> WholeRun:
     Raises:
         TaskFormatError: it is too large, not UTF-8, not JSON, or not a version 2 answer.
     """
-    answer = _parse(raw, where, versions=(2,))
+    answer, _ = _parse(raw, where, versions=(2,))
     assert isinstance(answer, WholeRun)
     return answer
 
@@ -816,10 +840,27 @@ def parse_answer(raw: bytes, *, where: str = "answer") -> Answer:
     Raises:
         TaskFormatError: it is too large, not UTF-8, not JSON, or not a whole-run answer.
     """
-    return _parse(raw, where, versions=(2, 3))
+    return _parse(raw, where, versions=(2, 3))[0]
 
 
-def _parse(raw: bytes, where: str, *, versions: tuple[int, ...]) -> Answer:
+def parse_answer_scoped(raw: bytes, *, where: str = "answer") -> tuple[Answer, OutsideScope | None]:
+    """:func:`parse_answer`, but an ``analysed_controller`` alone out of scope is returned.
+
+    The answer is then read without its analysed controller, and the refusal is the second
+    value: the primary controller is still scorable, only the comparison with the analysed one
+    is not. A refusal of the primary ``controller`` is raised, and only once the rest of the
+    answer is valid: an answer invalid for any other reason fails, whatever its laws say.
+
+    Raises:
+        OutsideScope: the primary controller is out of the scorer's reach, the rest being valid.
+        TaskFormatError: it is too large, not UTF-8, not JSON, or not a whole-run answer.
+    """
+    return _parse(raw, where, versions=(2, 3), tolerate_analysed=True)
+
+
+def _parse(
+    raw: bytes, where: str, *, versions: tuple[int, ...], tolerate_analysed: bool = False
+) -> tuple[Answer, OutsideScope | None]:
     if len(raw) > MAX_ANSWER_BYTES:
         msg = f"the answer is larger than any whole-run answer ({len(raw)} bytes)"
         raise TaskFormatError(msg, where=where)
@@ -833,8 +874,26 @@ def _parse(raw: bytes, where: str, *, versions: tuple[int, ...]) -> Answer:
     model: type[WholeRun] | type[WholeRunV3] = (
         WholeRunV3 if version == 3 and 3 in versions and not isinstance(version, bool) else WholeRun
     )
-    if model is WholeRunV3:
-        _scope(document, where)
+    refused = _scope_refusals(document, where) if model is WholeRunV3 else {}
+    if not refused:
+        return _validate(model, text, where), None
+    # A scope refusal speaks only for an answer that is otherwise valid: the rest is validated
+    # first, each refused law put aside, so no other fault can be hidden behind a law.
+    probe = dict(document)
+    for key in refused:
+        if key == "controller":
+            probe[key] = _STAND_IN
+        else:
+            del probe[key]
+    answer = _validate(model, json.dumps(probe), where)
+    if "controller" in refused:
+        raise refused["controller"]
+    if not tolerate_analysed:
+        raise refused["analysed_controller"]
+    return answer, refused["analysed_controller"]
+
+
+def _validate(model: type[WholeRun] | type[WholeRunV3], text: str, where: str) -> Answer:
     try:
         return model.model_validate_json(text)
     except ValidationError as exc:
@@ -875,7 +934,12 @@ def read_answer(path: Path, *, root: Path) -> Answer:
     return _read(path, root, parse_answer)
 
 
-def _read(path: Path, root: Path, parse: Callable[..., Answer]) -> Answer:
+def read_answer_scoped(path: Path, *, root: Path) -> tuple[Answer, OutsideScope | None]:
+    """:func:`read_answer` through :func:`parse_answer_scoped`."""
+    return _read(path, root, parse_answer_scoped)
+
+
+def _read[T](path: Path, root: Path, parse: Callable[..., T]) -> T:
     """Either version's answer at ``path``, inside ``root``, read with ``parse``.
 
     The file is opened once and read from that one descriptor; nothing is looked up by path

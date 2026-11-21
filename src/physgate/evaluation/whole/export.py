@@ -161,6 +161,9 @@ class Export(BaseModel):
     left_out: tuple[str, ...] = ()
     sign_offs_owed: tuple[str, ...] = ()
     sha256: str | None = None
+    #: Caveat for every law answer: the vectors carry signals already in rad and rad/s, so the
+    #: conversion from the sensors' counts (encoder counts per wheel revolution, gyro full scale)
+    #: is outside the vector check and a wrong one in the transcription is not caught.
     #: A control law read from the module's law file (the other fields below are for it): why a
     #: file that exists was refused, and what is wrong in words; the file's digest, the commit it
     #: was read at, its path in that commit; the vector rows it reproduced; and the settings the
@@ -172,6 +175,10 @@ class Export(BaseModel):
     law_path: str | None = None
     vector_rows: int | None = None
     law_signals: tuple[str, ...] = ()
+    #: For the period, each delay and the limit: the graph names used, their nodes and writers,
+    #: the value, the interface value it was held against, or the flag that the run's interface
+    #: states nothing to hold it against.
+    law_timing: dict[str, dict[str, Any]] = {}
     supplied: dict[str, dict[str, float | int | str]] = {}
 
 
@@ -663,7 +670,7 @@ def _export_law(
             **base,  # type: ignore[arg-type]
         )
     try:
-        controller, verified = _law_controller(file, found, supplied)
+        controller, verified, timing = _law_controller(file, found, supplied, nodes)
     except law_module.LawRefused as exc:
         return Export(
             status="law_unverified",
@@ -705,6 +712,7 @@ def _export_law(
         sha256=hashlib.sha256(raw).hexdigest(),
         vector_rows=verified.rows,
         law_signals=verified.signals,
+        law_timing=timing,
         supplied={n: {"value": v, "unit": u} for n, (v, u) in sorted(supplied.items())},
         **base,  # type: ignore[arg-type]
     )
@@ -712,22 +720,147 @@ def _export_law(
     return export
 
 
+#: The roles that write the loop's own numbers: their copies of an interface quantity are not
+#: the interface's statement.
+INTERFACE_KIND = "interface"
+#: The gate catalogue's names that give a floor: the gyro's rate (its age is the sensor delay)
+#: and the duty the drive train allows (the command limit). The compute delay has no catalogue
+#: name: only where its quantities come from is checked.
+SENSOR_FLOOR_NAME = "output_data_rate"
+LIMIT_FLOOR_NAME = "duty_cycle"
+PERIOD_REFERENCE_NAME = "update_rate"
+#: A relative slack for the one float comparison against an interface's number.
+FLOOR_SLACK = 1e-12
+
+
+def _interface_statements(
+    nodes: Mapping[str, dict[str, Any]], name: str
+) -> list[tuple[str, float, str]]:
+    """What the run's interface nodes state under ``name``: node, value, unit.
+
+    Only interface-kind nodes, and only a quantity not written by the control role: control's own
+    copies are never the statement.
+    """
+    out = []
+    for node_id in sorted(nodes):
+        node = nodes[node_id]
+        quantity = node.get("quantities", {}).get(name)
+        if node.get("kind") != INTERFACE_KIND or quantity is None:
+            continue
+        writer = quantity.get("written_by") or node.get("owner_role")
+        if writer != CONTROL_ROLE:
+            out.append((node_id, quantity["value"], quantity["unit"]))
+    return out
+
+
+def _writers(nodes: Mapping[str, dict[str, Any]], name: str, ids: tuple[str, ...]) -> list[str]:
+    return sorted(
+        {
+            nodes[i]["quantities"][name].get("written_by") or nodes[i].get("owner_role", "")
+            for i in ids
+        }
+    )
+
+
+def _timing(
+    file: law_module.LawFile,
+    found: Mapping[str, tuple[Any, str, tuple[str, ...]]],
+    nodes: Mapping[str, dict[str, Any]],
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """The loop's timing and limit from the graph, each held against the run's interface.
+
+    Returns the answer's four quantities and the record of each: the graph names used, their
+    nodes and writers, the value, the interface value it was held against (name, node, value)
+    or the flag that the interface states nothing.
+
+    The scored sensor delay may not be smaller than ``1/output_data_rate`` as an interface node
+    (not written by control) states it, the scored command limit not larger than the interface's
+    ``duty_cycle``; a larger delay and a smaller limit are pessimistic and allowed. A copy of the
+    interface's number in control's own node may be pointed at: it counts only if it equals the
+    interface's. The compute delay has no catalogue name, so only its provenance is checked: the
+    quantities it names must be held by an interface node, else it is flagged. Where the
+    interface states nothing, the answer is still exported, with the flag by name.
+
+    Known difference: the named structures of version 2 read ``sensor_delay``, ``compute_delay``
+    and ``command_limit`` by name from any node, unchecked against the interface; version 2 keeps
+    its bytes and behaviour, so this floor is not applied there.
+
+    Raises:
+        law_module.LawRefused: ``delay_or_limit_not_stated_by_the_interface``.
+    """
+    sources = {
+        "period": (file.period, "the period", "s"),
+        "sensor_delay": (file.sensor_delay, "the sensor delay", "s"),
+        "compute_delay": (file.compute_delay, "the compute delay", "s"),
+        "command_limit": (file.command_limit, "the command limit", "1"),
+    }
+    timing = {
+        key: _quantity(source, found, what, unit) for key, (source, what, unit) in sources.items()
+    }
+    report: dict[str, dict[str, Any]] = {}
+    for key, (source, what, _unit) in sources.items():
+        names = source.names()
+        ids = tuple(sorted({i for n in names for i in found[n][2]}))
+        value = timing[key]["value"]
+        held: dict[str, Any] | None = None
+        refusal = ""
+        if key == "sensor_delay":
+            rates = [s for s in _interface_statements(nodes, SENSOR_FLOOR_NAME) if s[2] == "Hz"]
+            rates = [s for s in rates if s[1] > 0]
+            if rates:
+                node, rate, _ = min(rates, key=lambda s: s[1])
+                held = {"name": SENSOR_FLOOR_NAME, "node": node, "value": 1 / rate}
+                if value < held["value"] * (1 - FLOOR_SLACK):
+                    refusal = f"is {value:g} s, below the interface's 1/{SENSOR_FLOOR_NAME}"
+        elif key == "command_limit":
+            limits = [s for s in _interface_statements(nodes, LIMIT_FLOOR_NAME) if s[2] == "1"]
+            if limits:
+                node, limit, _ = min(limits, key=lambda s: s[1])
+                held = {"name": LIMIT_FLOOR_NAME, "node": node, "value": limit}
+                if value > limit * (1 + FLOOR_SLACK):
+                    refusal = f"is {value:g}, above the interface's {LIMIT_FLOOR_NAME}"
+        elif key == "compute_delay":
+            stated = [_interface_statements(nodes, n) for n in names]
+            if all(any(u == "s" for _, _, u in s) for s in stated):
+                total = sum(max(v for _, v, u in s if u == "s") for s in stated)
+                node = ", ".join(sorted({n for s in stated for n, _, _ in s}))
+                held = {"name": "+".join(names), "node": node, "value": total}
+        else:
+            rates = [s for s in _interface_statements(nodes, PERIOD_REFERENCE_NAME) if s[2] == "Hz"]
+            if rates and rates[0][1] > 0:
+                held = {
+                    "name": PERIOD_REFERENCE_NAME,
+                    "node": rates[0][0],
+                    "value": 1 / rates[0][1],
+                }
+        if refusal:
+            msg = f"{what} {refusal}; a law file may not make it kinder than the run's interface"
+            raise law_module.LawRefused("delay_or_limit_not_stated_by_the_interface", msg)
+        report[key] = {
+            "names": list(names),
+            "nodes": list(ids),
+            "writers": sorted({w for n in names for w in _writers(nodes, n, found[n][2])}),
+            "value": value,
+            "unit": timing[key]["unit"],
+            "held_against": held,
+            "no_interface_statement": held is None,
+        }
+    return timing, report
+
+
 def _law_controller(
     file: law_module.LawFile,
     found: Mapping[str, tuple[Any, str, tuple[str, ...]]],
     supplied: Mapping[str, tuple[float | int, str]],
-) -> tuple[dict[str, Any], law_module.Verified]:
-    """The answer's controller from the law file and the graph, and what its vectors verified.
+    nodes: Mapping[str, dict[str, Any]],
+) -> tuple[dict[str, Any], law_module.Verified, dict[str, dict[str, Any]]]:
+    """The answer's controller from the law file and the graph, what its vectors verified, timing.
 
     Raises:
-        law_module.LawRefused: the units do not balance, or a vector is not reproduced.
+        law_module.LawRefused: the units do not balance, the timing is kinder than the
+            interface's, or a vector is not reproduced.
     """
-    timing = {
-        "period": _quantity(file.period, found, "the period", "s"),
-        "command_limit": _quantity(file.command_limit, found, "the command limit", "1"),
-        "sensor_delay": _quantity(file.sensor_delay, found, "the sensor delay", "s"),
-        "compute_delay": _quantity(file.compute_delay, found, "the compute delay", "s"),
-    }
+    timing, report = _timing(file, found, nodes)
     coefficients = {
         name: {"value": found[quantity][0], "unit": found[quantity][1]}
         for name, quantity in sorted(file.coefficients.items())
@@ -749,12 +882,18 @@ def _law_controller(
     body = file.model_dump(
         mode="json", include={"memory", "lines", "command"}, exclude_defaults=True
     )
-    return {
-        "structure": LAW_STRUCTURE,
-        **timing,
-        "coefficients": coefficients,
-        **body,
-    }, verified
+    flagged = sorted(key for key, row in report.items() if row["no_interface_statement"])
+    return (
+        {
+            "structure": LAW_STRUCTURE,
+            **timing,
+            "no_interface_statement": flagged,
+            "coefficients": coefficients,
+            **body,
+        },
+        verified,
+        report,
+    )
 
 
 def _json_bytes(body: dict[str, Any]) -> bytes:
@@ -773,6 +912,7 @@ def _record_bytes(export: Export, out: Path) -> bytes:
         "law_path",
         "vector_rows",
         "law_signals",
+        "law_timing",
         "supplied",
     }
     left = set() if export.structure == LAW_STRUCTURE else law_fields

@@ -25,6 +25,12 @@ and a file that tries is refused by name (``nonlinear``) rather than scored.
 - ``wheel_reference``, the wheel angle the law holds, rad: zero in the loop the scorer analyses
   (the loop is judged on deviations from its reference) and the vector's own in a test vector.
 
+**What the vectors do not check.** The signals are already in rad and rad/s: the conversion
+from the sensors' counts to physical units (the encoder's counts per wheel revolution, the
+gyro's full scale and sensitivity) takes part in nothing the scorer simulates for a law, and
+the test vectors carry the converted numbers, so a wrong counts-to-rad conversion in the
+transcription is invisible to them. The export's record says so beside the settings it reads.
+
 A design that needs a signal outside the list (an accelerometer's tilt, say) is out of the
 scorer's scope, refused by name (``out_of_scope``) and never scored as a fail.
 
@@ -99,7 +105,8 @@ class LawRefused(Exception):  # noqa: N818 - a refusal by name, not an error of 
 
     ``code`` is one of ``malformed``, ``nonlinear``, ``out_of_scope``, ``units_do_not_balance``,
     ``coefficient_not_held``, ``vector_not_reproduced``, ``vectors_too_few``,
-    ``vectors_do_not_exercise``, ``vectors_do_not_pin`` and ``answer_not_valid``; ``detail`` says
+    ``vectors_do_not_exercise``, ``vectors_do_not_pin``, ``answer_not_valid`` and
+    ``delay_or_limit_not_stated_by_the_interface``; ``detail`` says
     what, in words.
     """
 

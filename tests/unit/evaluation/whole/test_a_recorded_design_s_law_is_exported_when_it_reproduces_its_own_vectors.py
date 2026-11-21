@@ -97,10 +97,12 @@ def _repo(tmp_path: Path, *versions: bytes | None) -> tuple[Path, list[str]]:
     return repo, commits
 
 
-def _node(node_id: str, values: Values, owner: str, domain: str) -> dict[str, Any]:
+def _node(
+    node_id: str, values: Values, owner: str, domain: str, kind: str = "module"
+) -> dict[str, Any]:
     return {
         "id": node_id,
-        "kind": "module",
+        "kind": kind,
         "domain": domain,
         "owner_role": owner,
         "quantities": {
@@ -121,6 +123,7 @@ def _run(
     *,
     coefficients: Values | None = None,
     settings: Values | None = None,
+    interface: dict[str, Values] | None = None,
 ) -> Path:
     run = Path(os.path.realpath(tmp_path)) / "run"
     (run / "store").mkdir(parents=True)
@@ -141,6 +144,10 @@ def _run(
                 SETTINGS if settings is None else settings,
                 "firmware",
                 "firmware",
+            ),
+            *(
+                _node(node_id, values, _OWNERS.get(node_id, "firmware"), "cross", "interface")
+                for node_id, values in (interface or {}).items()
             ),
         ):
             assert store.write_node(node, node["owner_role"]).accepted
@@ -165,7 +172,9 @@ def _bytes(document: dict[str, Any]) -> bytes:
 def _export(tmp_path: Path, law: bytes | None = None, **kwargs: Any) -> tuple[Any, Path, Path, str]:
     repo, (commit,) = _repo(tmp_path, _LAW.read_bytes() if law is None else law)
     run = _run(
-        tmp_path, commit, **{k: v for k, v in kwargs.items() if k in ("coefficients", "settings")}
+        tmp_path,
+        commit,
+        **{k: v for k, v in kwargs.items() if k in ("coefficients", "settings", "interface")},
     )
     out = _out(tmp_path)
     record = export_whole_run(run, out, repository=repo, supplied=kwargs.get("supplied"))
@@ -730,6 +739,136 @@ def test_a_loop_quantity_held_in_another_unit_than_the_loop_takes_is_refused(
         coefficients={**COEFFICIENTS, "duty_cycle": (0.9425, "count")},
     )
     assert "duty_cycle" in record.law_detail or "command limit" in record.law_detail
+
+
+# ── the loop's delays and limit may not be kinder than the run's interface states ───────────
+
+_OWNERS = {"firmware.timing": "firmware", "drive.train": "mechanical"}
+INTERFACE: dict[str, Values] = {
+    "firmware.timing": {
+        "update_rate": (100, "Hz"),
+        "output_data_rate": (208, "Hz"),
+        "update_lateness_bound": (0.001, "s"),
+        "computation_delay_bound": (0.003, "s"),
+    },
+    "drive.train": {"duty_cycle": (0.9425, "1")},
+}
+
+
+def _timing_from(document: dict[str, Any], name: str, source: dict[str, Any]) -> bytes:
+    document[name] = source
+    return _bytes(document)
+
+
+def test_a_sensor_delay_of_a_1_ms_quantity_is_refused_against_the_interface_s_208_hz(
+    tmp_path: Path,
+) -> None:
+    document = _file()
+    document["coefficients"]["fast_delay"] = "fast_delay"
+    document["sensor_delay"] = {"quantity": "fast_delay"}
+    record = _refused(
+        tmp_path,
+        "delay_or_limit_not_stated_by_the_interface",
+        law=_bytes(document),
+        coefficients={**COEFFICIENTS, "fast_delay": (0.001, "s")},
+        interface=INTERFACE,
+    )
+    assert "sensor delay" in record.law_detail
+    assert "output_data_rate" in record.law_detail
+
+
+def test_a_compute_delay_pointing_at_a_quantity_only_control_holds_is_flagged_not_refused(
+    tmp_path: Path,
+) -> None:
+    # No catalogue name gives the compute delay's floor, so only where the quantity comes from is
+    # checked: a quantity no interface holds is exported with the no-statement flag.
+    document = _file()
+    document["coefficients"]["short_delay"] = "short_delay"
+    document["compute_delay"] = {"quantity": "short_delay"}
+    record, _, _, _ = _export(
+        tmp_path,
+        _bytes(document),
+        coefficients={**COEFFICIENTS, "short_delay": (0.001, "s")},
+        interface=INTERFACE,
+    )
+    assert record.status == "exported"
+    assert record.law_timing["compute_delay"]["no_interface_statement"] is True
+    assert record.law_timing["compute_delay"]["writers"] == ["control"]
+
+
+def test_a_command_limit_above_the_interface_s_is_refused(tmp_path: Path) -> None:
+    document = _file()
+    document["coefficients"]["my_limit"] = "my_limit"
+    document["command_limit"] = {"quantity": "my_limit"}
+    record = _refused(
+        tmp_path,
+        "delay_or_limit_not_stated_by_the_interface",
+        law=_bytes(document),
+        coefficients={**COEFFICIENTS, "my_limit": (0.9425, "1")},
+        interface={**INTERFACE, "drive.train": {"duty_cycle": (0.9, "1")}},
+    )
+    assert "command limit" in record.law_detail
+
+
+def test_a_larger_delay_and_a_smaller_limit_are_accepted_as_pessimistic(tmp_path: Path) -> None:
+    document = _file()
+    document["coefficients"]["slow_delay"] = "slow_delay"
+    document["sensor_delay"] = {"quantity": "slow_delay"}
+    record, out, _, _ = _export(
+        tmp_path,
+        _bytes(document),
+        coefficients={**COEFFICIENTS, "slow_delay": (0.02, "s")},
+        interface=INTERFACE,
+    )
+    assert record.status == "exported", (record.law_reason, record.law_detail)
+    assert record.law_timing["sensor_delay"]["value"] == 0.02
+
+
+def test_a_copy_equal_to_the_interface_is_the_floor_applied_and_the_flag_is_absent(
+    tmp_path: Path,
+) -> None:
+    record, out, _, _ = _export(tmp_path, interface=INTERFACE)
+    assert record.status == "exported"
+    assert record.law_timing["sensor_delay"] == {
+        "names": ["output_data_rate"],
+        "nodes": ["control.balance_controller", "firmware.timing"],
+        "writers": ["control", "firmware"],
+        "value": 1 / 208,
+        "unit": "s",
+        "held_against": {"name": "output_data_rate", "node": "firmware.timing", "value": 1 / 208},
+        "no_interface_statement": False,
+    }
+    for key in ("period", "sensor_delay", "compute_delay", "command_limit"):
+        assert record.law_timing[key]["no_interface_statement"] is False, key
+    answer = json.loads(out.read_bytes())
+    assert answer["controller"]["no_interface_statement"] == []
+    assert json.loads(record_path(out).read_text())["law_timing"]["command_limit"][
+        "held_against"
+    ] == {"name": "duty_cycle", "node": "drive.train", "value": 0.9425}
+
+
+def test_a_run_whose_interface_states_nothing_is_exported_with_the_flag_on_each_setting(
+    tmp_path: Path,
+) -> None:
+    record, out, _, _ = _export(tmp_path)
+    assert record.status == "exported"
+    flagged = ["command_limit", "compute_delay", "period", "sensor_delay"]
+    assert sorted(k for k, v in record.law_timing.items() if v["no_interface_statement"]) == flagged
+    assert json.loads(out.read_bytes())["controller"]["no_interface_statement"] == flagged
+    written = json.loads(record_path(out).read_text())
+    assert all(written["law_timing"][k]["held_against"] is None for k in flagged)
+    assert written["law_timing"]["sensor_delay"]["writers"] == ["control"]
+
+
+def test_a_delay_quantity_held_only_by_control_is_no_statement_and_is_flagged(
+    tmp_path: Path,
+) -> None:
+    # The interface holds the rate but not the two bounds the file names for the compute delay.
+    light = {"firmware.timing": {"output_data_rate": (208, "Hz"), "update_rate": (100, "Hz")}}
+    record, _, _, _ = _export(tmp_path, interface=light)
+    assert record.status == "exported"
+    assert record.law_timing["compute_delay"]["no_interface_statement"] is True
+    assert record.law_timing["sensor_delay"]["no_interface_statement"] is False
 
 
 def test_two_nodes_that_disagree_on_a_coefficient_the_law_reads_are_ambiguous(

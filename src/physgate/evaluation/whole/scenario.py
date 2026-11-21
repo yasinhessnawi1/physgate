@@ -60,7 +60,7 @@ from physgate.evaluation.whole.answer import (
     Answer,
     OutsideScope,
     SampledLaw,
-    read_answer,
+    read_answer_scoped,
 )
 from physgate.evaluation.whole.convert import ScaleFactor, SiLoop, coefficients, to_si
 from physgate.evaluation.whole.plant import (
@@ -151,7 +151,9 @@ def _relative(a: float, b: float) -> float:
     return abs(a - b) / abs(b)
 
 
-def _static(answer: Answer, metric: str) -> tuple[float | None, str | None]:
+def _static(
+    answer: Answer, metric: str, refused: OutsideScope | None = None
+) -> tuple[float | None, str | None]:
     """A static metric's value, or ``None`` with the reason it has none."""
     p, c = answer.parameters, answer.controller
     si = to_si(c, p, wheel_radius=ScaleFactor("wheel_radius", 1.0, "m", "unused"))
@@ -171,6 +173,8 @@ def _static(answer: Answer, metric: str) -> tuple[float | None, str | None]:
     }
     if metric != "coefficient_difference":
         return values[metric](), None
+    if refused is not None:
+        return None, f"the analysed controller is out of the scorer's reach ({refused}); not judged"
     analysed = answer.analysed_controller
     if analysed is None:
         return None, (
@@ -241,6 +245,7 @@ class WholeDesignScenario:
         self._task = task
         self._plant = parse_plant(plant)
         self._root = root
+        self._analysed_refusal: OutsideScope | None = None
         self._plant_digest = hashlib.sha256(plant).hexdigest()
         self._plant_version = FROZEN_PLANTS.get(self._plant_digest)
         if draft and self._plant.status != "draft":
@@ -279,7 +284,7 @@ class WholeDesignScenario:
             },
         }
         try:
-            read = read_answer(answer, root=self._root)
+            read, analysed_refusal = read_answer_scoped(answer, root=self._root)
         except OutsideScope as exc:
             # A law that is not linear, or reads a signal outside the closed list, is refused by
             # name: the scorer cannot judge it, which is no verdict on the design.
@@ -291,6 +296,14 @@ class WholeDesignScenario:
             record.update(answer_valid=False, reason=str(exc), specs=[], outcome="fail")
             return record
         record.update(answer_valid=True, structure=read.controller.structure)
+        self._analysed_refusal = analysed_refusal
+        if analysed_refusal is not None:
+            record["analysed_refusal"] = {
+                "name": analysed_refusal.name,
+                "reason": str(analysed_refusal),
+            }
+        if isinstance(read.controller, SampledLaw):
+            record["no_interface_statement"] = list(read.controller.no_interface_statement)
         work = self._work(read)
         record["work"] = {name: _quantity(value, "1") for name, value in work.items()}
         record["work"]["bound"] = _quantity(MAX_WORK, "1")
@@ -385,11 +398,13 @@ class WholeDesignScenario:
             "counts": spec.counts,
             "composes": list(spec.composes),
         }
+        if isinstance(read.controller, SampledLaw):
+            row["no_interface_statement"] = list(read.controller.no_interface_statement)
         if kind == "dynamic":
             row.update(verdict="unscored", measured=None, reason=DYNAMIC_REASON)
             return row
         if kind == "static":
-            value, reason = _static(read, spec.metric)
+            value, reason = _static(read, spec.metric, self._analysed_refusal)
             if value is None:
                 # Not judged either way: criterion 19's relative difference of 0 is taken
                 # coefficient by coefficient, and two structures share no coefficient.

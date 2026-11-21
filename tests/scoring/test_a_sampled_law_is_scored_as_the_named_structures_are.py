@@ -787,3 +787,82 @@ def test_two_laws_with_the_same_coefficients_and_different_lines_are_not_compare
     row = {r["name"]: r for r in scenario.record(path)["specs"]}["same"]
     assert row["verdict"] == "unscored", row
     assert "differ in their lines" in row["reason"]
+
+
+# ── a scope refusal is unscored only for an answer that is otherwise valid ──────────────────
+
+
+def _out_of_scope(controller: dict[str, Any]) -> dict[str, Any]:
+    twisted = copy.deepcopy(controller)
+    command = next(x for x in twisted["lines"] if x["name"] == "command")
+    command["terms"][0]["of"] = "accelerometer_tilt"
+    return twisted
+
+
+def _record_of(tmp_path: Path, document: dict[str, Any]) -> dict[str, Any]:
+    scenario, root = _scenario(tmp_path, copy.deepcopy(SPECS))
+    path = root / "scope.json"
+    path.write_text(json.dumps(document))
+    return scenario.record(path)
+
+
+def test_an_answer_invalid_for_another_reason_is_a_fail_whatever_its_law_says(
+    tmp_path: Path,
+) -> None:
+    document = json.loads(_answer(_out_of_scope(_recorded_controller()), 3))
+    document["parameters"]["update_rate"] = _m(-5, "Hz")
+    record = _record_of(tmp_path, document)
+    assert record["outcome"] == "fail"
+    assert record["answer_valid"] is False
+    assert "refusal" not in record
+
+
+def test_an_unstable_primary_with_an_analysed_law_out_of_scope_is_a_fail(tmp_path: Path) -> None:
+    primary = _recorded_controller()
+    primary["coefficients"]["k_theta"]["value"] = 1.0  # the wrong sign: it falls over
+    document = json.loads(_answer(primary, 3))
+    document["analysed_controller"] = _out_of_scope(_recorded_controller())
+    record = _record_of(tmp_path, document)
+    rows = {r["name"]: r for r in record["specs"]}
+    assert rows["pm"]["verdict"] == "fail"
+    assert record["outcome"] == "fail"
+
+
+def test_a_scorable_primary_with_an_analysed_law_out_of_scope_is_judged_not_failed(
+    tmp_path: Path,
+) -> None:
+    document = json.loads(_answer(_recorded_controller(), 3))
+    document["analysed_controller"] = _out_of_scope(_recorded_controller())
+    record = _record_of(tmp_path, document)
+    rows = {r["name"]: r for r in record["specs"]}
+    assert rows["pm"]["verdict"] == "pass"
+    assert rows["up"]["verdict"] == "pass"
+    assert rows["same"]["verdict"] == "unscored"
+    assert "out of the scorer's reach" in rows["same"]["reason"]
+    assert record["analysed_refusal"]["name"] == "out_of_scope"
+    assert record["outcome"] == "unscored"
+    assert "refusal" not in record
+
+
+def test_a_valid_answer_whose_primary_law_is_out_of_scope_is_unscored_by_name(
+    tmp_path: Path,
+) -> None:
+    document = json.loads(_answer(_out_of_scope(_recorded_controller()), 3))
+    record = _record_of(tmp_path, document)
+    assert record["refusal"]["name"] == "out_of_scope"
+    assert record["outcome"] == "unscored"
+    assert record["specs"] == []
+
+
+def test_the_no_statement_flag_reaches_every_row_and_the_record(tmp_path: Path) -> None:
+    flagged = _recorded_controller()
+    flagged["no_interface_statement"] = ["command_limit", "sensor_delay"]
+    record = _record_of(tmp_path, json.loads(_answer(flagged, 3)))
+    assert record["no_interface_statement"] == ["command_limit", "sensor_delay"]
+    assert all(
+        r["no_interface_statement"] == ["command_limit", "sensor_delay"] for r in record["specs"]
+    )
+    (tmp_path / "held").mkdir()
+    held = _record_of(tmp_path / "held", json.loads(_answer(_recorded_controller(), 3)))
+    assert held["no_interface_statement"] == []
+    assert all(r["no_interface_statement"] == [] for r in held["specs"])

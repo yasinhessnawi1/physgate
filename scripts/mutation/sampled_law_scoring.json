@@ -234,8 +234,8 @@
   {
     "name": "a_law_out_of_scope_is_named_malformed",
     "file": "src/physgate/evaluation/whole/answer.py",
-    "old": "raise OutsideScope(msg, name=exc.code, where=where) from exc",
-    "new": "raise OutsideScope(msg, name=\"malformed\", where=where) from exc",
+    "old": "refused[key] = OutsideScope(msg, name=exc.code, where=where)",
+    "new": "refused[key] = OutsideScope(msg, name=\"malformed\", where=where)",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
     ]
@@ -254,6 +254,51 @@
     "file": "src/physgate/evaluation/whole/law.py",
     "old": "{k: Fraction(v) for k, v in _coefficients(values, period).items()}",
     "new": "{k: Fraction(round(v, 6)) for k, v in _coefficients(values, period).items()}",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "the_record_drops_the_flag",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "            record[\"no_interface_statement\"] = list(read.controller.no_interface_statement)\n",
+    "new": "            record[\"no_interface_statement\"] = []\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "a_row_drops_the_flag",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "            row[\"no_interface_statement\"] = list(read.controller.no_interface_statement)\n",
+    "new": "            row[\"no_interface_statement\"] = []\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "an_analysed_law_out_of_scope_is_not_said",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "    if refused is not None:\n        return None,",
+    "new": "    if False:\n        return None,",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "the_rest_of_the_answer_is_not_validated",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    answer = _validate(model, json.dumps(probe), where)\n",
+    "new": "    answer = None  # type: ignore[assignment]\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "an_analysed_refusal_overrides_the_primary",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    if \"controller\" in refused:\n        raise refused[\"controller\"]\n",
+    "new": "    if \"controller\" in refused and \"analysed_controller\" not in refused:\n        raise refused[\"controller\"]\n",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
     ]
