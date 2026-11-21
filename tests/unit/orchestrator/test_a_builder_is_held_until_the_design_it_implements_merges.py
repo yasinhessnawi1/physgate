@@ -31,6 +31,10 @@ import pytest
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeDispatcher, KilledError, Rig
 from orch_helpers import ticking_clock
+from sign_off_rig import (
+    before_the_sign_off_rule,  # noqa: F401 - the fixture, by name
+    sign_every_open_item,
+)
 from test_a_blocked_review_is_a_review_that_goes_to_a_person import blocked_review
 from test_a_choice_on_a_failed_contract_reopens_the_other_module import of, requests_of
 from test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item import (
@@ -70,6 +74,10 @@ from physgate.orchestrator.replay import replay
 from physgate.orchestrator.usage_limit import UsageLimit
 from physgate.oslayer.probe import Present
 from physgate.state.store import journal_records_after
+
+#: A row about the hold and the release, not about the sign-off the designer's merge owes: its
+#: run starts as one recorded before the rule table, which owes none.
+BEFORE_THE_RULE = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 ACTS = {
     "queue_decisions": "act",
@@ -270,6 +278,7 @@ def test_taken_over_with_nothing_decided_the_run_waits_again_and_writes_no_secon
 # --- the designer merges after a decision: the builder runs on the merged design -----------------
 
 
+@BEFORE_THE_RULE
 def test_the_designer_merged_after_an_approve_and_the_builder_then_runs_on_its_merge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -294,6 +303,27 @@ def test_the_designer_merged_after_an_approve_and_the_builder_then_runs_on_its_m
     assert refusal(rows) is None
 
 
+def test_the_designer_merged_after_an_approve_owes_its_sign_off_and_the_run_ends_once_it_is_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = rigged(tmp_path)
+    assert first_run(rig, monkeypatch) == "wait"
+    decide(rig.run_dir, "approve", item_id=drive_item(lines(rig)))
+    # The builder is let go and runs on the merge; the run then waits for a person's signature
+    # on the designer's values before integration is called.
+    assert resumed(rig, monkeypatch) == "wait"
+    rows = lines(rig)
+    assert len(of(rows, "builder_released")) == 1
+    assert of(rows, "integration_gate_ran") == []
+    assert sign_every_open_item(rig.run_dir)
+    assert resumed(rig, monkeypatch) == "done"
+    rows = lines(rig)
+    assert len(of(rows, "builder_released")) == 1
+    assert len(of(rows, "integration_gate_ran")) == 1
+    assert open_holds(replay(read_events(rig.run_dir / "events.jsonl"))) == []
+    assert refusal(rows) is None
+
+
 #: The last run's two specifications, cut to the words that say one module runs what the other
 #: designs: control's own node, which firmware's specification names as the design it implements.
 CONTROL_SPEC = (
@@ -314,6 +344,7 @@ FIRMWARE_SPEC = (
 )
 
 
+@BEFORE_THE_RULE
 def test_the_last_run_s_plan_holds_firmware_while_control_waits_and_runs_it_on_control_s_merge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -347,6 +378,7 @@ def test_the_last_run_s_plan_holds_firmware_while_control_waits_and_runs_it_on_c
 
 
 @pytest.mark.parametrize("first", ["control", "firmware"])
+@BEFORE_THE_RULE
 def test_two_modules_naming_each_other_s_node_hold_and_release_as_a_plain_pair_in_plan_order(
     first: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -559,6 +591,7 @@ def test_a_run_that_records_only_holds_a_chain_for_good_and_goes_on_to_its_integ
     assert refusal(rows) is None
 
 
+@BEFORE_THE_RULE
 def test_a_chain_is_let_go_link_by_link_as_each_designer_merges(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -607,6 +640,7 @@ def limited_on(call: int, tmp_path: Path) -> LimitDispatcher:
     )
 
 
+@BEFORE_THE_RULE
 def test_a_usage_limit_halt_while_a_builder_is_held_resumes_to_the_same_hold_and_its_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: list[datetime]
 ) -> None:
@@ -643,6 +677,7 @@ def test_a_usage_limit_halt_while_a_builder_is_held_resumes_to_the_same_hold_and
     assert refusal(rows) is None
 
 
+@BEFORE_THE_RULE
 def test_a_usage_limit_halt_in_the_designer_s_fix_keeps_the_hold_until_the_fix_merges(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: list[datetime]
 ) -> None:
@@ -690,6 +725,7 @@ def blocked_on_its_last_attempt(tmp_path: Path, *, fix: str) -> Rig:
     return rig
 
 
+@BEFORE_THE_RULE
 def test_the_designer_s_fix_merges_and_only_then_is_the_builder_let_go(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -740,6 +776,7 @@ def test_a_fix_not_accepted_ends_the_designer_and_the_hold_says_so_with_no_item(
     assert refusal(rows) is None
 
 
+@BEFORE_THE_RULE
 def test_the_fix_goes_to_a_person_again_and_the_hold_moves_to_the_new_item(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -826,6 +863,7 @@ def same_lines(rig: Rig, reference: Rig) -> None:
     assert text(rig) == text(reference)
 
 
+@BEFORE_THE_RULE
 def test_a_kill_at_the_hold_or_the_release_resumes_to_the_lines_of_the_uninterrupted_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
