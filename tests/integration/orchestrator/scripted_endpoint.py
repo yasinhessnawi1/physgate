@@ -96,6 +96,34 @@ class Recorded:
     #: The text of what the binary placed after the last user turn: a hook's context
     #: after a failed tool call arrives there, as a ``system`` message.
     after_user: str = ""
+    #: The beta flags the request named, sorted, and its context management, as sent.
+    anthropic_beta: tuple[str, ...] = ()
+    context_management: dict[str, Any] | None = None
+    #: The tools the request names for loading on demand: each tool entry marked
+    #: ``defer_loading``, and each name the binary lists in its text as reachable through the
+    #: search step. A tool deferred so is offered too, only not in the tools list.
+    deferred_tools: tuple[str, ...] = ()
+
+
+#: How the binary lists the tools it defers behind its search step, in the conversation's text
+#: (measured on 2.1.322, and on 2.1.301 with tool search turned on): one name a line after this.
+_DEFERRED_LISTING = re.compile(
+    r"deferred tools are now available via ToolSearch\..*?calling them:\n(.*?)</system-reminder>",
+    re.DOTALL,
+)
+
+
+def deferred_tools(body: dict[str, Any]) -> tuple[str, ...]:
+    """The tools ``body`` defers: marked ``defer_loading``, or listed for the search step."""
+    marked = {t.get("name", "") for t in body.get("tools") or [] if t.get("defer_loading")}
+    text = "\n".join(_text_of(m.get("content")) for m in body.get("messages") or [])
+    listed = {
+        name.strip()
+        for block in _DEFERRED_LISTING.findall(text)
+        for name in block.splitlines()
+        if name.strip()
+    }
+    return tuple(sorted(marked | listed))
 
 
 def _text_of(content: Any) -> str:  # noqa: ANN401 - the Messages API's own content shape
@@ -376,6 +404,10 @@ def _with_last_result(step: dict[str, Any], messages: list[dict[str, Any]]) -> d
     return {**step, "input": {k: line if v == LAST_JSON_LINE else v for k, v in inputs.items()}}
 
 
+def _betas(headers: Any) -> tuple[str, ...]:  # noqa: ANN401 - the server's own header type
+    return tuple(sorted(b for b in (headers.get("anthropic-beta") or "").split(",") if b))
+
+
 class FakeMessagesApi:
     """The server, its script and its record of every request."""
 
@@ -387,6 +419,8 @@ class FakeMessagesApi:
         self.failures: list[str] = []
         #: Every request refused as the API refuses it (``refused_tools``), with the message.
         self.refusals: list[str] = []
+        #: The beta flags each refused request named, sorted, in the order they arrived.
+        self.refused_betas: list[tuple[str, ...]] = []
         #: Called before a scripted tool-offering request is answered, with the thread,
         #: the session's working directory and how many tool results it carries. It may
         #: block: that holds the request open, as a model that has not answered yet. It
@@ -400,6 +434,7 @@ class FakeMessagesApi:
         refused = refused_tools(body.get("tools") or [])
         if refused is not None:
             self.refusals.append(refused)
+            self.refused_betas.append(_betas(headers))
             shaped = {
                 "type": "error",
                 "error": {"type": "invalid_request_error", "message": refused},
@@ -464,6 +499,9 @@ class FakeMessagesApi:
                     effort=(body.get("output_config") or {}).get("effort"),
                     max_tokens=body.get("max_tokens"),
                     thinking=body.get("thinking"),
+                    anthropic_beta=_betas(headers),
+                    context_management=body.get("context_management"),
+                    deferred_tools=deferred_tools(body),
                 )
             )
         if "error" in reply:

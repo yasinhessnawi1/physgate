@@ -14,19 +14,35 @@ without being read. ``--show-ids`` prints the ids themselves, only where every t
 tier is a visible one. It exits 1 if a task is refused, a brief gives its answer away, or
 the tier does not hold ``N`` tasks.
 
-``physgate per-role author --role control --held-out-root R --visible V --work W --seed N``
-runs one authoring session on ``--author-model`` (never the implementers' model), splits
-the tasks that hold into the visible tier ``V`` and the held-out tier ``R/<role>``, and
-prints counts, the visible ids and the held-out tier's digest only. ``physgate per-role
-blind-check --role control --held-out-root R --work W`` runs the blind yes/no check on the
-held-out tier and prints counts and the digests of flagged tasks only. Both read the
-credential from the environment variable its auth mode names, refuse where the OS layer
-is absent, and call a model unless ``--endpoint`` names a scripted one.
+``physgate per-role author --role control --store S --work W --seed N`` runs one authoring
+session on ``--model`` (never the implementers' model), withholding the role's root
+``S/<role>``, pools the tasks that hold there, and once twenty-four are pooled writes them as
+a new version ``S/<role>/<version>/`` (visible, validation and held-out tiers, each of eight,
+and the manifest); it prints counts, the version id, the visible ids and the protected tiers'
+digests only. ``physgate per-role blind-check --role control --store S --version V --work W``
+runs the blind yes/no check on that version's held-out tier and prints counts and the digests
+of flagged tasks only; it leaves the same as the version's check record beside the version
+(``S/<role>/<V>.check.json``), written once, and refuses a version that has one. Both read the
+credential from the environment variable its auth mode names, refuse where the OS layer is
+absent, and call a model unless ``--endpoint`` names a scripted one.
 
-``physgate per-role report --design D --trials T [--out O]`` writes the per-role table of
-the trial records in ``T`` (one JSON object per line) under the registered design ``D``,
-to ``O`` or the standard output. It exits 1, writing nothing, if the records are not every
-trial the design registered, once each, or a published number lacks its record.
+``physgate per-role record-check --role control --store S --version V --implementer-model I
+[--from F]`` is for a version whose check ran before checks kept their record: it derives the
+version's check record from the check's session as the store keeps it (its stream, beneath the
+role's withheld root), once, before anything has measured, seen or run on the version. The
+answer is what the stream shows the session wrote to its answer file; the flagged tasks are
+computed again from it and the version's held-out tier; the model, the binary, the time and the
+spend are the session's own. ``F``, the file holding what that check printed (its last line is
+the answer), must agree with it exactly where it is given. Only the implementers' model is
+stated by the person importing, and the record says it was imported. It prints counts and the
+record's digest only, and calls no model.
+
+``physgate per-role report --design D --trials T [--out O] [--store S]`` writes the per-role
+table of the trial records in ``T`` (one JSON object per line) under the registered design
+``D``, to ``O`` or the standard output. A held-out suite that names its tier version is held
+to that version's check record in the store ``S``, and leaves out what it flagged. It exits 1,
+writing nothing, if the records are not every trial the design registered, once each, a
+published number lacks its record, or such a suite's version has no check record.
 
 The scorer's numerical libraries are the evaluation group's, which the hooks' own
 installation does not carry; so this module imports them only when a command runs, and
@@ -40,7 +56,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 CATEGORY_CHOICES = ("second_order_unstable", "higher_order", "first_order_w_delay")
 
@@ -60,14 +76,32 @@ def add_parser(subparsers: Any) -> None:
     val.add_argument("--tasks", type=int, default=8)
     val.add_argument("--show-ids", action="store_true")
     val.set_defaults(func=_validate)
+    rec = commands.add_parser(
+        "record-check",
+        help="derive an earlier blind check's record from its kept session, once",
+    )
+    rec.add_argument("--role", choices=("control",), required=True)
+    rec.add_argument("--store", type=Path, required=True)
+    rec.add_argument("--version", required=True)
+    # The one JSON line the earlier check printed, in a file of its own: held to what the kept
+    # session shows, never taken in its place.
+    rec.add_argument("--from", dest="printed", type=Path)
+    # The implementers' model, which the kept session's own model is held apart from: the one
+    # thing its session does not record.
+    rec.add_argument("--implementer-model", required=True)
+    rec.set_defaults(func=_record_check)
     for name, func, text in (
         ("author", _author, "run one authoring session and split its tasks into tiers"),
         ("blind-check", _blind_check, "run the blind yes/no check on a held-out tier"),
     ):
         sub = commands.add_parser(name, help=text)
         sub.add_argument("--role", choices=("control",), required=True)
-        sub.add_argument("--held-out-root", type=Path, required=True)
+        # The tier-set store: the author's session withholds it whole, the check's all of it
+        # but its own work.
+        sub.add_argument("--store", type=Path, required=True)
         sub.add_argument("--withhold", type=Path, action="append", default=[])
+        # Outside every protected root. The author works there; the blind check works under
+        # the role's work root in the store, and only its hook installation is put here.
         sub.add_argument("--work", type=Path, required=True)
         sub.add_argument("--model", default="claude-sonnet-5")
         sub.add_argument("--implementer-model", default="claude-opus-5-5")
@@ -88,23 +122,26 @@ def add_parser(subparsers: Any) -> None:
             # The interpreter the arms' sessions get, with the scorer's libraries: the
             # author computes with them, though the scorer itself is never given.
             sub.add_argument("--role-python", required=True)
-            sub.add_argument("--visible", type=Path, required=True)
             sub.add_argument("--seed", type=int, required=True)
-            sub.add_argument("--count", type=int, default=16)
+            sub.add_argument("--count", type=int, default=24)
             # The session is stopped once this many tokens pass without a new task
             # holding (an eighth of the cap when not given), and when no task holds after
-            # a quarter of the cap. Tasks that hold are pooled inside the protected root
-            # across sessions; the tiers are cut once sixteen are pooled.
+            # a quarter of the cap. Tasks that hold are pooled in the role's root across
+            # sessions; a version is cut once twenty-four are pooled.
             sub.add_argument("--per-task-cap", type=int)
             # What every id this session writes begins with, so sessions pooled together
             # never write the same id. When not given: "b<n>." with n the number of
-            # authoring sessions already recorded under the protected root, plus one.
+            # authoring sessions already recorded under the role's root, plus one.
             sub.add_argument("--id-prefix")
+        else:
+            sub.add_argument("--version", required=True)
         sub.set_defaults(func=func)
     rep = commands.add_parser("report", help="the per-role table of a run's trial records")
     rep.add_argument("--design", type=Path, required=True)
     rep.add_argument("--trials", type=Path, required=True)
     rep.add_argument("--out", type=Path)
+    # The tier-set store whose check records a held-out suite naming its version is held to.
+    rep.add_argument("--store", type=Path)
     rep.set_defaults(func=_report)
 
 
@@ -144,18 +181,31 @@ def _controleval(args: argparse.Namespace) -> int:
 
 
 def _report(args: argparse.Namespace) -> int:
+    from physgate.evaluation.per_role.exceptions import PerRoleError
     from physgate.evaluation.per_role.report import (
-        ReportError,
         parse_design,
         parse_trials,
         render,
     )
+    from physgate.evaluation.tiers.checks import CheckRecord, read_check
+    from physgate.evaluation.tiers.manifest import read_version
+    from physgate.evaluation.tiers.store import version_dir
 
     try:
         design = parse_design(args.design.read_bytes())
         records = parse_trials(args.trials.read_text(encoding="utf-8").splitlines())
-        text = render(design, records)
-    except ReportError as exc:
+        checks: dict[str, CheckRecord] = {}
+        if args.store is not None:
+            store = args.store.resolve()
+            for suite in design.suites:
+                if suite.tier == "held_out" and suite.version is not None:
+                    # Held to the version's manifest: its held-out tier's digest and count.
+                    manifest = read_version(version_dir(store, suite.role, suite.version))
+                    found = read_check(store, suite.role, suite.version, manifest=manifest)
+                    if found is not None:
+                        checks[suite.version] = found
+        text = render(design, records, checks=checks)
+    except PerRoleError as exc:
         print(f"no report: {exc}", file=sys.stderr)
         return 1
     if args.out is None:
@@ -176,6 +226,27 @@ def _validate(args: argparse.Namespace) -> int:
 
 #: The checkout this command runs from: its hooks are copied for the session to run.
 CHECKOUT = Path(__file__).resolve().parents[4]
+#: How every authoring and checking session this command starts asks the model.
+EFFORT: Final = "high"
+MAX_OUTPUT_TOKENS: Final = 64000
+
+
+def session_held_out(args: argparse.Namespace) -> tuple[str, ...]:
+    """What the command's session withholds.
+
+    An author withholds the whole store: its role's root and every other role's. A blind
+    check works in a directory of its own under the role's work root (``args.check_work``),
+    so it withholds all of the store but that directory (:func:`.tiers.store.check_roots`).
+    The role's root is made first, with its withheld and work roots, so each is withheld as
+    a directory that is there (:func:`.tiers.store.make_role_root`).
+    """
+    from physgate.evaluation.tiers.store import check_roots, make_role_root, role_root
+
+    store = args.store.resolve()
+    make_role_root(role_root(store, args.role))
+    if getattr(args, "func", None) is _blind_check:
+        return tuple(str(p) for p in check_roots(store, args.role, args.check_work))
+    return (str(store),)
 
 
 def _session_setup(args: argparse.Namespace, install: Path) -> Any:
@@ -203,8 +274,8 @@ def _session_setup(args: argparse.Namespace, install: Path) -> Any:
         binary=binary,
         claude_version=version,
         model=args.model,
-        effort="high",
-        max_output_tokens=64000,
+        effort=EFFORT,
+        max_output_tokens=MAX_OUTPUT_TOKENS,
         thinking_display="summarized",
         bounds=RunBounds(
             binary_max_retries=args.binary_max_retries,
@@ -216,8 +287,9 @@ def _session_setup(args: argparse.Namespace, install: Path) -> Any:
         base_url=args.endpoint,
         install_bin=prepare_install(install / "hooks", CHECKOUT),
         role_python=_role_python(getattr(args, "role_python", None)),
-        held_out=(str(args.held_out_root.resolve()),),
+        held_out=session_held_out(args),
         withheld_reads=tuple(str(p.resolve()) for p in args.withhold),
+        # Each command gives the session every canary of the store's roots (``store_canaries``).
         held_out_canaries=(),
         network="none",
         os_layer=layer,
@@ -263,31 +335,32 @@ def _with_install(args: argparse.Namespace, run: Any) -> int:
 def _author(args: argparse.Namespace) -> int:
     import dataclasses
 
-    from physgate.evaluation.per_role.author_session import AuthoringPlan, author, root_canaries
+    from physgate.evaluation.per_role.author_session import AuthoringPlan, author
+    from physgate.evaluation.tiers.canaries import store_canaries
+    from physgate.evaluation.tiers.store import author_evidence
 
     # The paths given are resolved once, before anything runs, so a system link such as
     # macOS's /var is followed here and never met by the split's refusal of links.
-    root = args.held_out_root.resolve()
+    store = args.store.resolve()
     prefix = args.id_prefix
     if prefix is None:
-        evidence = root / f"{args.role}.author"
+        evidence = author_evidence(store, args.role)
         recorded = sum(1 for p in evidence.iterdir() if p.is_dir()) if evidence.is_dir() else 0
         prefix = f"b{recorded + 1}."
     plan = AuthoringPlan(
         role=args.role,
         implementer_model=args.implementer_model,
         work=args.work.resolve(),
-        visible=args.visible.resolve(),
-        held_out_root=root,
+        store=store,
         seed=args.seed,
         cap=args.cap,
         count=args.count,
         per_task_cap=args.per_task_cap,
         id_prefix=prefix,
     )
-    # Every canary the tiers already cut under the root name: the session's record says
+    # Every canary the tiers already cut under every role's root name: the session's record says
     # whether one showed in its stream, and the runner refuses a session not looking.
-    canaries = root_canaries(root)
+    canaries = store_canaries(store)
     return _with_install(
         args,
         lambda setup: author(plan, dataclasses.replace(setup, held_out_canaries=canaries)),
@@ -295,18 +368,91 @@ def _author(args: argparse.Namespace) -> int:
 
 
 def _blind_check(args: argparse.Namespace) -> int:
-    from physgate.evaluation.per_role.author_session import blind_check, held_out_tier
+    import dataclasses
+    import secrets
 
-    root = args.held_out_root.resolve()
+    from physgate.evaluation.per_role.author_session import blind_check
+    from physgate.evaluation.tiers.canaries import store_canaries
+    from physgate.evaluation.tiers.store import work_root
+
+    store = args.store.resolve()
     args.work = args.work.resolve()
+    # Its copy of the held-out tasks lies in the store, where every run withholds it.
+    work = work_root(store, args.role) / f"check-{secrets.token_hex(8)}"
+    args.check_work = work
+    # As the author's: the check looks for every canary every role's root names, and its
+    # answer is not taken unless its record says none showed.
+    canaries = store_canaries(store)
+    commit, clean = _checkout()
     return _with_install(
         args,
         lambda setup: blind_check(
-            held_out_tier(root, args.role),
-            setup,
-            args.work,
+            store,
+            args.role,
+            args.version,
+            dataclasses.replace(setup, held_out_canaries=canaries),
+            work,
             implementer_model=args.implementer_model,
             cap=args.cap,
-            evidence=root / f"{args.role}.check",
+            commit=commit,
+            clean=clean,
         ),
     )
+
+
+def _checkout() -> tuple[str | None, bool | None]:
+    """The commit of the checkout this command runs from and whether it is clean; or unknown."""
+    from physgate.orchestrator.exceptions import OrchestratorError
+    from physgate.orchestrator.run_config import harness_state
+
+    try:
+        state = harness_state(CHECKOUT)
+    except OrchestratorError:
+        return None, None
+    return state.commit, (state.clean if state.commit is not None else None)
+
+
+def _record_check(args: argparse.Namespace) -> int:
+    """Derive an earlier check's record from its kept session, once; counts and a digest only."""
+    from physgate.evaluation.per_role.exceptions import PerRoleError
+    from physgate.evaluation.tiers.checks import MOST_PRINTED_BYTES, counts, import_check
+
+    store = args.store.resolve()
+    printed: bytes | None = None
+    try:
+        if args.printed is not None:
+            # The check's answer is the last line it printed; anything before it is not.
+            with args.printed.open("rb") as handle:
+                lines = handle.read(MOST_PRINTED_BYTES + 1).strip().splitlines()
+            printed = lines[-1].strip() if lines else b""
+        record = import_check(
+            store,
+            args.role,
+            args.version,
+            implementer_model=args.implementer_model,
+            printed=printed,
+        )
+    except OSError as exc:
+        said = {"refused_because": "check_answer_unreadable", "error": str(exc.strerror)}
+        print(json.dumps(said, sort_keys=True))
+        return 1
+    except PerRoleError as exc:
+        # The words are the import's own, fixed: they count, and name no task.
+        reason = exc.context.get("refused_because", "refused")
+        print(json.dumps({"refused_because": reason, "error": str(exc)}, sort_keys=True))
+        return 1
+    except Exception as exc:  # noqa: BLE001 - every refusal ends in words, never a traceback
+        # Not one of the import's own: only its kind is said, since its words may hold anything.
+        said = {"refused_because": "import_failed", "error": type(exc).__name__}
+        print(json.dumps(said, sort_keys=True))
+        return 1
+    done: dict[str, Any] = {
+        "recorded": True,
+        "version": args.version,
+        **counts(record),
+        "kept_session": record.kept.session_id,
+        "bound_by": record.kept.bound_by,
+        "record": record.sha256,
+    }
+    print(json.dumps(done, sort_keys=True))
+    return 0

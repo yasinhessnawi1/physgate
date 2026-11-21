@@ -49,6 +49,23 @@ def test_a_shell_call_waits_until_both_required_files_are_read(tmp_path: Path) -
     assert str(b) in told and str(a) not in told
 
 
+def test_what_the_hook_says_at_a_session_s_start_reaches_its_first_request(tmp_path: Path) -> None:
+    # A hook that lets an event through may add words for the session; at a session's start
+    # that is how it learns what to read first. The words must be in the first request the
+    # binary sends for the session, on each pin.
+    a = tmp_path / "outside" / "docs" / "standards.md"
+    run = run_session(
+        tmp_path,
+        Script(main=[text("end")]),
+        outside_files={"docs/standards.md": DOC},
+        required_reading=(str(a),),
+    )
+    assert run.exit_code == 0, run.stderr
+    first = next(r for r in run.api.requests if r.thread == "main" and r.served is not None)
+    assert "Before any other tool, read each of these files in full" in first.body_text
+    assert str(a) in first.body_text
+
+
 def test_a_document_naming_the_forbidden_flags_can_be_written(tmp_path: Path) -> None:
     # The prose trap: a hook that matches text refuses documents about the
     # thing it forbids. The flags are in the Write's content, never in a command.

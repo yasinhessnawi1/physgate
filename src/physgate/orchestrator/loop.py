@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from physgate.contracts.clause import check_pair
 from physgate.contracts.graph import nodes_at
@@ -39,9 +39,10 @@ from physgate.orchestrator.arbitration import (
     arbitrate,
     dispute_standing,
 )
-from physgate.orchestrator.budget import infra_retry_delay
-from physgate.orchestrator.change_sets import change_history
+from physgate.orchestrator.budget import ATTEMPT_LIMIT, infra_retry_delay
+from physgate.orchestrator.change_sets import change_history, integration_history
 from physgate.orchestrator.common import PLANNED_ID_MAX_LENGTH, SUBTASK_PATTERN, utc_now
+from physgate.orchestrator.completion import sign_off_open
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decisions import (
     SCANNED_SOURCES,
@@ -53,10 +54,13 @@ from physgate.orchestrator.decisions import (
     item_consequence,
     person_order,
     scan_hits_of,
+    sign_off_order,
+    sign_off_reject,
     source_of,
 )
-from physgate.orchestrator.declaration import DeclarationError
+from physgate.orchestrator.declaration import DECLARATION_PATH, DeclarationError
 from physgate.orchestrator.decompose import contracts_of
+from physgate.orchestrator.design_wait import wait_line
 from physgate.orchestrator.dispute import DISPUTES_DIR, UNRECORDABLE, disputer_problem
 from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
 from physgate.orchestrator.escalation_state import RUBRIC_ITEM, escalation_state
@@ -66,6 +70,7 @@ from physgate.orchestrator.events import (
     ArbitrationDecided,
     AttemptRejected,
     AttemptReturned,
+    BoundValue,
     CompletionDeclared,
     ContractItemRaised,
     ContractRuled,
@@ -99,18 +104,32 @@ from physgate.orchestrator.events import (
     Merged,
     ModuleCompleted,
     NodeFilesRepaired,
+    NoFollowUpOwed,
     OsLayerChecked,
     OwedEdge,
+    PartsGateRan,
+    PartsRaisedAgain,
+    PartsReleased,
+    PartsWriteDone,
+    PartsWriteIntended,
     PlanRejected,
     ProposalsChecked,
+    RaisedItem,
+    RaisedPart,
+    ReleasedPart,
     Resumed,
     ReviewRan,
+    ReviewSkipped,
     ReviewUnavailable,
     SessionEnded,
     SessionFinding,
     SessionSpawned,
+    SignOffFixEnded,
+    SignOffRaisedAgain,
+    SignOffsRaised,
     Stage,
     StageEntered,
+    StatedPart,
     SubtaskRejected,
     SubtaskReopened,
     TokensUsed,
@@ -126,6 +145,7 @@ from physgate.orchestrator.exceptions import (
     GateNotRegisteredError,
     GitError,
     HeldOutExposedError,
+    LimitNotResetError,
     MergeConflictError,
     MergeRefusedError,
     QueueError,
@@ -141,7 +161,10 @@ from physgate.orchestrator.follow_up import follow_up_order, owed
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.held_records import record_change, second_names, unaccounted
 from physgate.orchestrator.integration_state import issued_state
+from physgate.orchestrator.invocation import TRAFFIC_ALLOWED_VERSIONS
 from physgate.orchestrator.managed import (
+    ObservedTraffic,
+    SessionManaged,
     UnshowableKeyError,
     limits_with,
     policy_diff,
@@ -150,8 +173,18 @@ from physgate.orchestrator.managed import (
     read_limits,
     session_limits,
     stricter_only,
+    traffic_change,
 )
 from physgate.orchestrator.merge import merge_message
+from physgate.orchestrator.parts_write import (
+    TakenPart,
+    blocked_parts,
+    contradictions,
+    parts_record,
+    parts_writes,
+    release_artefact,
+    unlanded_declared,
+)
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
     ChangeCheck,
@@ -179,12 +212,14 @@ from physgate.orchestrator.protocols import (
     Reviewer,
     ReviewResult,
     SessionTrajectory,
+    UnjudgedAttempt,
     require_mode,
     require_separate_models,
 )
 from physgate.orchestrator.queue import (
     INTEGRATION,
     ItemConsequence,
+    PartsBody,
     QueueItem,
     QueueResolution,
     QueueSource,
@@ -197,8 +232,13 @@ from physgate.orchestrator.queue import (
     held_windows_of,
     integration_item,
     item_id_for,
+    parts_sha256,
+    raised_again_id,
     read_queue,
     round_stream,
+    sign_off_consequence,
+    sign_off_item,
+    sign_off_item_id,
     stream_parts,
     unavailable_item,
     whole_lines,
@@ -222,17 +262,46 @@ from physgate.orchestrator.replay import (
     why_not_merged,
 )
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
+from physgate.orchestrator.sign_off import (
+    Bound,
+    SignOffReject,
+    bound_set,
+    quantities_of,
+    shown,
+    values_sha256,
+    values_text,
+)
 from physgate.orchestrator.trajectory import read_sealed
-from physgate.reviewers.packet import fits_one_read, person_order_text
-from physgate.reviewers.scan import ScanHit, ScanUnreadableError
+from physgate.orchestrator.usage_limit import (
+    UsageLimit,
+    bounded,
+    resume_after,
+    resume_refusal,
+    stamped,
+    with_instant,
+)
+from physgate.reviewers.packet import fits_one_read, indicator_scan_runs, person_order_text
+from physgate.reviewers.scan import (
+    REFUSED_NAMES,
+    REFUSED_WRITE,
+    ScanHit,
+    ScanUnreadableError,
+    judged_attempts,
+)
 from physgate.roles import dispatchable, owners_of, require_registered
 from physgate.series.reader import attempt_records
-from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
+from physgate.series.seal import (
+    OVERFLOW_NAME,
+    AttemptDiscard,
+    AttemptRecord,
+    AttemptSeries,
+    SeriesCheck,
+)
 from physgate.state.exceptions import DesignStateError, StoreStaleError
 from physgate.state.held_file import HeldFile
 from physgate.state.protocol import REJECT_CROSS_ROLE
-from physgate.state.schema import Node, validate_node
-from physgate.state.store import payload_digest
+from physgate.state.schema import REJECT_DECLARED_FIXED, REJECT_DECLARED_FORGED, Node, validate_node
+from physgate.state.store import JournalLine, payload_digest
 
 UNREAD = (
     "The session ended without completing its required reading, so nothing it "
@@ -395,6 +464,29 @@ def _listed(values: list[str]) -> str:
     return ", ".join(values[:LISTED_AT_MOST]) + (f", and {left} more left out" if left > 0 else "")
 
 
+def _as_listed(scan: tuple[ScanHit, ...], item: QueueItem) -> tuple[ScanHit, ...]:
+    """The scan's hits in the form the item lists them: unmarked on an item listed before marks.
+
+    An item listed before hits named their attempt was written with every hit unmarked. The hits
+    themselves are compared whole all the same; only the mark an item written before could not
+    carry is left off, so such an item is taken as it was listed. An item with some hits marked
+    and some not is not one any writer wrote, and is rebuilt marked.
+    """
+    listed = item.consequence.scan_hits if item.consequence is not None else ()
+    if listed and all(hit.attempt is None for hit in listed):
+        # Written before, too, every refused call was named a write, whatever the call was.
+        return tuple(
+            hit.model_copy(
+                update={
+                    "attempt": None,
+                    "what": REFUSED_WRITE if hit.what in REFUSED_NAMES else hit.what,
+                }
+            )
+            for hit in scan
+        )
+    return scan
+
+
 def _account(told: list[str]) -> str:
     """Each module's account, in order, as long as the whole stays within its cap; then a count."""
     kept = [one for k, one in enumerate(told) if len("; ".join(told[: k + 1])) <= TOLD_AT_MOST]
@@ -405,10 +497,27 @@ def _account(told: list[str]) -> str:
     )
 
 
-def _follow_up_end(now: AttemptState | None) -> str:
-    """How a module's follow-up ended, in the record's structured fields; ``now`` is its attempt."""
+def _follow_up_end(now: AttemptState | None, sub: SubtaskState) -> str:
+    """How a module's follow-up ended, in the record's structured fields; ``now`` is its attempt.
+
+    With none written, why none was owed, as the closing pass's candidates rule it out: the module
+    merged on its fix; its one fix after a rejected sign-off ended unmerged, so its earlier merge
+    stands; it is at the last attempt number; or its order no read shows whole.
+    """
     if now is None:
-        return "none owed (merged on its fix, or its order no read shows whole)"
+        last = sub.attempts[-1] if sub.attempts else None
+        if any(attempt.fix for attempt in sub.attempts):
+            return "none owed: it merged on its fix"
+        if sub.sign_off_fixed is not None and last is not None and last.merged is None:
+            return (
+                "none owed: its one fix after a rejected sign-off ended without a merge, and its "
+                "earlier merge stands"
+            )
+        if last is not None and last.number >= ATTEMPT_LIMIT:
+            return (
+                "none owed: it is at the last attempt number, with no attempt left to reopen it at"
+            )
+        return "none owed: its order is longer than its reviewer can read whole"
     if now.merged is not None:
         return f"its follow-up merged at attempt {now.number}"
     said = [f"its follow-up ended {why_not_merged(now)}"]  # one of its enum's words, by code
@@ -436,6 +545,19 @@ def _follow_up_end(now: AttemptState | None) -> str:
         said += [f"failing items {_listed(failing)}"] if failing else []
         said += [f"blocking {_listed(blocking)}"] if blocking else []
     return "; ".join(said)
+
+
+def _reset_from(limit: UsageLimit | None, ts: str) -> UsageLimit | None:
+    """``limit`` with its reset read as the next instant after the line stamped ``ts``.
+
+    A reset the stream gave further out than any window after ``ts`` is not taken (:func:`bounded`).
+    """
+    if limit is None:
+        return None
+    limit = bounded(limit, read_at=stamped(ts))
+    if limit.resets_at is not None:
+        return limit
+    return with_instant(limit, after=stamped(ts))
 
 
 class Loop:
@@ -487,6 +609,7 @@ class Loop:
         self._escalation = escalation
         self._material = material
         self._sleep = sleep
+        self._clock = clock
         self._appends: tuple[str, ...] = ()
         #: The items the operator confirms on this resume, and who; none on a plain run.
         self._confirm: tuple[frozenset[str], str | None] = (frozenset(), None)
@@ -554,26 +677,41 @@ class Loop:
         self._stop_leftovers()
         return owed
 
-    def resume(self, *, confirm: Sequence[str] = (), confirmed_by: str | None = None) -> Step:
+    def resume(
+        self,
+        *,
+        confirm: Sequence[str] = (),
+        confirmed_by: str | None = None,
+        limit_reset_by: str | None = None,
+    ) -> Step:
         """Take over a run a previous process left, then drive it.
 
         The interrupted attempt restarts at its checkpoint with a fresh session,
         never the binary's own resume, and keeps its attempt number. A run halted
         because its infrastructure retries ran out continues the same attempt with
-        a fresh schedule.
+        a fresh schedule. A run halted on the account's usage limit goes on only after its
+        reset (:meth:`_limit_reset`), exactly where it stopped: the same attempt, and the
+        review it owed still owed.
 
         Every leftover session is stopped and its stream read before anything else, so no
         decision is taken before every stream a previous process left has been read. ``confirm``
         names items whose decision is held because it was written while a session ran without
         the OS layer; ``confirmed_by`` is the operator who confirms them on the command line
-        (ARCH-133). Only then does such a decision act.
+        (ARCH-133). Only then does such a decision act. ``limit_reset_by`` is the operator who
+        says on the command line that the account's usage limit has reset, where its reset could
+        not be read. It is recorded on the ``Resumed`` that follows; a resume that stops early
+        for another reason resumes nothing, so nothing is recorded, and the word is given again
+        on the resume that goes on.
 
         Raises:
+            LimitNotResetError: the run waits for the account's usage limit and may not go on
+                yet; nothing is stopped, written or started.
             RunStateError: the run halted for an incident, which a person resolves; or an item
                 to confirm has no held decision, or the run acts on no decision at all; or this
                 process recorded no OS layer, and the run acts on queue decisions or does not
                 allow the layer's absence.
         """
+        limit_word = self._limit_reset(limit_reset_by)
         self._require_os_layer()
         if self._took_an_owed_halt():
             return self._drive()
@@ -609,9 +747,47 @@ class Loop:
                     subtask_id=sub.plan.subtask_id,
                     attempt=now.number,
                     point=self.state.resume_point(now),
+                    limit_reset_by=limit_word,
+                )
+            )
+        elif (merge := self.state.halted_at_a_sign_off_line()) is not None:
+            # A halt between a clean merge's diff and its sign-off line: no attempt is in
+            # progress to take over, so the resume names that merge at its diff, and the line
+            # it owes, or the graph's raise, is written next (:meth:`_raise_owed_at_start`).
+            self._emit(
+                Resumed(
+                    **self._env(),
+                    subtask_id=merge[0],
+                    attempt=merge[1],
+                    point="diff",
+                    limit_reset_by=limit_word,
                 )
             )
         return self._drive()
+
+    def _limit_reset(self, limit_reset_by: str | None) -> str | None:
+        """Refuse a resume of a run waiting for the usage limit before it may go on.
+
+        Before anything is stopped, written or started. Returns the operator's word to record
+        on the resume, for a run halted on the limit; ``None`` for any other run.
+
+        Raises:
+            LimitNotResetError: the run waits, and its reset has not come (see
+                :func:`~physgate.orchestrator.usage_limit.resume_refusal`).
+        """
+        halted = self.state.halted
+        if halted is None or halted.reason != "usage_limit":
+            return None
+        why = resume_refusal(
+            halted.ts, halted.usage_limit, self._clock(), limit_reset=limit_reset_by is not None
+        )
+        if why is not None:
+            raise LimitNotResetError(
+                why,
+                run_dir=str(self.run_dir),
+                resume_after=resume_after(halted.ts, halted.usage_limit),
+            )
+        return limit_reset_by
 
     def _require_os_layer(self) -> None:
         """Refuse to drive a run whose role sessions would run without the OS layer here.
@@ -794,6 +970,8 @@ class Loop:
                         message_id=message.message_id,
                         usage=message.usage,
                         partial=not left.complete,
+                        abandoned=message.abandoned,
+                        in_binary_totals=message.in_binary_totals,
                     )
                 )
         for cause, detail in found if len(found) > 1 else ():
@@ -971,6 +1149,7 @@ class Loop:
         # A process whose first step is one of those may still spawn one, after a decision it
         # takes or the call it makes: that session's line is recorded before it, once
         # (:meth:`_session`).
+        self._raise_owed_at_start()
         first = self.state.next_step().kind
         if first not in (
             "done",
@@ -981,8 +1160,13 @@ class Loop:
             "complete",
             "halt",
             "wait",
+            "parts",
             "reopen",
             "follow_up_ended",
+            "sign_off_fix_ended",
+            "hold",
+            "release",
+            "sign_off",
         ):
             self._record_environment()
         while True:
@@ -1001,11 +1185,15 @@ class Loop:
                 if self._decisions_refused_at_the_end():
                     continue  # the run halts on it: that is the step it ends on
                 self.record.hold_plan()  # a decompose killed before it listed the plan's item
+                self.record.hold_parts()  # and before it listed each part, or the plan's hold left
                 self._clean_up_worktrees()
                 return step
             if step.kind == "halt":
                 # A process killed between an incident and its halt: the halt, and nothing else.
                 self._owed_halt()
+                continue
+            if step.kind == "parts":
+                self._release_parts()
                 continue
             if step.kind == "integrate":
                 self._integrate()
@@ -1019,6 +1207,12 @@ class Loop:
             if step.kind == "reopen":
                 self._reopen()
                 continue
+            if step.kind == "sign_off":
+                self._raise_sign_offs()
+                continue
+            if step.kind in ("hold", "release"):
+                self._emit(wait_line(self.state, step.subtask_id or "", self._env()))
+                continue
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"
                 raise RunStateError(msg, step=step.kind)
@@ -1030,6 +1224,13 @@ class Loop:
                 why = why_not_merged(self.state.subtasks[step.subtask_id].attempts[-1])
                 self._emit(
                     FollowUpEnded(
+                        **self._env(), subtask_id=step.subtask_id, attempt=step.attempt, why=why
+                    )
+                )
+            elif step.kind == "sign_off_fix_ended":
+                why = why_not_merged(self.state.subtasks[step.subtask_id].attempts[-1])
+                self._emit(
+                    SignOffFixEnded(
                         **self._env(), subtask_id=step.subtask_id, attempt=step.attempt, why=why
                     )
                 )
@@ -1214,7 +1415,11 @@ class Loop:
         No attempt is in progress here, so an incident names no subtask; its detail does.
         """
         contract = item.source == "contract"
-        whole = item.subtask_id == INTEGRATION or item.source == "plan_review"
+        whole = item.subtask_id == INTEGRATION or item.source in (
+            "plan_review",
+            "parts",
+            "sign_off",
+        )
         subtask_id = None if whole or contract else item.subtask_id
         digest = view.digests.get(item.item_id)
         if digest is None:
@@ -1235,14 +1440,20 @@ class Loop:
                 found = self._scan_hits(subtask_id, where=None)
                 if found is None:
                     return False
-                scan = found
+                scan = _as_listed(found, item)
             if sub.status == "escalated" and sub.queue_item == item.item_id:
                 commit = item_consequence(
                     self.state, subtask_id, source=source_of(sub), scan_hits=()
                 ).attempt_commit
         try:
             taken = decision_effect(
-                self.state, item, resolution, line_sha256=digest, scan_hits=scan, held=held
+                self.state,
+                item,
+                resolution,
+                line_sha256=digest,
+                scan_hits=scan,
+                held=held,
+                sign_off_fits=lambda note: self._sign_off_fix_fits(item.item_id, note),
             )
         except QueueItemMismatchError as exc:
             self._incident(None, "queue_item_mismatch", f"{exc}: {exc.context}")
@@ -1264,6 +1475,10 @@ class Loop:
             if subtask_id is not None
             else self.record.plan_item()
             if item.source == "plan_review"
+            else self.record.parts_item_of(item.item_id)
+            if item.source == "parts"
+            else self._sign_off_item_of(item)
+            if item.source == "sign_off"
             else item
         )
         if resolution.verb is not None and rebuilt != item:
@@ -1280,6 +1495,14 @@ class Loop:
             sessions = [s for a in self.state.subtasks[subtask_id].attempts for s in a.ended]
             if not self._sealed_hold(sessions):
                 return False
+        # A signature binds the values its item shows over the streams it links: it is taken only
+        # while every one of them still holds its seal, as a merge is.
+        if (
+            taken.acts
+            and taken.effect == "sign"
+            and not self._sealed_hold(self._signed_sessions(item))
+        ):
+            return False
         # A release dispatches the plan the person approved on a view of the decomposition's
         # stream: it is taken only while that stream still holds the seal the review recorded,
         # as a merge is taken only over sealed streams.
@@ -1313,6 +1536,9 @@ class Loop:
                 confirmed_by=confirmed_by,
                 order_too_long=taken.order_too_long,
                 reopens=taken.reopens,
+                parts_sha256=(
+                    parts_sha256(resolution.parts) if resolution.parts is not None else None
+                ),
             )
         )
         return True
@@ -1340,14 +1566,29 @@ class Loop:
     def _scan_hits(self, subtask_id: str, *, where: str | None) -> tuple[ScanHit, ...] | None:
         """What the scan before review finds in the unjudged attempts' streams; None if it halted.
 
-        Each stream is held to its seal first. A stream that is not what was sealed, or that
-        the scan cannot read, is an incident: it is never a stream that showed nothing.
+        Each hit is marked with the attempt whose stream shows it. Each stream is held to its seal
+        first. A stream that is not what was sealed, or that the scan cannot read, is an incident:
+        it is never a stream that showed nothing.
         """
         # Every attempt no review judged, not only the last: an earlier attempt's work is in the
-        # commit an approve would merge, and no reviewer weighed what its streams show.
+        # commit an approve would merge, and no reviewer weighed what its streams show. One a
+        # later review was given and answered whole is judged (``SubtaskState.judged``).
         sub = self.state.subtasks[subtask_id]
-        judged = {review.attempt for review in sub.reviews}
-        sessions = [s for a in sub.attempts if a.number not in judged for s in a.ended]
+        judged = sub.judged()
+        hits: list[ScanHit] = []
+        for attempt in sub.attempts:
+            if attempt.number in judged:
+                continue
+            found = self._hits_in(subtask_id, attempt.ended, where=where)
+            if found is None:
+                return None
+            hits.extend(hit.of_attempt(attempt.number) for hit in found)
+        return tuple(hits)
+
+    def _hits_in(
+        self, subtask_id: str, sessions: list[SessionEnded], *, where: str | None
+    ) -> tuple[ScanHit, ...] | None:
+        """What the scan finds in the sessions' streams, each held to its seal; None on a halt."""
         streams: list[bytes] = []
         for session in sessions:
             if session.trajectory is None:
@@ -1369,6 +1610,41 @@ class Loop:
             detail = f"subtask {subtask_id}: the scan cannot read its stream: {exc}"
             self._incident(where, "trajectory_tampered", detail)
             return None
+
+    def _unjudged_earlier(
+        self, subtask_id: str, attempt: int
+    ) -> list[tuple[UnjudgedAttempt, tuple[ScanHit, ...]]] | None:
+        """The earlier attempts no review judged that the scan flags, with hits; None on a halt.
+
+        They go to ``attempt``'s reviewer, to judge each hit as it judges its own (ARCH-133).
+        Their work is in the commit ``attempt`` is reviewed on, and no review has weighed what
+        their streams show; one whose streams the scan flags nothing in is left out, as there is
+        nothing in it for a review to answer.
+        """
+        sub = self.state.subtasks[subtask_id]
+        judged = sub.judged()
+        found: list[tuple[UnjudgedAttempt, tuple[ScanHit, ...]]] = []
+        for earlier in sub.attempts:
+            if earlier.number >= attempt or earlier.number in judged:
+                continue
+            hits = self._hits_in(subtask_id, earlier.ended, where=subtask_id)
+            if hits is None:
+                return None
+            if not hits:
+                continue
+            sessions = tuple(
+                SessionTrajectory(
+                    session_id=s.session_id,
+                    trajectory=s.trajectory,
+                    trajectory_sha256=s.trajectory_seal.sha256,
+                    trajectory_length=s.trajectory_seal.length,
+                )
+                for s in earlier.ended
+                if s.trajectory is not None and s.trajectory_seal is not None
+            )
+            marked = tuple(hit.of_attempt(earlier.number) for hit in hits)
+            found.append((UnjudgedAttempt(attempt=earlier.number, sessions=sessions), marked))
+        return found
 
     def _consequence(
         self, subtask_id: str, source: QueueSource, scan_hits: tuple[ScanHit, ...] = ()
@@ -1479,6 +1755,11 @@ class Loop:
         if previous.merged is not None and followed is not None and followed.attempt == attempt:
             told = self._follow_up_order(followed)  # the follow-up's one attempt
             return told.instruction, told
+        fixed = sub.sign_off_fixed
+        if previous.merged is not None and fixed is not None and fixed.attempt == attempt:
+            # The one fix a rejected sign-off ordered: told the values not signed and the note.
+            fix = self._sign_off_fix_order(fixed.item_id or "", previous.number)
+            return fix.instruction, fix
         reopened = sub.reopened
         if (
             previous.merged is not None
@@ -1514,7 +1795,11 @@ class Loop:
             msg = "the run-event log does not replay as a run"
             why = "a rejection whose finding is not the one its rulings give"
             raise CorruptEventLogError(msg, seq=str(before.seq), reason=why)
-        return (repair_instruction(previous.number, before.finding) if before else None), None
+        declared = self.state.declared_heads()
+        instruction = (
+            repair_instruction(previous.number, before.finding, declared) if before else None
+        )
+        return instruction, None
 
     def _screened(self, subtask_id: str, order: PersonOrder) -> str:
         """What a person's order is held to the canaries by, before its session is spawned.
@@ -1532,6 +1817,7 @@ class Loop:
             "fix_after_arbitration",
             "contract_conform",
             "follow_up",
+            "sign_off_fix",
         ):
             return order.instruction
         attempts = self.state.subtasks[subtask_id].attempts
@@ -1624,6 +1910,9 @@ class Loop:
         for screened in dict.fromkeys(o for o in (order, inner) if o is not None):
             if not self._material_clean(subtask_id, self._screened(subtask_id, screened)):
                 return False
+        whole, record = self._parts_record_holds(subtask_id)
+        if not whole:
+            return False
         held: IssuedState | None = None
         if subtask_id == self.state.completion_subtask:
             # Integration's session reads the record's state: built from the log and recorded by
@@ -1684,11 +1973,12 @@ class Loop:
             kind="fix"
             if inner is not None
             and (
-                inner.kind in ("fix_after_block", "fix_after_arbitration")
+                inner.kind in ("fix_after_block", "fix_after_arbitration", "sign_off_fix")
                 or (inner.kind == "contract_conform" and sub.attempts[-1].fix)
             )
             else "attempt",
             issued_state=held,
+            parts_record=record,
             disputes=disputer_problem(sub.plan.assigned_role) is None
             and any(
                 s.plan.assigned_role in owners_of("cross_nodes")
@@ -1722,11 +2012,14 @@ class Loop:
                     attribution=f"session:{report.session_id}",
                     message_id=message.message_id,
                     usage=message.usage,
+                    abandoned=message.abandoned,
+                    in_binary_totals=message.in_binary_totals,
                 )
             )
+        env = self._env()
         self._emit(
             SessionEnded(
-                **self._env(),
+                **env,
                 subtask_id=subtask_id,
                 attempt=attempt,
                 session_id=report.session_id,
@@ -1739,9 +2032,13 @@ class Loop:
                 trajectory_seal=report.trajectory_seal,
                 decisions_bytes=self._decisions_bytes(),
                 policy_limits_sha256=report.policy_limits_sha256,
+                observed_traffic=report.observed_traffic,
+                flag_cache=report.flag_cache,
                 policy_limits_unjudged=_unjudged(report),
                 issued_spec_sha256=report.issued_spec_sha256,
                 series=report.series,
+                usage_limit=_reset_from(report.usage_limit, env["ts"]),
+                account_windows=report.account_windows,
             )
         )
         if found is not None:
@@ -1791,6 +2088,11 @@ class Loop:
         if changed is not None:
             # The account's policy limits are applied without a trace the hooks see: the
             # session ran under other limits than the run began with.
+            return "managed_settings_changed", changed
+        changed = traffic_change(self._traffic_baseline(), report.observed_traffic)
+        if changed is not None:
+            # On a pin whose sessions fetch the flags and may be served a catalog, the run is
+            # held to what it first saw: this session ran under other conditions.
             return "managed_settings_changed", changed
         return None
 
@@ -1882,6 +2184,49 @@ class Loop:
         owed = self.state.owed_halt()
         if owed is not None:
             self._halt_for(owed.subtask_id, owed.cause)
+
+    def _parts_record_holds(self, subtask_id: str) -> tuple[bool, IssuedState | None]:
+        """The parts record a session reads, built again and held to the line that released it.
+
+        ``(True, None)`` for a run that issues none: it did not ask, or its plan names no part.
+        ``(True, record)`` where the record the plan and the released decisions give now is the
+        one the release line named, by its digest and length. ``(False, None)`` after an incident
+        where it is not: a line the record was built from, or the code that builds it, has
+        changed since the run was released, and nothing is handed to a session or a reviewer.
+        """
+        released = self.state.parts_released
+        components = self.state.components or ()
+        if released is None or not components:
+            return True, None
+        taken = []
+        for named in released.components:
+            decided = self.state.taken[named.item_id]
+            body = (
+                None if named.parts is None else PartsBody.model_validate(named.parts.model_dump())
+            )
+            taken.append(
+                TakenPart(
+                    item_id=named.item_id,
+                    choice=named.choice,
+                    body=body,
+                    operator=decided.resolved_by,
+                    decided_ts=decided.decided_ts,
+                )
+            )
+        data = parts_record(components, taken)
+        if (hashlib.sha256(data).hexdigest(), len(data)) != (
+            released.record_sha256,
+            released.record_length,
+        ):
+            detail = (
+                f"the parts record the release at line {released.seq} named is not what the "
+                "run's record gives now"
+            )
+            self._incident(subtask_id, "parts_record_mismatch", detail)
+            return False, None
+        return True, IssuedState(
+            text=data.decode("utf-8"), sha256=released.record_sha256, length=released.record_length
+        )
 
     def _state_holds(self, subtask_id: str) -> IssuedState | None:
         """Integration's issued state, built again from the record and held to its window's line.
@@ -1975,6 +2320,29 @@ class Loop:
             omitted=omitted,
         )
 
+    def _traffic_baseline(self) -> ObservedTraffic | None:
+        """The catalog and flags the run first saw: the decomposition call's, else a session's.
+
+        A run given its plan directly has no decomposition call, so its first session that
+        read a log, a role session's or a review's, sets what every later session is held to.
+        """
+        for event in self.log.events:
+            if isinstance(event, Decomposed) and event.observed_traffic is not None:
+                return event.observed_traffic
+        for event in self.log.events:
+            if isinstance(event, SessionEnded):
+                seen: tuple[ObservedTraffic | None, ...] = (event.observed_traffic,)
+            elif isinstance(event, ReviewRan):
+                seen = tuple(m.observed_traffic for m in event.result.managed)
+            elif isinstance(event, ReviewUnavailable):
+                seen = tuple(m.observed_traffic for m in event.managed)
+            else:
+                continue
+            first = next((s for s in seen if s is not None), None)
+            if first is not None:
+                return first
+        return None
+
     def _repair_node_files(self, subtask_id: str, attempt: int) -> bool:
         """Reopen the store so recovery rebuilds node files from the journal, before any read."""
         try:
@@ -2044,6 +2412,10 @@ class Loop:
             self._incident(subtask_id, "foreign_journal_line", str(exc))
             return False
         for line in tail:
+            owed = self.state.parts_pending
+            if now is None and owed is not None and self._own_parts_line(line, owed):
+                self._emit(PartsWriteDone(**self._env(), node_id=line.node_id, revision=line.rev))
+                continue
             pending = now.pending if now is not None else None
             own = (
                 pending is not None
@@ -2071,7 +2443,228 @@ class Loop:
             self._incident(subtask_id, "foreign_journal_line", detail)
             return False
         self._graph.hold()
-        return True
+        return self._declared_hold(subtask_id)
+
+    def _declared_hold(self, subtask_id: str | None) -> bool:
+        """Every declared quantity at the journal's head is one a landed parts write wrote.
+
+        Only the parts writer declares, and the record names each write that landed with the
+        digest of its whole payload. A declared quantity the landed writes do not account for,
+        or a landed line the journal no longer holds as it landed, reached the journal past the
+        store's guard: an integrity fault, an incident and a halt, never a repair. Taken after an
+        attempt's journal step, after the parts writes, and whenever the journal is accounted for,
+        so a process killed between a landed write and this check makes it when it next starts.
+        Nothing is recorded when it holds.
+        """
+        try:
+            lines = self._graph.records_after(0)
+        except DesignStateError as exc:
+            self._incident(subtask_id, "foreign_journal_line", str(exc))
+            return False
+        problem = unlanded_declared(lines, self.state.parts_landed)
+        if problem is None:
+            return True
+        self._incident(subtask_id, "foreign_journal_line", problem)
+        return False
+
+    @staticmethod
+    def _own_parts_line(line: JournalLine, owed: PartsWriteIntended) -> bool:
+        """Whether a journal line is the parts write the run intended and did not see land."""
+        return (
+            line.rev == owed.expected_revision
+            and line.node_id == owed.node_id
+            and payload_digest(line.payload) == owed.payload_sha256
+        )
+
+    def _release_parts(self) -> None:
+        """Write what the decisions owe, each node behind an intent, then release the run.
+
+        The values are read from the decisions file, held to the digest each decision's line
+        names, and written through the store's ``declare`` only. A process killed between an
+        intent and its write finds the pending intent on the record, accounts for the journal
+        line if it landed (:meth:`_journal_clean`), and otherwise intends the same write again.
+        The release names every component with what it stated, and the record a role reads.
+        """
+        state = self.state
+        components = state.components or ()
+        try:
+            resolutions = {d.item_id: d for _, d in read_queue(self.run_dir).decisions}
+        except QueueError as exc:
+            if not self._decisions_unreadable(exc):
+                raise
+            return
+        taken: list[TakenPart] = []
+        for item_id in state.parts_ids:
+            decided = state.taken[item_id]
+            said = resolutions.get(item_id)
+            body = None if said is None or decided.position == "find" else said.parts
+            digest = None if body is None else parts_sha256(body)
+            if digest != decided.parts_sha256:
+                detail = f"item {item_id}: the decisions file no longer states what was taken"
+                self._incident(None, "queue_item_mismatch", detail)
+                return
+            taken.append(
+                TakenPart(
+                    item_id=item_id,
+                    choice=decided.position,  # type: ignore[arg-type]  # have, make or find
+                    body=body,
+                    operator=decided.resolved_by,
+                    decided_ts=decided.decided_ts,
+                )
+            )
+        owners = owners_of("cross_nodes")
+        owed = parts_writes(
+            components,
+            state.parts_ids,
+            {part.item_id: part for part in taken},
+            owners[0] if len(owners) == 1 else None,
+        )
+        # A write is owed again where the node's last landed payload is not this round's.
+        latest = {node: digest for node, digest, _ in state.parts_landed}
+        for write in owed:
+            if latest.get(write.node_id) == write.payload_sha256:
+                continue
+            expected = state.journal_head + 1
+            self._emit(
+                PartsWriteIntended(
+                    **self._env(),
+                    node_id=write.node_id,
+                    item_id=write.item_id,
+                    parts=StatedPart.model_validate(write.body.model_dump()),
+                    actor_role=write.owner_role,
+                    payload_sha256=write.payload_sha256,
+                    expected_revision=expected,
+                )
+            )
+            try:
+                revision = self._graph.declare(write.payload, (write.item_id,))
+            except StoreStaleError:
+                if self._journal_clean():
+                    detail = "the store handle went stale"
+                    self._incident(None, "foreign_journal_line", detail)
+                return
+            except StoreRefusalError as exc:
+                self._incident(None, "store_refusal", f"{exc} ({exc.context.get('reason')})")
+                return
+            if revision != expected:
+                self._incident(None, "foreign_journal_line", f"revision {revision}, not {expected}")
+                return
+            self._emit(PartsWriteDone(**self._env(), node_id=write.node_id, revision=revision))
+        if not self._declared_hold(None):
+            return
+        if not self._release_gated():
+            return
+        if owed:
+            self._graph.commit("Parts the person declared\n")
+        record = parts_record(components, taken)
+        self._emit(
+            PartsReleased(
+                **self._env(),
+                components=tuple(
+                    ReleasedPart(
+                        item_id=part.item_id,
+                        node=component.node,
+                        choice=part.choice,
+                        parts=None
+                        if part.body is None
+                        else StatedPart.model_validate(part.body.model_dump()),
+                    )
+                    for component, part in zip(components, taken, strict=True)
+                ),
+                record_sha256=hashlib.sha256(record).hexdigest(),
+                record_length=len(record),
+            )
+        )
+
+    def _release_gated(self) -> bool:
+        """Whether the declared values may be released: no interface contradicts, the gate passed.
+
+        Taken once the writes of a round have landed. An interface a domain produced that holds
+        a declared name with another value raises its part again, and the gate is not called.
+        Otherwise one gate call at subtask scope judges the view above the head before the first
+        parts write (every round from the same base, so every declared node is judged again), in
+        the run's mode; under ``off`` the skip is recorded. A blocking result under ``on`` raises
+        every part it names again. A run that wrote no declared value calls no gate. A process
+        killed after the gate's line acts on that line and does not call the gate again.
+        """
+        state = self.state
+        base = state.parts_base
+        if base is None:
+            return True
+        ran = state.parts_gate
+        if ran is None:
+            contradicted = self._contradicted()
+            if contradicted is None:
+                return False
+            if contradicted:
+                self._emit(PartsRaisedAgain(**self._env(), cause="interface", parts=contradicted))
+                return False
+            mode = self.config.gate_mode
+            result: GateResult | None = None
+            if mode != "off":
+                if self._gate is None:
+                    msg = f"the release's gate cannot pass: gate mode {mode!r}, no gate registered"
+                    raise GateNotRegisteredError(msg, gate_mode=mode)
+                decomposed = next(e for e in self.log.events if isinstance(e, Decomposed))
+                artefact = release_artefact(
+                    graph_root=str(self._graph.root),
+                    base_revision=base,
+                    run_dir=self.run_dir,
+                    commit=decomposed.spec_commit,
+                )
+                result = require_mode(self._gate.check(artefact, mode=mode), mode)
+            self._emit(PartsGateRan(**self._env(), base_revision=base, result=result))
+            ran = self.state.parts_gate
+        if (
+            ran is None
+            or ran.result is None
+            or ran.result.verdict != "fail"
+            or ran.gate_mode != "on"
+        ):
+            return True
+        holder = self.state.parts_holder
+        blocking = [r for r in ran.result.checks if r.outcome == "fail" and r.blocking]
+        raised: list[RaisedPart] = []
+        for component in blocked_parts(ran.result, holder):
+            said = [r.message for r in blocking if holder.get(r.node or "") == component]
+            raised.append(
+                self._raised(
+                    component,
+                    "the gate blocked its declared values: "
+                    + ("; ".join(said) or ran.result.finding),
+                )
+            )
+        self._emit(PartsRaisedAgain(**self._env(), cause="gate", parts=tuple(raised)))
+        return False
+
+    def _raised(self, component: str, why: str) -> RaisedPart:
+        """The next round of ``component``'s item, and why it is raised again."""
+        state = self.state
+        nodes = [c.node for c in state.components or ()]
+        now = state.parts_ids[nodes.index(component)]
+        return RaisedPart(item_id=raised_again_id(now) or now, node=component, why=why)
+
+    def _contradicted(self) -> tuple[RaisedPart, ...] | None:
+        """Each part an interface a domain produced contradicts, or ``None`` if the run halted."""
+        state = self.state
+        try:
+            lines = self._graph.records_after(0)
+        except DesignStateError as exc:
+            self._incident(None, "foreign_journal_line", str(exc))
+            return None
+        head = {line.node_id: line.payload for line in sorted(lines, key=lambda one: one.rev)}
+        owners = owners_of("cross_nodes")
+        found = contradictions(
+            head, list(state.parts_holder), owners[0] if len(owners) == 1 else None
+        )
+        said: dict[str, list[str]] = {}
+        for one in found:
+            said.setdefault(state.parts_holder[one.node_id], []).append(
+                f"interface {one.interface} holds {one.name} as {one.held}, and the part was "
+                f"declared with {one.declared} on {one.node_id}"
+            )
+        ordered = dict.fromkeys(state.parts_holder.values())
+        return tuple(self._raised(c, "; ".join(said[c])) for c in ordered if c in said)
 
     def _apply(self, subtask_id: str, attempt: int, commit: str, role: str) -> bool:
         """Write the attempt's proposals into the canonical store, each behind an intent."""
@@ -2126,6 +2719,8 @@ class Loop:
             )
         followed = now.changes.followed if now.changes is not None else ()
         if not self._apply_followed(subtask_id, attempt, role, followed):
+            return False
+        if not self._declared_hold(subtask_id):
             return False
         if proposals or followed:
             self._graph.commit(f"Nodes of subtask {subtask_id}, attempt {attempt}\n")
@@ -2206,12 +2801,14 @@ class Loop:
         self._stage(subtask_id, attempt, "implement")
         # Only the cross-nodes owner's opening pass follows its interfaces.
         follows = self.state.follows(subtask_id) if role in owners_of("cross_nodes") else None
-        check = self._recordable(
-            subtask_id,
-            attempt,
-            self._changes.check(
-                subtask_id, session.attempt_commit, role, series=session.series, follows=follows
-            ),
+        check = self._sign_off_refusal(
+            self._recordable(
+                subtask_id,
+                attempt,
+                self._changes.check(
+                    subtask_id, session.attempt_commit, role, series=session.series, follows=follows
+                ),
+            )
         )
         self._emit(
             ProposalsChecked(
@@ -2303,14 +2900,39 @@ class Loop:
         # The reviewer reads the trajectory: it must still be what was sealed.
         if not self._trajectories_hold(subtask_id, [session]):
             return False
+        # And the earlier attempts' no review judged, whose work is in this commit: their scan
+        # hits go to this review, each to be confirmed or dismissed as its own are (ARCH-133).
+        # Only in a run that acts on decisions, where those hits decide what an approve does, as
+        # the scan before review runs only there; a run that records is reviewed as it always was.
+        earlier = self._unjudged_earlier(subtask_id, attempt) if self._acts() else []
+        if earlier is None:
+            return False
+        if earlier:
+            artefact = artefact.model_copy(update={"unjudged": tuple(u for u, _ in earlier)})
         if subtask_id == self.state.completion_subtask:
             # And the issued state its session read: still what the record gives.
             held = self._state_holds(subtask_id)
             if held is None:
                 return False
             artefact = artefact.model_copy(update={"integration_state": held})
+        whole, record = self._parts_record_holds(subtask_id)
+        if not whole:
+            return False
+        if record is not None:
+            artefact = artefact.model_copy(update={"parts_record": record})
         self._environment_before_a_spawn()
         self._stage(subtask_id, attempt, "review")
+        if self.config.reviewers == "off":
+            # An ablation run's arm: no reviewer is invoked, and the gate's result alone decides.
+            # The gate's order above is every value's, so an attempt it refused under on never
+            # reaches this stage, and the merge below is held to the same gate condition.
+            self._emit(
+                ReviewSkipped(
+                    **self._env(), subtask_id=subtask_id, attempt=attempt, reason="reviewers=off"
+                )
+            )
+            self._stage(subtask_id, attempt, "decide")
+            return self._merge_attempt(subtask_id, attempt)
         reviewer = self._reviewers[role]
         # The implementer's model is read from the run's record on disk, never from the
         # configuration object this loop was handed: what the check compares must be
@@ -2324,6 +2946,13 @@ class Loop:
         if review.reviewer_model != reviewer.model:
             msg = "a reviewer reported a model other than the one it is pinned to"
             raise ReviewerNotRegisteredError(msg, role=role, reported=review.reviewer_model)
+        arm_s = "generalist" if self.config.reviewers == "generalist" else "paired"
+        if (review.rubric_kind or "paired") != arm_s:
+            # Before any line of the review: a verdict of another arm's rubric is not this run's.
+            msg = "a reviewer judged with a rubric other than the one the run's reviewers name"
+            raise ReviewerNotRegisteredError(
+                msg, role=role, reviewers=self.config.reviewers, rubric=str(review.rubric_kind)
+            )
         for message in review.usage:
             self._emit(
                 TokensUsed(
@@ -2331,9 +2960,31 @@ class Loop:
                     attribution=f"reviewer:{review.session_id}",
                     message_id=message.message_id,
                     usage=message.usage,
+                    compaction=message.compaction,
+                    abandoned=message.abandoned,
+                    in_binary_totals=message.in_binary_totals,
                 )
             )
-        self._emit(ReviewRan(**self._env(), subtask_id=subtask_id, attempt=attempt, result=review))
+        # An earlier attempt is judged only where the verdict confirmed or dismissed every one of
+        # its hits, by answers naming it: a reviewer that left one unanswered or only noted it
+        # judged none of that attempt, which stays unjudged. The line records what it was shown.
+        # Only the hits its packet carried: where the attempt is a written account the scan is not
+        # run, the packet shows no earlier hit, and a review cannot have judged one.
+        shown = (
+            tuple(hit for _, hits in earlier for hit in hits)
+            if indicator_scan_runs(artefact)
+            else ()
+        )
+        self._emit(
+            ReviewRan(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                result=review,
+                judged_earlier=judged_attempts(shown, review.indicators),
+                earlier_hits=shown,
+            )
+        )
         if review.verdict == "blocked":
             return False  # a person decides; the issued specification lacks an input
         if review.verdict == "fail":
@@ -2458,7 +3109,9 @@ class Loop:
         """
         sub = self.state.subtasks[subtask_id]
         now = sub.attempts[-1]
-        line = require_mergeable(self.ledger.path, subtask_id, self.config.gate_mode)
+        line = require_mergeable(
+            self.ledger.path, subtask_id, self.config.gate_mode, self.config.reviewers
+        )
         changes = now.changes
         if changes is None:
             msg = "a merge with no recorded change check"
@@ -2528,7 +3181,7 @@ class Loop:
         retried = False
         while True:
             try:
-                return reviewer.review(artefact)
+                review = reviewer.review(artefact)
             except HeldOutExposedError as exc:
                 # The review session showed held-out material: the tier counts as exposed
                 # (ARCH-141). The exposure is recorded first, then what it spent, then one halt;
@@ -2548,6 +3201,9 @@ class Loop:
                             attribution=f"reviewer:{exc.session_id}",
                             message_id=message.message_id,
                             usage=message.usage,
+                            compaction=message.compaction,
+                            abandoned=message.abandoned,
+                            in_binary_totals=message.in_binary_totals,
                         )
                     )
                 self._halt_for(subtask_id, "held_out_read")
@@ -2560,8 +3216,17 @@ class Loop:
                             attribution=f"reviewer:{exc.session_id or 'none'}",
                             message_id=message.message_id,
                             usage=message.usage,
+                            compaction=message.compaction,
+                            abandoned=message.abandoned,
+                            in_binary_totals=message.in_binary_totals,
                         )
                     )
+                if self._review_held(subtask_id, exc.session_id, exc.managed):
+                    return None  # it ran under other conditions: neither recorded nor retried
+                if exc.usage_limit is not None:
+                    who = f"review session {exc.session_id or 'none'}"
+                    self._wait_for_limit(subtask_id, attempt, exc.usage_limit, who, review=True)
+                    return None
                 retry = exc.cause == "infrastructure" and not retried
                 self._emit(
                     ReviewUnavailable(
@@ -2574,11 +3239,77 @@ class Loop:
                         session_id=exc.session_id,
                         reviewer_model=exc.reviewer_model,
                         spec_defects=exc.spec_defects,
+                        managed=exc.managed,
+                        compactions=exc.compactions,
                     )
                 )
                 if not retry:
                     return None
                 retried = True
+                continue
+            if self._review_held(subtask_id, review.session_id, review.managed, review):
+                return None
+            return review
+
+    def _review_held(
+        self,
+        subtask_id: str,
+        session_id: str | None,
+        managed: tuple[SessionManaged, ...],
+        review: ReviewResult | None = None,
+    ) -> bool:
+        """Whether a review ran under other conditions than its run began with; then it halts.
+
+        Each invocation of the review's session is held as a role session is: no managed
+        settings delivered or changed, the decomposition call's policy limits, and the run's
+        first catalog and flags. On a pin whose sessions carry that traffic, an invocation
+        whose catalog and flags went unread (its stop was not confirmed) is held too. What a
+        held review with a verdict spent is recorded here, as its verdict is not taken.
+        """
+        changed = self._review_change(managed)
+        if changed is None:
+            return False
+        if review is not None:
+            for message in review.usage:
+                self._emit(
+                    TokensUsed(
+                        **self._env(),
+                        attribution=f"reviewer:{review.session_id}",
+                        message_id=message.message_id,
+                        usage=message.usage,
+                        compaction=message.compaction,
+                        abandoned=message.abandoned,
+                        in_binary_totals=message.in_binary_totals,
+                    )
+                )
+        detail = f"review session {session_id or 'none'} {changed}"
+        self._emit(
+            Incident(
+                **self._env(),
+                subtask_id=subtask_id,
+                cause="managed_settings_changed",
+                detail=detail,
+            )
+        )
+        self._halt_for(subtask_id, "managed_settings_changed")
+        return True
+
+    def _review_change(self, managed: tuple[SessionManaged, ...]) -> str | None:
+        """How a review's invocations differ from what its run began with, or ``None``."""
+        held = self.config.claude_version in TRAFFIC_ALLOWED_VERSIONS
+        for n, seen in enumerate(managed, start=1):
+            changed = (
+                seen.managed_drift
+                or policy_limits_change(self._policy_baseline(), seen.policy_limits_sha256)
+                or (
+                    "had its catalog and flags not read: its stop was not confirmed"
+                    if held and seen.observed_traffic is None
+                    else traffic_change(self._traffic_baseline(), seen.observed_traffic)
+                )
+            )
+            if changed is not None:
+                return f"(invocation {n}): {changed}"
+        return None
 
     def _scopes(self, subtask_id: str) -> tuple[AttemptScope, ...]:
         """Subtask scope always; module scope when this completes its module, or is sizing's.
@@ -2629,6 +3360,8 @@ class Loop:
             mode = self.config.gate_mode
             order = self.state.integrated()
             not_merged = tuple(s for s in order if self.state.subtasks[s].status != "done")
+            if (mode == "off" or not_merged or not order) and self._no_follow_up_owed():
+                return  # a skipped call is owed none; a sign-off's wait comes before the skip
             if mode == "off" or not_merged or not order:
                 reason: Literal["gate_mode=off", "not_all_merged", "nothing_planned"] = (
                     "gate_mode=off"
@@ -2648,13 +3381,13 @@ class Loop:
             if self._gate is None:
                 msg = f"the integration call cannot pass: gate mode is {mode!r} and no gate"
                 raise GateNotRegisteredError(msg, gate_mode=mode)
-            if not self._follow_ups(write=True):
+            if not self._follow_ups(write=True) or self._no_follow_up_owed():
                 return
             head = self._expected_run_head()
             if head is None:
                 msg = "an integration call with no run branch head recorded"
                 raise RunStateError(msg, run_dir=str(self.run_dir))
-            baseline, change_sets = change_history(self.log.events)
+            baseline, change_sets = integration_history(self.log.events)
             artefact = IntegrationArtefact(
                 run_id=self.config.run_id,
                 graph_root=str(self._graph.root),
@@ -2809,6 +3542,361 @@ class Loop:
             self.queue.add(self._contract_item_for(tested, item_id, ts=self.log.events[-1].ts))
         self._emit(ContractItemRaised(**self._env(), item_id=item_id))
 
+    # -- a person's standing sign-offs (ARCH-130) -----------------------------------------
+
+    def _latest_nodes(self) -> dict[str, tuple[int, dict[str, Any]]]:
+        """Each node's last journal line at the run's recorded head: its revision and payload."""
+        head = self.state.journal_head
+        latest: dict[str, tuple[int, dict[str, Any]]] = {}
+        for line in self._graph.records_after(0):
+            if line.rev <= head:
+                latest[line.node_id] = (line.rev, dict(line.payload))
+        return latest
+
+    def _raise_sign_offs(self) -> None:
+        """List each sign-off item the clean merge on the record owes, then write its line.
+
+        For each module, in plan order, whose role owes a person's sign-off and that merged
+        anything: an item when the merge was the module's own, or when what the module's sign-off
+        binds is not what its latest item bound (another node, another revision, other values).
+        Each item is listed before the line, once; a process killed between the two lists none
+        twice and writes the line it owed.
+        """
+        due = self.state.sign_off_due or self.state.sign_off_after
+        if due is None or self.state.sign_off_rules is None:
+            msg = "a sign-off step with no clean merge owing its line"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        merged, attempt = due
+        latest = self._latest_nodes()
+        cross = owners_of("cross_nodes")
+        wrote = set(self.state.subtasks[merged].attempts[-1].applied)
+        raised: list[RaisedItem] = []
+        again: list[RaisedItem] = []
+        for module in self.state.owing_sign_off():
+            bound = bound_set(self.state, module, latest, cross)
+            digest = values_sha256(bound)
+            line = tuple(BoundValue(node_id=b.node_id, revision=b.revision) for b in bound)
+            earlier = self.state.sign_offs_of(module)
+            same = bool(earlier) and (earlier[-1].bound, earlier[-1].values_sha256) == (
+                line,
+                digest,
+            )
+            own = self.state.sign_off_owed(module, merged)
+            if same and not own:
+                continue
+            # ``own`` holds where this merge wrote a node the latest item binds, a node that left
+            # the set through it included; otherwise a write explains it where it is bound now.
+            if not own and not wrote & {b.node_id for b in bound}:
+                # The values moved, and no write of this merge moved them: a raise lost before
+                # this merge, raised again on what the graph gives, or a rewritten journal.
+                where = f"at the merge of {merged} attempt {attempt}"
+                if not self._raisable_again(module, earlier, line, where):
+                    return
+                again.append(self._listed_sign_off(module, bound, digest, line, due, again=True))
+                continue
+            raised.append(self._listed_sign_off(module, bound, digest, line, due))
+        if raised:
+            self._emit(
+                SignOffsRaised(
+                    **self._env(), subtask_id=merged, attempt=attempt, raised=tuple(raised)
+                )
+            )
+        for item in again:
+            self._emit(
+                SignOffRaisedAgain(
+                    **self._env(), found="merge", subtask_id=merged, attempt=attempt, raised=item
+                )
+            )
+
+    def _listed_sign_off(
+        self,
+        module: str,
+        bound: tuple[Bound, ...],
+        digest: str,
+        line: tuple[BoundValue, ...],
+        merged: tuple[str, int],
+        *,
+        again: bool = False,
+    ) -> RaisedItem:
+        """The module's next sign-off item, listed once before its line; what its line holds.
+
+        A process killed between the listing and the line lists none twice.
+        """
+        round_ = len(self.state.sign_offs_of(module)) + 1
+        item_id = sign_off_item_id(self.config.run_id, module, round_)
+        if item_id not in {item.item_id for item in self.queue.items()}:
+            self.queue.add(
+                self._sign_off_item_for(
+                    module, item_id, bound, digest, round_=round_, merged=merged,
+                    ts=self.log.events[-1].ts, again=again,
+                )
+            )  # fmt: skip
+        return RaisedItem(item_id=item_id, module=module, values_sha256=digest, bound=line)
+
+    def _raisable_again(
+        self, module: str, earlier: list[RaisedItem], line: tuple[BoundValue, ...], where: str
+    ) -> bool:
+        """Whether values the graph moved for ``module``'s sign-off can be raised again; or halt.
+
+        They can where the graph binds other nodes or revisions than the module's latest item, each
+        at the revision the log gives: a write the record holds, whose raise was lost. The item's
+        own nodes at its own revisions with other values were rewritten in the journal, which no
+        merge did and no person is asked to sign: the run halts.
+        """
+        if earlier and earlier[-1].bound == line:
+            detail = (
+                f"the values module {module}'s sign-off binds changed {where}, with no write on "
+                f"the record: its latest item {earlier[-1].item_id}'s nodes, at the revisions it "
+                "bound, were rewritten in the journal"
+            )
+            self._incident(None, "foreign_journal_line", detail)
+            return False
+        if not self.state.revisions_given(line):
+            detail = (
+                f"what module {module}'s sign-off binds, as the graph gives it {where}, holds a "
+                "node at a revision the record does not give"
+            )
+            self._incident(None, "foreign_journal_line", detail)
+            return False
+        return True
+
+    def _raise_owed_at_start(self) -> None:
+        """The sign-off line a clean merge may owe, asked of the graph where the log ends at it.
+
+        The log alone owes the line where the merge was the module's own or wrote a node its
+        latest item binds (``sign_off_due``, the next step). A merge that bound a new node to a
+        module (a cross node it wrote that now constrains the module's) owes one only by the
+        graph: a process killed between that merge's clean diff and its line leaves the diff the
+        last line, and this process asks the graph before it writes any line of its own. Never
+        in a halted run, nor where a halt is owed: the halt comes first, and a resume after it.
+        """
+        state = self.state
+        unhalted = state.halted is None and not state.halt_owed()
+        if unhalted and state.sign_off_due is None and state.sign_off_after is not None:
+            self._raise_sign_offs()
+
+    def _sign_off_refusal(self, check: ChangeCheck) -> ChangeCheck:
+        """``check``, or the declaration's refusal where it names a module whose sign-off is owed.
+
+        In either mode: such a module is not complete in this run, and integration's next attempt
+        is told which module to leave out, by name (ARCH-130).
+        """
+        declared = check.declaration
+        if check.refused_by is not None or declared is None:
+            return check
+        owed = self.state.sign_offs_open()
+        named = [module for module in declared.modules if module in owed]
+        if not named:
+            return check
+        why = "; ".join(
+            f"it names module {module!r}, whose "
+            f"{(sign_off_open(self.state, module) or '').removeprefix('its ')}"
+            for module in named
+        )
+        reason = (
+            f"{DECLARATION_PATH}: {why}. A module whose sign-off is owed is not complete in this "
+            "run: declare the others, and leave it out."
+        )
+        return check.model_copy(
+            update={
+                "refused_by": "declaration",
+                "reason": reason,
+                "subject": DECLARATION_PATH,
+                "declaration": None,
+                "disputes": (),
+            }
+        )
+
+    def _sign_off_holds(self, module: str) -> bool:
+        """What a module's sign-off binds, read again from the graph, is what its latest item bound.
+
+        Before its completion line, for a module whose role owes a sign-off: the nodes, their
+        revisions and the values' digest, as the graph at the run's recorded head gives them. The
+        log alone cannot see a cross node newly constraining the module's, and a halt clears what
+        owes a merge's raise, so a raise lost there would leave an approve of older values
+        counting. Where they differ, no completion is written: the sign-off is raised again on what
+        the graph gives, the line saying it was found here, and the run goes on with the module's
+        sign-off owed; or, where the journal was rewritten (:meth:`_raisable_again`), it halts.
+        """
+        if module not in self.state.owing_sign_off():
+            return True
+        earlier = self.state.sign_offs_of(module)
+        bound = bound_set(self.state, module, self._latest_nodes(), owners_of("cross_nodes"))
+        digest = values_sha256(bound)
+        line = tuple(BoundValue(node_id=b.node_id, revision=b.revision) for b in bound)
+        if earlier and (earlier[-1].bound, earlier[-1].values_sha256) == (line, digest):
+            return True
+        if not self._raisable_again(module, earlier, line, "before its completion line"):
+            return False
+        integration = self.state.completion_subtask
+        if integration is None:
+            msg = "a completion step in a run with no subtask that declares one"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        merged = (integration, self.state.subtasks[integration].attempts[-1].number)
+        item = self._listed_sign_off(module, bound, digest, line, merged, again=True)
+        self._emit(
+            SignOffRaisedAgain(
+                **self._env(),
+                found="completion",
+                subtask_id=merged[0],
+                attempt=merged[1],
+                raised=item,
+            )
+        )
+        return False
+
+    def _module_sessions(self, module: str, before: int | None = None) -> list[SessionEnded]:
+        """The sessions of the attempts merged in ``module``'s directory, before line ``before``."""
+        directory = self.state.subtasks[module].plan.module_dir
+        return [
+            attempt.session
+            for subtask_id in self.state.order
+            if self.state.subtasks[subtask_id].plan.module_dir == directory
+            for attempt in self.state.subtasks[subtask_id].attempts
+            if attempt.merged is not None
+            and (before is None or attempt.merged.seq < before)
+            and attempt.session is not None
+        ]
+
+    def _sign_off_item_for(
+        self,
+        module: str,
+        item_id: str,
+        bound: tuple[Bound, ...],
+        digest: str,
+        *,
+        round_: int,
+        merged: tuple[str, int],
+        ts: str,
+        before: int | None = None,
+        reject: SignOffReject | None = None,
+        again: bool = False,
+    ) -> QueueItem:
+        """The item a module's sign-off is listed on, from the record and the graph.
+
+        The one builder, so the item a decision is taken on is held to it whole. Its links are the
+        streams of every attempt merged in the module's directory before its line. ``reject`` is
+        what its reject does as the record gave it at the raise; by default, as it gives it now.
+        ``again``: raised again on values no sign-off line raised (:class:`SignOffRaisedAgain`).
+        """
+        rules = self.state.sign_off_rules
+        sub = self.state.subtasks[module]
+        rule = rules.rule_of(sub.plan.assigned_role) if rules is not None else None
+        if rule is None:
+            msg = "a sign-off item for a module whose role owes none"
+            raise RunStateError(msg, run_dir=str(self.run_dir), module=module)
+        sessions = self._module_sessions(module, before)
+        said = reject if reject is not None else sign_off_reject(self.state, module)
+        return sign_off_item(
+            item_id=item_id,
+            run_id=self.config.run_id,
+            module=module,
+            role=sub.plan.assigned_role,
+            signs=rule.signs,
+            merged=merged,
+            own=self.state.subtasks[merged[0]].plan.module_dir == sub.plan.module_dir,
+            values=values_text(bound, digest),
+            checks=rule.checks,
+            quantities=shown(rule, bound),
+            # By the run's own names for each stream, never the path it had on the machine: a
+            # record of the run reads the same wherever the run directory is.
+            trajectories=tuple(
+                "/".join(stream_parts(s.session_id)) for s in sessions if s.trajectory is not None
+            ),
+            round_=round_,
+            ts=ts,
+            consequence=sign_off_consequence(said) if self._acts() else None,
+            reject=said,
+            again=again,
+        )
+
+    def _sign_off_bound(self, item_id: str) -> tuple[Bound, ...] | None:
+        """What the sign-off item ``item_id`` binds, read again from the journal.
+
+        At the revisions its line names; ``None`` where the run raised no such item or the journal
+        lacks a line.
+        """
+        held = self.state.sign_off_lines.get(item_id)
+        if held is None:
+            return None
+        wanted = {(value.node_id, value.revision) for value in held[1].bound}
+        found = {
+            (one.node_id, one.rev): dict(one.payload)
+            for one in self._graph.records_after(0)
+            if (one.node_id, one.rev) in wanted
+        }
+        if set(found) != wanted:
+            return None
+        return tuple(
+            Bound(node_id=node, revision=rev, quantities=quantities_of(found[(node, rev)]))
+            for node, rev in sorted(wanted)
+        )
+
+    def _sign_off_fix_order(self, item_id: str, merged_at: int) -> PersonOrder:
+        """The order the one fix a reject of ``item_id`` ordered is given: the values it showed.
+
+        Raises:
+            RunStateError: the journal no longer holds what the item bound, or the reject has no
+                note on the record.
+        """
+        bound = self._sign_off_bound(item_id)
+        taken = self.state.taken.get(item_id)
+        if bound is None or taken is None:
+            msg = "a sign-off fix whose item's values or reject the record does not give"
+            raise RunStateError(msg, run_dir=str(self.run_dir), item=item_id)
+        try:
+            return sign_off_order(
+                item_id, merged_at, values_text(bound, values_sha256(bound)), taken.note
+            )
+        except ValueError as exc:
+            raise RunStateError(str(exc), run_dir=str(self.run_dir), item=item_id) from None
+
+    def _sign_off_fix_fits(self, item_id: str, note: str | None) -> bool:
+        """Whether the fix a reject of ``item_id`` with ``note`` orders is read whole by review.
+
+        What the reviewer is told quotes the order, and the order quotes the values.
+        """
+        bound = self._sign_off_bound(item_id)
+        raised = self.state.sign_offs.get(item_id)
+        if bound is None or raised is None or note is None:
+            return False
+        merged_at = self.state.subtasks[raised.module].attempts[-1].number
+        values = values_text(bound, values_sha256(bound))
+        return fits_one_read(person_order_text(sign_off_order(item_id, merged_at, values, note)))
+
+    def _sign_off_item_of(self, item: QueueItem) -> QueueItem | None:
+        """The sign-off item the record and the graph build for ``item``'s id; ``None`` if none.
+
+        The values are read again from the journal at the revisions the item's line names, so a
+        line of the journal or the queue rewritten since the raise is no longer the item.
+        """
+        held = self.state.sign_off_lines.get(item.item_id)
+        bound = self._sign_off_bound(item.item_id)
+        if held is None or bound is None:
+            return None
+        line, raised = held
+        round_ = [i.item_id for i in self.state.sign_offs_of(raised.module)].index(item.item_id)
+        return self._sign_off_item_for(
+            raised.module,
+            item.item_id,
+            bound,
+            values_sha256(bound),
+            round_=round_ + 1,
+            merged=(line.subtask_id, line.attempt),
+            ts=item.ts,
+            before=line.seq,
+            reject=self.state.sign_offs[item.item_id].reject,
+            again=isinstance(line, SignOffRaisedAgain),
+        )
+
+    def _signed_sessions(self, item: QueueItem) -> list[SessionEnded]:
+        """The sessions whose streams a sign-off item links, which a signature binds too."""
+        held = self.state.sign_off_lines.get(item.item_id)
+        if held is None:
+            return []
+        line, raised = held
+        return self._module_sessions(raised.module, line.seq)
+
     def _contract_item_for(self, tested: ContractTested, item_id: str, *, ts: str) -> QueueItem:
         """The item a failed contract lists, from the record as it stood at the result.
 
@@ -2880,7 +3968,7 @@ class Loop:
         if why is not None:
             self._incident(None, "duty_breach", f"subtask {integration}: {why}")
             return
-        if not self._record_holds(integration):
+        if not self._record_holds(integration) or not self._sign_off_holds(step.subtask_id):
             return
         attempt = self.state.subtasks[integration].attempts[-1].number
         self._emit(
@@ -2906,7 +3994,8 @@ class Loop:
         """What sizing's closing pass owed the domain modules on the record up to ``events``.
 
         Candidates are the domain modules that merged with an attempt left to reopen at: one
-        that merged on its fix has none, and the propagation check judges its nodes as written.
+        that merged on its fix, or at the last attempt number, has none, and the propagation check
+        judges its nodes as written.
         A module whose order its reviewer could not read whole is owed none either: the check
         judges its edges as they stand. With ``every``, each done domain module's edges, owed or
         not: what the integration item names.
@@ -2923,6 +4012,8 @@ class Loop:
             and sub.plan.module_dir != directory
             and (every or sub.attempts[-1].merged is not None)
             and (every or not any(a.fix for a in sub.attempts))
+            # A module at the last attempt number has none to reopen at: after a sign-off's fix.
+            and (every or sub.attempts[-1].number < ATTEMPT_LIMIT)
         }
         _, change_sets = change_history(events)
         head = max((r for c in change_sets for r in c.revisions), default=0)
@@ -2964,7 +4055,7 @@ class Loop:
             who = render.held(
                 subtask_id, SUBTASK_PATTERN, PLANNED_ID_MAX_LENGTH, render.REFUSED_SUBTASK
             )
-            told.append(f"{who} (owed {named}): {_follow_up_end(now)}")
+            told.append(f"{who} (owed {named}): {_follow_up_end(now, sub)}")
         return _account(told)
 
     def _follow_up_order(self, followed: SubtaskReopened) -> PersonOrder:
@@ -2975,6 +4066,18 @@ class Loop:
         edges = followed.owed or ()
         return follow_up_order(lines, change_sets, closing, edges, followed.attempt - 1)
 
+    def _no_follow_up_owed(self) -> bool:
+        """Write the line that no follow-up is owed where it is due; whether it was written.
+
+        At the integration step, once it found none owed, in a run that acts while a sign-off
+        item is undecided and the record says nothing of the follow-ups: the person is then
+        asked after them, on the values the call is made on (ARCH-130).
+        """
+        if not self.state.no_follow_up_due():
+            return False
+        self._emit(NoFollowUpOwed(**self._env()))
+        return True
+
     def _follow_ups(self, *, write: bool) -> bool:
         """The follow-ups on the record are what the journal owed where the first was written.
 
@@ -2982,10 +4085,24 @@ class Loop:
         plan order, each reopening its domain module at its next attempt, by code (ARCH-051), and
         whether the call may run now is returned. A process killed between two of them left a
         plan-order prefix, and the rest follows; once any of their attempts began, none does.
-        Otherwise, whether what is recorded holds. A difference halts the run.
+        Otherwise, whether what is recorded holds. A difference halts the run. The line that no
+        follow-up is owed is held the same way, to what the journal owed where it was written:
+        after it, none is written.
         """
         self._follow_ups_checked = True
         events = self.log.events
+        none = self.state.no_follow_up
+        if none is not None:
+            # Under gate off the call is never made, so the line came before the skip and the
+            # journal is not asked what that call would have been owed. A call skipped for any
+            # other reason has no such release: the line is held to what the journal owed.
+            call = self.state.integration
+            off = isinstance(call, IntegrationGateSkipped) and call.reason == "gate_mode=off"
+            if not off and self._owed(events[: none.seq]):
+                detail = "the journal owed a follow-up where the record says no follow-up is owed"
+                self._incident(None, "foreign_journal_line", detail)
+                return False
+            return True
         taken = [e for e in events if isinstance(e, SubtaskReopened) and e.cause is not None]
         if not taken and not write:
             return True
@@ -3082,7 +4199,7 @@ class Loop:
         head, mode = run_head_of(prefix), self.config.gate_mode
         again: GateResult | None = None
         if head is not None and mode != "off" and self._gate is not None:
-            baseline, change_sets = change_history(prefix)
+            baseline, change_sets = integration_history(prefix)
             artefact = IntegrationArtefact(
                 run_id=self.config.run_id,
                 graph_root=str(self._graph.root),
@@ -3159,6 +4276,10 @@ class Loop:
                     **self._env(), subtask_id=subtask_id, attempt=attempt, divergences=named
                 )
             )
+            if not named and self.state.sign_off_after is not None:
+                # The merge's sign-off items, straight after its clean diff: where the log alone
+                # owes one, a process killed before it writes it at its next step.
+                self._raise_sign_offs()
         else:
             # The graph still holds those writes, so it gives the cause; the check's own line,
             # the detail.
@@ -3166,8 +4287,19 @@ class Loop:
         if named:
             # A write past the store's own guard is the graver of the two, and the cause a
             # step that made one was always recorded under; duty breaches alone are a breach.
+            # A declared quantity touched past the store's guard is the journal's integrity, as
+            # the head check names it, not a role's duty.
             foreign = any(d.reason == REJECT_CROSS_ROLE for d in found)
-            cause: IncidentCause = "cross_role_write" if foreign else "duty_breach"
+            declared = any(
+                d.reason in (REJECT_DECLARED_FIXED, REJECT_DECLARED_FORGED) for d in found
+            )
+            cause: IncidentCause = (
+                "cross_role_write"
+                if foreign
+                else "foreign_journal_line"
+                if declared
+                else "duty_breach"
+            )
             self._incident(subtask_id, cause, "; ".join(named))
 
     # -- what is not an attempt ---------------------------------------------------------
@@ -3176,6 +4308,10 @@ class Loop:
         now = self.state.subtasks[subtask_id].attempts[-1]
         delay = infra_retry_delay(self.config.bounds.infra_retry_delays_s, now.retries_done)
         cause = now.session.cause if now.session else "unknown"
+        if now.session is not None and now.session.usage_limit is not None:
+            who = f"session {now.session.session_id}"
+            self._wait_for_limit(subtask_id, attempt, now.session.usage_limit, who, review=False)
+            return
         if cause == "credential_refused":
             variable = SECRET_VARIABLE[self.config.auth]
             detail = (
@@ -3191,6 +4327,18 @@ class Loop:
                 "dependencies and resume (the binary's message is in the session's stream)"
             )
             self._emit(Halted(**self._env(), reason="os_layer_unavailable", detail=detail))
+            return
+        if cause == "disk_full":
+            # Never retried: the binary said a full disk lost the session's own records,
+            # and the harness measured the volume as full. Nothing the session did is
+            # taken, and a person looks before anything else runs.
+            detail = (
+                f"subtask {subtask_id} attempt {attempt}: the session's binary said a full "
+                "disk lost the session's own records, and the volume holding them was "
+                "measured full when it ended; free the space and look at the session "
+                "before the run goes on"
+            )
+            self._emit(Halted(**self._env(), reason="disk_full", detail=detail))
             return
         if delay is None:
             detail = (
@@ -3209,6 +4357,37 @@ class Loop:
             )
         )
         self._sleep(delay)
+
+    def _wait_for_limit(
+        self, subtask_id: str, attempt: int, limit: UsageLimit, who: str, *, review: bool
+    ) -> None:
+        """Halt the run waiting for the account's usage limit to reset.
+
+        No retry is spent and nothing goes to a person: a role session that ended on the limit
+        does not move the attempt count, and a review that could not run leaves the attempt
+        waiting for it. A resume after the reset goes on exactly there (:meth:`resume`). What a
+        role session wrote before the limit is not committed: its worktree is kept as it was,
+        the session after the reset runs in it, and the attempt's completed end commits it.
+        """
+        env = self._env()
+        held = _reset_from(limit, env["ts"])
+        waits = (
+            "its review is still owed"
+            if review
+            else "the attempt count does not move; its worktree is kept as it was"
+        )
+        kind = f"a {limit.limit_type} limit, " if limit.limit_type else ""
+        far = (
+            f"; the stream's reset {held.out_of_range_reset} is out of range, not taken"
+            if held is not None and held.out_of_range_reset is not None
+            else ""
+        )
+        detail = (
+            f"subtask {subtask_id} attempt {attempt}: {who} ended on the account's usage limit "
+            f"({kind}resets {limit.resets or 'not given'}){far}; {waits}; resume after "
+            f"{resume_after(env['ts'], held)}"
+        )
+        self._emit(Halted(**env, reason="usage_limit", detail=detail, usage_limit=held))
 
     def _earlier_sessions(self, subtask_id: str, attempt: int) -> tuple[SessionTrajectory, ...]:
         """The attempt's sessions before the one that completed it, each with its stream.
@@ -3238,14 +4417,22 @@ class Loop:
     def _attempt_series(
         self, subtask_id: str, attempt: int, checks: tuple[SeriesCheck, ...]
     ) -> AttemptSeries | None:
-        """The records the attempt's sessions sealed and its quantities' checks, if any.
+        """The records the attempt's sessions sealed or discarded, and its quantities' checks.
 
         Read from the attempt's own session-end lines, a later session's record superseding
-        an earlier one's of the same id, as the change check read them.
+        an earlier one's of the same id, as the change check read them. A discarded record is
+        one the collector sealed the bytes of; a list cut at its bound is carried with it, so
+        the review is told it was cut. ``None`` for an attempt with none of these.
         """
         ended = self.state.subtasks[subtask_id].attempts[-1].ended
         entries = attempt_records(ended, subtask_id, attempt)
-        if not entries and not checks:
+        discarded = tuple(
+            AttemptDiscard(session_id=session.session_id, entry=entry)
+            for session in ended
+            for entry in session.series.discarded
+            if entry.sha256 is not None or entry.name == OVERFLOW_NAME
+        )
+        if not entries and not checks and not discarded:
             return None
         return AttemptSeries(
             run_dir=str(self.run_dir),
@@ -3253,6 +4440,7 @@ class Loop:
             attempt=attempt,
             records=tuple(AttemptRecord(session_id=e.session_id, record=e.record) for e in entries),
             checks=checks,
+            discarded=discarded,
         )
 
     def _sealed_hold(self, sessions: list[SessionEnded]) -> bool:
@@ -3413,6 +4601,7 @@ class Loop:
                 ts=ts,
                 attempt=now.number,
                 consequence=self._consequence(subtask_id, "escalation_decision", scan),
+                all_declared=decided.state.all_declared,
             )
         return escalation_item(
             item_id=item_id,

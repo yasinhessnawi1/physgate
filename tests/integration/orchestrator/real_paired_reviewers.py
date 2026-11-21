@@ -91,6 +91,9 @@ from physgate.orchestrator.credentials import remove_secrets, write_login  # noq
 from physgate.orchestrator.decompose import binary_version, read_stream  # noqa: E402
 from physgate.orchestrator.dispatch import probe_interpreter  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
+    BuilderHeld,
+    BuilderReleased,
+    Event,
     ReviewRan,
     ReviewUnavailable,
     RunStarted,
@@ -248,6 +251,19 @@ def _stamp(review: ReviewRan) -> bool | None:
     return None if review.result.verdict == "blocked" else review.result.verdict == "pass"
 
 
+def held_never_run(events: list[Event]) -> set[str]:
+    """The builders held until their design merged, never let go and never run: owed no review.
+
+    A builder whose designer ended without a merge is held for good: no session of it ever ends,
+    so no review of it can run, and counting it among the unreviewed would fail a run for a
+    module it rightly never dispatched.
+    """
+    held = {e.subtask_id for e in events if isinstance(e, BuilderHeld)}
+    released = {e.subtask_id for e in events if isinstance(e, BuilderReleased)}
+    ran = {e.subtask_id for e in events if isinstance(e, SessionEnded)}
+    return held - released - ran
+
+
 def check_paired(run_dir: Path, review_root: Path) -> dict[str, Any]:
     """The paired reviews, against the run's own records, whatever its ending."""
     events = read_events(run_dir / "events.jsonl")
@@ -312,6 +328,8 @@ def check_paired(run_dir: Path, review_root: Path) -> dict[str, Any]:
         carries = any(rejected.result.finding in prompts.get(e.session_id, "") for e in nexts)
         repaired.append({"subtask": rejected.subtask_id, "next_attempt_carries_finding": carries})
     subtasks_reviewed = {r.subtask_id for r in reviews}
+    # The reviews that ran are judged as they are; a builder held for good ran none and owes none.
+    held = held_never_run(events)
     # A review ends in a verdict when its last line for an attempt is a review, not unavailable.
     last_line: dict[tuple[str, int], str] = {}
     for event in events:
@@ -322,7 +340,8 @@ def check_paired(run_dir: Path, review_root: Path) -> dict[str, Any]:
     checks = {
         "every_review_ends_in_a_verdict": bool(last_line)
         and all(kind == "review_ran" for kind in last_line.values()),
-        "every_subtask_reviewed": subtasks_reviewed == set(ROLES),
+        "every_subtask_reviewed": bool(subtasks_reviewed)
+        and subtasks_reviewed == set(ROLES) - held,
         "every_review_well_formed": bool(per_review)
         and all(
             r["on_pinned_model"]
@@ -348,6 +367,7 @@ def check_paired(run_dir: Path, review_root: Path) -> dict[str, Any]:
             for e in unavailable
         ],
         "rejections_followed": repaired,
+        "builders_held_never_run": sorted(held),
         "checks": checks,
         "all_pass": all(v is not False for v in checks.values())
         and checks["repair_carries_the_finding"] is not False,

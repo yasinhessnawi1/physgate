@@ -1,10 +1,36 @@
 /** A timeline row drawn: its time, its actor, its sentence (with any value it names) and its end. */
+import { createContext, useContext } from "react";
+
 import { Quantity } from "../../design/components/data/Quantity";
 import { TimelineRow } from "../../design/components/timeline/TimelineRow";
 import { GateModeBadge, GateOutcome } from "../../design/components/verdict/GateMode";
 import { VerdictBadge } from "../../design/components/verdict/VerdictBadge";
 import { clockTime, utc } from "../../words/runs";
 import type { Row, RowEnd } from "./rows";
+
+/** Whether rows show their internal ids: off unless a screen's toggle turns it on. */
+export const IdsShownContext = createContext(false);
+
+/** A session's id as recorded: a UUID, alone or after the word "session". */
+const SESSION_ID = /^(session )?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * A row's meta line, its internal ids dropped unless ``ids``: the row's own subtask id (its name
+ * leads the row), a session's id and the run's id (the header names the run). What is not an id,
+ * a node, a quantity, a count or a cause, stays.
+ */
+export function metaShown(row: Row, ids: boolean): string {
+  if (ids) return row.meta;
+  return row.meta
+    .split(" · ")
+    .filter(
+      (part) =>
+        part !== row.subtask &&
+        !SESSION_ID.test(part) &&
+        !(row.subtask === null && /^run \S+$/.test(part)),
+    )
+    .join(" · ");
+}
 
 function End({ end }: { readonly end: RowEnd | null }) {
   if (end === null) return null;
@@ -34,6 +60,7 @@ export function RowView({
   readonly selected?: boolean;
   readonly onSelect?: () => void;
 }) {
+  const ids = useContext(IdsShownContext);
   const shown = (
     <TimelineRow
       time={clockTime(row.ts)}
@@ -53,7 +80,7 @@ export function RowView({
       }
       meta={
         <>
-          <span title={utc(row.ts)}>{row.meta}</span>
+          <span title={utc(row.ts)}>{metaShown(row, ids)}</span>
         </>
       }
       end={<End end={row.end} />}

@@ -459,12 +459,26 @@ def _object_store(object_dirs: tuple[str, ...], object_format: str) -> str:
     """
     store = tempfile.mkdtemp(prefix="physgate-git-store-")
     _STORES.append(store)
-    env = {
+    _init_store(store, object_dirs, object_format)
+    return store
+
+
+def _store_env(object_format: str) -> dict[str, str]:
+    """The environment a command run against a clean store runs with."""
+    return {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": os.devnull,
         **_ENV,
         "GIT_ATTR_SOURCE": EMPTY_TREES[object_format],
     }
+
+
+def _init_store(store: str, object_dirs: tuple[str, ...], object_format: str) -> None:
+    """Make ``store`` a bare git directory that reaches ``object_dirs`` and holds nothing else.
+
+    Raises:
+        GitError: git could not make it.
+    """
     done = subprocess.run(
         [
             harness_git().path,
@@ -476,7 +490,7 @@ def _object_store(object_dirs: tuple[str, ...], object_format: str) -> str:
             f"--object-format={object_format}",
             store,
         ],
-        env=env,
+        env=_store_env(object_format),
         capture_output=True,
         text=True,
         check=False,
@@ -485,7 +499,122 @@ def _object_store(object_dirs: tuple[str, ...], object_format: str) -> str:
         msg = "git could not prepare a clean object store"
         raise GitError(msg, stderr=done.stderr.strip()[-400:])
     (Path(store) / "objects" / "info" / "alternates").write_text("\n".join(object_dirs) + "\n")
-    return store
+
+
+#: Every transport refused. ``protocol.allow`` is the default of every protocol's own setting,
+#: so no command given it fetches from or pushes to anywhere, a partial clone's lazy fetch of an
+#: object it lacks among them (measured on 2.54: "transport 'file' not allowed", and nothing
+#: fetched). For the reads of a repository a person handed the harness, which need no remote.
+NO_TRANSPORT: tuple[str, ...] = ("-c", "protocol.allow=never")
+
+
+def unreachable_from(cwd: Path, tips: list[str]) -> list[tuple[str, str]]:
+    """Every object of ``cwd``'s store that none of ``tips`` reaches, as ``(type, id)``.
+
+    git's own reachability (``fsck --unreachable --connectivity-only``, which reads every commit
+    and tree and no blob), run in a throwaway store of its own that reaches ``cwd``'s objects
+    and holds none of ``cwd``'s config or refs. The tips are written to that store as its only
+    refs, by ``update-ref --stdin``, never as arguments: a repository with more refs than a
+    command line holds is judged as a small one is. The store is removed before this returns.
+
+    Raises:
+        GitError: a tip is no object of the store, or git could not read its connectivity.
+    """
+    where = _git_dir(cwd)
+    object_format = _object_format(cwd, where)
+    store = tempfile.mkdtemp(prefix="physgate-git-tips-")
+    try:
+        _init_store(store, _object_dirs(cwd, where), object_format)
+        names = "".join(f"create refs/tips/{i} {tip}\n" for i, tip in enumerate(tips))
+        found = ""
+        steps: tuple[tuple[tuple[str, ...], str | None], ...] = (
+            (("update-ref", "--stdin"), names),
+            (("fsck", "--unreachable", "--connectivity-only", "--no-progress"), None),
+        )
+        for args, stdin in steps:
+            done = subprocess.run(
+                [harness_git().path, attr_source(object_format), "--git-dir", store, *_FLAGS,
+                 *NO_TRANSPORT, *args],
+                cwd=store,
+                env=_store_env(object_format),
+                input=stdin,
+                capture_output=True,
+                text=True,
+                check=False,
+            )  # fmt: skip
+            if done.returncode != 0:
+                msg = "a git command failed"
+                raise GitError(
+                    msg, command=" ".join(args), cwd=str(cwd), exit=str(done.returncode),
+                    stderr=done.stderr.strip()[-800:],
+                )  # fmt: skip
+            found = done.stdout
+    finally:
+        shutil.rmtree(store, ignore_errors=True)
+    listed = [line.split() for line in found.splitlines() if line.startswith("unreachable ")]
+    return [(kind, oid) for _, kind, oid in listed]
+
+
+def shallow(cwd: Path) -> bool:
+    """Whether ``cwd`` is a shallow clone: its common git directory holds a ``shallow`` file.
+
+    Read from the filesystem, since every harness git is told to read no such file
+    (``GIT_SHALLOW_FILE``), so git asked here would say it is not.
+
+    Raises:
+        GitError: ``cwd`` holds no git directory.
+    """
+    return (_git_dir(cwd).common / "shallow").is_file()
+
+
+def promisor(cwd: Path) -> bool:
+    """Whether ``cwd`` is a partial clone, which leaves objects to a remote it fetches them from.
+
+    Read as data, with no git command run in the repository: a promisor pack in any of its
+    object directories, the partial-clone extension, or any remote's promisor or filter key in
+    its config. The config is read without its includes, so a key held only in a file it
+    includes is not seen; every command of the check refuses every transport all the same, so
+    such a clone is read as it is, and nothing is fetched.
+
+    Raises:
+        GitError: ``cwd`` holds no git directory, or its config cannot be read.
+    """
+    where = _git_dir(cwd)
+    for objects in object_dirs(where):
+        if any((Path(objects) / "pack").glob("*.promisor")):
+            return True
+    config = where.common / "config"
+    if _config_get(config, "extensions.partialclone") is not None:
+        return True
+    return _config_has(config, r"^remote\..*\.(promisor|partialclonefilter)$")
+
+
+def _config_has(config: Path, pattern: str) -> bool:
+    """Whether a config file holds a key matching ``pattern``, read as :func:`_config_get` reads.
+
+    Raises:
+        GitError: git cannot read the file.
+    """
+    resolved = Path(config).resolve()
+    if not resolved.is_file():
+        msg = "the repository has no config file to read"
+        raise GitError(msg, config=str(resolved))
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
+    done = subprocess.run(
+        [harness_git().path, attr_source(), *_FLAGS, *NO_TRANSPORT, "config", "--file",
+         str(resolved), "--no-includes", "--name-only", "--get-regexp", pattern],
+        cwd="/",
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )  # fmt: skip
+    if done.returncode == 1 and not done.stderr.strip():  # no key matches
+        return False
+    if done.returncode != 0:
+        msg = "the repository's config cannot be read"
+        raise GitError(msg, config=str(config), exit=str(done.returncode))
+    return bool(done.stdout.strip())
 
 
 def git(
@@ -516,22 +645,7 @@ def git(
     Raises:
         GitError: it exited non-zero and ``check`` is true.
     """
-    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
-    exe = harness_git().path
-    if objects_only:
-        object_format = _object_format(Path(cwd), git_dir)
-        store = _object_store(_object_dirs(Path(cwd), git_dir), object_format)
-        env["GIT_ATTR_SOURCE"] = EMPTY_TREES[object_format]
-        argv = [exe, attr_source(object_format), "--git-dir", store, *_FLAGS, *args]
-        run_in: Path | str = store
-    elif git_dir is not None:
-        argv = [exe, attr_source(), "--git-dir", str(git_dir.path), "--work-tree", str(cwd)]
-        argv += _FLAGS
-        argv += args
-        run_in = cwd
-    else:
-        argv = [exe, attr_source(), *_FLAGS, *args]
-        run_in = cwd
+    argv, run_in, env = _command(cwd, args, objects_only=objects_only, git_dir=git_dir)
     done = subprocess.run(
         argv,
         cwd=run_in,
@@ -553,6 +667,54 @@ def git(
             stderr=done.stderr.strip()[-800:],
         )
     return done.stdout
+
+
+def git_bytes(
+    cwd: Path, *args: str, objects_only: bool = False, git_dir: GitDir | None = None
+) -> bytes:
+    """Run one git command in ``cwd`` as :func:`git` does; its output as the bytes git wrote.
+
+    For a read whose bytes are the point, a blob a scorer takes as it was committed: nothing
+    is decoded, and no line ending is rewritten, as the text mode :func:`git` reads in does.
+
+    Raises:
+        GitError: it exited non-zero.
+    """
+    argv, run_in, env = _command(cwd, args, objects_only=objects_only, git_dir=git_dir)
+    done = subprocess.run(argv, cwd=run_in, env=env, capture_output=True, check=False)
+    if done.returncode != 0:
+        msg = "a git command failed"
+        raise GitError(
+            msg,
+            command=" ".join(args),
+            cwd=str(cwd),
+            exit=str(done.returncode),
+            stderr=done.stderr.decode("utf-8", errors="replace").strip()[-800:],
+        )
+    return done.stdout
+
+
+def _command(
+    cwd: Path, args: tuple[str, ...], *, objects_only: bool, git_dir: GitDir | None
+) -> tuple[list[str], Path | str, dict[str, str]]:
+    """One git command's argv, the directory it runs in and its environment."""
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
+    exe = harness_git().path
+    if objects_only:
+        object_format = _object_format(Path(cwd), git_dir)
+        store = _object_store(_object_dirs(Path(cwd), git_dir), object_format)
+        env["GIT_ATTR_SOURCE"] = EMPTY_TREES[object_format]
+        argv = [exe, attr_source(object_format), "--git-dir", store, *_FLAGS, *args]
+        run_in: Path | str = store
+    elif git_dir is not None:
+        argv = [exe, attr_source(), "--git-dir", str(git_dir.path), "--work-tree", str(cwd)]
+        argv += _FLAGS
+        argv += args
+        run_in = cwd
+    else:
+        argv = [exe, attr_source(), *_FLAGS, *args]
+        run_in = cwd
+    return argv, run_in, env
 
 
 def git_timed(

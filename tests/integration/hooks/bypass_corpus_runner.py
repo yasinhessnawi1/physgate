@@ -55,9 +55,11 @@ from typing import Any
 import test_the_bypass_suite as bp
 from fake_messages_api import Script, text
 from hook_session import (
-    PINNED_VERSION,
+    PINNED_VERSIONS,
+    HarnessError,
     SessionRun,
     claude_binary,
+    pinned_version,
     run_session,
     session_path,
     volume_is_case_insensitive,
@@ -233,8 +235,8 @@ def pins(
         [binary, "--version"], capture_output=True, text=True, check=False, timeout=60
     ).stdout
     version = said.split(" ", 1)[0].strip()
-    if version != PINNED_VERSION:
-        msg = f"{binary} reports version {said.strip()!r}, not {PINNED_VERSION}"
+    if version not in PINNED_VERSIONS:
+        msg = f"{binary} reports version {said.strip()!r}, not one of {', '.join(PINNED_VERSIONS)}"
         raise RunRefusedError(msg)
     digest = _sha256(binary)
     if digest != pinned_sha256:
@@ -279,8 +281,16 @@ def resolve_on_session_path(binary: str) -> str | None:
 
 
 def layer_state() -> Present | Absent:
-    """Whether the OS layer runs here, for the pinned version and the session's path."""
-    return judge_here(claude_version=PINNED_VERSION, search_path=session_path())
+    """Whether the OS layer runs here, for the pinned version and the session's path.
+
+    On a machine with no pinned binary the version is unknown, and the layer is judged absent
+    for it, as for any version it was not measured on; an arm that needs the layer then refuses.
+    """
+    try:
+        version = pinned_version()
+    except HarnessError:
+        version = ""
+    return judge_here(claude_version=version, search_path=session_path())
 
 
 def _require_layer() -> None:

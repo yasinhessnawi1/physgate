@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from git_rig import PARAMS, Gate, Reviewer, config, target_repo
+from git_rig import Gate, Reviewer, config, run_params, target_repo
 from knowledge_fixture import fixture_text
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
@@ -96,7 +96,7 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
     run_dir = tmp_path / "run"
     install = tmp_path / "install"
     prepare_install(install, Path(__file__).resolve().parents[3])
-    params = config().model_dump(include=PARAMS)
+    params = run_params(config())
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)

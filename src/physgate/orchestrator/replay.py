@@ -16,15 +16,17 @@ that ledger back from disk, not from memory.
 from __future__ import annotations
 
 import copy
+import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Literal, NoReturn
+from typing import Any, Literal, NoReturn
 
 from pydantic import ValidationError
 
 from physgate.contracts.pairs import ContractPair, recorded_pairs_problem
-from physgate.flags import replans
+from physgate.flags import Reviewers, replans
+from physgate.orchestrator import design_wait
 from physgate.orchestrator.arbitration import (
     ClauseConflict,
     Held,
@@ -41,8 +43,10 @@ from physgate.orchestrator.common import (
     SUBTASK_PATTERN,
     GateMode,
 )
-from physgate.orchestrator.completion import open_preconditions
-from physgate.orchestrator.decisions import require_taken, values_chosen
+from physgate.orchestrator.completion import open_preconditions, sign_off_open
+from physgate.orchestrator.decisions import require_taken, sign_off_reject, values_chosen
+from physgate.orchestrator.design_pairs import DesignPair, recorded_design_pairs_problem
+from physgate.orchestrator.design_wait import DesignWaits, gated, held_for_good, held_subtask
 from physgate.orchestrator.escalation import (
     REGISTER,
     TO_THE_QUEUE,
@@ -58,6 +62,9 @@ from physgate.orchestrator.events import (
     ArbitrationDecided,
     AttemptRejected,
     AttemptReturned,
+    BoundValue,
+    BuilderHeld,
+    BuilderReleased,
     CompletionDeclared,
     ContractItemRaised,
     ContractPairsPlanned,
@@ -68,8 +75,11 @@ from physgate.orchestrator.events import (
     DecisionTaken,
     Decomposed,
     DecompositionRetried,
+    DesignPairsPlanned,
     DesignReviewRan,
     DiffChecked,
+    DispatchHeld,
+    DispatchReleased,
     DisputeRecorded,
     EnvironmentRecorded,
     Escalated,
@@ -95,18 +105,30 @@ from physgate.orchestrator.events import (
     Merged,
     ModuleCompleted,
     NodeFilesRepaired,
+    NoFollowUpOwed,
     OsLayerChecked,
+    PartsGateRan,
+    PartsRaisedAgain,
+    PartsReleased,
+    PartsWriteDone,
+    PartsWriteIntended,
     PlanProposed,
     PlanRejected,
     ProposalsChecked,
+    RaisedItem,
     Resumed,
     ReviewRan,
+    ReviewSkipped,
     ReviewUnavailable,
     RunStarted,
     SessionEnded,
     SessionSpawned,
+    SignOffFixEnded,
+    SignOffRaisedAgain,
+    SignOffsRaised,
     Stage,
     StageEntered,
+    StatedPart,
     SubtaskPlanned,
     SubtaskRejected,
     SubtaskRemoved,
@@ -127,11 +149,43 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.follow import rederived
 from physgate.orchestrator.managed import policy_limits_change
-from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR, CriterionWords, SystemRequirement
+from physgate.orchestrator.parts_write import (
+    PartsWrite,
+    TakenPart,
+    blocked_parts,
+    parts_payload,
+    parts_record,
+    parts_writes,
+)
+from physgate.orchestrator.plan import (
+    INTEGRATION_MODULE_DIR,
+    Component,
+    CriterionWords,
+    SystemRequirement,
+)
+from physgate.orchestrator.producer_wait import (
+    Waits,
+    dispatch_due,
+    held_dispatch,
+    take,
+)
 from physgate.orchestrator.protocols import ChosenValue, QuantityRef
-from physgate.orchestrator.queue import DECOMPOSITION_NAME, PLAN, contract_item_id, item_id_for
+from physgate.orchestrator.queue import (
+    DECOMPOSITION_NAME,
+    PLAN,
+    PartsBody,
+    contract_item_id,
+    item_id_for,
+    parts_item_id,
+    parts_sha256,
+    raised_again_id,
+    sign_off_item_id,
+)
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
+from physgate.orchestrator.sign_off import RaisedSignOff, SignOffRules, known_rules
+from physgate.reviewers.scan import judged_attempts
+from physgate.roles import owners_of as _cross_owners
 from physgate.state.store import payload_digest
 from physgate.state.task_ledger import Outcome, TaskLedger, TaskLine, read_ledger
 
@@ -158,6 +212,8 @@ class AttemptState:
     #: The journal head each ruling was made at, in the same order.
     ruled_at: list[int] = field(default_factory=list)
     review: ReviewRan | None = None
+    #: The review stage's line under ``reviewers: off``: no reviewer ran, and none was asked.
+    skipped: ReviewSkipped | None = None
     #: A review that was not a verdict: retried once for infrastructure, otherwise final.
     unavailable: list[ReviewUnavailable] = field(default_factory=list)
     rejected: AttemptRejected | None = None
@@ -190,7 +246,7 @@ class AttemptState:
         if order.index(cursor) < order.index("spawn"):
             self.session = None
             self.issued = None
-        self.changes = self.gate = self.review = None
+        self.changes = self.gate = self.review = self.skipped = None
         self.declaration = None
         self.disputes = []
         self.arbitrations = []
@@ -248,6 +304,20 @@ class SubtaskState:
     reopened: SubtaskReopened | None = None
     #: The follow-up sizing's closing pass owed the subtask, once taken.
     followed_up: SubtaskReopened | None = None
+    #: The one fix a person's reject of the module's sign-off item reopened it for, once taken:
+    #: once per module per run (ARCH-130).
+    sign_off_fixed: SubtaskReopened | None = None
+
+    def judged(self) -> set[int]:
+        """The attempts whose streams a review judged: its own, and the earlier ones it was given.
+
+        An attempt refused before review, or left without a verdict, is in it only once a later
+        review was given its scan hits and answered every one (ARCH-133). A review line that
+        names none judged its own attempt alone, as every line written before did.
+        """
+        return {r.attempt for r in self.reviews} | {
+            n for r in self.reviews for n in r.judged_earlier
+        }
 
 
 @dataclass(frozen=True)
@@ -267,9 +337,14 @@ class Step:
         "halted",
         "escalated",
         "wait",
+        "parts",
         "return",
         "reopen",
         "follow_up_ended",
+        "sign_off_fix_ended",
+        "hold",
+        "release",
+        "sign_off",
         "done",
     ]
     subtask_id: str | None = None
@@ -281,9 +356,10 @@ def at_a_boundary(step: Step) -> bool:
     """Where a person's decision may be taken: no attempt in progress, none half judged.
 
     Between subtasks, at the integration call, or at the end of the run (ARCH-133). The loop
-    takes decisions only where this holds, and the replay refuses one taken anywhere else.
+    takes decisions only where this holds, and the replay refuses one taken anywhere else. A hold
+    or release line stands where its subtask's dispatch would: a boundary as that is.
     """
-    if step.kind in ("integrate", "done", "escalated", "wait"):
+    if step.kind in ("integrate", "done", "escalated", "wait", "hold", "release"):
         return True
     return step.kind == "attempt" and step.point == "resolve"
 
@@ -292,6 +368,12 @@ def following_up(sub: SubtaskState, attempt: int | None = None) -> bool:
     """Whether ``attempt`` (by default the subtask's last) is the follow-up the record owes it."""
     number = attempt if attempt is not None else sub.attempts[-1].number if sub.attempts else 0
     return sub.followed_up is not None and sub.followed_up.attempt == number
+
+
+def sign_off_fixing(sub: SubtaskState, attempt: int | None = None) -> bool:
+    """Whether ``attempt`` (by default the subtask's last) is a rejected sign-off's one fix."""
+    number = attempt if attempt is not None else sub.attempts[-1].number if sub.attempts else 0
+    return sub.sign_off_fixed is not None and sub.sign_off_fixed.attempt == number
 
 
 def _verdict(gate: GateRan | GateSkipped | None) -> Outcome | None:
@@ -308,6 +390,13 @@ def why_not_merged(now: AttemptState) -> FollowUpWhy:
     if now.blocked is not None:
         return "blocked"
     return "no_verdict" if now.unavailable_final is not None else "for_a_person"
+
+
+def _review_outcome(attempt: AttemptState) -> Outcome | None:
+    """What the ledger records for an attempt's review: its verdict, ``skipped``, or nothing."""
+    if attempt.review is not None:
+        return attempt.review.result.verdict
+    return "skipped" if attempt.skipped is not None else None
 
 
 def _refuse(message: str) -> NoReturn:
@@ -337,6 +426,9 @@ class RunState:
     def __init__(self) -> None:
         """An empty run: nothing started."""
         self.gate_mode: GateMode | None = None
+        #: Who reviews the role work, as the run's first line says: the paired specialists on a
+        #: log that names no other value, as every run before the switch was.
+        self.reviewers: Reviewers = "paired"
         #: The escalation backend the run's first line names; ``None`` on a log written
         #: before the escalation interface existed.
         self.escalation_backend: str | None = None
@@ -361,6 +453,28 @@ class RunState:
         #: person's reject of the plan's item led to.
         self.holds_plan = False
         self.plan_rejected: PlanRejected | None = None
+        #: Whether the run asks which parts a person has, as its first line says; the components
+        #: the decomposition's line lists, and the id of the item each one is decided on.
+        self.asks_parts = False
+        self.components: tuple[Component, ...] | None = None
+        self.parts_ids: tuple[str, ...] = ()
+        #: The write the parts decisions owe that is intended and not done, each node's write
+        #: as it landed in the order they were intended, and the line that released the run.
+        self.parts_pending: PartsWriteIntended | None = None
+        self.parts_landed: list[tuple[str, str, int]] = []
+        self.parts_places: list[tuple[int, bool]] = []
+        self._parts_place = (0, False)
+        self.parts_released: PartsReleased | None = None
+        #: The journal's head before the first parts write (what every round of the release is
+        #: judged from), the release's gate line of this round, each part raised again with why
+        #: and when, each declared node's names and the component it holds values of, and the
+        #: payload of the intended write.
+        self.parts_base: int | None = None
+        self.parts_gate: PartsGateRan | None = None
+        self.parts_again: dict[str, tuple[str, str]] = {}
+        self.parts_declared: dict[str, frozenset[str]] = {}
+        self.parts_holder: dict[str, str] = {}
+        self._parts_payload: dict[str, Any] | None = None
         self.order: list[str] = []
         self.subtasks: dict[str, SubtaskState] = {}
         self.halted: Halted | None = None
@@ -387,6 +501,10 @@ class RunState:
         #: resolved, and the escalation a blocking failure there led to.
         self.integration: IntegrationGateRan | IntegrationGateSkipped | None = None
         self.integration_escalated: IntegrationEscalated | None = None
+        #: The holds on dispatches while a subtask read from waits on a person.
+        self.producer_waits = Waits()
+        #: The builders held while the module whose design each implements has not merged.
+        self.design_waits = DesignWaits()
         #: Integration's subtask, if the plan has one: the one subtask whose planning line marks
         #: it as the completion owner's, read from that line and never from the role register or
         #: a role's name. It reads the system-scope result, so it runs after the integration
@@ -401,6 +519,11 @@ class RunState:
         self.interfaces: tuple[str, ...] = ()
         #: The module pairs whose contract the run tests, once their line is on the record.
         self.contract_pairs: tuple[ContractPair, ...] | None = None
+        #: The modules that build what another designs, once their line is on the record;
+        #: ``None`` in a run whose plan has none, or recorded before they were read.
+        self.design_pairs: tuple[DesignPair, ...] | None = None
+        #: The builders the plan lists before the designers they may build, as it was accepted.
+        self.design_misordered: tuple[DesignPair, ...] = ()
         #: The modules recorded complete, by the subtask that planned each. Merged is not
         #: complete: a module's subtask is ``done`` once it merged, whether or not it is here.
         self.completed: dict[str, ModuleCompleted] = {}
@@ -416,7 +539,8 @@ class RunState:
         #: each contract item was raised for, by item id.
         self.contract_rulings: dict[int, list[ContractRuled]] = {}
         self.contract_items: dict[str, ContractTested] = {}
-        #: Each contract item a reopen superseded, by id: the item whose decision reopened it.
+        #: Each contract item a reopen superseded, by id: the item whose decision reopened it; and
+        #: each sign-off item a later one about its module superseded undecided, by that one's id.
         self.superseded: dict[str, str] = {}
         #: The system requirements the plan allocates to integration, and the brief's own words for
         #: each one given by number, as the decomposition's line records them.
@@ -452,6 +576,25 @@ class RunState:
         self.resolved: IncidentResolved | None = None
         #: The rule's resolution of a session's change, before the session's end line.
         self.ruled: IncidentResolved | None = None
+        #: The version of the sign-off rule table the run's first line names; ``None`` on a run
+        #: started before the table existed, which owes no sign-off.
+        self.sign_off_rules: SignOffRules | None = None
+        #: Every sign-off item on the record, by id, in the order raised.
+        self.sign_offs: dict[str, RaisedSignOff] = {}
+        #: The sign-off items whose approve acts, in the order each came to act: taken acting, or
+        #: held and since confirmed.
+        self.signed: list[str] = []
+        #: The clean merge whose sign-off line is owed next, by subtask and attempt, in a run whose
+        #: first line names the rule table, where the log alone says it owes one; the clean merge
+        #: whose diff is the last line, after which a sign-off line may come where the graph says
+        #: one is owed; and each sign-off item's line and its place in it.
+        self.sign_off_due: tuple[str, int] | None = None
+        self.sign_off_after: tuple[str, int] | None = None
+        #: The clean merge whose sign-off lines may still follow: its line, and any raised again.
+        self.sign_off_tail: tuple[str, int] | None = None
+        self.sign_off_lines: dict[str, tuple[SignOffsRaised | SignOffRaisedAgain, RaisedItem]] = {}
+        #: The integration step's line that no follow-up is owed, where it wrote one.
+        self.no_follow_up: NoFollowUpOwed | None = None
 
     # -- following the log -------------------------------------------------------
 
@@ -498,11 +641,24 @@ class RunState:
     def _record(self, event: Event) -> None:
         if isinstance(event, RunStarted):
             self.gate_mode = event.gate_mode
+            self.reviewers = event.reviewers or "paired"
             self.escalation_backend = event.escalation_backend
             self.acts = event.queue_decisions == "act"
+            self.producer_waits.strict = event.producer_wait == "hold"
             self.reviews_plan = event.design_review is not None
             self.holds_plan = self.reviews_plan and event.design_review != "observe"
             self.replans = replans(event.design_review or "off")
+            self.asks_parts = event.parts_on_hand == "on"
+            if self.asks_parts and not self.acts:
+                _refuse("a run that asks which parts a person has acts on decisions")
+            if event.sign_offs is not None:
+                rules = known_rules(event.sign_offs)
+                if rules is None:
+                    _refuse(
+                        "the run's first line names a version of the sign-off rule table this "
+                        "code does not hold"
+                    )
+                self.sign_off_rules = rules
             return
         if isinstance(event, IncidentResolved):
             self._incident_resolved(event)
@@ -596,6 +752,17 @@ class RunState:
             return
         if self.pending_reopen is not None and not isinstance(event, Resumed | Incident):
             _refuse("nothing comes between a decision that reopens a subtask and its reopen")
+        if isinstance(event, SignOffsRaised):
+            self._signed_off(event)
+            return
+        if self.sign_off_due is not None and not isinstance(event, Resumed | Incident):
+            _refuse("nothing comes between a clean merge and the line of the sign-offs it raised")
+        if isinstance(event, SignOffRaisedAgain):
+            self._raised_again(event)
+            return
+        if isinstance(event, Resumed) and self._resumes_a_sign_off_line(event):
+            return
+        self.sign_off_after = self.sign_off_tail = None
         if isinstance(event, ContractRuled):
             self._ruled(event)
             return
@@ -607,8 +774,8 @@ class RunState:
         ):
             _refuse("nothing follows a failed contract result but its rulings and its item")
         if isinstance(event, SubtaskPlanned):
-            if self.contract_pairs is not None:
-                _refuse("nothing is planned after the run's contract pairs")
+            if self.contract_pairs is not None or self.design_pairs is not None:
+                _refuse("nothing is planned after the run's contract pairs or its design pairs")
             self._plan(event)
             return
         if isinstance(event, PlanProposed):
@@ -637,9 +804,25 @@ class RunState:
             self.system_requirements = event.system_requirements
             self.brief_words = event.brief_words or ()
             self.plan_sha256 = event.plan_sha256
+            if (event.components is not None) != self.asks_parts:
+                _refuse(
+                    "the decomposition's line lists the plan's components exactly when the run "
+                    "asks which parts a person has"
+                )
+            self.components = event.components
+            rounds = len(self.earlier_reviews) + 1
+            self.parts_ids = tuple(
+                parts_item_id(event.run_id, number, rounds)
+                for number, _ in enumerate(event.components or (), start=1)
+            )
             return
         if isinstance(event, ContractPairsPlanned):
+            if self.design_pairs is not None:
+                _refuse("the run's contract pairs come before its design pairs")
             self._pairs(event)
+            return
+        if isinstance(event, DesignPairsPlanned):
+            self._design_pairs(event)
             return
         if isinstance(event, DesignReviewRan):
             self._plan_reviewed(event)
@@ -660,8 +843,18 @@ class RunState:
                 _refuse("a plan is rejected once, after a person's reject of the plan's item")
             self.plan_rejected = event
             return
+        if isinstance(
+            event,
+            PartsWriteIntended | PartsWriteDone | PartsReleased | PartsGateRan | PartsRaisedAgain,
+        ):
+            self._parts_line(event)
+            return
         if dispatch and self.plan_hold() is not None:
             _refuse("nothing is dispatched while the plan's review holds the run")
+        if dispatch and self.parts_hold() is not None:
+            _refuse("nothing is dispatched while a part is undecided")
+        if dispatch and self.parts_owed():
+            _refuse("nothing is dispatched before the parts are released")
         if dispatch and self.plan_ends() and not isinstance(event, IntegrationGateSkipped):
             _refuse("nothing is dispatched in a run whose plan a person rejected")
         if isinstance(event, ContractTested):
@@ -684,11 +877,24 @@ class RunState:
             _refuse("nothing is dispatched or completed while a pair's contract result is owed")
         if isinstance(event, TokensUsed | EnvironmentRecorded):
             return  # attributed or recorded, never a transition
+        if isinstance(event, NoFollowUpOwed):
+            self._no_follow_up(event)
+            return
         if isinstance(event, IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated):
             self._integrate(event)
             return
         if isinstance(event, DecisionTaken):
             self._take(event)
+            return
+        if isinstance(event, BuilderHeld | BuilderReleased):
+            why = design_wait.take(self, event)
+            if why is not None:
+                _refuse(why)
+            return
+        if isinstance(event, DispatchHeld | DispatchReleased):
+            why = take(self, event)
+            if why is not None:
+                _refuse(why)
             return
         if isinstance(event, ModuleCompleted):
             self._complete(event)
@@ -752,6 +958,9 @@ class RunState:
         elif isinstance(event, ReviewRan):
             done = now.cursor == "review" and now.review is None
             self._expect(done and now.unavailable_final is None, "a review line")
+            self._expect(self.reviewers != "off", "a review under reviewers: off")
+            self._require_arm_s_rubric(event)
+            self._judged_earlier(sub, now, event)
             now.review = event
             sub.reviews.append(event)
             self._ledger(sub.plan.subtask_id, review_result=event.result.verdict)
@@ -760,11 +969,19 @@ class RunState:
         elif isinstance(event, ReviewUnavailable):
             open_ = now.cursor == "review" and now.review is None
             self._expect(open_ and now.unavailable_final is None, "an unavailable review")
+            self._expect(self.reviewers != "off", "a review under reviewers: off")
             retried = any(u.retry for u in now.unavailable)
             self._expect(not (event.retry and retried), "a second retry of a review")
             now.unavailable.append(event)
             if now.unavailable_final is not None:
                 self._ended(sub, now)
+        elif isinstance(event, ReviewSkipped):
+            # Under off, the one review line of an attempt the gate let reach review; under every
+            # other value, never: a run that reviews its role work never skips a review.
+            self._expect(self.reviewers == "off", "a skipped review in a run that reviews")
+            self._expect(now.cursor == "review" and now.skipped is None, "a skipped review")
+            now.skipped = event
+            self._ledger(sub.plan.subtask_id, review_result="skipped")
         elif isinstance(event, AttemptRejected):
             basis = self.rejection_basis(now)
             self._expect(now.cursor == "decide" and basis == event.finding.source, "a rejection")
@@ -819,6 +1036,14 @@ class RunState:
                 sub.status = "done"
                 self.merged_at[sub.plan.module_dir] = event.seq
                 self.merged_by[sub.plan.module_dir] = sub.plan.subtask_id
+                if self.sign_off_rules is not None:
+                    merge = (sub.plan.subtask_id, now.number)
+                    self.sign_off_after = self.sign_off_tail = merge
+                    if any(
+                        self.sign_off_owed(module, sub.plan.subtask_id)
+                        for module in self.owing_sign_off()
+                    ):
+                        self.sign_off_due = merge
         elif isinstance(event, FollowUpEnded):
             ended = following_up(sub) and self._ended_without_merge(now)
             self._expect(ended and event.why == why_not_merged(now), "a follow-up's end")
@@ -830,9 +1055,22 @@ class RunState:
                 sub.plan.subtask_id,
                 merge_commit=standing,
                 gate_result=_verdict(stands.gate),
-                review_result=stands.review.result.verdict if stands.review else None,
+                review_result=_review_outcome(stands),
                 follow_up_gate_result=_verdict(now.gate),
-                follow_up_review_result=now.review.result.verdict if now.review else None,
+                follow_up_review_result=_review_outcome(now),
+            )
+        elif isinstance(event, SignOffFixEnded):
+            ended = sign_off_fixing(sub) and self._ended_without_merge(now)
+            self._expect(ended and event.why == why_not_merged(now), "a sign-off fix's end")
+            sub.status = "done"
+            # The merge the fix reopened stands again, with its results; the fix's are its lines.
+            standing = sub.sign_off_fixed.merge_commit if sub.sign_off_fixed else None
+            stands = next(a for a in sub.attempts if a.merged and a.merged.merge_commit == standing)
+            self._ledger(
+                sub.plan.subtask_id,
+                merge_commit=standing,
+                gate_result=_verdict(stands.gate),
+                review_result=_review_outcome(stands),
             )
         elif isinstance(event, EscalationDecided):
             self._decided(sub, now, event)
@@ -993,6 +1231,247 @@ class RunState:
         decided = self.plan_decision()
         return decided is not None and decided.effect == "end_run"
 
+    def parts_hold(self) -> str | None:
+        """The first part's item every dispatch is held on, until each one is decided.
+
+        None once a person rejected the plan: no part of a plan that is not run is decided. The
+        plan's own hold, while open, is checked before this one wherever both are.
+        """
+        if self.plan_ends():
+            return None
+        return next((one for one in self.parts_ids if one not in self.taken), None)
+
+    def parts_owed(self) -> bool:
+        """Whether every part is decided and the line that releases the run is not yet written.
+
+        What the decisions owe is written first, and the release closes it, an empty plan's too:
+        the run says that it asked. None once a person rejected the plan.
+        """
+        return (
+            self.asks_parts
+            and self.components is not None
+            and self.parts_released is None
+            and not self.plan_ends()
+            and self.parts_hold() is None
+        )
+
+    def _stated_body(self, item_id: str, stated: StatedPart | None) -> PartsBody | None:
+        """What a line states of the part decided on ``item_id``, held to the decision's digest.
+
+        ``None`` for a part to find, which states nothing. A body that is not the body the
+        decision's own line names is refused, and so is one that does not read as a body.
+        """
+        decided = self.taken[item_id]
+        if decided.position == "find":
+            if stated is not None:
+                _refuse(f"{item_id} was to be found, and a line states values of it")
+            return None
+        if stated is None:
+            _refuse(f"{item_id} was decided as {decided.position}, and a line states nothing of it")
+        try:
+            body = PartsBody.model_validate(stated.model_dump())
+        except ValueError as exc:
+            _refuse(f"what a line states of {item_id} is not a part's body: {exc}")
+        if parts_sha256(body) != decided.parts_sha256:
+            _refuse(f"what a line states of {item_id} is not what its decision stated")
+        return body
+
+    def _cross_owner(self) -> str | None:
+        owners = _cross_owners("cross_nodes")
+        return owners[0] if len(owners) == 1 else None
+
+    def declared_heads(self) -> frozenset[tuple[str, str]]:
+        """Each ``(node, name)`` a landed parts write declared: the declared values at the head.
+
+        The head check holds the journal to the landed writes, so these are the head's.
+        """
+        return frozenset(
+            (node, name) for node, names in self.parts_declared.items() for name in names
+        )
+
+    def _parts_line(
+        self,
+        event: PartsWriteIntended
+        | PartsWriteDone
+        | PartsReleased
+        | PartsGateRan
+        | PartsRaisedAgain,
+    ) -> None:
+        """Hold a line of the parts' release to the derivation the plan and the decisions give.
+
+        A value is written only once every part is decided, as the payload those decisions and
+        the plan give, at the revision after the last, one write at a time and in the plan's order:
+        each component's node, then its cross node. The release names every component with what
+        its decision stated, and only after every write owed has landed.
+        """
+        if self.parts_released is not None or not self.parts_owed():
+            _refuse("a part's values are written, once, after every part is decided")
+        components = self.components or ()
+        if isinstance(event, PartsWriteDone):
+            pending = self.parts_pending
+            if pending is None or pending.node_id != event.node_id:
+                _refuse("a parts write that was not intended landed")
+            if event.revision != pending.expected_revision:
+                _refuse("a parts write landed at another revision than the one intended")
+            self.parts_landed.append((event.node_id, pending.payload_sha256, event.revision))
+            self.parts_places.append(self._parts_place)
+            self.journal_head = event.revision
+            self.parts_pending = None
+            quantities = (self._parts_payload or {}).get("quantities") or {}
+            self.parts_declared[event.node_id] = frozenset(quantities)
+            self.parts_holder[event.node_id] = components[self._parts_place[0]].node
+            self.parts_gate = None
+            return
+        if isinstance(event, PartsGateRan):
+            self._parts_gate_ran(event)
+            return
+        if isinstance(event, PartsRaisedAgain):
+            self._parts_raised_again(event)
+            return
+        if isinstance(event, PartsWriteIntended):
+            held = self.parts_pending
+            # A process killed after its intent and before the write that journal line belongs
+            # to finds no line and intends the same write again; any other is refused.
+            if held is not None and (
+                held.node_id,
+                held.item_id,
+                held.payload_sha256,
+                held.expected_revision,
+            ) != (event.node_id, event.item_id, event.payload_sha256, event.expected_revision):
+                _refuse("a parts write is intended while another is not done")
+            if event.item_id not in self.parts_ids:
+                _refuse(f"{event.item_id} is no item of the plan's parts")
+            if event.expected_revision != self.journal_head + 1:
+                _refuse("a parts write intends a revision that does not follow the journal's")
+            body = self._stated_body(event.item_id, event.parts)
+            index = self.parts_ids.index(event.item_id)
+            component = components[index]
+            shared = event.node_id != component.node
+            if body is None or (shared and self._cross_owner() != event.actor_role):
+                _refuse("a parts write is the part's own node, or its cross node by sizing's role")
+            decided = self.taken[event.item_id]
+            payload = parts_payload(
+                component,
+                shared=shared,
+                owner_role=event.actor_role,
+                item_id=event.item_id,
+                body=body,
+                operator=decided.resolved_by,
+                decided_ts=decided.decided_ts,
+            )
+            if (
+                payload is None
+                or payload["id"] != event.node_id
+                or payload_digest(payload) != event.payload_sha256
+            ):
+                _refuse(f"the write of {event.node_id} is not the derivation of its decision")
+            if self.parts_places and (index, shared) <= self.parts_places[-1]:
+                _refuse("the parts are written in the plan's order, each node once")
+            self._parts_place = (index, shared)
+            self.parts_pending = event
+            self._parts_payload = payload
+            if self.parts_base is None:
+                self.parts_base = self.journal_head
+            return
+        self._parts_released(event)
+
+    def _parts_released(self, event: PartsReleased) -> None:
+        """Hold the release to the plan, the decisions and what has landed."""
+        components = self.components or ()
+        if self.parts_pending is not None:
+            _refuse("the parts are released while a write is not done")
+        if len(event.components) != len(components):
+            _refuse("the release names every component of the plan, once")
+        stated: list[TakenPart] = []
+        for item_id, component, named in zip(
+            self.parts_ids, components, event.components, strict=True
+        ):
+            decided = self.taken[item_id]
+            body = self._stated_body(item_id, named.parts)
+            if (named.item_id, named.node, named.choice) != (
+                item_id,
+                component.node,
+                decided.position,
+            ):
+                _refuse(f"the release names {named.node} as it was not decided")
+            stated.append(
+                TakenPart(
+                    item_id=item_id,
+                    choice=named.choice,
+                    body=body,
+                    operator=decided.resolved_by,
+                    decided_ts=decided.decided_ts,
+                )
+            )
+        owed: tuple[PartsWrite, ...]
+        try:
+            owed = parts_writes(
+                components, self.parts_ids, {t.item_id: t for t in stated}, self._cross_owner()
+            )
+        except ValueError as exc:
+            _refuse(str(exc))
+        latest = {node: digest for node, digest, _ in self.parts_landed}
+        if [(w.node_id, w.payload_sha256) for w in owed] != [
+            (w.node_id, latest.get(w.node_id)) for w in owed
+        ] or not set(latest) <= {w.node_id for w in owed}:
+            _refuse("the release comes before every write the decisions owe has landed")
+        if self.parts_base is not None and (
+            self.parts_gate is None or self._parts_blocked(self.parts_gate)
+        ):
+            _refuse("the parts are released only after the release's gate passed their values")
+        record = parts_record(components, stated)
+        if (event.record_sha256, event.record_length) != (
+            hashlib.sha256(record).hexdigest(),
+            len(record),
+        ):
+            _refuse("the release's record is not the record the decisions give")
+        self.parts_released = event
+
+    @staticmethod
+    def _parts_blocked(ran: PartsGateRan) -> bool:
+        """Whether the release's gate line holds the run: a failing result under ``on``."""
+        return ran.result is not None and ran.result.verdict == "fail" and ran.gate_mode == "on"
+
+    def _parts_gate_ran(self, event: PartsGateRan) -> None:
+        """Hold the release's gate line to the run's mode and to the base of the first write."""
+        if self.parts_pending is not None or self.parts_base is None:
+            _refuse("the release's gate judges the parts' values once their writes have landed")
+        if event.base_revision != self.parts_base:
+            _refuse("the release's gate judges from the head before the first parts write")
+        if event.gate_mode != self.gate_mode:
+            _refuse("the release's gate runs in the run's gate mode")
+        self.parts_gate = event
+
+    def _parts_raised_again(self, event: PartsRaisedAgain) -> None:
+        """Hold a part raised again to what raised it, and take its new round's item."""
+        components = self.components or ()
+        if self.parts_pending is not None or self.parts_base is None:
+            _refuse("a part is raised again only at the release, after its values were written")
+        gate = self.parts_gate
+        if event.cause == "gate":
+            if gate is None or gate.result is None or not self._parts_blocked(gate):
+                _refuse("a part is raised again for the gate only after the gate blocked it")
+            named = blocked_parts(gate.result, self.parts_holder)
+        else:
+            if gate is not None:
+                _refuse("a part is raised again for an interface before the release's gate runs")
+            named = tuple(dict.fromkeys(p.node for p in event.parts))
+        if tuple(p.node for p in event.parts) != named:
+            _refuse("the parts raised again are not the ones the release's gate named")
+        ids = list(self.parts_ids)
+        nodes = [c.node for c in components]
+        for part in event.parts:
+            index = nodes.index(part.node) if part.node in nodes else None
+            now = ids[index] if index is not None else None
+            if now is None or now not in self.taken or raised_again_id(now) != part.item_id:
+                _refuse(f"{part.item_id} is not the next round of a decided part raised again")
+            ids[nodes.index(part.node)] = part.item_id
+            self.parts_again[part.item_id] = (part.why, event.ts)
+        self.parts_ids = tuple(ids)
+        self.parts_places = []
+        self._parts_place = (0, False)
+        self.parts_gate = None
+
     def planned(self) -> tuple[str, ...]:
         """Every planned subtask not yet dispatched or removed, in plan order."""
         return tuple(s for s in self.order if self.subtasks[s].status == "planned")
@@ -1070,6 +1549,28 @@ class RunState:
         if why is not None:
             _refuse(f"the run's contract pairs are not its plan's: {why}")
         self.contract_pairs = event.pairs
+
+    def _design_pairs(self, event: DesignPairsPlanned) -> None:
+        """Take the run's design pairs, once, before any dispatch, if a plan could give them."""
+        if self.design_pairs is not None:
+            _refuse("the run's design pairs are recorded once")
+        if not self._decomposed:
+            _refuse("design pairs are recorded only in a run its decomposition planned")
+        if self.consumers is not None and self.contract_pairs is None:
+            _refuse("the run's design pairs follow its contract pairs")
+        if any(sub.attempts for sub in self.subtasks.values()) or self.integration is not None:
+            _refuse("the run's design pairs are recorded before anything is dispatched")
+        why = recorded_design_pairs_problem(
+            event.pairs,
+            modules=self.modules(),
+            interfaces=self.interface_nodes,
+            mutual=event.mutual,
+            misordered=event.misordered,
+        )
+        if why is not None:
+            _refuse(f"the run's design pairs are not its plan's: {why}")
+        self.design_pairs = event.pairs
+        self.design_misordered = event.misordered
 
     def integrated(self) -> list[str]:
         """The planned subtasks the integration call waits for and judges: all but integration's."""
@@ -1219,6 +1720,13 @@ class RunState:
         places = [modules.index(module) for module in event.modules]
         if places != sorted(set(places)):
             _refuse("a completion declaration names each module once, in plan order")
+        for module in event.modules:
+            # The change check refuses it, in either mode: such a module is not complete.
+            why = sign_off_open(self, module)
+            if why is not None:
+                _refuse(
+                    f"a completion declaration names {module!r}, whose {why.removeprefix('its ')}"
+                )
         now.declaration = event
 
     def _disputed(self, sub: SubtaskState, now: AttemptState, event: DisputeRecorded) -> None:
@@ -1515,6 +2023,194 @@ class RunState:
             return value.revision == written.revision
         return 1 <= value.revision <= self.base_revision
 
+    def owing_sign_off(self) -> list[str]:
+        """The modules, in plan order, whose role owes a sign-off and that merged anything."""
+        rules = self.sign_off_rules
+        if rules is None:
+            return []
+        return [
+            module
+            for module in self.modules()
+            if rules.rule_of(self.subtasks[module].plan.assigned_role) is not None
+            and self.subtasks[module].plan.module_dir in self.merged_at
+        ]
+
+    def sign_offs_of(self, module: str) -> list[RaisedItem]:
+        """The sign-off items raised about ``module``, oldest first."""
+        return [item for _, item in self.sign_off_lines.values() if item.module == module]
+
+    def sign_offs_open(self) -> list[str]:
+        """The modules, in plan order, whose sign-off is owed: the ``sign_off`` precondition open.
+
+        Each one's role owes a person's sign-off and it merged anything, and no approve that acts
+        was given on the values its latest item shows (:func:`completion.sign_off_open`).
+        """
+        return [m for m in self.owing_sign_off() if sign_off_open(self, m) is not None]
+
+    def _sign_off_waits(self) -> bool:
+        """In a run that acts, a module whose sign-off is owed and whose latest item is undecided.
+
+        A decision a person can still take would close it. One whose latest item a decision closed
+        without signing (a reject, which records only) has ended not complete, and holds no wait;
+        nor does one with no item on the record, which no decision can close.
+        """
+        if not self.acts:
+            return False
+        for module in self.sign_offs_open():
+            raised = self.sign_offs_of(module)
+            if raised and self.undecided(raised[-1].item_id):
+                return True
+        return False
+
+    def follow_ups_decided(self) -> bool:
+        """Whether the record says which follow-ups the integration call is owed: each, or none.
+
+        The integration step reads them from the journal: it writes each one owed, or, where a
+        sign-off waits and none is, the line that none is (:meth:`no_follow_up_due`).
+        """
+        written = any(sub.followed_up is not None for sub in self.subtasks.values())
+        return written or self.no_follow_up is not None
+
+    def no_follow_up_due(self) -> bool:
+        """Whether the integration step, finding no follow-up owed, writes the line that says so.
+
+        Before the call, in a run that acts, while a sign-off item is undecided and the record
+        says nothing of the follow-ups: the sign-off's wait comes after them, since they can
+        change the values it binds, and replay learns that none is owed only from this line.
+        """
+        return self.integration is None and self._sign_off_waits() and not self.follow_ups_decided()
+
+    def _no_follow_up(self, event: NoFollowUpOwed) -> None:
+        """Take the line that no follow-up is owed: once, where the integration step decides them.
+
+        That is where the next step is the integration call's, the record says nothing of the
+        follow-ups yet, and a sign-off waits; anywhere else no step writes it.
+        """
+        if not self.no_follow_up_due() or self.next_step() != Step(kind="integrate"):
+            _refuse(
+                "a line that no follow-up is owed comes once, at the integration step, while a "
+                "sign-off item is undecided and before any follow-up"
+            )
+        self.no_follow_up = event
+
+    def sign_off_owed(self, module: str, merged: str) -> bool:
+        """Whether the clean merge of ``merged`` owes ``module`` a sign-off item, as the log says.
+
+        Owed where the merge was in the module's own directory, or wrote a node the module's
+        latest item binds. A merge can also bind new nodes to it (a cross node it wrote that now
+        constrains the module's): the loop raises then too, from the graph, and the line names
+        that node, which explains it (:meth:`_signed_off`).
+        """
+        sub = self.subtasks[merged]
+        if sub.plan.module_dir == self.subtasks[module].plan.module_dir:
+            return True
+        earlier = self.sign_offs_of(module)
+        bound = {value.node_id for value in earlier[-1].bound} if earlier else set()
+        return bool(bound & set(sub.attempts[-1].applied))
+
+    def revisions_given(self, bound: Iterable[BoundValue]) -> bool:
+        """Whether the log gives each bound node at its revision, as a sign-off line binds it."""
+        return all(self._bound_revision(value.node_id, value.revision) for value in bound)
+
+    def _bound_revision(self, node_id: str, revision: int) -> bool:
+        """A bound node's revision is the log's: its last recorded write, or the opening's."""
+        written = self.written.get(node_id)
+        if written is not None:
+            return revision == written.revision
+        landed = [rev for node, _, rev in self.parts_landed if node == node_id]
+        if landed:
+            return revision == landed[-1]
+        return 1 <= revision <= self.base_revision
+
+    def _signed_off(self, event: SignOffsRaised) -> None:
+        """Take a clean merge's sign-off line: each item the log owes, and none it cannot explain.
+
+        In plan order, one a module. An item is about a module whose role owes a sign-off and that
+        merged anything; it is owed, or the merge wrote a node it binds; it takes the module's next
+        id; and each node it binds is at the revision the log gives. Every item the log owes is
+        on the line. A module's earlier item that no decision closed is superseded by its new one.
+        """
+        merge = (event.subtask_id, event.attempt)
+        if merge not in (self.sign_off_due, self.sign_off_after):
+            _refuse("a sign-off line follows the clean merge it is about, once")
+        owing = self.owing_sign_off()
+        wrote = set(self.subtasks[event.subtask_id].attempts[-1].applied)
+        modules = [item.module for item in event.raised]
+        if modules != [m for m in owing if m in modules]:
+            _refuse("a sign-off line names modules whose role owes one and that merged, in order")
+        for item in event.raised:
+            named = {value.node_id for value in item.bound}
+            if not (self.sign_off_owed(item.module, event.subtask_id) or wrote & named):
+                _refuse(f"a sign-off item for {item.module!r} that no write of the merge explains")
+            if not all(self._bound_revision(v.node_id, v.revision) for v in item.bound):
+                _refuse("a sign-off item binds a node at a revision the log does not give")
+            if item.item_id != self._sign_off_id(event.run_id, item.module):
+                _refuse(f"a sign-off item with another id than {item.module!r}'s next")
+        missing = [m for m in owing if m not in modules and self.sign_off_owed(m, event.subtask_id)]
+        if missing:
+            _refuse(f"a merge that owed a sign-off item raised none for {', '.join(missing)}")
+        for item in event.raised:
+            self._take_sign_off(event, item)
+        self.sign_off_due = self.sign_off_after = None
+
+    def _take_sign_off(self, event: SignOffsRaised | SignOffRaisedAgain, item: RaisedItem) -> None:
+        """Record a raised item: it supersedes the module's earlier one if none closed it."""
+        earlier = self.sign_offs_of(item.module)
+        if earlier and self.undecided(earlier[-1].item_id):
+            self.superseded[earlier[-1].item_id] = item.item_id
+        self.sign_off_lines[item.item_id] = (event, item)
+        self.sign_offs[item.item_id] = RaisedSignOff(
+            item_id=item.item_id,
+            module=item.module,
+            values_sha256=item.values_sha256,
+            # What its reject does, as the loop listed it: from the record as it stands here.
+            reject=sign_off_reject(self, item.module),
+        )
+
+    def _raised_again(self, event: SignOffRaisedAgain) -> None:
+        """Take a sign-off raised again: on other values than its latest item, where the loop looks.
+
+        The loop reads what a module's sign-off binds from the graph, which replay cannot see,
+        straight after each clean merge and before each completion line. So the line comes there
+        and nowhere else: after the clean merge it names (its diff, its sign-off line, or another
+        line raised again), or where the module's completion line is owed, naming integration's
+        merge. It is about a module whose role owes a sign-off and that merged, binds each node
+        at the revision the log gives, takes the module's next id, and binds other nodes,
+        revisions or values than the module's latest item: on the same ones nothing moved. It
+        can only add an item a person must decide, so it never completes or signs anything.
+        """
+        item, merge = event.raised, (event.subtask_id, event.attempt)
+        if item.module not in self.owing_sign_off():
+            _refuse("a sign-off raised again for a module whose role owes none, or not merged")
+        if event.found == "merge" and merge != self.sign_off_tail:
+            _refuse("a sign-off raised again at a merge follows that clean merge, before any line")
+        if event.found == "completion":
+            integration = self.completion_subtask
+            last = self.subtasks[integration].attempts[-1].number if integration else None
+            owed = self.next_step() == Step(kind="complete", subtask_id=item.module)
+            if not owed or merge != (integration, last):
+                _refuse(
+                    "a sign-off raised again before a completion comes where that module's "
+                    "completion line is owed, naming integration's merge"
+                )
+        if not self.revisions_given(item.bound):
+            _refuse("a sign-off item binds a node at a revision the log does not give")
+        if item.item_id != self._sign_off_id(event.run_id, item.module):
+            _refuse(f"a sign-off item with another id than {item.module!r}'s next")
+        earlier = self.sign_offs_of(item.module)
+        if earlier and (earlier[-1].bound, earlier[-1].values_sha256) == (
+            item.bound,
+            item.values_sha256,
+        ):
+            _refuse("a sign-off raised again on the values its latest item shows")
+        self._take_sign_off(event, item)
+
+    def _sign_off_id(self, run_id: str, module: str) -> str:
+        try:
+            return sign_off_item_id(run_id, module, len(self.sign_offs_of(module)) + 1)
+        except QueueError as exc:
+            _refuse(str(exc))
+
     def _raised(self, event: ContractItemRaised) -> None:
         """Take a contract item: the one the record owes, with the pair's next id."""
         owed = self.owed_item()
@@ -1623,7 +2319,7 @@ class RunState:
         if self.escalation_backend is None:
             _refuse("a decision line in a log whose run names no escalation backend")
         due = self._ended_without_merge(now) and now.decided is None and not now.fix
-        due = due and not following_up(sub)
+        due = due and not following_up(sub) and not sign_off_fixing(sub)
         self._expect(due and now.cursor in ("decide", "review", "gate"), "an escalation decision")
         decision = event.decision
         if decision.backend_id != self.escalation_backend:
@@ -1665,6 +2361,8 @@ class RunState:
             self.confirmed.add(event.item_id)
         else:
             self.taken[event.item_id] = event
+        if event.acts and event.effect == "sign":
+            self.signed.append(event.item_id)
         if event.acts and event.effect == "reopen":
             self.pending_reopen = event
             return
@@ -1699,7 +2397,9 @@ class RunState:
         """Take a reopen: the one the taken decision before it ordered, of the record's merge.
 
         The subtask takes its next attempt, or its one fix after its last, in a fresh worktree;
-        its earlier merge stays on the record.
+        its earlier merge stays on the record. A reopen a sign-off item's reject ordered is the
+        module's one fix after a rejected sign-off, outside its repair budget, and never the one
+        fix a blocked review orders.
         """
         if event.cause is not None:
             self._follow_up(event)
@@ -1729,10 +2429,13 @@ class RunState:
                 self.superseded[item_id] = pending.item_id
         sub.status = "active"
         sub.next_resolve = event.attempt
-        sub.fix_next = last.number == REPAIR_BUDGET
         self.worktrees_handled.discard(event.subtask_id)
         sub.reopens += 1
-        sub.reopened = event
+        if event.item_id in self.sign_offs:
+            sub.sign_off_fixed = event
+        else:
+            sub.fix_next = last.number == REPAIR_BUDGET
+            sub.reopened = event
         self._ledger(event.subtask_id, reset=True, reopened_by=event.item_id)
         self.pending_reopen = None
 
@@ -1753,6 +2456,8 @@ class RunState:
             _refuse("a follow-up comes before the integration call, under a gate that runs")
         if sub is not None and sub.followed_up is not None:
             _refuse("a module is followed up once")
+        if self.no_follow_up is not None:
+            _refuse("no follow-up comes after the line that none is owed")
         directory = self.subtasks[closing].plan.module_dir
         if (
             sub is None
@@ -1896,6 +2601,8 @@ class RunState:
             _refuse("the integration call is made once")
         if self._contract_item_open():
             _refuse("the integration call waits while a contract item is undecided")
+        if self._sign_off_waits():
+            _refuse("the integration call waits while a sign-off item is undecided")
         skip = event if isinstance(event, IntegrationGateSkipped) else None
         skips = skip is not None and skip.reason == "plan_rejected"
         if skips or self.plan_rejected is not None:
@@ -1907,7 +2614,12 @@ class RunState:
             self.integration = event
             return
         order = self.integrated()
-        unresolved = [s for s in order if self.subtasks[s].status in ("planned", "active")]
+        # A builder whose designer can no longer merge is held for good: unmerged, as one ended.
+        unresolved = [
+            s
+            for s in order
+            if self.subtasks[s].status in ("planned", "active") and not held_for_good(self, s)
+        ]
         if unresolved:
             _refuse(f"integration before every planned subtask is merged or queued: {unresolved}")
         not_merged = tuple(s for s in order if self.subtasks[s].status != "done")
@@ -1921,6 +2633,27 @@ class RunState:
             if event.reason == "nothing_planned" and order:
                 _refuse("integration skipped as nothing planned in a run that planned subtasks")
         self.integration = event
+
+    def _judged_earlier(self, sub: SubtaskState, now: AttemptState, event: ReviewRan) -> None:
+        """A review names only earlier attempts of its subtask no review had judged, in order.
+
+        And only those its own answers bear out: every hit it was shown of such an attempt
+        confirmed or dismissed by an answer naming the attempt, and no answer naming it to a
+        hit it was not shown. A line written before records neither, and names none.
+        """
+        named = list(event.judged_earlier)
+        earlier = {a.number for a in sub.attempts if a.number < now.number} - sub.judged()
+        shown = {hit.attempt for hit in event.earlier_hits}
+        if named != sorted(set(named)) or not set(named) | shown <= earlier:
+            _refuse(
+                "a review line names as judged only earlier attempts of its subtask that no "
+                "review had judged, each once and in order"
+            )
+        if tuple(named) != judged_attempts(event.earlier_hits, event.result.indicators):
+            _refuse(
+                "a review line names as judged exactly the earlier attempts whose hits it was "
+                "shown its answers confirmed or dismissed, and no other"
+            )
 
     def _expect(self, condition: bool, what: str) -> None:
         if not condition:
@@ -1938,10 +2671,20 @@ class RunState:
             _refuse(
                 "sizing's closing pass waits while a dispute's or a contract's item is undecided"
             )
+        due = dispatch_due(self, sub.plan.subtask_id)
+        if due and (held := held_dispatch(self, sub.plan.subtask_id)):
+            _refuse(held)
+        if due and (held := design_wait.held_dispatch(self, sub.plan.subtask_id)):
+            _refuse(held)
         if not sub.attempts or sub.attempts[-1].number != attempt:
             if any(a.fix for a in sub.attempts):
                 _refuse("the fix a person ordered is a subtask's last attempt")
-            if attempt > REPAIR_BUDGET and not sub.fix_next and not following_up(sub, attempt):
+            if (
+                attempt > REPAIR_BUDGET
+                and not sub.fix_next
+                and not following_up(sub, attempt)
+                and not sign_off_fixing(sub, attempt)
+            ):
                 _refuse("an attempt past the repair budget is only the fix a person ordered")
             sub.attempts.append(AttemptState(number=attempt, fix=sub.fix_next))
             sub.fix_next = False
@@ -1976,6 +2719,18 @@ class RunState:
             _refuse(f"stage {stage!r} cannot follow {now.cursor!r}")
         now.cursor = stage
 
+    def _require_arm_s_rubric(self, event: ReviewRan) -> None:
+        """A review line judged with the rubric the run's arm names: generalist under generalist.
+
+        Under ``paired`` a line that names no rubric reads as paired, as every line written
+        before rubrics were named did.
+        """
+        kind = event.result.rubric_kind
+        wanted = "generalist" if self.reviewers == "generalist" else "paired"
+        if (kind or "paired") != wanted:
+            named = kind or "unnamed"
+            _refuse(f"a review judged with a {named} rubric under reviewers: {self.reviewers}")
+
     def _gate_allows_review(self, now: AttemptState) -> bool:
         if isinstance(now.gate, GateSkipped):
             return True
@@ -2004,7 +2759,7 @@ class RunState:
     def _decided_from(self, now: AttemptState) -> Stage | None:
         """The last stage whose outcome the decision was taken on."""
         done: list[tuple[Stage, object]] = [
-            ("review", now.review),
+            ("review", now.review or now.skipped),
             ("gate", now.gate),
             ("implement", now.changes),
             ("verify_reading", now.session),
@@ -2018,6 +2773,9 @@ class RunState:
         must still be one the run's mode merges.
         """
         reviewed = now.review is not None and now.review.result.verdict == "pass"
+        # Under reviewers: off the skipped line stands where a pass would: the gate's result
+        # alone decides, and the gate condition below is the same for every value.
+        reviewed = reviewed or (now.skipped is not None and self.reviewers == "off")
         return (
             (reviewed or now.approved is not None)
             and now.merged is None
@@ -2048,6 +2806,40 @@ class RunState:
             now.restart("spawn")
         else:
             now.cursor, now.diff = "decide", None
+
+    def halted_at_a_sign_off_line(self) -> tuple[str, int] | None:
+        """The clean merge a resumable halt came after, before its sign-off line, if any.
+
+        After a clean merge's diff its sign-off line is owed (``sign_off_due``), or asked of the
+        graph (``sign_off_after``); a halt can land in between, and then no attempt is in
+        progress for a resume to take over. A resume there names that merge at its diff, and
+        the line comes next, so the run neither stays halted with nothing for a person to do
+        nor loses a raise only the graph owes.
+        """
+        if self.halted is None or not self.halt_resumable() or self.interrupted() is not None:
+            return None
+        return self.sign_off_due or self.sign_off_after
+
+    def _resumes_a_sign_off_line(self, event: Resumed) -> bool:
+        """Take a resume that names a clean merge whose sign-off line a halt came before.
+
+        Only where :meth:`halted_at_a_sign_off_line` gives that merge, at its diff: it lifts the
+        halt and keeps what owes the line. Any other resume of a merged subtask is not one, and
+        is refused where a resume of an attempt in progress is held.
+        """
+        merge = (event.subtask_id, event.attempt)
+        if merge not in (self.sign_off_due, self.sign_off_after):
+            return False
+        if self.subtasks[event.subtask_id].status != "done":
+            return False
+        if self.halted_at_a_sign_off_line() != merge or event.point != "diff":
+            _refuse(
+                "a resume of a merged attempt comes only after a halt a resume continues from, "
+                "between its clean diff and its sign-off line, at its diff"
+            )
+        self.halted = None
+        self.open_incidents, self.ruled = [], None
+        return True
 
     def halt_resumable(self) -> bool:
         """Whether the run's halt is one a resume continues from.
@@ -2161,27 +2953,42 @@ class RunState:
             return Step(kind="halt")
         if self.halted is not None:
             return Step(kind="halted")
+        if self.sign_off_due is not None:
+            subtask_id, attempt = self.sign_off_due
+            return Step(kind="sign_off", subtask_id=subtask_id, attempt=attempt)
         if self.plan_hold() is not None:
             # A run that records only leaves the item open, and ends escalated.
             return Step(kind="wait") if self.acts else Step(kind="escalated")
         if self.plan_ends():
             return Step(kind="integrate") if self.integration is None else Step(kind="done")
+        if self.parts_hold() is not None:
+            return Step(kind="wait")  # only a run that acts asks, and so only a run that acts waits
+        if self.parts_owed():
+            return Step(kind="parts")
         if self.pending_reopen is not None:
             return Step(kind="reopen", subtask_id=self.pending_reopen.reopens)
         if any(o is not None for o in (self.owed_ruling(), self.owed_item(), self.owed_contract())):
             return Step(kind="contract")
         for subtask_id in self.integrated():
             step = self._step_of(subtask_id)
-            if step is not None:
+            # A dispatch held while a subtask it reads from waits on a person, or while the module
+            # whose design it implements has not merged, is passed over.
+            gate = gated(self, subtask_id) if step is not None and step.kind == "attempt" else None
+            if gate == "hold" or gate == "release":
+                return Step(gate, subtask_id)
+            if step is not None and gate is None:
                 return step
+        held = held_subtask(self)
+        if held is not None:
+            return Step(kind="wait", subtask_id=held)
         ran = self.integration
         if ran is None:
-            return Step(kind="wait") if self._contract_item_open() else Step(kind="integrate")
-        blocked = (
-            isinstance(ran, IntegrationGateRan)
-            and ran.result.verdict == "fail"
-            and ran.result.mode == "on"
-        )
+            # A person's decision still to come on a failed contract's item, or on a sign-off owed
+            # once the follow-ups, which can change what it binds, are decided by the step.
+            signs = self._sign_off_waits() and self.follow_ups_decided()
+            waits = self._contract_item_open() or signs
+            return Step(kind="wait") if waits else Step(kind="integrate")
+        blocked = self._integration_blocked()
         if blocked and self.integration_escalated is None:
             return Step(kind="integrate")
         if blocked:
@@ -2193,7 +3000,25 @@ class RunState:
             owed = self.owed_completion()
             if owed is not None:
                 return Step(kind="complete", subtask_id=owed)
-        return Step(kind="done")
+        # A module whose sign-off is owed is not complete, and the run ends naming it (ARCH-130).
+        return Step(kind="escalated") if self.sign_offs_open() else Step(kind="done")
+
+    def _integration_blocked(self) -> bool:
+        """The integration call ran and failed where a failure blocks."""
+        ran = self.integration
+        return (
+            isinstance(ran, IntegrationGateRan)
+            and ran.result.verdict == "fail"
+            and ran.result.mode == "on"
+        )
+
+    def ends_on_sign_offs_alone(self) -> bool:
+        """The run's next step is its escalated end, and the sign-offs owed are all it ends for.
+
+        False where it ends escalated because the integration call failed, whose item a person may
+        still decide, as well as where it does not end escalated at all.
+        """
+        return self.next_step().kind == "escalated" and not self._integration_blocked()
 
     def owed_halt(self) -> Incident | None:
         """The incident on the record with no halt after it, whose halt comes next, if any.
@@ -2235,6 +3060,8 @@ class RunState:
             return Step("end_subtask", subtask_id, now.number)
         if following_up(sub) and self._ended_without_merge(now):
             return Step("follow_up_ended", subtask_id, now.number)
+        if sign_off_fixing(sub) and self._ended_without_merge(now):
+            return Step("sign_off_fix_ended", subtask_id, now.number)
         if now.merged is not None and sub.next_resolve is not None:
             return Step("attempt", subtask_id, sub.next_resolve, "resolve")  # reopened
         if now.approved is not None:
@@ -2342,12 +3169,15 @@ def recorded_ledger(events: Path, ledger: Path) -> list[TaskLine]:
     return held
 
 
-def require_mergeable(ledger_path: Path, subtask_id: str, gate_mode: GateMode) -> TaskLine:
+def require_mergeable(
+    ledger_path: Path, subtask_id: str, gate_mode: GateMode, reviewers: Reviewers
+) -> TaskLine:
     """The subtask's ledger line, read back from disk, if it permits a merge (ARCH-001).
 
     A merge needs a gate result and a review result on the ledger line. The review
     must have passed, or a person's approve bound to the attempt must have overridden its
-    verdict (ARCH-133). The gate result must be one the run's gate mode allows:
+    verdict (ARCH-133), or, under ``reviewers: off`` only, have been skipped. The gate result
+    must be one the run's gate mode allows, whatever the reviewers:
     a pass when the gate blocks, a pass or a logged failure when it observes, and
     ``skipped`` when it is off.
 
@@ -2365,8 +3195,10 @@ def require_mergeable(ledger_path: Path, subtask_id: str, gate_mode: GateMode) -
     if line is None or line.gate_result is None or (line.review_result is None and not approved):
         msg = "a merge needs a gate result and a review result on the ledger line"
         raise MergePreconditionError(msg, subtask=subtask_id)
-    reviewed = line.review_result == "pass" or (
-        line.person_decision == "approve" and line.review_result in ("fail", "blocked", None)
+    reviewed = (
+        line.review_result == "pass"
+        or (line.person_decision == "approve" and line.review_result in ("fail", "blocked", None))
+        or (reviewers == "off" and line.review_result == "skipped")
     )
     if not reviewed or line.gate_result not in allowed:
         msg = "the ledger line does not permit a merge"

@@ -31,6 +31,7 @@ from physgate.orchestrator.budget import ATTEMPT_LIMIT
 from physgate.orchestrator.common import ModelString, NonEmptyStr, model_named
 from physgate.orchestrator.exceptions import GateContractError, ModelSeparationError
 from physgate.orchestrator.followed import FollowedInterface
+from physgate.orchestrator.managed import SessionManaged
 from physgate.orchestrator.plan import IntegratedPlan, Plan
 from physgate.orchestrator.trajectory import Seal
 from physgate.series.seal import AttemptSeries
@@ -89,6 +90,35 @@ class MessageUsage(_Frozen):
 
     message_id: NonEmptyStr
     usage: Usage
+    #: The binary's own call that wrote a compaction's summary: in its totals and in no message
+    #: of its stream, so it is read as the difference between the two (``accounting``). Left out
+    #: of every other line, so each keeps its bytes.
+    compaction: bool = Field(default=False, exclude_if=lambda v: not v)
+    #: A response the binary cut short and closed itself (its stream failed, stalled or ended
+    #: early), with no final usage and no assistant message: the usage it started with.
+    #: Recorded so it is seen; whether the binary's per-model totals count it is
+    #: ``in_binary_totals`` (``accounting``). Left out of every other line.
+    abandoned: bool = Field(default=False, exclude_if=lambda v: not v)
+    #: A response cut short whose starting usage the binary's per-model totals count, as they
+    #: did on every pin at the scripted endpoint: counted in every sum held to those totals.
+    #: Without it a cut response is in none of them, its billing unknown, as a real run's API
+    #: error had it. Set only by the totals check (``accounting``); left out of every other line.
+    in_binary_totals: bool = Field(default=False, exclude_if=lambda v: not v)
+
+    @model_validator(mode="after")
+    def _one_kind_of_line(self) -> MessageUsage:
+        if self.compaction and self.abandoned:
+            msg = "a compaction's call is no response of the stream, so none is cut short"
+            raise ValueError(msg)
+        if self.in_binary_totals and not self.abandoned:
+            msg = "only a response cut short is marked as counted in the binary's totals"
+            raise ValueError(msg)
+        return self
+
+    @property
+    def counted(self) -> bool:
+        """Whether the account counts this line: every line but a cut response the totals omit."""
+        return not self.abandoned or self.in_binary_totals
 
 
 #: A session's captured stream of events, or a written account of a revision.
@@ -144,7 +174,8 @@ class SessionTrajectory(_Frozen):
 #: after a person's reject; or, on an arbitration item, the next attempt or the one fix a person
 #: ordered by choosing sizing's value; or sizing's closing pass, ordered to write the values a
 #: person chose by choosing the domain's. Or no person's: the follow-up code orders once sizing's
-#: closing pass changed values a domain module's nodes depend on, which names no item.
+#: closing pass changed values a domain module's nodes depend on, which names no item. Or the one
+#: fix a person ordered by rejecting a module's sign-off item (ARCH-130), once per module per run.
 PersonOrderKind = Literal[
     "fix_after_block",
     "retry_after_reject",
@@ -153,6 +184,7 @@ PersonOrderKind = Literal[
     "arbitration_value",
     "contract_conform",
     "follow_up",
+    "sign_off_fix",
 ]
 
 
@@ -206,6 +238,20 @@ class PersonOrder(_Frozen):
         return data
 
 
+class UnjudgedAttempt(_Frozen):
+    """An earlier attempt of the subtask that no review judged, whose streams the scan flags.
+
+    Refused before review (by its change check, its gate, its reading) or left without a
+    verdict, it was never reviewed itself, and its work is in the commit the attempt under review
+    carries. Its sealed streams go to that attempt's reviewer, who judges each hit the scan finds
+    in them as it judges one of its own attempt's (ARCH-133).
+    """
+
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
+    #: Every session of that attempt that left a sealed stream, in order.
+    sessions: Annotated[tuple[SessionTrajectory, ...], Field(min_length=1)]
+
+
 class Artefact(_Frozen):
     """What an attempt produced, as the gate and the reviewer receive it."""
 
@@ -250,10 +296,17 @@ class Artefact(_Frozen):
     #: Integration's issued state, for an attempt of integration's subtask: what its session was
     #: given to read. Left out of a dump when absent, so every other attempt is recorded as before.
     integration_state: IssuedState | None = None
+    #: The parts record the attempt's session read, as the release line names it, for an attempt
+    #: of a run whose decisions named parts. Left out of a dump when absent.
+    parts_record: IssuedState | None = None
     #: The interfaces the attempt's nodes revise, as its change check derived them,
     #: which its reviewer is shown quantity by quantity. Left out of a dump when empty, so every
     #: other attempt is recorded as before.
     followed: tuple[FollowedInterface, ...] = ()
+    #: The earlier attempts of the subtask no review judged whose streams the scan flags, in
+    #: order, for this attempt's reviewer to judge their hits. Left out of a dump when empty, so
+    #: every other attempt is recorded as before.
+    unjudged: tuple[UnjudgedAttempt, ...] = ()
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -264,14 +317,22 @@ class Artefact(_Frozen):
             data.pop("ordered_by_person", None)
         if self.integration_state is None:
             data.pop("integration_state", None)
+        if self.parts_record is None:
+            data.pop("parts_record", None)
         if not self.followed:
             data.pop("followed", None)
+        if not self.unjudged:
+            data.pop("unjudged", None)
         return data
 
     @model_validator(mode="after")
     def _own_nodes_always(self) -> Artefact:
         if "subtask" not in self.scopes or len(set(self.scopes)) != len(self.scopes):
             msg = "an attempt is always checked at subtask scope, and each scope once"
+            raise ValueError(msg)
+        earlier = [u.attempt for u in self.unjudged]
+        if earlier != sorted(set(earlier)) or any(n >= self.attempt for n in earlier):
+            msg = "an attempt carries earlier attempts only, each once and in order"
             raise ValueError(msg)
         return self
 
@@ -732,6 +793,19 @@ class IndicatorReport(_Frozen):
     evidence: NonEmptyStr
     disposition: IndicatorDisposition
     reason: NonEmptyStr
+    #: The earlier attempt whose hit this answers, where a review was given an earlier attempt
+    #: no review judged: two attempts' streams can hold a call of one id, and an answer to one is
+    #: not an answer to the other. Absent on an answer to the attempt's own hit, or an indicator
+    #: the review raised, and left out of a line then, so every answer recorded before reads
+    #: and writes back as it was.
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_no_attempt(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.attempt is None:
+            data.pop("attempt", None)
+        return data
 
 
 class SpecDefect(_Frozen):
@@ -809,6 +883,26 @@ class ReviewResult(_Frozen):
     #: How many times the session was resumed to repair a refused verdict; ``None``
     #: where repair resumes are off.
     repair_resumes: Count | None = None
+    #: Per invocation of the review's session, on a pin whose sessions carry the catalog
+    #: and flag traffic: the conditions it ran under. Empty otherwise, and then not written
+    #: at all, so a review on an earlier pin is recorded byte for byte as before.
+    managed: tuple[SessionManaged, ...] = Field(default=(), exclude_if=lambda v: not v)
+    #: How many times the review's session compacted its conversation before this verdict,
+    #: across its repair resumes (ARCH-060); ``None``, and not written, where it never did, so
+    #: a review without one is recorded byte for byte as before.
+    compactions: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    #: The context size before each compaction, in tokens, as each boundary named it; empty,
+    #: and not written, where there was none or a boundary named no size.
+    compaction_pre_tokens: tuple[Count, ...] = Field(default=(), exclude_if=lambda v: not v)
+
+    @model_validator(mode="after")
+    def _sizes_are_one_per_compaction(self) -> ReviewResult:
+        if self.compaction_pre_tokens and len(self.compaction_pre_tokens) != self.compactions:
+            msg = "a review names the context size before each of its compactions, or none"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _a_verdict_is_consistent(self) -> ReviewResult:

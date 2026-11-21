@@ -4,13 +4,18 @@ Nor can it load code by name. A syntax-tree test over the package source, beside
 guard: the guard aborts such an operation when a request makes it, and this refuses the code
 that would make it before it is ever run. It is an allowlist, so a module nobody thought to
 name is refused too. What it does not see is what an allowed in-repository module imports in
-turn; that reach is what the runtime guard is for.
+turn; that reach is what the runtime guard is for. The fence covers the package and the module
+of every route the command's composition root registers beside its table, which runs inside
+the server as the package's own handlers do.
 """
 
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
+
+from ui_rig import swept
 
 import physgate.ui
 
@@ -90,6 +95,9 @@ ALLOWED_MODULES = {
     # The precondition registry, asked for each module's open entries and their own reasons, so
     # no reason is born in the page. It reads the run state it is given and nothing else.
     "physgate.orchestrator.completion",
+    # The builders held while the design each implements has not merged, as the run state it is
+    # given holds them; it reads that state and nothing else.
+    "physgate.orchestrator.design_wait",
     # The attempts a subtask gets, sent beside the run's configuration: a constant, which the
     # event log's own model already imports.
     "physgate.orchestrator.budget",
@@ -131,10 +139,21 @@ ALLOWED_MODULES = {
 FORBIDDEN_NAMES = {"eval", "exec", "compile", "__import__", "import_module", "breakpoint"}
 
 
+def _registered() -> list[Path]:
+    """The module of every handler the composition root registers beside the package's own.
+
+    Such a handler runs inside the server as the package's own do, so it is held to the same
+    fence, wherever its module lives.
+    """
+    modules = {route.handler.__module__ for route in swept()}
+    outside = {m for m in modules if m != "physgate.ui" and not m.startswith("physgate.ui.")}
+    return sorted(Path(str(sys.modules[m].__file__)) for m in outside)
+
+
 def _sources() -> list[Path]:
     found = sorted(PACKAGE.rglob("*.py"))
     assert found, "a fence over no files proves nothing"
-    return found
+    return [*found, *_registered()]
 
 
 def _problems(path: Path) -> list[str]:
@@ -162,6 +181,13 @@ def _problems(path: Path) -> list[str]:
 def test_the_server_package_imports_only_what_is_listed() -> None:
     problems = [p for source in _sources() for p in _problems(source)]
     assert problems == []
+
+
+def test_the_fence_reaches_the_module_of_every_route_the_root_registers() -> None:
+    import physgate.evaluation.evidence as evidence
+
+    assert _registered() == [Path(str(evidence.__file__))]
+    assert set(_registered()) <= set(_sources())
 
 
 def test_the_fence_catches_a_planted_outbound_import(tmp_path: Path) -> None:

@@ -2,7 +2,8 @@
 
 The arm the harness is measured against (ARCH-143). It is invoked exactly as a role
 session is (the same binary, model, effort, output-token limit, reasoning display, tools,
-interpreter and OS layer, the same isolated environment), with two differences only: its
+interpreter, tool environment, tool servers and OS layer, the same isolated environment), with
+two differences only: its
 prompt is the task's brief, byte for byte, and its hooks are the ``baseline`` profile,
 which keeps the held-out tier and the frozen experiments from it and nothing else of the
 harness. It may use git in its own work area.
@@ -12,19 +13,34 @@ every class counted (input, cache writes, cache reads, output). A watcher reads 
 session's stream as it is written, counts each message's final usage once as the run's own
 accounting does, and stops the session when the count passes the cap. Usage is known per
 message, so the session can pass the cap by at most the message in flight; the count it
-reached is recorded, never trimmed. Its turn and wall-clock bounds are a role session's,
-times the harness's repair budget, so neither bound binds before the token cap would.
+reached is recorded, never trimmed.
+
+**Its turn and wall-clock bounds** are a role session's, times the harness's repair budget: a
+fixed multiplier, recorded as the arm's one intended difference in its bounds and compared as
+such. It is an assumption, not a proof that neither bound binds before the cap: one harness run
+can give a role more sessions than the budget (attempts past it, infrastructure retries, several
+subtasks of the same role), so a long raw session can meet its turn or clock bound first. Such
+an end is the arm's own spending (``wall_clock``), recorded, never trimmed or re-run.
+
+**Its tools** are the harness run's: the tool environment the run recorded, held before the
+session and scanned again after it as a role session's is, with its programs first on the
+session's search path and its roots read and run but written by no tool; and the servers the
+run recorded for the raw agent's profile, offered only where the OS layer contains them.
 
 What the session left is kept as sealed evidence: its stream, its answer, its end and a
-record of every pin the comparison with the harness arm is held to.
+record of every pin the comparison with the harness arm is held to. What is not kept is the
+hook sentinel's record of the protected paths, which names every entry beneath the withheld
+roots: it is removed with the credential once the end check has read it.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -36,9 +52,13 @@ from typing import Any
 from physgate.evaluation.per_role.answer import MAX_ANSWER_BYTES
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.task import Task
+from physgate.hooks.config import SessionConfig
+from physgate.hooks.settings import session_tool_search
+from physgate.orchestrator.accounting import settle
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.credentials import (
     Credential,
+    open_in_session,
     remove_secrets,
     write_key_helper,
     write_login,
@@ -48,26 +68,49 @@ from physgate.orchestrator.dispatch import (
     check_after_stop,
     harness_protection,
     read_captured,
+    read_session_file,
     redact,
     review_material_seen,
+    runtime_git_paths,
     runtime_paths,
     session_end_command,
     spawn_held,
     write_record,
 )
-from physgate.orchestrator.invocation import isolated_env, role_argv
+from physgate.orchestrator.exceptions import InvocationError, RunConfigError
+from physgate.orchestrator.invocation import NO_TOOL_SERVERS, isolated_env, role_argv
 from physgate.orchestrator.processes import kill_own, stop_tree
+from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.role_python import RolePython, session_bin
 from physgate.orchestrator.run_config import (
     Effort,
     Network,
     RunBounds,
     ThinkingDisplay,
+    ToolServers,
     endpoint_of,
+    harness_root,
+)
+from physgate.orchestrator.session_files import FileRefused, read_beneath
+from physgate.orchestrator.tool_environment import (
+    changed_while_running,
+    forbidden_places,
+    hold_before_session,
+    profile_launches,
+    series_environment,
+    session_environment,
+    wire_session,
+)
+from physgate.oslayer.containment import (
+    ContainmentError,
+    ServerLaunch,
+    contained_servers,
+    wrappers,
 )
 from physgate.oslayer.probe import Absent, Present
 from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SessionEnd, await_session
+from physgate.toolenv.record import ToolEnvironment
 
 #: How often the watcher reads the stream.
 WATCH_S = 0.5
@@ -123,14 +166,167 @@ class RawSetup:
     #: name): what a task author must not read beyond the tier, such as the user's home.
     #: Empty for the raw arm, which is held to the harness arm's pins.
     withheld_reads: tuple[str, ...] = ()
+    #: Places no tool of the session writes, by the file tools, the shell or the OS layer,
+    #: but for ``writable_within`` beneath them: a blind check's whole tier-set store, but its
+    #: own directory there. Empty for the raw arm.
+    write_protected: tuple[str, ...] = ()
+    writable_within: tuple[str, ...] = ()
+    #: The tool environment the harness run recorded: the session reads and runs it, writes
+    #: none of it, and finds its programs first on its search path. ``None`` where the run
+    #: named none.
+    tool_environment: ToolEnvironment | None = None
+    #: The tool servers the harness run recorded. The session is offered those of the raw
+    #: agent's profile (``baseline``), started from :attr:`tool_environment`, and only where
+    #: the OS layer contains them, as a role session is offered the role profile's.
+    tool_servers: ToolServers | None = None
+    #: The session's own directory where it lies inside a held-out root: a protected trial's,
+    #: made in the store's work root, which every run withholds. It alone is taken out of the
+    #: held-out roots for this session (:func:`held_out_but`), as a blind check's own work is;
+    #: every other place they hold stays withheld. ``None`` where the session works outside
+    #: every held-out root. ``held_out`` stays the run's list, held equal to the harness's.
+    held_out_carved: str | None = None
+    #: Further places withheld from this session on top of the run's roots, made after the
+    #: harness run ended: a baseline round's own directory, where its finished trials and its
+    #: records lie. ``held_out`` stays the run's list, held equal to the harness's.
+    held_out_also: tuple[str, ...] = ()
+    #: The digests of the harness run's held-out roots, as its record holds them: what names
+    #: the versions this session's stream would expose. Recorded beside the pins, not among
+    #: them; empty where the session is no raw arm of a run.
+    held_out_sha256: tuple[str, ...] = ()
+    #: Roots withheld from the session whole, by rule, but for its own place there (the
+    #: directory holding its worktree): a blind check's store. A protected trial's root is
+    #: added from the run's held-out roots that hold ``held_out_carved``. Whatever is made in
+    #: such a root after the install is withheld as what was there before (``--withheld-whole``).
+    withheld_whole: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Refuse servers without the environment they start from, as a run's record does."""
+        if self.tool_servers is not None and self.tool_environment is None:
+            msg = "tool servers start from a tool environment, and the raw arm is given none"
+            raise RawArmError(msg)
+
+
+def spent(
+    # The binary's result object: an untyped boundary, only its totals are read.
+    result: Mapping[str, Any] | None,
+    usages: Iterable[MessageUsage],
+) -> tuple[int, int]:
+    """The tokens the run's account counts of these lines, and those of cut responses it omits.
+
+    Counted as the harness run's account counts its own (:func:`.accounting.settle`), so the
+    raw session's record is in the same tokens the cap is a total of: a response the binary cut
+    short is counted where the binary's totals count it, and is the second figure where they
+    leave it out or there are no totals. The watch that holds the session to the cap counts
+    every line instead (:func:`stream_total`).
+    """
+    lines = settle(result, usages)
+    return (
+        sum(m.usage.total() for m in lines if m.counted),
+        sum(m.usage.total() for m in lines if not m.counted),
+    )
+
+
+def server_launches_for(setup: RawSetup) -> tuple[ServerLaunch, ...]:
+    """How the raw agent's tool servers start, from the setup's records and the register.
+
+    The role sessions' come from the same records by the same code, each its own profile's.
+
+    Raises:
+        RawArmError: the register or the bound on an answer is not the one recorded, or a
+            server cannot be started from the recorded environment.
+    """
+    try:
+        return profile_launches(setup.tool_servers, setup.tool_environment, "baseline")
+    except RunConfigError as exc:
+        raise RawArmError(str(exc)) from exc
+
+
+def offered_servers(setup: RawSetup, temp: Path | None) -> tuple[str, ...]:
+    """The servers the raw session is offered by name: none without the OS layer (``temp``)."""
+    if setup.tool_servers is None or setup.tool_environment is None or temp is None:
+        return ()
+    return tuple(setup.tool_servers.profiles.get("baseline", ()))
+
+
+def contained_servers_for(
+    setup: RawSetup,
+    launches: tuple[ServerLaunch, ...],
+    config_file: Path,
+    sdir: Path,
+    own_temp: Path | None,
+    env: dict[str, str],
+) -> tuple[str, tuple[str, ...]]:
+    """The session's tool-server configuration, and the wrappers its servers may name.
+
+    As a role session's: none without the OS layer, which alone contains a server the binary
+    starts; each server's rules come from the session's own configuration, as installed.
+
+    Raises:
+        RawArmError: a server cannot be contained here, so the session is not started.
+    """
+    if not launches or not isinstance(setup.os_layer, Present):
+        return NO_TOOL_SERVERS, ()
+    if own_temp is None:
+        msg = "a session offered tool servers needs a temporary directory of its own for them"
+        raise RawArmError(msg)
+    platform = sys.platform
+    bwrap = shutil.which("bwrap", path=env["PATH"]) if platform.startswith("linux") else None
+    config = SessionConfig.model_validate_json(config_file.read_bytes())
+    try:
+        servers = contained_servers(
+            config,
+            launches,
+            platform=platform,
+            temp_dir=own_temp,
+            profiles_dir=sdir / "servers",
+            bwrap=bwrap,
+        )
+    except ContainmentError as exc:
+        msg = "a tool server cannot be contained here, so the session is not started"
+        raise RawArmError(msg, error=str(exc)) from exc
+    return servers, wrappers(platform, bwrap)
+
+
+def hold_tools(setup: RawSetup, work: Path) -> str | None:
+    """Hold the setup's tool environment to its record; the scan to hold it to after the session.
+
+    Measured in full, as a run's first session's is, before anything of the session exists, in
+    none of the places a run's environment may not lie in (the raw arm's own directory among
+    them). ``None`` with no environment.
+
+    Raises:
+        RawArmError: the environment is not the recorded one, or lies where it may not.
+    """
+    if setup.tool_environment is None:
+        return None
+    try:
+        return hold_before_session(
+            setup.tool_environment,
+            None,
+            forbidden=forbidden_places(
+                harness=harness_root(),
+                install=setup.install_bin.parent.parent,
+                run_dir=work,
+                target=None,
+            ),
+        )
+    except InvocationError as exc:
+        raise RawArmError(str(exc)) from exc
 
 
 def stream_total(stream: Path) -> int:
-    """Every token the stream's messages were charged for so far, each message once."""
-    try:
-        text = stream.read_bytes().decode("utf-8", errors="replace")
-    except FileNotFoundError:
-        return 0
+    """Every token the stream's messages started or ended with so far, each message once.
+
+    Read as every session file is (:func:`read_session_file`): a link, a pipe or a file with
+    another link at the stream's name raises, and the watch stops the session for it.
+
+    Every line is counted, a response the binary cut short included, with a result or without:
+    the cap fails closed. While the session runs there is no result, so nothing yet says
+    whether the binary's totals will count a cut response; a watch that left it out until then
+    would let the session run past its cap. The session's record counts as the run's account
+    does (:func:`spent`); the cap may so stop a session a few cut tokens early, never late.
+    """
+    text = read_session_file(stream).decode("utf-8", errors="replace")
     _, usages, _ = read_stream(text)
     return sum(m.usage.total() for m in usages)
 
@@ -340,9 +536,71 @@ def require_stopped(watch: BudgetWatch) -> None:
         raise RawArmError(msg, end=watch.end or "", stop_error=watch.stop_error)
 
 
+#: The bounds the raw session runs at a role session's times the repair budget; every other
+#: bound it runs as the harness's role sessions do.
+MULTIPLIED_BOUNDS = ("session_max_turns", "session_wall_clock_s")
+
+
 def raw_bounds(bounds: RunBounds) -> tuple[int, float]:
     """The raw session's turn and wall-clock bounds: a role session's, times the repair budget."""
     return bounds.session_max_turns * REPAIR_BUDGET, bounds.session_wall_clock_s * REPAIR_BUDGET
+
+
+def raw_bound_values(bounds: RunBounds) -> dict[str, Any]:
+    """Every field of ``bounds`` as the raw session runs it, read from the bounds' own fields.
+
+    A bound added to the run's bounds is recorded here without a line written for it, so the
+    comparison sees it; only :data:`MULTIPLIED_BOUNDS` are multiplied, by name.
+    """
+    values: dict[str, Any] = bounds.model_dump(mode="json")
+    for name in MULTIPLIED_BOUNDS:
+        values[name] = values[name] * REPAIR_BUDGET
+    return values
+
+
+def held_out_but(roots: Iterable[str], own: Path) -> tuple[str, ...]:
+    """``roots`` with the directory ``own`` taken out: what a session working in ``own`` withholds.
+
+    A root that holds ``own`` is replaced by every entry beside the way down to it, at each level,
+    as they are now: ``own`` and the directories above it are not withheld, every other entry
+    beneath the root is. A root that does not hold ``own`` is kept as given.
+
+    Raises:
+        RawArmError: a root is ``own`` or lies in it, or a level on the way cannot be listed.
+    """
+    place = Path(os.path.realpath(own))
+    kept: set[str] = set()
+    for root in roots:
+        resolved = Path(os.path.realpath(root))
+        if resolved.is_relative_to(place):
+            msg = "a held-out root is the session's own directory or lies in it"
+            raise RawArmError(msg, root=root)
+        if not place.is_relative_to(resolved):
+            kept.add(root)
+            continue
+        here = resolved
+        for part in place.relative_to(resolved).parts:
+            try:
+                names = os.listdir(here)
+            except OSError as exc:
+                msg = "a held-out root cannot be listed, so what it holds beside the session's own"
+                raise RawArmError(msg + " directory cannot be withheld", place=str(here)) from exc
+            kept |= {str(here / name) for name in names if name != part}
+            here = here / part
+    return tuple(sorted(kept))
+
+
+def _withheld_whole(setup: RawSetup, place: Path) -> tuple[str, ...]:
+    """The roots withheld whole from a session whose own place is ``place``, where it really is.
+
+    Those the caller names, and every held-out root of a protected trial that holds its place
+    (``held_out_carved``); each named where it really is, as the place is.
+    """
+    real = Path(os.path.realpath(place))
+    roots = list(setup.withheld_whole)
+    if setup.held_out_carved is not None:
+        roots += [r for r in setup.held_out if real.is_relative_to(os.path.realpath(r))]
+    return tuple(dict.fromkeys(os.path.realpath(r) for r in roots))
 
 
 def _install(
@@ -353,6 +611,14 @@ def _install(
     *,
     own_temp: Path | None = None,
 ) -> dict[str, Any]:
+    held = setup.held_out
+    if setup.held_out_carved is not None:
+        if os.path.realpath(worktree.parent) != os.path.realpath(setup.held_out_carved):
+            msg = "the session works elsewhere than the directory taken out of its held-out roots"
+            raise RawArmError(msg, carved=setup.held_out_carved)
+        held = held_out_but(setup.held_out, Path(setup.held_out_carved))
+    held = (*held, *setup.held_out_also)
+    whole = _withheld_whole(setup, worktree.parent)
     state = sdir / "state"
     state.mkdir(mode=0o700, parents=True)
     (sdir / "config").mkdir(mode=0o700, exist_ok=True)
@@ -387,9 +653,26 @@ def _install(
         # The harness checkout is protected from the raw agent and its shell reads denied:
         # what it would find there (the knowledge, the rubrics) is the harness's help.
         *harness_protection(),
-        *(arg for root in setup.held_out for arg in ("--held-out", root)),
+        *(arg for root in held for arg in ("--held-out", root)),
+        # And the roots that hold the session's own place, withheld whole by rule but for that
+        # place: an entry made in them after the install, by anything, is on no list above and
+        # withheld all the same.
+        *(arg for root in whole for arg in ("--withheld-whole", root)),
+        *(["--own-place", os.path.realpath(worktree.parent)] if whole else []),
         *(arg for root in setup.withheld_reads for arg in ("--review-material", root)),
+        *(arg for root in setup.write_protected for arg in ("--protect", root)),
+        *(arg for place in setup.writable_within for arg in ("--protect-except", place)),
+        # The harness run's tool environment: read and run by the session's commands, written
+        # by none, as a role session's.
+        *(
+            arg
+            for root in (setup.tool_environment.roots if setup.tool_environment else ())
+            for arg in ("--tool-environment-root", root)
+        ),
         *(["--os-layer-temp", str(temp)] if temp is not None else []),
+        # The raw agent's tool servers: their admitted tools join its closed list. None
+        # without the OS layer, which alone contains them.
+        *(arg for name in offered_servers(setup, temp) for arg in ("--tool-server", name)),
         # Without the layer the session still keeps its temporary files in a directory of its
         # own, never in the one every session of the user shares.
         *(["--temp", str(own_temp)] if temp is None and own_temp is not None else []),
@@ -401,9 +684,12 @@ def _install(
             if temp is not None and setup.network != "open"
             else []
         ),
+        # The named interpreter, and the programs of the tool environment, are linked in the
+        # session's own directory, which the OS layer keeps from shell commands; it is opened.
         *(
             ["--os-layer-readable", str(sdir / "bin")]
-            if temp is not None and setup.role_python is not None
+            if temp is not None
+            and (setup.role_python is not None or setup.tool_environment is not None)
             else []
         ),
     ]
@@ -417,17 +703,40 @@ def _install(
     return installed
 
 
-def _take_answer(worktree: Path, task: Task, out: Path) -> str:
-    """The raw session's answer, copied for the scorer: the file the brief names, as it is."""
-    answer = worktree / task.answer.path
-    if not answer.exists() and not answer.is_symlink():
-        return "no_answer"
-    if answer.is_symlink() or not answer.is_file():
-        return "not_a_file"
-    if answer.stat().st_size > MAX_ANSWER_BYTES:
-        return "too_large"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(answer, out, follow_symlinks=False)
+def _take_answer(
+    worktree: Path, task: Task, out: Path, identity: list[tuple[int, int]] | None = None
+) -> str:
+    """The raw session's answer, copied for the scorer: the file the brief names, as it is.
+
+    The session may be able to rename or replace the directories it works in (the sandbox
+    makes its worktree writable and, with it, the directory that holds the worktree; without
+    the OS layer nothing stops its shell), so no component of the way down is followed as a
+    path: the session's place and the worktree are each opened as a directory without
+    following a link and, where ``identity`` says what was made, are the very directories
+    the runner made (device and inode); the answer's name (one plain component, by the
+    task's own pattern) is opened from the worktree's descriptor without following a link,
+    judged from that descriptor (a regular file with no other link, no larger than any answer)
+    and read from it (:func:`~physgate.orchestrator.session_files.read_beneath`).
+    ``out`` is in a directory the session never had access to, created new there.
+    """
+    if identity is not None and len(identity) != 2:
+        return "not_a_file"  # nothing to hold the directories to: refused, never taken
+    place = worktree.parent
+    try:
+        data = read_beneath(
+            place.parent,
+            (place.name, worktree.name, task.answer.path),
+            limit=MAX_ANSWER_BYTES,
+            identity=() if identity is None else (None, *identity),
+        )
+    except FileRefused as refused:
+        return {"absent": "no_answer", "too_large": "too_large"}.get(refused.kind, "not_a_file")
+    out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    made = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(made, data)
+    finally:
+        os.close(made)
     return "found"
 
 
@@ -439,6 +748,7 @@ def run_session(
     cap: int,
     files: Mapping[str, bytes] | None = None,
     check: Checkpoint | None = None,
+    identity: list[tuple[int, int]] | None = None,
 ) -> dict[str, Any]:
     """One session on ``prompt``, as the raw arm runs one, in the new directory ``work``.
 
@@ -447,22 +757,29 @@ def run_session(
     session given material to read finds it there, never in its prompt, which any process
     of the same user can list. ``check`` is asked at each reading of the stream, with the
     tokens spent so far, and the session is stopped for any reason it returns; that
-    reason is then the record's ``end``.
+    reason is then the record's ``end``. ``identity``, given, receives the device and inode of
+    ``work`` and of its worktree as they were made, for :func:`_take_answer`.
     Returns the session's record: how it ended, what it spent, and whether a held-out
     canary showed in its stream.
 
     Raises:
-        RawArmError: ``work`` exists, the session could not be set up, or its credential
-            could not be removed.
+        RawArmError: ``work`` exists, the session could not be set up, its credential could
+            not be removed, or its tool environment is not the recorded one before it or
+            changed while it ran.
     """
     if work.exists():
         msg = f"{work} exists; each session gets a directory of its own"
         raise RawArmError(msg, work=str(work))
+    # Before anything of the session exists: a refusal here leaves nothing behind.
+    launches = server_launches_for(setup)
+    at_start = hold_tools(setup, work)
     worktree, sdir = work / "worktree", work / "session"
     # Private from the start: the session's credential is written beneath ``sdir``.
     work.mkdir(mode=0o700, parents=True)
     worktree.mkdir(mode=0o700)
     sdir.mkdir(mode=0o700)
+    if identity is not None:
+        identity.extend((i.st_dev, i.st_ino) for i in (work.stat(), worktree.stat()))
     subprocess.run(["git", "init", "-q"], cwd=worktree, check=True, capture_output=True)
     for name, data in (files or {}).items():
         if "/" in name or name.startswith("."):
@@ -479,29 +796,56 @@ def run_session(
         raise RawArmError(msg, error=str(exc)) from exc
     temp = own_temp if isinstance(setup.os_layer, Present) else None
     try:
-        return _run(
-            prompt, setup, work, worktree, sdir, session_id, temp, cap, check, own_temp=own_temp
+        record = _run(
+            prompt,
+            setup,
+            work,
+            worktree,
+            sdir,
+            session_id,
+            temp,
+            cap,
+            check,
+            own_temp=own_temp,
+            launches=launches,
         )
     finally:
         shutil.rmtree(own_temp, ignore_errors=True)
+    if setup.tool_environment is not None and at_start is not None:
+        # Scanned once more: a change now was made while the session ran, by a write no layer
+        # refused, and what the session made was not made on the recorded environment.
+        changed = changed_while_running(setup.tool_environment, at_start)
+        if changed is not None:
+            raise RawArmError(changed, work=str(work))
+    return record
 
 
-def run_raw(task: Task, setup: RawSetup, work: Path, *, cap: int) -> dict[str, Any]:
+def run_raw(
+    task: Task, setup: RawSetup, work: Path, *, cap: int, harness: Path | None = None
+) -> dict[str, Any]:
     """Run the raw arm once on ``task`` in the new directory ``work``; its record.
 
-    ``cap`` is the harness arm's token total on the same task and trial.
+    ``cap`` is the harness arm's token total on the same task and trial. ``harness`` is an
+    existing directory the session was never given: the copied answer (``answer/``) and the
+    record (``raw.json``) are written there, so nothing the session leaves in its own place
+    can stand where the harness writes. Left out, they are written in ``work``.
 
     Raises:
         RawArmError: ``work`` exists, the session could not be set up, or its credential
             could not be removed.
     """
-    record = run_session(task.brief, setup, work, cap=cap)
+    kept = work if harness is None else harness
+    made: list[tuple[int, int]] = []
+    record = run_session(task.brief, setup, work, cap=cap, identity=made)
     record.update(
         task=task.id,
-        answer=_take_answer(work / "worktree", task, work / "answer" / task.answer.path),
+        answer=_take_answer(work / "worktree", task, kept / "answer" / task.answer.path, made),
         pins=pins(task, setup),
+        # The harness run's held-out digests, which name the versions a canary in this stream
+        # exposes; the run's own record, not a pin the pair is held equal on.
+        held_out_sha256=list(setup.held_out_sha256),
     )
-    write_record(work.parent, work.name, record, "raw.json")
+    write_record(kept.parent, kept.name, record, "raw.json")
     return record
 
 
@@ -517,25 +861,38 @@ def _run(
     check: Checkpoint | None = None,
     *,
     own_temp: Path | None = None,
+    launches: tuple[ServerLaunch, ...] = (),
 ) -> dict[str, Any]:
     stdout, stderr = sdir / "stdout.jsonl", sdir / "stderr.txt"
     # One boundary from the first write of the credential to its removal: whatever ends
     # the session (an error, a refusal, the clock, the cap, a kill), the cleanup runs.
     try:
         ended, watch, seconds, after = _session(
-            prompt, setup, worktree, sdir, session_id, temp, cap, check, own_temp=own_temp
+            prompt,
+            setup,
+            worktree,
+            sdir,
+            session_id,
+            temp,
+            cap,
+            check,
+            own_temp=own_temp,
+            launches=launches,
         )
     finally:
         _clean(work, sdir, setup.credential.secret, (stdout, stderr))
     captured = read_captured(stdout)
     end = watch.end or ("wall_clock" if ended.timed_out else "ended")
+    tokens, cut_off = spent(captured.result, captured.usage)
     return {
         "session_id": session_id,
         "end": end,
         "exit_code": ended.exit_code,
         "left_running": list(ended.left_running),
         "wall_clock_s": seconds,
-        "tokens": sum(m.usage.total() for m in captured.usage),
+        "tokens": tokens,
+        # Responses cut short that the binary's totals leave out: in no count, billing unknown.
+        "tokens_not_in_binary_totals": cut_off,
         "cap": cap,
         "answered_by": sorted(captured.answered),
         "held_out_seen": held_out_seen(stdout, setup.held_out_canaries),
@@ -555,12 +912,14 @@ def _session(
     checkpoint: Checkpoint | None = None,
     *,
     own_temp: Path | None = None,
+    launches: tuple[ServerLaunch, ...] = (),
 ) -> tuple[SessionEnd, BudgetWatch, float, dict[str, Any]]:
     """Install, spawn, watch and end the raw session; the credential's removal is the caller's."""
     # As a role session's: what the runtime makes is made first, so it is in the record.
     (sdir / "home").mkdir(mode=0o700, exist_ok=True)
     runtime_paths(worktree, sdir / "home")
-    installed = _install(setup, worktree, sdir, temp, own_temp=own_temp)
+    # And what this pin's runtime makes in the work area's own git directory, per platform.
+    runtime_git_paths(worktree / ".git", setup.claude_version)
     env = isolated_env(
         home=sdir / "home",
         config_dir=sdir / "config",
@@ -571,9 +930,41 @@ def _session(
         base_url=setup.base_url,
         api_key=None,
     )
+    recorded_tools = setup.tool_environment
+    wired: dict[str, str] = {}
+    if recorded_tools is not None:
+        # Before the installation, so the OS layer's rules name the directory of the session's
+        # programs as it will stand, as a role session's are.
+        tools_temp = own_temp if own_temp is not None else temp
+        if tools_temp is None:
+            msg = "a session on a tool environment needs a temporary directory of its own"
+            raise RawArmError(msg)
+        try:
+            wired = wire_session(
+                recorded_tools, bin_dir=sdir / "bin", temp=tools_temp, taken=tuple(env)
+            )
+        except InvocationError as exc:
+            raise RawArmError(str(exc)) from exc
+    installed = _install(setup, worktree, sdir, temp, own_temp=own_temp)
     env.update(installed["spawn_env"])
-    if setup.role_python is not None:
+    if recorded_tools is not None:
+        try:
+            # The environment's interpreter is the session's ``python3``, its programs first.
+            env = session_environment(env, wired, sdir / "bin")
+            # Its scripts' records name the environment's code by the run's roots and digest.
+            env = series_environment(env, recorded_tools)
+        except InvocationError as exc:
+            raise RawArmError(str(exc)) from exc
+    elif setup.role_python is not None:
         env["PATH"] = f"{session_bin(sdir, setup.role_python)}:{env['PATH']}"
+    tool_servers, contained_by = contained_servers_for(
+        setup,
+        launches,
+        Path(installed["config"]),
+        sdir,
+        own_temp if own_temp is not None else temp,
+        env,
+    )
     max_turns, wall_clock = raw_bounds(setup.bounds)
     argv = role_argv(
         setup.binary,
@@ -584,6 +975,8 @@ def _session(
         max_turns=max_turns,
         effort=setup.effort,
         thinking_display=setup.thinking_display,
+        tool_servers=tool_servers,
+        wrappers=contained_by,
     )
     check = session_end_command(Path(installed["settings"]))
     stdout, stderr = sdir / "stdout.jsonl", sdir / "stderr.txt"
@@ -604,12 +997,20 @@ def _session(
             on_spawn=None,
             while_held=while_held,
         )
-        watch = BudgetWatch(stdout, cap, process, started, checkpoint)
-        watch.start()
         try:
-            ended = await_session(process, started, wall_clock)
-        finally:
-            watch.stop()
+            watch = BudgetWatch(stdout, cap, process, started, checkpoint)
+            watch.start()
+            try:
+                ended = await_session(process, started, wall_clock)
+            finally:
+                watch.stop()
+        except BaseException:
+            # A way out while the session may still run (a watch that cannot start, a wait that
+            # fails or is interrupted): it is killed with its group and reaped first, so the
+            # caller's cleanup never runs beside a living session, whose next hook would take a
+            # new record of the protected paths after the old one was removed.
+            kill_own(process)
+            raise
     seconds = time.monotonic() - began
     require_stopped(watch)
     after = check_after_stop(check, session_id, worktree, env, sdir / "state")
@@ -631,6 +1032,10 @@ def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> No
         remove_secrets(sdir / "state", sdir / "config")
     except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
         errors.append(repr(exc))
+    try:
+        remove_sentinel_records(sdir / "state")
+    except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
+        errors.append(repr(exc))
     for stream in streams:
         try:
             redact(stream, secret)
@@ -639,8 +1044,81 @@ def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> No
     if errors:
         record = {"error": "; ".join(errors).replace(secret, "[redacted]")}
         write_record(work.parent, work.name, record, "cleanup.json")
-        msg = "the raw session's credential could not be removed: " + record["error"]
+        msg = "the raw session's credential, or the sentinel's record of its protected paths, "
+        msg += "could not be removed: " + record["error"]
         raise RawArmError(msg, work=str(work))
+
+
+#: The hook sentinel's record of the protected paths as the session started, and the temporary
+#: name it is written under first: each lists every entry beneath the session's withheld roots
+#: by its path (a protected task's directory is its id), with its size, times and digest.
+SENTINEL_RECORDS = ("baseline.json", ".baseline.json.tmp")
+_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def _beneath(fd: int, name: str) -> int | None:
+    """A descriptor on the directory ``name`` in ``fd``, never through a link; ``None`` if absent.
+
+    Raises:
+        InvocationError: ``name`` is a link or not a directory.
+    """
+    try:
+        return os.open(name, _DIRECTORY, dir_fd=fd)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        msg = "a directory of the session's hook state is a link or not a directory; not followed"
+        raise InvocationError(msg, name=name, error=str(exc.strerror)) from None
+
+
+def remove_sentinel_records(state_dir: Path) -> None:
+    """Remove the sentinel's record of the protected paths from every session in ``state_dir``.
+
+    Its last reader is the end check after the stop (:func:`check_after_stop`); after it the
+    record is no one's input, and kept it would name the protected tasks wherever the session's
+    directory goes next. The hook state is reached as the credential's files are
+    (:func:`open_in_session`), each directory beneath it opened without following a link; a
+    link at a record's own name is removed, which removes nothing it points at. What lies beside
+    the record (the bytes kept of files the session may read, their index, what was moved
+    aside) names no protected path, and stays.
+
+    Raises:
+        InvocationError: a directory on the way is a link or not a directory, or a record
+            could not be removed; it may still be there.
+    """
+    top = open_in_session(state_dir)
+    if top is None:
+        return
+    try:
+        sessions = _beneath(top, "sessions")
+        if sessions is None:
+            return
+        try:
+            for name in sorted(os.listdir(sessions)):
+                own = _beneath(sessions, name)
+                if own is None:
+                    continue
+                try:
+                    sentinel = _beneath(own, "sentinel")
+                finally:
+                    os.close(own)
+                if sentinel is None:
+                    continue
+                try:
+                    for record in SENTINEL_RECORDS:
+                        try:
+                            os.unlink(record, dir_fd=sentinel)
+                        except FileNotFoundError:
+                            continue
+                        except OSError as exc:
+                            msg = "the sentinel's record of the protected paths was not removed"
+                            raise InvocationError(msg, error=str(exc.strerror)) from None
+                finally:
+                    os.close(sentinel)
+        finally:
+            os.close(sessions)
+    finally:
+        os.close(top)
 
 
 def canaries_sha256(canaries: Iterable[str]) -> str:
@@ -654,21 +1132,19 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
     The tool list is not here: the comparison reads it from the session's generated
     configuration, the list the session was actually given.
     """
-    max_turns, wall_clock = raw_bounds(setup.bounds)
     return {
         # No raw session is given an advisor; a field to give one records it here.
         "advisor": None,
         "auth": setup.credential.mode,
         # As the session ran them: the binary's retries as given, the turns and the wall
         # clock a role session's times the repair budget.
-        "bounds": {
-            "binary_max_retries": setup.bounds.binary_max_retries,
-            "infra_retry_delays_s": list(setup.bounds.infra_retry_delays_s),
-            "session_max_turns": max_turns,
-            "session_wall_clock_s": wall_clock,
-        },
+        "bounds": raw_bound_values(setup.bounds),
         "endpoint": endpoint_of(setup.base_url),
         "held_out": sorted(setup.held_out),
+        # The session's own directory, taken out of those roots for it alone; ``None`` if none.
+        "held_out_carved": setup.held_out_carved,
+        # The places withheld from it besides, made after the harness run; empty if none.
+        "held_out_also": sorted(setup.held_out_also),
         # The canaries its stream was scanned for, which the harness run's must equal.
         "held_out_canaries_sha256": canaries_sha256(setup.held_out_canaries),
         "model": setup.model,
@@ -679,6 +1155,18 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
         "role_python": None if setup.role_python is None else setup.role_python.model_dump(),
         "network": setup.network,
         "os_layer": setup.os_layer.model_dump(),
+        # The tools it computed and built with, and the servers it was offered from them, as
+        # the harness run recorded both; whether its settings denied the binary's search tool,
+        # read from the deny lists it was installed from, as a run records it.
+        "tool_environment": (
+            None
+            if setup.tool_environment is None
+            else setup.tool_environment.model_dump(mode="json")
+        ),
+        "tool_servers": (
+            None if setup.tool_servers is None else setup.tool_servers.model_dump(mode="json")
+        ),
+        "tool_search": session_tool_search(),
         "brief_sha256": hashlib.sha256(task.brief.encode()).hexdigest(),
         "answer": task.answer.model_dump(),
     }

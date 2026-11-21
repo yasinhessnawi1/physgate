@@ -9,6 +9,24 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
   only after its bytes are held to the seal taken when that session ended, and is
   rendered whole (``transcript.render``) under its own data marker. An artefact no
   session produced carries a written account instead, which is used as it is.
+- ``earlier-NN-of-MM.md``: for an attempt that follows earlier attempts of its subtask no
+  review judged (refused before review, or left without a verdict) whose streams the scan flags,
+  those attempts' sealed streams, rendered as the transcript is, each session under its own data
+  marker. Their work is in the commit under review, so the reviewer answers the markers the scan
+  finds in them as it answers this attempt's own (ARCH-133). A stream that cannot be shown
+  refuses the packet; none is left out. Absent for every other attempt.
+- ``earlier-hits-NN-of-MM.md``: beside them, each of those markers' tool call and its result,
+  from :data:`EARLIER_HIT_LINES` lines before the call to as many after the end of the result,
+  clipped to the session, windows that overlap shown once (:func:`hit_excerpts`). Each excerpt
+  is a byte-exact slice of the earlier rendering under a harness line naming the earlier part
+  and the lines it is cut from, and the markers it shows. An excerpt never shows the session's
+  data outside a fence: an edge inside a data block moves out to the block's end, or, past
+  :data:`EARLIER_HIT_SNAP_LINES`, the cut piece stands between the block's own fence lines
+  under a harness line naming where the rest is. Each excerpt part shows, before a session's first
+  excerpt in it, that session's preamble as its rendering has it, so every fence in a part is
+  declared in the part. A marker whose call cannot be found among the harness lines brings its
+  whole session. These are the earlier attempts' required reading;
+  their whole streams stay readable on request.
 - ``worktree/``: the attempt's commit, exported. Not the implementing session's
   worktree: an export holds exactly what was committed, and no ``.git`` that points
   back into the target repository. A symbolic link in the commit is written as a
@@ -19,9 +37,10 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
 The export and the diff leave out the attempt's disputes (``orchestrator.dispute``): a
 dispute is a role's position for a person to arbitrate, recorded on the run's log, and the
 reviewer judges the work without another session's free text in it.
-- ``series-NN-of-MM.md``: for an attempt that sealed simulation records or named one
-  from a graph quantity, the harness's listing of them (``series.summary``): each
-  record summarised from its own samples, read back held to its seal, and each
+- ``series-NN-of-MM.md``: for an attempt that sealed or discarded simulation records
+  or named one from a graph quantity, the harness's listing of them
+  (``series.summary``): each record summarised from its own samples, read back held to
+  its seal; each discarded record by its name, reason and seal, as no evidence; and each
   quantity's check against the record it names. Absent for an attempt with none.
 - ``spec_as_issued.md``: the module specification exactly as the decomposition
   issued it, read from the commit that issued it. The attempt can edit its own
@@ -38,6 +57,10 @@ reviewer judges the work without another session's free text in it.
 - ``interface-followed.md``: for an attempt whose nodes revise an interface, one line
   per changed quantity, old -> new, built by code from the change check's derivation, with the
   node and attempt it followed; no session's text. Absent for every other attempt.
+- ``parts-NN-of-MM.md``: for an attempt of a run whose decisions named parts, the parts record its
+  session read, rendered from the record its release line named (``orchestrator.parts_reading``:
+  a person's words cleaned, capped and fenced as data), each file held to its digest. Absent for
+  every other attempt.
 - ``knowledge/``: the role's curated library files, copied from the harness; for a
   generalist review, only the standards every role reads.
 - ``files-NN-of-MM.md``: the listing of every other file above, by full path and size,
@@ -57,8 +80,11 @@ refused when the packet is built.
 What a review must read in full before it may answer is listed in
 :attr:`Packet.required_reading`, and the hook layer refuses the verdict until it
 has: every part of the file listing, of the transcript, of the diff and of the series
-listing, the rubric, the issued specification, integration's issued state and the person's
-order when there is one, and the library files.
+listing, the earlier markers' excerpts (each marker's call with its whole result block and
+the lines around it, so the bound is per marker, not a cap on the part; a marker whose call
+cannot be found brings its whole session; the earlier attempts' whole streams only where no
+earlier attempt carries a marker), the rubric, the issued specification, integration's
+issued state and the person's order when there is one, and the library files.
 
 The packet's own record (``packet.json``) sits beside ``read/``, outside it: it
 holds every digest above and the observable indicators the trajectory shows
@@ -106,14 +132,22 @@ from physgate.orchestrator.git import (
     object_format,
     verified_git_dir,
 )
-from physgate.orchestrator.protocols import Artefact, IssuedSpec, PersonOrder
+from physgate.orchestrator.protocols import Artefact, IssuedSpec, IssuedState, PersonOrder
 from physgate.orchestrator.repair import quoted
 from physgate.orchestrator.trajectory import Seal, read_sealed
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.places import READ_DIRNAME
 from physgate.reviewers.rubric import Rubric
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError, scan
-from physgate.reviewers.transcript import cut_line, render
+from physgate.reviewers.transcript import (
+    CONTINUED,
+    PREAMBLE,
+    cut_line,
+    harness_value,
+    is_call_heading,
+    is_result_heading,
+    render,
+)
 from physgate.series.exceptions import SeriesError
 from physgate.series.summary import SERIES_PART, listing
 
@@ -122,6 +156,19 @@ WORKTREE_NAME = "worktree"
 DIFF_NAME = "diff.patch"
 #: The names of the parts the transcript and the diff are issued in.
 TRANSCRIPT_PART = "transcript-{n:02d}-of-{total:02d}.md"
+#: The names of the parts the earlier attempts no review judged are issued in.
+EARLIER_PART = "earlier-{n:02d}-of-{total:02d}.md"
+#: The names of the parts that show each of their markers with the lines around it.
+EARLIER_HITS_PART = "earlier-hits-{n:02d}-of-{total:02d}.md"
+#: How many lines of the earlier rendering an excerpt shows before a marker's tool call, and
+#: after the end of its tool result.
+EARLIER_HIT_LINES = 40
+#: How many lines an excerpt's edge that falls inside a data block may move out to reach the
+#: block's end: as many as the window shows around a marker, so moving at most doubles that side.
+#: A block whose end is farther is cut, and the piece shown keeps the block's own fence lines.
+EARLIER_HIT_SNAP_LINES = 40
+#: The harness line over a data block an excerpt cuts; the lines are named as the heading names.
+EARLIER_HIT_CUT = "## data block cut: the rest is {lines}"
 DIFF_PART = "diff-{n:02d}-of-{total:02d}.patch"
 #: The names of the parts the listing of the read directory is issued in.
 FILES_PART = "files-{n:02d}-of-{total:02d}.md"
@@ -232,7 +279,9 @@ class PacketError(ReviewError):
     """A review cannot be prepared as specified, so it does not run."""
 
 
-_PART_NAME = r"^(transcript|diff|series|files)-[0-9]{2,}-of-[0-9]{2,}\.(md|patch)$"
+_PART_NAME = (
+    r"^(transcript|earlier|earlier-hits|diff|series|files)-[0-9]{2,}-of-[0-9]{2,}\.(md|patch)$"
+)
 
 
 class Part(BaseModel):
@@ -292,6 +341,22 @@ class Packet(BaseModel):
     #: The digest of ``interface-followed.md``, for an attempt whose nodes revise an interface.
     #: Left out of the record when absent, so every other packet reads and hashes as before.
     followed_sha256: Sha256 | None = None
+    #: Each file the parts record is rendered to, by name and digest, for an attempt of a run
+    #: whose decisions named parts. Left out of the record when empty, so every other packet
+    #: reads and hashes as before.
+    parts_record_sha256: dict[str, Sha256] = Field(default_factory=dict)
+    #: The earlier attempts no review judged (``Artefact.unjudged``): their streams' rendering's
+    #: digest, its parts and data-fence nonces, and the markers the scan finds in them, each
+    #: marked with its attempt, which the reviewer answers as it answers this attempt's own.
+    #: Left out of the record when absent, so every other packet reads and hashes as before.
+    earlier_sha256: Sha256 | None = None
+    earlier_parts: tuple[Part, ...] = ()
+    earlier_nonces: tuple[Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")], ...] = ()
+    earlier_indicators: tuple[ScanHit, ...] = ()
+    #: Each of those markers with the lines around it (:func:`hit_excerpts`): the excerpts'
+    #: parts and their joined digest. Left out of the record when absent, as the fields above.
+    earlier_hit_parts: tuple[Part, ...] = ()
+    earlier_hits_sha256: Sha256 | None = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -306,6 +371,15 @@ class Packet(BaseModel):
             data.pop("integration_state_sha256", None)
         if self.followed_sha256 is None:
             data.pop("followed_sha256", None)
+        if not self.parts_record_sha256:
+            data.pop("parts_record_sha256", None)
+        if self.earlier_sha256 is None:
+            data.pop("earlier_sha256", None)
+        for empty in ("earlier_parts", "earlier_nonces", "earlier_indicators", "earlier_hit_parts"):
+            if not data.get(empty):
+                data.pop(empty, None)
+        if self.earlier_hits_sha256 is None:
+            data.pop("earlier_hits_sha256", None)
         return data
 
     def sha256(self) -> str:
@@ -553,6 +627,387 @@ def _rendered(
     return "\n".join(pieces).encode("utf-8"), tuple(indicators), tuple(chosen)
 
 
+#: Before the earlier attempts' streams, the harness's own lines.
+EARLIER_PREFACE = (
+    "Earlier attempts of this subtask that no review judged: each was refused before its\n"
+    "review, or its review reached no verdict. Their work is in the commit under review, and\n"
+    "the search for the markers of a check switched off found markers in their streams. Each\n"
+    "attempt's sessions are shown in order, each under its own data marker.\n"
+)
+
+
+def _sealed_earlier(artefact: Artefact) -> list[tuple[int, str, bytes]]:
+    """Every session of every earlier unjudged attempt, in order, each held to its seal.
+
+    Raises:
+        PacketError: a stream is not what was sealed: it is never left out of what is shown.
+    """
+    found = []
+    for earlier in artefact.unjudged:
+        for session in earlier.sessions:
+            expected = Seal(sha256=session.trajectory_sha256, length=session.trajectory_length)
+            try:
+                data = read_sealed(Path(session.trajectory), expected)
+            except TrajectoryTamperedError as exc:
+                raise PacketError(str(exc), attempt=str(earlier.attempt), **exc.context) from None
+            found.append((earlier.attempt, session.trajectory, data))
+    return found
+
+
+class EarlierSession(NamedTuple):
+    """Where one earlier session sits in the earlier rendering, and the markers its stream shows."""
+
+    #: The index of its first line (its heading) among the rendering's lines, and one past its last.
+    first: int
+    end: int
+    #: The nonce its data fences carry.
+    nonce: str
+    hits: tuple[ScanHit, ...]
+
+
+class Earlier(NamedTuple):
+    """The earlier unjudged attempts' streams as one rendering, their hits, nonces and sessions."""
+
+    data: bytes
+    hits: tuple[ScanHit, ...]
+    nonces: tuple[str, ...]
+    sessions: tuple[EarlierSession, ...]
+
+
+def _rendered_earlier(
+    artefact: Artefact, avoid: tuple[str, ...], nonces: tuple[str, ...] = ()
+) -> Earlier:
+    """The earlier unjudged attempts' streams as one rendering, their marked hits, their nonces.
+
+    Empty for an attempt that carries none. Each session gets a nonce of its own, held apart
+    from ``avoid`` (this attempt's own) and from every stream; given ``nonces`` (the ones a
+    packet recorded), it renders with them, so the same sealed streams give the same bytes.
+    Lines are counted as :func:`split_parts` counts them.
+
+    Raises:
+        PacketError: a stream is not what was sealed, is not UTF-8, or the scan cannot read it.
+    """
+    if not artefact.unjudged or not indicator_scan_runs(artefact):
+        return Earlier(b"", (), (), ())
+    sessions = _sealed_earlier(artefact)
+    streams = [_decoded(path, data) for _, path, data in sessions]
+    if nonces and len(nonces) != len(streams):
+        msg = "the packet's nonces do not match the earlier attempts' sessions"
+        raise PacketError(msg, subtask=artefact.subtask_id)
+    chosen: list[str] = list(nonces)
+    while len(chosen) < len(streams):
+        candidate = secrets.token_hex(8)
+        taken = candidate in chosen or candidate in avoid
+        if not taken and not any(candidate in stream for stream in streams):
+            chosen.append(candidate)
+    totals = {n: sum(1 for a, _, _ in sessions if a == n) for n, _, _ in sessions}
+    hits: list[ScanHit] = []
+    pieces = [EARLIER_PREFACE]
+    placed: list[EarlierSession] = []
+    # The pieces are joined with a line break, so an empty line stands between each two.
+    line = len(EARLIER_PREFACE.encode("utf-8").splitlines())
+    seen: dict[int, int] = {}
+    for (attempt, path, _), stream, nonce in zip(sessions, streams, chosen, strict=True):
+        try:
+            found = tuple(hit.of_attempt(attempt) for hit in scan(stream))
+        except ScanUnreadableError as exc:
+            raise PacketError(str(exc), trajectory=path) from None
+        hits.extend(found)
+        text, used = render(stream, nonce=nonce)
+        if used != nonce:
+            msg = "an earlier session's transcript could not use its recorded nonce"
+            raise PacketError(msg, trajectory=path)
+        seen[attempt] = seen.get(attempt, 0) + 1
+        piece = f"# Attempt {attempt}, session {seen[attempt]} of {totals[attempt]}\n\n{text}"
+        pieces.append(piece)
+        count = len(piece.encode("utf-8").splitlines())
+        placed.append(EarlierSession(line + 1, line + 1 + count, nonce, found))
+        line += 1 + count
+    return Earlier("\n".join(pieces).encode("utf-8"), tuple(hits), tuple(chosen), tuple(placed))
+
+
+class _Unit(NamedTuple):
+    """One harness line of a session's rendering (its cut pieces joined), or one data block."""
+
+    data: bool
+    first: int
+    last: int
+    text: str
+
+
+def _units(lines: list[bytes], session: EarlierSession) -> list[_Unit]:
+    """The session's lines as the harness wrote them: its own lines, and each fenced data block.
+
+    A line is the harness's only outside the session's data fences, whose nonce no stream holds,
+    so nothing a tool printed is read as a heading. A harness line cut for its width is joined.
+    """
+    opening = f"<<<DATA {session.nonce} ".encode()
+    closing = f"DATA {session.nonce}>>>".encode()
+    units: list[_Unit] = []
+    index = session.first
+    while index < session.end:
+        line = lines[index].rstrip(b"\r\n")
+        if line.startswith(opening):
+            close = index + 1
+            while close < session.end and lines[close].rstrip(b"\r\n") != closing:
+                close += 1
+            last = min(close, session.end - 1)
+            units.append(_Unit(True, index, last, ""))
+            index = last + 1
+            continue
+        last = index
+        text = line.decode("utf-8", errors="replace")
+        while text.endswith(CONTINUED) and last + 1 < session.end:
+            last += 1
+            piece = lines[last].rstrip(b"\r\n").decode("utf-8", errors="replace")
+            text = text.removesuffix(CONTINUED) + piece
+        units.append(_Unit(False, index, last, text))
+        index = last + 1
+    return units
+
+
+def _hit_span(units: list[_Unit], hit: ScanHit) -> tuple[int, int] | None:
+    """From the first heading of the hit's call or result to the end of the last one's block.
+
+    ``None`` when no harness line names the hit's evidence. An id given twice spans both.
+    """
+    first: int | None = None
+    last: int | None = None
+    for number, unit in enumerate(units):
+        named = is_call_heading(unit.text, hit.evidence) or is_result_heading(
+            unit.text, hit.evidence
+        )
+        if unit.data or not named:
+            continue
+        end = unit.last
+        if number + 1 < len(units) and units[number + 1].data:
+            end = units[number + 1].last
+        first = unit.first if first is None else min(first, unit.first)
+        last = end if last is None else max(last, end)
+    return None if first is None or last is None else (first, last)
+
+
+def _where(starts: list[tuple[int, str]], index: int) -> tuple[str, int]:
+    """The part holding the rendering's line ``index``, and the line's number in it."""
+    begun, name = next((s, n) for s, n in reversed(starts) if s <= index)
+    return name, index - begun + 1
+
+
+def _lines_named(starts: list[tuple[int, str]], start: int, end: int) -> str:
+    """The rendering's lines ``start`` to ``end`` named by the part and lines that hold them."""
+    first_part, first_line = _where(starts, start)
+    last_part, last_line = _where(starts, end)
+    if first_part == last_part:
+        return f"{first_part} lines {first_line}-{last_line}"
+    return f"{first_part} line {first_line} to {last_part} line {last_line}"
+
+
+def _block_at(units: list[_Unit], index: int) -> _Unit | None:
+    """The data block the rendering's line ``index`` lies in, its fences counted; else ``None``."""
+    return next((u for u in units if u.data and u.first <= index <= u.last), None)
+
+
+class _Window(NamedTuple):
+    """One excerpt: its first and last line, its markers, and the block each edge cuts, if any."""
+
+    start: int
+    end: int
+    hits: list[ScanHit]
+    units: list[_Unit]
+    session: EarlierSession
+    cut_start: _Unit | None = None
+    cut_end: _Unit | None = None
+
+
+def _fenced(window: _Window) -> _Window:
+    """The window with each edge that falls inside a data block moved to the block's end.
+
+    An edge on a block's far fence alone moves in past it, which shows no data. An edge whose
+    block ends more than :data:`EARLIER_HIT_SNAP_LINES` away stays, and that block is cut.
+    """
+    start, end = window.start, window.end
+    cut_start = cut_end = None
+    block = _block_at(window.units, start)
+    if block is not None and start != block.first:
+        if start == block.last:
+            start += 1
+        elif start - block.first <= EARLIER_HIT_SNAP_LINES:
+            start = block.first
+        else:
+            cut_start = block
+    block = _block_at(window.units, end)
+    if block is not None and end != block.last:
+        if end == block.first:
+            end -= 1
+        elif block.last - end <= EARLIER_HIT_SNAP_LINES:
+            end = block.last
+        else:
+            cut_end = block
+    return window._replace(start=start, end=end, cut_start=cut_start, cut_end=cut_end)
+
+
+def _merged(windows: list[_Window]) -> list[_Window]:
+    """The windows in order, those that overlap or touch shown once; each keeps its outer edges."""
+    merged: list[_Window] = []
+    for window in sorted(windows, key=lambda w: (w.start, w.end)):
+        if merged and window.start <= merged[-1].end + 1:
+            before = merged[-1]
+            hits = before.hits + [h for h in window.hits if h not in before.hits]
+            later = window if window.end > before.end else before
+            merged[-1] = before._replace(end=later.end, hits=hits, cut_end=later.cut_end)
+        else:
+            merged.append(window)
+    return merged
+
+
+def hit_excerpts(earlier: Earlier, parts: list[tuple[str, bytes]]) -> list[tuple[str, bytes]]:
+    """Each of the earlier hits' tool call and result with the lines around it, in parts.
+
+    For each hit: the rendering's lines from :data:`EARLIER_HIT_LINES` before its call to as
+    many after the end of its result, clipped to its session; a hit whose call cannot be found
+    among the harness lines brings its whole session. Windows that overlap or touch are shown
+    once. Each window is a byte-exact slice, under a harness line naming the part (``parts``,
+    the rendering as issued) and the lines it is cut from, and the markers it shows; the windows
+    stand one after another, an empty line between, in parts one read can show whole
+    (:func:`_excerpt_parts`), each of which opens every session it shows with that session's
+    preamble. Empty when no hit is found.
+
+    No line of the session's data is shown outside a fence (:func:`_fenced`). Where a block is
+    cut, the piece shown stands between the block's own fence lines, the session's nonce on
+    each, so the fence on its cut side is a copy of that line; :data:`EARLIER_HIT_CUT` before
+    the block names its other lines. The nonce is the one the session's rendering is fenced
+    with, held apart from every earlier stream when it was drawn (:func:`_rendered_earlier`).
+    """
+    lines = earlier.data.splitlines(keepends=True)
+    windows: list[_Window] = []
+    for session in earlier.sessions:
+        if not session.hits:
+            continue
+        units = _units(lines, session)
+        found: list[_Window] = []
+        for hit in session.hits:
+            span = _hit_span(units, hit)
+            if span is None:
+                start, end = session.first, session.end - 1
+            else:
+                start = max(session.first, span[0] - EARLIER_HIT_LINES)
+                end = min(session.end - 1, span[1] + EARLIER_HIT_LINES)
+            # A window never ends on a lone carriage return: the empty line after it would join it.
+            while not lines[end].endswith(b"\n") and end + 1 < session.end:
+                end += 1
+            found.append(_Window(start, end, [hit], units, session))
+        windows += _merged([_fenced(window) for window in _merged(found)])
+    starts: list[tuple[int, str]] = []
+    at = 0
+    for name, body in parts:
+        starts.append((at, name))
+        at += len(body.splitlines())
+    blocks: list[tuple[EarlierSession, list[bytes]]] = []
+    for window in windows:
+        start, end = window.start, window.end
+        markers = " | ".join(
+            f"attempt {hit.attempt}, {hit.kind}, evidence {harness_value(hit.evidence)}"
+            for hit in window.hits
+        )
+        heading = "\n".join(cut_line(f"## {_lines_named(starts, start, end)} | {markers}")) + "\n"
+        shown = [heading.encode("utf-8")]
+        if window.cut_start:
+            block = window.cut_start
+            shown += [_cut(_lines_named(starts, block.first, start - 1)), lines[block.first]]
+        if window.cut_end:
+            block = window.cut_end
+            shown += lines[start : block.first]
+            shown += [_cut(_lines_named(starts, end + 1, block.last))]
+            shown += [*lines[block.first : end + 1], lines[block.last]]
+        else:
+            shown += lines[start : end + 1]
+        blocks.append((window.session, b"".join(shown).splitlines(keepends=True)))
+    return _excerpt_parts(blocks, lines)
+
+
+def _preamble(lines: list[bytes], session: EarlierSession) -> list[bytes]:
+    """The preamble the session's rendering opens with, under its heading and an empty line.
+
+    Raises:
+        PacketError: those lines are not the preamble the transcript renders for its nonce.
+    """
+    count = len(PREAMBLE.splitlines())
+    shown = lines[session.first + 2 : session.first + 2 + count]
+    if b"".join(shown) != PREAMBLE.format(nonce=session.nonce).encode("utf-8"):
+        msg = "an earlier session's rendering does not open with its preamble"
+        raise PacketError(msg, nonce=session.nonce)
+    return shown
+
+
+class _Filling(NamedTuple):
+    """The excerpt parts as they are filled, and which sessions the last one has declared."""
+
+    parts: list[list[bytes]]
+    declared: set[str]
+
+
+def _fits(filling: _Filling, more: list[bytes]) -> bool:
+    if not filling.parts:
+        return False
+    last = filling.parts[-1]
+    size = sum(len(line) for line in last) + sum(len(line) for line in more)
+    return size <= PART_MAX_BYTES and len(last) + len(more) <= PART_MAX_LINES
+
+
+def _excerpt_parts(
+    blocks: list[tuple[EarlierSession, list[bytes]]], lines: list[bytes]
+) -> list[tuple[str, bytes]]:
+    """The excerpts in parts one read can show whole, each part declaring the fences it holds.
+
+    A part shows a session's preamble, as its rendering has it, before that session's first
+    excerpt in the part, so every fence in a part is declared above it in the same part. A part
+    that ends inside a data block closes it with a copy of the block's closing fence line, and
+    the next part reopens it, after the preamble, with a copy of its opening fence line.
+
+    Raises:
+        PacketError: a line, with what a part must hold before it, is longer than one part may be.
+    """
+    filling = _Filling([], set())
+    for session, shown in blocks:
+        preamble = _preamble(lines, session)
+        opening = f"<<<DATA {session.nonce} ".encode()
+        closing = f"DATA {session.nonce}>>>\n".encode()
+        inside: bytes | None = None
+        for index, line in enumerate(shown):
+            after = inside
+            if line.startswith(opening):
+                after = line
+            elif line == closing:
+                after = None
+            head: list[bytes] = []
+            if index == 0:
+                head = [b"\n"] if filling.parts else []
+                head += [] if session.nonce in filling.declared else preamble
+            room = [closing] if after is not None else []
+            if not _fits(filling, [*head, line, *room]):
+                if inside is not None and filling.parts:
+                    filling.parts[-1].append(closing)
+                filling.parts.append([])
+                filling.declared.clear()
+                head = [*preamble, *([inside] if inside is not None else [])]
+                if not _fits(filling, [*head, line, *room]):
+                    msg = "an excerpt's line is longer than one read can show whole"
+                    raise PacketError(msg, bytes=str(len(line)), limit=str(PART_MAX_BYTES))
+            filling.declared.add(session.nonce)
+            filling.parts[-1].extend([*head, line])
+            inside = after
+    total = len(filling.parts)
+    return [
+        (EARLIER_HITS_PART.format(n=number, total=total), b"".join(part))
+        for number, part in enumerate(filling.parts, start=1)
+    ]
+
+
+def _cut(rest: str) -> bytes:
+    """The harness line over a data block an excerpt cuts, naming where its other lines are."""
+    return ("\n".join(cut_line(EARLIER_HIT_CUT.format(lines=rest))) + "\n").encode("utf-8")
+
+
 def split_parts(data: bytes, pattern: str) -> list[tuple[str, bytes]]:
     """``data`` cut at line boundaries into parts one read can show whole, named by ``pattern``.
 
@@ -774,6 +1229,11 @@ def person_order_text(order: PersonOrder) -> bytes:
             "This attempt reopens a merged module, ordered by a person on queue item "
             f"{order.item_id} to conform to the interface's values."
         )
+    elif order.kind == "sign_off_fix":
+        head = (
+            "This attempt is the one fix a person ordered by not signing the values of this "
+            f"module, merged at attempt {order.of_attempt} (queue item {order.item_id})."
+        )
     elif order.kind == "fix_after_arbitration":
         head = (
             "This attempt is the single fix a person ordered by choosing sizing's value on the "
@@ -859,6 +1319,15 @@ def build_packet(
     read.mkdir(parents=True)
     transcript, indicators, nonces = _rendered(artefact, sessions)
     transcript_parts = _write_parts(read, split_parts(transcript, TRANSCRIPT_PART))
+    # The earlier attempts no review judged, whose work is in this commit: shown whole, or the
+    # packet is refused; never left out (ARCH-133). Each of their markers is shown with the lines
+    # around it, which is what must be read; the whole streams are there to read on.
+    earlier = _rendered_earlier(artefact, nonces)
+    earlier_cut = split_parts(earlier.data, EARLIER_PART) if earlier.data else []
+    earlier_parts = _write_parts(read, earlier_cut)
+    excerpt_cut = hit_excerpts(earlier, earlier_cut)
+    excerpts = b"".join(body for _, body in excerpt_cut)
+    hit_parts = _write_parts(read, excerpt_cut) if excerpt_cut else ()
     # Verified once, and every read below goes through the directory that check confirmed.
     where = _git_dir(Path(repo))
     files = _export(where, artefact.attempt_commit, read / WORKTREE_NAME)
@@ -868,6 +1337,7 @@ def build_packet(
     series_parts = _write_parts(read, split_parts(series, SERIES_PART)) if series else ()
     reading = [
         *(read / part.name for part in transcript_parts),
+        *(read / part.name for part in (hit_parts or earlier_parts)),
         *(read / part.name for part in diff_parts),
         *(read / part.name for part in series_parts),
         read / RUBRIC_NAME,
@@ -908,6 +1378,13 @@ def build_packet(
         (read / PERSON_ORDER_NAME).write_bytes(order)
         order_digest = _digest(order)
         reading.append(read / PERSON_ORDER_NAME)
+    parts_digests: dict[str, str] = {}
+    if artefact.parts_record is not None:
+        # What the session read, rendered again from the record its release line named.
+        for name, content in _parts_files(artefact.parts_record):
+            (read / name).write_bytes(content)
+            parts_digests[name] = _digest(content)
+            reading.append(read / name)
     text = rubric.text.encode("utf-8")
     if _digest(text) != rubric.sha256:
         msg = "the rubric is not the one that was loaded"
@@ -952,6 +1429,13 @@ def build_packet(
         person_order_sha256=order_digest,
         integration_state_sha256=state_digest,
         followed_sha256=followed_digest,
+        parts_record_sha256=parts_digests,
+        earlier_sha256=_digest(earlier.data) if earlier.data else None,
+        earlier_parts=earlier_parts,
+        earlier_nonces=earlier.nonces,
+        earlier_indicators=earlier.hits,
+        earlier_hit_parts=hit_parts,
+        earlier_hits_sha256=_digest(excerpts) if excerpts else None,
     )
     (Path(review) / RECORD_NAME).write_text(packet.model_dump_json(indent=1) + "\n")
     return packet
@@ -960,11 +1444,14 @@ def build_packet(
 def _series_listing(artefact: Artefact) -> bytes | None:
     """The attempt's series listing, or ``None`` for an attempt with no records and no checks.
 
+    A record a session discarded counts: an attempt whose only record was discarded is given
+    the listing, so its reviewer is shown that record as no evidence.
+
     Raises:
         PacketError: a record is gone or is not what was sealed when its session ended.
     """
     series = artefact.series
-    if series is None or not (series.records or series.checks):
+    if series is None or not (series.records or series.checks or series.discarded):
         return None
     try:
         return listing(series)
@@ -1032,6 +1519,7 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
     if joined["transcript"] != transcript or _digest(transcript) != packet.transcript_sha256:
         msg = "the transcript's parts joined are not the sealed trajectory's rendering"
         raise PacketError(msg, read=str(read))
+    _check_earlier(packet, artefact, read)
     diff = _diff(Path(repo), base_commit, artefact.attempt_commit)
     if joined["diff"] != diff or _digest(diff) != packet.diff_sha256:
         msg = "the diff's parts joined are not the attempt's diff"
@@ -1040,10 +1528,66 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
     _check_person_order(packet, artefact, read)
     _check_integration_state(packet, artefact, read)
     _check_followed(packet, artefact, read)
+    _check_parts_record(packet, artefact, read)
     _check_copies(packet, artefact, read, Path(repo))
     # The listing names every file under ``read/`` as it stands now, and nothing else.
     if joined["listing"] != file_listing(read, {part.name for part in packet.files_parts}):
         msg = "the listing's parts joined are not the files under the read directory"
+        raise PacketError(msg, read=str(read))
+
+
+def _issued(read: Path, parts: tuple[Part, ...], what: str) -> bytes:
+    """The parts as written under ``read``, joined, each held to its digest first."""
+    bodies = []
+    for part in parts:
+        path = read / part.name
+        body = path.read_bytes() if path.is_file() else None
+        if body is None or _digest(body) != part.sha256:
+            msg = f"{what} part is missing or is not what was issued"
+            raise PacketError(msg, part=part.name)
+        bodies.append(body)
+    return b"".join(bodies)
+
+
+def _check_earlier(packet: Packet, artefact: Artefact, read: Path) -> None:
+    """Hold the earlier attempts' parts to their sealed streams, rendered again with their nonces.
+
+    The parts must be the rendering cut as it is issued, and each excerpt of a marker the slice
+    of them it names: the excerpts are made again from the rendering and must be the ones issued.
+
+    Raises:
+        PacketError: a part is missing or changed, the parts joined are not the rendering, an
+            excerpt is not the slice it names, or the packet's earlier attempts are not the
+            attempt's.
+    """
+    earlier = _rendered_earlier(artefact, packet.transcript_nonces, packet.earlier_nonces)
+    if not earlier.data:
+        issued_any = packet.earlier_parts or packet.earlier_indicators or packet.earlier_hit_parts
+        if issued_any or packet.earlier_sha256 is not None or packet.earlier_hits_sha256:
+            msg = "the packet issued earlier attempts the attempt does not carry"
+            raise PacketError(msg, read=str(read))
+        return
+    joined = _issued(read, packet.earlier_parts, "an earlier attempt's")
+    if joined != earlier.data or _digest(earlier.data) != packet.earlier_sha256:
+        msg = "the earlier attempts' parts joined are not their sealed streams' rendering"
+        raise PacketError(msg, read=str(read))
+    if earlier.hits != packet.earlier_indicators:
+        msg = "the earlier attempts' markers are not the ones their sealed streams show"
+        raise PacketError(msg, read=str(read))
+    cut = split_parts(earlier.data, EARLIER_PART)
+    if [(p.name, p.sha256) for p in packet.earlier_parts] != [(n, _digest(b)) for n, b in cut]:
+        msg = "the earlier attempts' parts are not their rendering cut as it is issued"
+        raise PacketError(msg, read=str(read))
+    # Each excerpt made again from the rendering: the slice it names, under the heading it has,
+    # each cut block between its session's own fence lines.
+    expected = hit_excerpts(earlier, cut)
+    excerpts = b"".join(body for _, body in expected)
+    _issued(read, packet.earlier_hit_parts, "an earlier marker's excerpt")
+    held = [(p.name, p.sha256) for p in packet.earlier_hit_parts] == [
+        (n, _digest(b)) for n, b in expected
+    ]
+    if not held or packet.earlier_hits_sha256 != (_digest(excerpts) if excerpts else None):
+        msg = "the earlier markers' excerpts are not the slices of the earlier parts they name"
         raise PacketError(msg, read=str(read))
 
 
@@ -1103,6 +1647,35 @@ def _check_integration_state(packet: Packet, artefact: Artefact, read: Path) -> 
     found = _digest(path.read_bytes()) if path.is_file() else None
     if packet.integration_state_sha256 != state.sha256 or found != state.sha256:
         msg = "integration's issued state is missing or is not the one its session read"
+        raise PacketError(msg, read=str(read))
+
+
+def _parts_files(record: IssuedState) -> tuple[tuple[str, bytes], ...]:
+    """The files ``record`` is rendered to, or why the packet cannot hold them."""
+    from physgate.orchestrator.parts_reading import parts_files
+
+    try:
+        return parts_files(record.text.encode("utf-8"))
+    except ValueError as exc:
+        msg = "the parts record the attempt carries is not one a reviewer can be shown"
+        raise PacketError(msg, why=str(exc)) from exc
+
+
+def _check_parts_record(packet: Packet, artefact: Artefact, read: Path) -> None:
+    """Hold the parts record's files to the attempt's record: there exactly when it carries one."""
+    held = artefact.parts_record
+    on_disk = sorted(path.name for path in read.glob("parts-*"))
+    if held is None:
+        if packet.parts_record_sha256 or on_disk:
+            msg = "the packet issued a parts record for an attempt that carries none"
+            raise PacketError(msg, read=str(read))
+        return
+    expected = {name: _digest(content) for name, content in _parts_files(held)}
+    found = {
+        name: _digest((read / name).read_bytes()) for name in expected if (read / name).is_file()
+    }
+    if packet.parts_record_sha256 != expected or found != expected or on_disk != sorted(expected):
+        msg = "the parts record's files are missing or are not the record its session read"
         raise PacketError(msg, read=str(read))
 
 

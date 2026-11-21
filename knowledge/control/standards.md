@@ -150,3 +150,86 @@ expected to saturate in the stated operating region, per rule 1).
 
 **Judgement-only** for the anti-windup design itself; the actuator's declared supply limit is
 gate-checked the same way any other supply is (cross-domain standards §4).
+
+## 7. When the reference controller cannot meet the margins, add the least structure that can, and show its margins on the loop that runs
+
+A brief or specification may cite a reference controller (a maker's example program) as a source of
+numbers: a sample period, a command limit, a coefficient's scale. Unless the issued specification
+fixes the controller's form, the form is control's decision, and a cited reference does not fix it
+(design standards §7). When the work shows that the reference form cannot meet the specified
+margins at any coefficients it tried (the set tried and the best result, printed), control may add
+structure, the least that meets them:
+- **a direct term on a measured rate** (the tilt rate from a gyro, added to the command): state
+  feedback on a measured state, which adds phase lead at crossover without differentiating a noisy
+  signal [K. J. Åström and R. M. Murray, *Feedback Systems: An Introduction for Scientists and Engineers*, Princeton University Press, 2nd edition, 2021, Ch. 7 "State Feedback", section "Stabilization by State Feedback"; in the 2008
+  first edition, §6.2];
+- **lead compensation**, a pole/zero pair that adds phase around crossover [same book, Ch. 12
+  "Frequency Domain Design", section "Feedback Design via Loop Shaping"; first edition §11.4]. One
+  lead section `C(s) = (s/a + 1)/(s/b + 1)`, `b > a > 0`, adds at most `arcsin((b − a)/(b + a))` rad
+  of phase, at `ω = √(ab)` (*derived*: its phase is `arctan(ω/a) − arctan(ω/b)`);
+- **state feedback** on every state the firmware measures or estimates, with the weights from §5
+  where it is an LQR design.
+
+Three conditions hold whatever is added.
+
+**The margins are those of the loop that runs, every delay included.** The loop's margins are
+computed with each delay the implementation has: the time from sample to command, the age of each
+sensor's reading at the sample, and the hold (half a sample at crossover, §3; or exactly, on the
+discrete loop). A pure delay `τ` leaves the gain unchanged and subtracts `ω·τ` rad of phase at every
+`ω` (*derived*: `|e^(−jωτ)| = 1`, `arg e^(−jωτ) = −ωτ`). So a delay common to the whole loop at its
+break point (`τ_common`, as the control rubric defines it) lowers the phase margin by
+`ω_gc·τ_common` (exactly for a pure delay; the hold's half sample is an approximation, §3) at an
+unchanged crossover, and a margin computed without the delays overstates the margin of the loop
+that runs. A margin from a model without its delays does not
+meet a margin criterion, and is not reported as the design's.
+
+**The margins hold across the stated spread.** Each plant parameter that is an estimate, a quantity
+no maker publishes that the work had to estimate (a rotor inertia, a centre-of-mass height, a body
+inertia, a friction the work itself estimated; one taken from the maker's no-load current is a
+maker's figure, below), carries a range from where it was sourced (sizing standards §5, §8); so
+does a range the brief states (a fall time's). The margins are computed at the low end, the nominal value
+and the high end of each such range, one at a time, with the others nominal; the smallest value of
+each margin over those cases is the design's margin, the one compared with the criterion. This is
+the parametric form of model uncertainty [same book, Ch. 13 "Robust Performance", sections "Modeling
+Uncertainty" and "Stability in the Presence of Uncertainty"; first edition §12.1, §12.2]. A check at
+points is not a proof between them: the work also prints a sweep across each range, one at a time,
+and its smallest value is the design's where it is lower than the end points'. The work also
+computes the margins at every combination of the ranges' ends and records them beside the design's;
+they are not compared with the criterion, and a combination that misses is not a shortfall. *This
+project's rule, not the source's:* each range is a separate estimate with its own basis, and every
+range at its worst end at once assumes every estimate wrong in its worst direction together, which
+no basis states; the combinations are kept for a person to see. A maker's stated tolerance on a
+figure it publishes (a no-load speed's ±20 %, a no-load current's ±50 %), quoted from the maker's
+document in the quantity's source, is not an estimate (*this project's rule*, as in sizing
+standards §12); without that quote the range is an estimate. Every criterion is judged with the
+figure at its typical value, and the results at the tolerance's ends are computed and recorded as a
+sensitivity, not judged. A supply voltage a criterion of the brief pins is a condition, not an
+estimate, and is held at that value.
+
+**A criterion no design can meet at an end.** This applies only to a criterion with a stated
+bound: the push, with sizing standards §12's bound, §12's inputs and the delivered command limit,
+in control's own plant at the end's values. Where it fails at an estimate's end and that bound is
+below 1 there, the shortfall is the plant's, not the law's. The work records it once, as a conflict
+in its module's record (as sizing standards §3 does): the criterion, each such end, the command
+limit the bound needs there against the limit written and the full scale, and the bound's numbers.
+It delivers its law, meeting every criterion it can, and changes no criterion, range or limit for
+it. Where the bound is 1 or more at an end where the law fails, the shortfall is the
+law's. A criterion that fails only at a tolerance's end is recorded with that sensitivity, not as
+a conflict.
+
+**The law that firmware runs is written on control's own node.** Control writes the law in the form
+the firmware will run (the update equation, its sample period, its command limit, every coefficient
+as a value with its unit, and the conversion to the firmware's integer units where the firmware
+uses integers) on a node of its own, named in its specification. No coefficient is on an
+interface node (design standards §3); the node restates the sample period and command limit, each
+with the interface or sizing node it comes from. The firmware's criteria compare its code with
+that node as merged.
+
+Where the issued specification does fix the controller's form and that form cannot meet a
+criterion, the work does not substitute another: it reports the shortfall with its evidence, and
+the least structure that would meet it, computed the same way and labelled as evidence for a fix,
+for a person to decide.
+
+**Judgement-only** — no check in the gate computes a loop's margins, and none reads a controller's
+form; the delivered margins are read by review against the recorded frequency responses (skill,
+"recording a simulation's output as series records").

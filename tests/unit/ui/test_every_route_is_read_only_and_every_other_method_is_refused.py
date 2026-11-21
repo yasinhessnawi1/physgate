@@ -4,13 +4,14 @@ The table holds read routes and exactly one action, the decision on an approval-
 whose handler is the decision route. The sweep below sends that route every method too, as
 any page could, without this server's token: it must change nothing.
 
-The sweep sends every method in ``METHODS`` to every route in the table, with valid and with
-hostile parameters, and holds the result to two detectors that do not depend on the server's
-guard: a snapshot of every file under the roots, the fixture build and this repository, before
-and after; and an audit-hook recorder of every write-capable open and filesystem change in the
-process. The recorder exists because the snapshot cannot see everything: opening an existing
-file for appending and writing nothing leaves its bytes, its mtime and its ctime unchanged
-(measured on this machine), so only an observer of the open itself catches that route.
+The sweep sends every method in ``METHODS`` to every route the command serves (the table and
+what its composition root registers beside it), with valid and with hostile parameters, and
+holds the result to two detectors that do not depend on the server's guard: a snapshot of every
+file under the roots, the fixture build and this repository, before and after; and an
+audit-hook recorder of every write-capable open and filesystem change in the process. The
+recorder exists because the snapshot cannot see everything: opening an existing file for
+appending and writing nothing leaves its bytes, its mtime and its ctime unchanged (measured on
+this machine), so only an observer of the open itself catches that route.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from ui_rig import (
     sealed_session,
     serving,
     snapshot,
+    swept,
 )
 
 from physgate.orchestrator.events import SessionEnded, read_events
@@ -70,6 +72,8 @@ def _valid(world: dict[str, Path], run: str) -> dict[str, str]:
         "session": sealed_session(world["root"] / run),
         "date": PRICES,
         "revision": "1",
+        # The line a page follows the log from: the first, so the whole log is served.
+        "seq": "0",
         "round": "2",
         "node": journal_records_after(world["root"] / run / "store", 0)[-1].node_id,
         # The simulation routes: the run's first subtask, at its first attempt. These runs record
@@ -158,10 +162,12 @@ def _context(world: dict[str, Path]) -> Context:
 
 
 def test_every_route_is_a_read_but_exactly_one_action_whose_handler_is_the_decision() -> None:
+    # The table the command serves: the product's and what its composition root registers.
+    routes = swept()
     assert ROUTES, "an empty table would make every other test here vacuous"
-    assert {route.kind for route in ROUTES} == {"read", "act"}
-    reads = [r for r in ROUTES if r.kind == "read"]
-    acts = [r for r in ROUTES if r.kind == "act"]
+    assert {route.kind for route in routes} == {"read", "act"}
+    reads = [r for r in routes if r.kind == "read"]
+    acts = [r for r in routes if r.kind == "act"]
     assert {r.method for r in reads} == {"GET"}
     assert len(acts) == 1, "exactly one route acts"
     (act,) = acts
@@ -204,8 +210,9 @@ def test_no_route_with_any_method_changes_any_file(world: dict[str, Path]) -> No
     )
     before = snapshot(*watched)
     answered = 0
-    with serving(_context(world)) as live, RECORDER.recording() as writes:
-        for route in ROUTES:
+    routes = swept()
+    with serving(_context(world), routes) as live, RECORDER.recording() as writes:
+        for route in routes:
             for target in _targets(route, world):
                 for method in METHODS:
                     status, headers, body = live.request(method, target)
@@ -214,7 +221,7 @@ def test_no_route_with_any_method_changes_any_file(world: dict[str, Path]) -> No
                     assert live.token.encode() not in body, (method, target)
                     assert not [v for v in headers.values() if live.token in v], (method, target)
                     answered += 1
-    assert answered >= len(ROUTES) * len(METHODS)
+    assert answered >= len(routes) * len(METHODS)
     assert len(live.token) >= 40, "a sweep for an empty token proves nothing"
     assert writes == [], writes
     assert snapshot(*watched) == before
@@ -246,8 +253,9 @@ def test_a_method_the_table_does_not_name_is_405_with_allow_never_501(
 
 
 def test_every_read_route_answers_get_and_head_alike(world: dict[str, Path]) -> None:
-    with serving(_context(world)) as live:
-        for route in (r for r in ROUTES if r.kind == "read"):
+    routes = swept()
+    with serving(_context(world), routes) as live:
+        for route in (r for r in routes if r.kind == "read"):
             if route.pattern.startswith(f"{RUN}/series/"):
                 continue  # read over runs that record simulations, in their own tests
             target = _targets(route, world)[0]

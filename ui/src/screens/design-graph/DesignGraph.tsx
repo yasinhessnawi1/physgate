@@ -5,6 +5,7 @@
  * it, its gate checks, its edges both ways and its history. Where the screen is lives in the
  * address (run, revision, node, domain, view, diff), so a link keeps it.
  */
+import { countOf } from "../../words/count";
 import { type SyntheticEvent, useEffect, useMemo, useState } from "react";
 
 import { type GraphAt, graphAt, graphDiff, nodeHistory, type NodeRecord } from "../../api/graph";
@@ -24,7 +25,7 @@ import { nodeLabel, quantityLabel } from "../../words/humanise";
 import { recordAddress } from "../common/addresses";
 import { useJson, useLines } from "../common/read";
 import { RunSwitcher } from "../common/RunSwitcher";
-import { inProgress, runKey, runSource, useChosenRun } from "../common/runs";
+import { phaseOfResult, runKey, runSource, useChosenRun } from "../common/runs";
 import { DiffView } from "./DiffView";
 import { missingTargets } from "./edges";
 import { NodeInspector } from "./NodeInspector";
@@ -305,7 +306,7 @@ function Explorer({
           data-source={sourceAttribute(source)}
         >
           <p className="pg-panel-note">
-            View: {shown.length} nodes and {drawn.length} edges at revision r{graph.revision}.
+            {graphViewWords(shown.length, drawn.length, graph.revision)}
             Arrows point from the node that constrains to the one it constrains; an edge between two
             domains is dashed.
           </p>
@@ -357,6 +358,11 @@ function Explorer({
   );
 }
 
+/** The graph's view line: how many nodes and edges are shown, at which revision. */
+export function graphViewWords(nodes: number, edges: number, revision: number): string {
+  return `View: ${countOf(nodes, "node")} and ${countOf(edges, "edge")} at revision r${String(revision)}.`;
+}
+
 export default function DesignGraph({ setHeader, query }: ViewProps) {
   const chosen = useChosenRun(query);
   const { runs, config, status, base, label } = chosen;
@@ -370,7 +376,8 @@ export default function DesignGraph({ setHeader, query }: ViewProps) {
   const graph = useJson(route, graphAt);
   const checks = useLines(base === null ? null : `${base}/gate-checks`, gateCheck);
   const configValue = config?.ok === true ? config.value : undefined;
-  const going = status?.ok === true && inProgress(status.value);
+  const phase = phaseOfResult(status);
+  const going = phase === "going";
   useEffect(() => {
     if (runs?.ok === true && runs.value.length === 0)
       setHeader({ title: "Design graph", runState: "none" });
@@ -383,9 +390,11 @@ export default function DesignGraph({ setHeader, query }: ViewProps) {
         gateMode: configValue.gateMode,
         osLayer: configValue.osLayer,
         inProgress: going,
+        phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, label, setHeader, graph.result]);
+  }, [runs, config, configValue, going, phase, chosen.standing, label, setHeader, graph.result]);
   if (runs === null) return <LoadingState reading="the run list" />;
   if (!runs.ok)
     return (

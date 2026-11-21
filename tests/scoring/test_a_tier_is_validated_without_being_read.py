@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 from control_fixtures import GOOD_PID, control_task, controller
 
-from physgate.evaluation.per_role.validate import id_digest, validate
+from physgate.evaluation.per_role.validate import validate
+from physgate.evaluation.tiers.task import id_digest
 
 
 def _write(

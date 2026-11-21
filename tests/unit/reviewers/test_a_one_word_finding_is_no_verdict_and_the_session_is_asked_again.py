@@ -101,10 +101,15 @@ def test_an_empty_or_one_word_finding_is_refused_by_name(
     assert "empty or one word" in judged.detail and named in judged.detail
 
 
-def test_a_met_item_s_short_evidence_and_a_dismissed_reason_are_not_held() -> None:
-    # The table's own well-formed accept: "x:1" on a met item, "r" on a dismissed indicator.
+def test_a_met_item_s_short_evidence_is_not_held_and_a_dismissed_one_word_reason_is() -> None:
+    # The table's own well-formed accept: "x:1" on a met item, two words on a dismissed indicator.
     judged = _judged(good())
     assert isinstance(judged, Answered) and judged.answer.verdict == "accept"
+    one_word = good()
+    one_word["indicators"][0]["reason"] = "r"
+    refused = _judged(one_word)
+    assert isinstance(refused, Unavailable)
+    assert "the reason of the disabled_checks indicator" in refused.detail
 
 
 def test_two_words_are_the_least_a_finding_says_unless_it_is_a_pointer() -> None:

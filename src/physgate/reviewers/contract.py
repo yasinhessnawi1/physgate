@@ -166,6 +166,21 @@ def _defect_naming(ref: str, needs: NotEvaluableNeeds) -> dict[str, Any]:
     return {"properties": {"spec_defects": {"contains": named}}, "required": ["spec_defects"]}
 
 
+def _earlier_answer(hit: ScanHit) -> dict[str, Any]:
+    """An answer to an earlier attempt's hit: naming its attempt, confirmed or dismissed."""
+    return {
+        "contains": {
+            "properties": {
+                "evidence": {"const": hit.evidence},
+                "attempt": {"const": hit.attempt},
+                "disposition": {"enum": ["confirmed", "dismissed"]},
+                "reason": {"pattern": "\\S"},
+            },
+            "required": ["attempt"],
+        }
+    }
+
+
 def verdict_schema(
     items: tuple[RubricItem, ...],
     *,
@@ -256,8 +271,14 @@ def verdict_schema(
     }
     if scan_hits:
         indicators["allOf"] = [
-            {"contains": {"properties": {"evidence": {"const": hit.evidence}}}} for hit in scan_hits
+            {"contains": {"properties": {"evidence": {"const": hit.evidence}}}}
+            if hit.attempt is None
+            else _earlier_answer(hit)
+            for hit in scan_hits
         ]
+    if any(hit.attempt is not None for hit in scan_hits):
+        # Only where an earlier attempt's hits are shown: every other schema is as it was.
+        indicators["items"]["properties"]["attempt"] = {"type": "integer", "minimum": 1}
     # A countable specification's criteria are named by number; otherwise a reject's
     # failing criterion is named in the reviewer's words, and the check after reads it.
     failing_one = _string(enum=[*ids, *criteria]) if criteria else _string(minLength=1)

@@ -23,6 +23,7 @@ import getpass
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from collections.abc import Callable, Mapping
@@ -37,21 +38,30 @@ from physgate.evaluation.inject.runner import CONFIG_NAME as INSTRUMENT_CONFIG_N
 from physgate.evaluation.inject.runner import CONTROLS_DIRNAME as INSTRUMENT_CONTROLS_DIRNAME
 from physgate.evaluation.inject.runner import InstrumentConfig
 from physgate.gate.exceptions import GateError
-from physgate.knowledge.library import LibraryError, read_library
+from physgate.hooks.settings import session_tool_search
+from physgate.knowledge.library import LibraryError, read_library, skill_files
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
+from physgate.orchestrator import binaries
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.catches import catches, parse_time
-from physgate.orchestrator.common import first_problem, render_jsonl
-from physgate.orchestrator.credentials import SECRET_VARIABLE, Credential, credential_for
+from physgate.orchestrator.common import first_problem, render_jsonl, utc_now
+from physgate.orchestrator.credentials import (
+    SECRET_VARIABLE,
+    Credential,
+    credential_for,
+    fingerprint,
+)
 from physgate.orchestrator.decompose import (
     binary_version,
     call,
     require_fresh,
+    require_no_skill_file,
 )
 from physgate.orchestrator.decomposition_review import stop_left_review
 from physgate.orchestrator.design_rounds import decompose_in_rounds
+from physgate.orchestrator.design_wait import held_builders
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
     Envelope,
@@ -65,6 +75,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import (
     InvocationError,
+    LimitNotResetError,
     OrchestratorError,
     QueueError,
     ReviewerNotRegisteredError,
@@ -87,12 +98,15 @@ from physgate.orchestrator.params_record import record_params
 from physgate.orchestrator.protocols import Gate, PlanReviewer, Reviewer
 from physgate.orchestrator.queue import (
     POSITIONS,
+    PartsBody,
     PersonDecision,
     ShownItem,
     queue_listing,
+    read_queue,
     record_decision,
     statuses_now,
 )
+from physgate.orchestrator.queue_words import with_what_each_decision_does
 from physgate.orchestrator.record import ReviewInstall
 from physgate.orchestrator.replay import recorded_ledger
 from physgate.orchestrator.requirements import RunFacts, refusals
@@ -114,6 +128,24 @@ from physgate.orchestrator.run_config import (
     require_endpoint,
     require_harness,
     require_reportable,
+    require_same_account,
+)
+from physgate.orchestrator.stop_signals import (
+    driving,
+    on_stop_signals,
+    remove_left_credentials,
+)
+from physgate.orchestrator.tool_environment import (
+    forbidden_places,
+    measure_named,
+    recorded_servers,
+    server_launches,
+)
+from physgate.orchestrator.waiting import (
+    EXIT_WAITING_FOR_LIMIT,
+    WAITING_FOR_LIMIT,
+    limit_wait,
+    printed_step,
 )
 from physgate.oslayer.listeners import loopback_listeners
 from physgate.oslayer.policy import NETWORK_UNENFORCED
@@ -234,6 +266,15 @@ def add_parsers(
                     "whose decision is not held"
                 ),
             )
+            command.add_argument(
+                "--limit-reset",
+                action="store_true",
+                help=(
+                    "say that the account's usage limit has reset, for a run waiting on a limit "
+                    "whose reset time could not be read; recorded with your OS user, and no "
+                    "use before a reset time that was read"
+                ),
+            )
         command.set_defaults(
             func=functools.partial(_drive, resume=resume, registrations=registrations)
         )
@@ -300,10 +341,37 @@ def add_parsers(
     )
     resolve.add_argument("--note", help="why; required to reject")
     resolve.add_argument(
+        "--declare",
+        action="append",
+        metavar="NAME=VALUE:UNIT",
+        help=(
+            "with --choose have or make: a value the part has, once per value; the value ends "
+            "at the first colon, so a unit may hold what it likes after it"
+        ),
+    )
+    resolve.add_argument(
+        "--text",
+        action="append",
+        help="with --choose make: a constraint the made part must meet that no quantity says",
+    )
+    resolve.add_argument(
         "--sha256", help="the item line's digest as `queue list` printed it; required with a verb"
     )
     resolve.add_argument("--by", required=True)
     resolve.set_defaults(func=_queue_resolve)
+    parts = actions.add_parser(
+        "parts",
+        help="decide every open part at once",
+        description=(
+            "Choose find on every open part's item, each on the view its own line gives, as the "
+            "person named by --by: the parts are sourced and sized as before. A part already "
+            "decided stays as it was decided, and an item of another kind is left alone."
+        ),
+    )
+    parts.add_argument("--run-dir", required=True, type=Path)
+    parts.add_argument("--find-remaining", required=True, action="store_true")
+    parts.add_argument("--by", required=True)
+    parts.set_defaults(func=_queue_parts)
 
     incident = subparsers.add_parser("incident", help="an incident that halted a run")
     incident_actions = incident.add_subparsers(dest="action", required=True)
@@ -549,7 +617,7 @@ def _fail(message: str, **context: str) -> int:
     return 2
 
 
-def _config(args: argparse.Namespace) -> RunConfig:
+def _config(args: argparse.Namespace, credential: Credential | None) -> RunConfig:
     params = json.loads(args.params.read_text())
     # The git every harness git command will run, first: below 2.42 git ignores the attribute
     # source the harness sets, and the run is refused here. Measured, never chosen.
@@ -560,6 +628,8 @@ def _config(args: argparse.Namespace) -> RunConfig:
     layer = judge_here(
         claude_version=binary_version(), search_path=session_search_path(claude_binary())
     )
+    # Measured, never chosen: the bytes the run executes.
+    binary = binaries.measure(claude_binary())
     if params.get("role_python") is not None:
         # Measured, never taken from the parameters: only the path is theirs to name.
         named = params["role_python"]
@@ -568,6 +638,19 @@ def _config(args: argparse.Namespace) -> RunConfig:
             raise RunConfigError(msg)
         measured = measure_role_python(named, probe=probe_interpreter, harness=_harness_root())
         params = {**params, "role_python": measured}
+    if params.get("tool_environment") is not None:
+        # Measured, never taken from the parameters: only the interpreter's path, the roots
+        # and the native tools' paths are theirs to name.
+        measured_tools = measure_named(
+            params["tool_environment"],
+            forbidden=forbidden_places(
+                harness=_harness_root(),
+                install=None,
+                run_dir=args.run_dir.resolve(),
+                target=args.target.resolve(),
+            ),
+        )
+        params = {**params, "tool_environment": measured_tools.model_dump(mode="json")}
     fields = {
         **params,
         "run_id": args.run_id,
@@ -582,7 +665,27 @@ def _config(args: argparse.Namespace) -> RunConfig:
         "os_layer": layer.model_dump(),
         # And so whether it enforces the network the parameters ask for.
         "network_enforced": network_enforced(str(params.get("network")), layer),
+        # Taken from the register, never from the parameters: the servers a run naming a tool
+        # environment offers its sessions, the bound on one answer, and the register's digest.
+        "tool_servers": (
+            recorded_servers().model_dump(mode="json")
+            if params.get("tool_environment") is not None
+            else None
+        ),
+        "binary": binary.model_dump(),
+        # Read from the deny the sessions' settings carry, never from the parameters.
+        "tool_search": session_tool_search(),
     }
+    if "account" in params:
+        # Runs may be spread over several accounts: the parameters name the one this run draws
+        # on, and the fingerprint recorded with the name is measured from its credential, never
+        # taken from the parameters. Anything but a name is left for the validation to refuse.
+        named = params["account"]
+        fields["account"] = (
+            {"name": named, "token_sha256_prefix": fingerprint(credential)}
+            if isinstance(named, str) and credential is not None
+            else (None if named is None else "")
+        )
     if isinstance(fields.get("role_python"), RolePython):
         fields["role_python"] = fields["role_python"].model_dump()
     config = RunConfig.model_validate_json(json.dumps(fields))
@@ -590,6 +693,10 @@ def _config(args: argparse.Namespace) -> RunConfig:
         # A null binding is how a run recorded before the binding existed reads back; a new
         # run names one, or it would be recorded as a run no loop drives.
         msg = "a new run names its escalation backend; none is not a binding"
+        raise RunConfigError(msg)
+    if config.account is None:
+        # A null account is how a run recorded before the field existed reads back.
+        msg = "a new run names the account it draws on"
         raise RunConfigError(msg)
     return config
 
@@ -694,13 +801,19 @@ def _plan_reviewer(
 
 
 def _decompose(args: argparse.Namespace, *, registrations: Registrations | None = None) -> int:
+    # Its call and its plan's review put a credential on disk too: a stop signal removes it.
+    with on_stop_signals():
+        return _decompose_run(args, registrations=registrations)
+
+
+def _decompose_run(args: argparse.Namespace, *, registrations: Registrations | None) -> int:
     try:
         # The credential first, from the mode the parameters name: a run whose mode
         # has no secret in the environment is refused before anything else happens.
         mode = json.loads(args.params.read_text()).get("auth")
         known = isinstance(mode, str) and mode in SECRET_VARIABLE
         credential = credential_for(mode, os.environ) if known else None
-        config = _config(args)
+        config = _config(args, credential)
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
     except ValidationError as exc:
@@ -715,10 +828,24 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
     if why is not None:
         return _fail(why)
     refused = refusals(
-        RunFacts(config=config, os_layer=config.os_layer, shell_sessions=True, new_run=True)
+        RunFacts(
+            config=config,
+            os_layer=config.os_layer,
+            shell_sessions=True,
+            new_run=True,
+            run_dir=args.run_dir.resolve(),
+        )
     )
     if refused:
         return _fail("the run may not start", requirements="; ".join(refused))
+    if config.reportable:
+        # A run whose numbers may be reported runs only the build listed for its version and
+        # this machine's platform, so its numbers name the bytes that produced them.
+        assert config.binary is not None  # measured above, for every new run
+        try:
+            binaries.require_listed(config.claude_version, config.binary)
+        except OrchestratorError as exc:
+            return _fail(str(exc), **exc.context)
     run_dir = args.run_dir.resolve()
     if (left_exposed := _stop_left_review(run_dir)) is not None:
         return left_exposed
@@ -727,7 +854,10 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
         # content, before the one model call is spent: without either it could never be
         # dispatched.
         require_registered(config.models.roles)
-        read_library(_library_root(), config.models.roles)
+        curated = read_library(_library_root(), config.models.roles)
+        if config.skills == "off":
+            # A target the arm could not keep its skill files out of, refused before the call too.
+            require_no_skill_file(args.target.resolve(), config.target_head, skill_files(curated))
     except (LibraryError, OrchestratorError) as exc:
         return _fail(str(exc), **exc.context)
     try:
@@ -844,7 +974,36 @@ def _confirm_request(args: argparse.Namespace) -> tuple[tuple[str, ...], str | N
     return confirm, getpass.getuser() if confirm else None
 
 
+def _waiting(said: dict[str, str]) -> int:
+    print(json.dumps(said, sort_keys=True), file=sys.stderr)
+    return EXIT_WAITING_FOR_LIMIT
+
+
 def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registrations | None) -> int:
+    """``run`` and ``resume``, under the stop-signal guard (``stop_signals``).
+
+    A run killed mid-session left its sessions' credential files: those of the sessions no
+    longer running, its reviewers' included, are removed first, before anything else, a refusal
+    included, unless another command drives the run.
+    """
+    run_dir = args.run_dir.resolve()
+    review_root = getattr(args, "review_root", None)
+    remove_left_credentials(run_dir, None if review_root is None else review_root_path(review_root))
+    # Held for as long as this command drives the run: no other command's sweep removes a file.
+    with driving(run_dir), on_stop_signals():
+        return _drive_run(args, resume=resume, registrations=registrations)
+
+
+def _drive_run(
+    args: argparse.Namespace, *, resume: bool, registrations: Registrations | None
+) -> int:
+    limit_reset = bool(getattr(args, "limit_reset", False))
+    if resume:
+        # A run waiting for the account's usage limit, resumed before it may go on: refused before
+        # anything is built, stopped, written or started, with the instant to try again after.
+        waiting = limit_wait(args.run_dir.resolve(), utc_now(), limit_reset=limit_reset)
+        if waiting is not None:
+            return _waiting(waiting)
     if registrations is None:
         try:
             registrations = default_registrations()
@@ -886,6 +1045,11 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         harness_git()
         # The same code: a run continued on other code is two runs under one name.
         require_harness(config, harness_state(_harness_root()))
+        # The same binary, by its bytes, and the same account: a run continued on another
+        # build or on another account's limits is not the run that was recorded.
+        if config.binary is not None:
+            binaries.require_same(config.binary, binaries.measure(claude_binary()))
+        require_same_account(config, credential)
         if not (run_dir / "events.jsonl").exists():
             msg = "the run was never started; decompose it first"
             raise RunStateError(msg, run_dir=str(run_dir))
@@ -905,6 +1069,9 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
             credential=credential,
             review_root=review_root,
             quarantine=quarantine,
+            # Each role session's tool servers, as the run recorded them; offered only where
+            # the OS layer contains them.
+            tool_servers=server_launches(config),
         )
         loop = Loop(
             config=config,
@@ -923,7 +1090,9 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     layer = dispatcher.os_layer()
     # Said here; refused by the loop, which records the layer's line first.
     _say_os_layer(layer, config.network, allowed=os_layer_refusal(config, layer) is None)
-    refused = refusals(RunFacts(config=config, os_layer=layer, shell_sessions=True))
+    refused = refusals(
+        RunFacts(config=config, os_layer=layer, shell_sessions=True, run_dir=run_dir)
+    )
     if refused:
         loop.close()
         keeper.close()
@@ -944,9 +1113,16 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         )
         loop.record.emit(_os_layer_checked(loop.record.envelope(), config, layer))
         confirm, confirmed_by = _confirm_request(args)
-        step = loop.resume(confirm=confirm, confirmed_by=confirmed_by) if resume else loop.run()
+        word = getpass.getuser() if limit_reset else None
+        step = (
+            loop.resume(confirm=confirm, confirmed_by=confirmed_by, limit_reset_by=word)
+            if resume
+            else loop.run()
+        )
         account = TokenAccount.from_events(loop.log.events)
         account.assert_no_routing()
+    except LimitNotResetError as exc:
+        return _waiting({"error": str(exc), "step": WAITING_FOR_LIMIT, **exc.context})
     except (OrchestratorError, RecordMovedError) as exc:
         # A record no longer the file its writer holds is written no more: the run stops here,
         # and its next command finds it as it was left.
@@ -954,19 +1130,25 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     finally:
         loop.close()
         keeper.close()
+    printed, status = printed_step(step.kind, loop.state)
     _print(
         {
             "run_id": config.run_id,
             # Every number printed here names the record it came from: the run
             # configuration's digest, which the run's first line also carries.
             "manifest_id": config.sha256(),
-            "step": step.kind,
+            # A run halted on the account's usage limit prints ``waiting_for_limit``, its reset and
+            # the instant to resume after; every other step prints as it always has.
+            **printed,
             "subtasks": {k: v.status for k, v in loop.state.subtasks.items()},
+            # Each builder held while the module whose design it implements has not merged, and
+            # why; left out where none is, so every other run prints as it always has.
+            **held_builders(loop.state),
             "open_queue_items": [item.item_id for item in loop.queue.open_items()],
             "tokens": {k: v.total() for k, v in account.by_kind().items()},
         }
     )
-    return 0 if step.kind == "done" else 1
+    return status
 
 
 def _incident_resolve(args: argparse.Namespace) -> int:
@@ -983,7 +1165,72 @@ def _queue_list(args: argparse.Namespace) -> int:
         listing = queue_listing(args.run_dir.resolve())
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
-    _print(listing)
+    _print(with_what_each_decision_does(listing, args.run_dir.resolve()))
+    return 0
+
+
+_WHOLE_NUMBER = re.compile(r"[+-]?[0-9]+")
+
+
+def _parts_body(declared: list[str] | None, texts: list[str] | None) -> PartsBody | None:
+    """What ``--declare`` and ``--text`` state of a part, held to the one body's rules.
+
+    ``None`` where neither is given. Each ``--declare`` is ``name=value:unit``: the name ends at
+    the first equals sign and the value at the next colon, so a unit holds whatever follows.
+
+    Raises:
+        QueueError: a declaration is not of that form, repeats a name, or states a value that
+            is not a number; the body's own rules are the function's, and refuse the rest.
+    """
+    if not declared and not texts:
+        return None
+    stated: dict[str, dict[str, object]] = {}
+    for entry in declared or ():
+        name, equals, rest = entry.partition("=")
+        number, colon, unit = rest.partition(":")
+        if not equals or not colon:
+            msg = "a declaration is name=value:unit"
+            raise QueueError(msg, declare=entry[:80])
+        if name in stated:
+            msg = "a declaration names each quantity once"
+            raise QueueError(msg, name=name[:80])
+        try:
+            value: int | float = int(number) if _WHOLE_NUMBER.fullmatch(number) else float(number)
+        except ValueError:
+            msg = "a declaration's value is a number"
+            raise QueueError(msg, declare=entry[:80]) from None
+        stated[name] = {"value": value, "unit": unit}
+    try:
+        return PartsBody.model_validate({"declared": stated, "texts": tuple(texts or ())})
+    except ValidationError as exc:
+        msg = "the values the part is declared with are not ones the queue can record"
+        raise QueueError(msg, reason=first_problem(exc)) from None
+
+
+def _queue_parts(args: argparse.Namespace) -> int:
+    run_dir = args.run_dir.resolve()
+    decided: list[dict[str, object]] = []
+    try:
+        view = read_queue(run_dir)
+        for item in view.open_items():
+            if item.source != "parts":
+                continue
+            digest = view.digests[item.item_id]
+            record = record_decision(
+                run_dir,
+                item.item_id,
+                person=PersonDecision(verb="choose", note=None, position="find"),
+                resolved_by=args.by,
+                shown=ShownItem(
+                    item_sha256=digest, trajectories=statuses_now(run_dir, item.item_id)
+                ),
+            )
+            decided.append(record.model_dump())
+    except (OrchestratorError, ValidationError) as exc:
+        if isinstance(exc, ValidationError):
+            return _fail("the decision is not one the queue can record", reason=first_problem(exc))
+        return _fail(str(exc), **exc.context)
+    _print({"resolved": decided})
     return 0
 
 
@@ -1006,6 +1253,7 @@ def _queue_resolve(args: argparse.Namespace) -> int:
                     verb="choose" if args.choose else "approve" if args.approve else "reject",
                     note=args.note,
                     position=args.choose,
+                    parts=_parts_body(args.declare, args.text),
                 )
                 shown = ShownItem(
                     item_sha256=args.sha256, trajectories=statuses_now(run_dir, args.item)

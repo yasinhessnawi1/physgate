@@ -43,6 +43,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.evaluation.observe.exceptions import ManifestError
+from physgate.lines import split_lines
 from physgate.orchestrator.events import Event, LeftoverRead, SessionEnded
 from physgate.orchestrator.trajectory import Seal, seal
 
@@ -91,7 +92,7 @@ def _count(value: object) -> int | None:
 
 def _runtime_result(text: str) -> dict[str, Any] | None:
     """The stream's first result event: the runtime's own. Lines after it are not read."""
-    for line in text.splitlines():
+    for line in split_lines(text):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:

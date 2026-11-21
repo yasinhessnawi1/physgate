@@ -19,6 +19,7 @@ import {
   seconds,
   text,
 } from "./check";
+import { instant } from "../words/runs";
 import { ShapeError } from "./client";
 
 export interface Usage {
@@ -160,7 +161,8 @@ export interface ModuleCompletion {
   readonly subtask: string;
   /** Sizing's module, as the server tells it by the register's name for sizing. */
   readonly sizing: boolean;
-  readonly state: "complete" | "withheld" | "owed" | "not_declared";
+  /** ``sign_off_owed``: a person's sign-off is open, whatever else is (ARCH-130). */
+  readonly state: "complete" | "sign_off_owed" | "withheld" | "owed" | "not_declared";
   /** The precondition registry's open entries, each with its own reason. */
   readonly open: readonly { readonly name: string; readonly reason: string }[];
 }
@@ -180,6 +182,37 @@ export interface RunStatus {
   readonly waiting: readonly string[];
   /** Each contract item a reopen superseded, by id: the item whose decision reopened its module. */
   readonly superseded: Readonly<Record<string, string>>;
+  /** When the log's last line was written, or ``null`` when it holds none. */
+  readonly lastLineAt?: string | null;
+  /**
+   * How long ago the last line was written, in seconds: the server's clock (``server_now``) less
+   * the line's time, so the browser's clock is never read. ``null`` where either is not sent.
+   */
+  readonly silentS?: number | null;
+  /**
+   * The longest a living run goes without a line after its last one, in seconds: the session wall
+   * clock after a session's spawn, a retry's delay after its schedule. ``null`` after any other
+   * line, where a stage with no bound of its own (the physics gate) may be running.
+   */
+  readonly silenceBoundS?: number | null;
+  /**
+   * Whether a person's decision acts in this run; ``false`` in one that records decisions only,
+   * where an escalated end waits on no one. Absent where the server did not say.
+   */
+  readonly acts?: boolean;
+  /** The modules whose sign-off is owed, in plan order. */
+  readonly signaturesOwed?: readonly string[];
+  /**
+   * Of those, each whose latest item a person may still decide; one not here was decided and
+   * nothing left in the run can sign it. Absent where the server did not say.
+   */
+  readonly signaturesOpenToDecide?: readonly string[];
+  /**
+   * Whether an escalated end is for the sign-offs owed alone; ``false`` where another item is open
+   * to a person as well (integration's call refused), which a decision there still answers.
+   * Absent where the server did not say.
+   */
+  readonly endsOnSignaturesAlone?: boolean;
 }
 
 function moduleCompletion(value: unknown): ModuleCompletion {
@@ -189,7 +222,7 @@ function moduleCompletion(value: unknown): ModuleCompletion {
     sizing: flag(m.sizing, "whether it is sizing's"),
     state: oneOf(
       m.state,
-      ["complete", "withheld", "owed", "not_declared"] as const,
+      ["complete", "sign_off_owed", "withheld", "owed", "not_declared"] as const,
       "a completion state",
     ),
     open: list(m.open, "open preconditions").map((raw) => {
@@ -197,6 +230,18 @@ function moduleCompletion(value: unknown): ModuleCompletion {
       return { name: text(o.name, "a precondition"), reason: text(o.reason, "a reason") };
     }),
   };
+}
+
+/** A count of seconds the server sent, or ``null`` where it sent none. */
+function secondsSent(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** The seconds between the log's last line and the server's clock, both as the server sent them. */
+function silenceOf(lastLineAt: unknown, serverNow: unknown): number | null {
+  if (typeof lastLineAt !== "string" || typeof serverNow !== "string") return null;
+  const silence = (instant(serverNow) - instant(lastLineAt)) / 1000;
+  return Number.isFinite(silence) ? silence : null;
 }
 
 export function runStatus(value: unknown): RunStatus {
@@ -230,6 +275,28 @@ export function runStatus(value: unknown): RunStatus {
         text(v, "an item id"),
       ]),
     ),
+    lastLineAt:
+      s.last_line_at === undefined || s.last_line_at === null
+        ? null
+        : text(s.last_line_at, "a time"),
+    silentS: silenceOf(s.last_line_at, s.server_now),
+    silenceBoundS: secondsSent(s.silence_bound_s),
+    ...(s.acts === undefined ? {} : { acts: flag(s.acts, "whether decisions act") }),
+    signaturesOwed: list(s.sign_offs_owed ?? [], "the sign-offs owed").map((m) =>
+      text(m, "a module"),
+    ),
+    ...(s.sign_offs_open_to_decide === undefined
+      ? {}
+      : {
+          signaturesOpenToDecide: list(s.sign_offs_open_to_decide, "the sign-offs open").map((m) =>
+            text(m, "a module"),
+          ),
+        }),
+    ...(s.ends_on_sign_offs_alone === undefined
+      ? {}
+      : {
+          endsOnSignaturesAlone: flag(s.ends_on_sign_offs_alone, "whether only sign-offs are owed"),
+        }),
   };
 }
 
@@ -237,6 +304,11 @@ export interface Tokens {
   readonly byAttribution: Readonly<Record<string, Usage>>;
   readonly byKind: Readonly<Record<string, Usage>>;
   readonly total: Usage;
+  /**
+   * Per attribution, the tokens of responses cut off by a connection error: in none of the figures
+   * above and none of the binary's totals, and whether they were billed is unknown.
+   */
+  readonly cutShort: Readonly<Record<string, Usage>>;
 }
 
 export function tokens(value: unknown): Tokens {
@@ -247,6 +319,7 @@ export function tokens(value: unknown): Tokens {
     byAttribution: each(t.by_attribution, "tokens by attribution"),
     byKind: each(t.by_kind, "tokens by kind"),
     total: usage(t.total),
+    cutShort: each(t.not_in_binary_totals_billing_unknown, "the cut-off responses' tokens"),
   };
 }
 

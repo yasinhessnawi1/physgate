@@ -129,6 +129,15 @@ class ConfigView(Protocol):
     @property
     def survivor_reaper(self) -> bool: ...  # noqa: D102
 
+    @property
+    def os_layer(self) -> bool: ...  # noqa: D102
+
+    @property
+    def after_compaction(self) -> Sequence[str]: ...  # noqa: D102
+
+    @property
+    def compaction_note(self) -> str | None: ...  # noqa: D102
+
 
 class InputView(Protocol):
     """The event description Claude Code hands a hook."""
@@ -156,3 +165,6 @@ class InputView(Protocol):
 
     @property
     def agent_id(self) -> str | None: ...  # noqa: D102
+
+    @property
+    def source(self) -> str | None: ...  # noqa: D102

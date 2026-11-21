@@ -130,7 +130,7 @@ def test_blocked_and_no_verdict_are_counted_by_role_and_kind(
 
 
 def test_request_settings_are_set_beside_the_version_s_role_session_defaults() -> None:
-    known = BINARY_DEFAULTS["2.1.283"]
+    known = BINARY_DEFAULTS[("2.1.283", "claude-opus-5-5")]
     same = {
         "model": pilot_corpus.REVIEWER,
         "max_tokens": 64000,

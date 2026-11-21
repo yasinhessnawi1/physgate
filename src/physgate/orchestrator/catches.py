@@ -20,6 +20,11 @@ each, and the events say how much each looked at.
 Rows are split by gate mode because the count means different things in each:
 under ``on`` a refused attempt is never reviewed, so its verdict is empty; the
 count is interpretable against a run where the gate only observes (ARCH-140).
+They are split by the runs' ablation arms too, and name each arm that differs from the
+full harness: under ``reviewers: off`` no reviewer passed anything, under ``generalist`` the
+reviewer is not the paired one, and under ``skills: off`` or ``hooks: off`` the work was made
+by a smaller harness, so a row summing such runs with the full harness's would be about neither.
+A row of full-harness runs names no arm, and reads as it always did.
 """
 
 from __future__ import annotations
@@ -58,6 +63,12 @@ class CatchRow(BaseModel):
     artefacts_caught: Count
     #: The headline: distinct artefacts caught whose reviewer had passed them.
     caught_after_reviewer_passed: Count
+    #: The ablation arms of the runs counted, each left out where they kept that component.
+    reviewers: Literal["generalist", "off"] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    skills: Literal["off"] | None = Field(default=None, exclude_if=lambda v: v is None)
+    hooks: Literal["off"] | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 def artefact(event: GateEvent) -> ArtefactKey:
@@ -95,20 +106,26 @@ def catches(
     since: datetime | None = None,
     until: datetime | None = None,
 ) -> list[CatchRow]:
-    """The count per gate mode and check, then over every check, for ``events`` in the window.
+    """The count per gate mode, arms and check, then over every check, for ``events`` in the window.
 
-    A mode or check with no event in the window has no row, so a run with no gate
-    events yields no rows at all.
+    A mode, set of arms or check with no event in the window has no row, so a run with no gate
+    events yields no rows at all. Full-harness rows come first in each mode.
     """
     chosen = [e for e in events if within(e, since, until)]
     rows: list[CatchRow] = []
     for mode in sorted({e.gate_mode for e in chosen}):
         in_mode = [e for e in chosen if e.gate_mode == mode]
-        for check in sorted({e.check for e in in_mode}):
-            of_check = [e for e in in_mode if e.check == check]
-            rows.append(_row(mode, check, of_check[0].name, of_check))
-        rows.append(_row(mode, None, "all", in_mode))
+        for arm in sorted({_arms(e) for e in in_mode}, key=lambda a: [v or "" for v in a]):
+            in_arm = [e for e in in_mode if _arms(e) == arm]
+            for check in sorted({e.check for e in in_arm}):
+                of_check = [e for e in in_arm if e.check == check]
+                rows.append(_row(mode, check, of_check[0].name, of_check))
+            rows.append(_row(mode, None, "all", in_arm))
     return rows
+
+
+def _arms(event: GateEvent) -> tuple[str | None, str | None, str | None]:
+    return (event.reviewers, event.skills, event.hooks)
 
 
 def _row(
@@ -131,4 +148,8 @@ def _row(
         no_review=sum(e.reviewer_had_passed is None for e in blocking),
         artefacts_caught=len(caught),
         caught_after_reviewer_passed=len(approved),
+        # One set of arms per row, by the grouping above: the first event's.
+        reviewers=events[0].reviewers,
+        skills=events[0].skills,
+        hooks=events[0].hooks,
     )

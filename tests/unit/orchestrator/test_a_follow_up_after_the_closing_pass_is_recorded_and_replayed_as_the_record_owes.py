@@ -284,7 +284,8 @@ def test_two_modules_reached_are_each_owed_one_follow_up_written_together(
     tmp_path: Path,
 ) -> None:
     rig = slice_rig(tmp_path, loop=True)
-    assert ended(rig, plan=TWO_MODULES) == "done"
+    # The control module's sign-off waits after the follow-ups, which are what is held here.
+    assert ended(rig, plan=TWO_MODULES) == "wait"
     events = events_of(rig)
     owed = [(f["subtask_id"], f["owed"]) for f in follow_ups(events)]
     assert owed == [

@@ -1,0 +1,179 @@
+{
+  "decided": [],
+  "open": [
+    {
+      "artefact_diff": "The plan of digest 6e03c01c0a440d5c211cca12f1028677a6da594b38e4f9e93437f897d37f6326, as the run recorded it: see decomposition/stdout.jsonl and the specifications commit 9798e5eb6929d704089f7d1ec9e216293cb1228d.",
+      "consequence": {
+        "attempt": null,
+        "attempt_commit": null,
+        "confirmed_indicators": [],
+        "on_approve": "record_only",
+        "on_choose": {
+          "find": "find",
+          "have": "declare",
+          "make": "declare"
+        },
+        "on_reject": "record_only",
+        "scan_hits": [],
+        "why_record_only": "source"
+      },
+      "decision_required": "Part 1 of 6 in the plan: \"Drive gearmotors, 50:1 Micro Metal HPCB 6V\" (node electrical.gearmotors), which the plan lists mass, stall_current as the quantities a part on hand states. Nothing has been dispatched. Choose have to state the values of a part you already own, each with its unit; choose make to state what a part you will make must meet; choose find to have it sourced and sized as before. Approve and reject decide no part.",
+      "item_id": "run-parts-parts-1",
+      "item_sha256": "6c297d1146779ac647a93b93e0cf71c5016b8cda9357f77be960f952a0504128",
+      "kind": "item",
+      "quantities": [],
+      "run_id": "run-parts",
+      "source": "parts",
+      "subtask_id": "parts",
+      "trajectories": ["decomposition/stdout.jsonl"],
+      "trajectory_statuses": ["no_seal"],
+      "triggering_finding": "The run asks which parts a person has; component electrical.gearmotors is 1 of 6 the plan lists.",
+      "ts": "2026-11-16T21:51:03.934168Z"
+    },
+    {
+      "artefact_diff": "The plan of digest 6e03c01c0a440d5c211cca12f1028677a6da594b38e4f9e93437f897d37f6326, as the run recorded it: see decomposition/stdout.jsonl and the specifications commit 9798e5eb6929d704089f7d1ec9e216293cb1228d.",
+      "consequence": {
+        "attempt": null,
+        "attempt_commit": null,
+        "confirmed_indicators": [],
+        "on_approve": "record_only",
+        "on_choose": {
+          "find": "find",
+          "have": "declare",
+          "make": "declare"
+        },
+        "on_reject": "record_only",
+        "scan_hits": [],
+        "why_record_only": "source"
+      },
+      "decision_required": "Part 2 of 6 in the plan: \"Bumper cage\" (node mechanical.bumper_cage), which the plan lists mass as the quantities a part on hand states. Nothing has been dispatched. Choose have to state the values of a part you already own, each with its unit; choose make to state what a part you will make must meet; choose find to have it sourced and sized as before. Approve and reject decide no part.",
+      "item_id": "run-parts-parts-2",
+      "item_sha256": "9965ae7d4d755dbec30fdb0d3a44885d9804f55ee777df2f763da769deee9cbb",
+      "kind": "item",
+      "quantities": [],
+      "run_id": "run-parts",
+      "source": "parts",
+      "subtask_id": "parts",
+      "trajectories": ["decomposition/stdout.jsonl"],
+      "trajectory_statuses": ["no_seal"],
+      "triggering_finding": "The run asks which parts a person has; component mechanical.bumper_cage is 2 of 6 the plan lists.",
+      "ts": "2026-11-16T21:51:03.934168Z"
+    },
+    {
+      "artefact_diff": "The plan of digest 6e03c01c0a440d5c211cca12f1028677a6da594b38e4f9e93437f897d37f6326, as the run recorded it: see decomposition/stdout.jsonl and the specifications commit 9798e5eb6929d704089f7d1ec9e216293cb1228d.",
+      "consequence": {
+        "attempt": null,
+        "attempt_commit": null,
+        "confirmed_indicators": [],
+        "on_approve": "record_only",
+        "on_choose": {
+          "find": "find",
+          "have": "declare",
+          "make": "declare"
+        },
+        "on_reject": "record_only",
+        "scan_hits": [],
+        "why_record_only": "source"
+      },
+      "decision_required": "Part 3 of 6 in the plan: \"Motor driver, DRV8838\" (node electrical.motor_driver), which the plan names no quantity. Nothing has been dispatched. Choose have to state the values of a part you already own, each with its unit; choose make to state what a part you will make must meet; choose find to have it sourced and sized as before. Approve and reject decide no part.",
+      "item_id": "run-parts-parts-3",
+      "item_sha256": "a11cc1f97094e3692a017a0a3a845a3caceea8ebe924e9bfd89aa34ca55f9532",
+      "kind": "item",
+      "quantities": [],
+      "run_id": "run-parts",
+      "source": "parts",
+      "subtask_id": "parts",
+      "trajectories": ["decomposition/stdout.jsonl"],
+      "trajectory_statuses": ["no_seal"],
+      "triggering_finding": "The run asks which parts a person has; component electrical.motor_driver is 3 of 6 the plan lists.",
+      "ts": "2026-11-16T21:51:03.934168Z"
+    },
+    {
+      "artefact_diff": "The plan of digest 6e03c01c0a440d5c211cca12f1028677a6da594b38e4f9e93437f897d37f6326, as the run recorded it: see decomposition/stdout.jsonl and the specifications commit 9798e5eb6929d704089f7d1ec9e216293cb1228d.",
+      "consequence": {
+        "attempt": null,
+        "attempt_commit": null,
+        "confirmed_indicators": [],
+        "on_approve": "record_only",
+        "on_choose": {
+          "find": "find",
+          "have": "declare",
+          "make": "declare"
+        },
+        "on_reject": "record_only",
+        "scan_hits": [],
+        "why_record_only": "source"
+      },
+      "decision_required": "Part 4 of 6 in the plan: \"Inertial sensor, LSM6DS33\" (node firmware.imu), which the plan names no quantity. Nothing has been dispatched. Choose have to state the values of a part you already own, each with its unit; choose make to state what a part you will make must meet; choose find to have it sourced and sized as before. Approve and reject decide no part.",
+      "item_id": "run-parts-parts-4",
+      "item_sha256": "8d520cf917f6647d51ce9201dcde0e4d50e45d3908699b0d68804da299840cc4",
+      "kind": "item",
+      "quantities": [],
+      "run_id": "run-parts",
+      "source": "parts",
+      "subtask_id": "parts",
+      "trajectories": ["decomposition/stdout.jsonl"],
+      "trajectory_statuses": ["no_seal"],
+      "triggering_finding": "The run asks which parts a person has; component firmware.imu is 4 of 6 the plan lists.",
+      "ts": "2026-11-16T21:51:03.934168Z"
+    },
+    {
+      "artefact_diff": "The plan of digest 6e03c01c0a440d5c211cca12f1028677a6da594b38e4f9e93437f897d37f6326, as the run recorded it: see decomposition/stdout.jsonl and the specifications commit 9798e5eb6929d704089f7d1ec9e216293cb1228d.",
+      "consequence": {
+        "attempt": null,
+        "attempt_commit": null,
+        "confirmed_indicators": [],
+        "on_approve": "record_only",
+        "on_choose": {
+          "find": "find",
+          "have": "declare",
+          "make": "declare"
+        },
+        "on_reject": "record_only",
+        "scan_hits": [],
+        "why_record_only": "source"
+      },
+      "decision_required": "Part 5 of 6 in the plan: \"Six AA NiMH cells\" (node electrical.cells), which the plan lists energy_capacity as the quantities a part on hand states. Nothing has been dispatched. Choose have to state the values of a part you already own, each with its unit; choose make to state what a part you will make must meet; choose find to have it sourced and sized as before. Approve and reject decide no part.",
+      "item_id": "run-parts-parts-5",
+      "item_sha256": "d2a541ec2f13257380e41e4cc5d3c43d202880569dc01b050539692dd4cf1869",
+      "kind": "item",
+      "quantities": [],
+      "run_id": "run-parts",
+      "source": "parts",
+      "subtask_id": "parts",
+      "trajectories": ["decomposition/stdout.jsonl"],
+      "trajectory_statuses": ["no_seal"],
+      "triggering_finding": "The run asks which parts a person has; component electrical.cells is 5 of 6 the plan lists.",
+      "ts": "2026-11-16T21:51:03.934168Z"
+    },
+    {
+      "artefact_diff": "The plan of digest 6e03c01c0a440d5c211cca12f1028677a6da594b38e4f9e93437f897d37f6326, as the run recorded it: see decomposition/stdout.jsonl and the specifications commit 9798e5eb6929d704089f7d1ec9e216293cb1228d.",
+      "consequence": {
+        "attempt": null,
+        "attempt_commit": null,
+        "confirmed_indicators": [],
+        "on_approve": "record_only",
+        "on_choose": {
+          "find": "find",
+          "have": "declare",
+          "make": "declare"
+        },
+        "on_reject": "record_only",
+        "scan_hits": [],
+        "why_record_only": "source"
+      },
+      "decision_required": "Part 6 of 6 in the plan: \"Wheel encoders\" (node electrical.encoders), which the plan names no quantity. Nothing has been dispatched. Choose have to state the values of a part you already own, each with its unit; choose make to state what a part you will make must meet; choose find to have it sourced and sized as before. Approve and reject decide no part.",
+      "item_id": "run-parts-parts-6",
+      "item_sha256": "2528055a097e3fd48bd570728d9f27c679256df9a7f60e3d5a3ef02a5290fcb4",
+      "kind": "item",
+      "quantities": [],
+      "run_id": "run-parts",
+      "source": "parts",
+      "subtask_id": "parts",
+      "trajectories": ["decomposition/stdout.jsonl"],
+      "trajectory_statuses": ["no_seal"],
+      "triggering_finding": "The run asks which parts a person has; component electrical.encoders is 6 of 6 the plan lists.",
+      "ts": "2026-11-16T21:51:03.934168Z"
+    }
+  ]
+}

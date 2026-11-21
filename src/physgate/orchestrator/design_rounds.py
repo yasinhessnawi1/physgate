@@ -23,6 +23,7 @@ import hashlib
 import os
 import time
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
@@ -54,7 +55,15 @@ from physgate.orchestrator.endings import (
     round_ending,
     what_follows,
 )
-from physgate.orchestrator.events import RETRIED_CAUSE, DesignUnavailable, Sha256
+from physgate.orchestrator.events import (
+    RETRIED_CAUSE,
+    Decomposed,
+    DecompositionRetried,
+    DesignUnavailable,
+    Event,
+    PlanProposed,
+    Sha256,
+)
 from physgate.orchestrator.exceptions import (
     AccountingError,
     DecompositionError,
@@ -196,9 +205,19 @@ class MakeCall(Protocol):
     """One decomposition call, as :func:`physgate.orchestrator.decompose.call` makes it."""
 
     def __call__(
-        self, brief: str, *, workdir: Path, prompt: str | None, session_id: str
+        self,
+        brief: str,
+        *,
+        workdir: Path,
+        prompt: str | None,
+        session_id: str,
+        accept_misorder: bool = False,
     ) -> Outcome:
-        """Make the call in ``workdir`` as ``session_id``, sent ``prompt`` or the brief's."""
+        """Make the call in ``workdir`` as ``session_id``, sent ``prompt`` or the brief's.
+
+        ``accept_misorder`` is set only for the call made once more after a refusal: a plan the
+        order check would refuse is then accepted, and the run records the suspected misorder.
+        """
         ...
 
 
@@ -481,8 +500,16 @@ def _one_round(
         )
         workdir = retry_dir(loop.run_dir, k)
         # Sent the prompt as it was, and, where a unit of the plan was refused, why.
-        told = retry_prompt(brief, sorted(loop.config.models.roles), prompt, refused)
-        outcome = loop.make_call(brief, workdir=workdir, prompt=told, session_id=again)
+        told = retry_prompt(
+            brief,
+            sorted(loop.config.models.roles),
+            prompt,
+            refused,
+            parts=loop.config.parts_on_hand == "on",
+        )
+        outcome = loop.make_call(
+            brief, workdir=workdir, prompt=told, session_id=again, accept_misorder=True
+        )
         refused_ended, call_ended = call_ended[0], loop.now()
     cause: PlanCause | None = outcome.cause
     detail = outcome.detail
@@ -617,8 +644,15 @@ def decompose_in_rounds(
                 brief,
                 workdir=retry_dir(run_dir, 1),
                 # The brief's prompt as it was, and, where a unit of the plan was refused, why.
-                prompt=retry_prompt(brief, sorted(config.models.roles), None, outcome),
+                prompt=retry_prompt(
+                    brief,
+                    sorted(config.models.roles),
+                    None,
+                    outcome,
+                    parts=config.parts_on_hand == "on",
+                ),
                 session_id=str(uuid.uuid4()),
+                accept_misorder=True,
             )
         found = start_run(
             outcome,
@@ -754,7 +788,13 @@ def decompose_in_rounds(
         ):
             spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
             earlier.append(EarlierRound(call=spent, reviewed=ran.reviewed, plan_sha256=digest))
-            prompt = replan_prompt(brief, sorted(config.models.roles), plan, ran.findings)
+            prompt = replan_prompt(
+                brief,
+                sorted(config.models.roles),
+                plan,
+                ran.findings,
+                parts=config.parts_on_hand == "on",
+            )
             continue
         if follows in ("void", "replan"):
             loop.end(k, "void", cls, cause, ran.detail)
@@ -785,3 +825,25 @@ def decompose_in_rounds(
         return RoundsOutcome(
             found, ok, cause if refused else outcome.cause, ran.detail, ran.reviewed
         )
+
+
+def decomposition_streams(events: Sequence[Event]) -> list[str]:
+    """Every decomposition stream the log says a call wrote, by its place beneath the run.
+
+    Each call writes its stream where the loop puts it before its line is written: the
+    decomposition line names the first round's call; a round's proposal line names its round's
+    call, or that round's second call; a retried decomposition names the first round's second
+    call. The loop scans none of them for held-out canaries; the evaluation's trial layer
+    does, and holds one that is gone as a stream never scanned. Named here, beside the
+    rounds' writer, as the one place that reads the rounds' lines.
+    """
+    named: set[tuple[str, ...]] = set()
+    for event in events:
+        if isinstance(event, Decomposed):
+            named.add(round_parts(1))
+        elif isinstance(event, PlanProposed):
+            parts = round_parts(event.round)
+            named.add((*parts, RETRY_NAME) if event.call == 2 else parts)
+        elif isinstance(event, DecompositionRetried):
+            named.add((*round_parts(1), RETRY_NAME))
+    return sorted("/".join((*parts, STREAM_NAME)) for parts in named)

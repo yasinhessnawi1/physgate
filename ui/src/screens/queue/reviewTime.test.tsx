@@ -267,8 +267,9 @@ describe("the queue page reads the chosen item's view again when it is chosen", 
         models: { roles: {}, decomposition: null },
       },
     },
+    // A run waiting on a person: an ended run offers no decision.
     [`${BASE}/status`]: {
-      next_step: { kind: "done", subtask_id: null },
+      next_step: { kind: "wait", subtask_id: null },
       halted: null,
       owed_halt: null,
       completion: { owner: false, modules: [] },

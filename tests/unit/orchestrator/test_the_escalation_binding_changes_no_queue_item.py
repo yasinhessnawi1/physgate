@@ -34,6 +34,7 @@ from escalation_paths import (
     records,
     scenario_names,
 )
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 from stand_in_drive_plan import DRIVE_MODULE, POWER_BUS
 
 from physgate.gate import check_laws
@@ -42,6 +43,12 @@ from physgate.gate.laws import load_laws
 from physgate.gate.registry import CADENCE
 from physgate.orchestrator import decompose
 from physgate.orchestrator.protocols import CHECK_NUMBERS, CheckRecord, PassDetails
+
+#: The two comparisons with the golden file hold a run to the records the loop wrote before the
+#: escalation interface existed, recorded before the sign-off rule table did too: so each of those
+#: runs starts as a run recorded before the table, which owes no sign-off and writes no line of it.
+#: What a sign-off writes is held by its own tests, with the rule in force.
+BEFORE_THE_TABLE = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 #: Event kinds the escalation interface writes, absent from the golden file by
 #: construction: one decision line at every attempt end that did not merge.
@@ -59,7 +66,16 @@ ADDED_FIELDS: dict[str, dict[str, Any]] = {
         # The rig's loops run over fakes with no OS-layer line recorded, so its runs allow
         # the layer's absence, as every run the golden file recorded went on without it.
         "os_layer_absent": "allow",
+        "reviewers": "paired",
+        "skills": "on",
+        "hooks": "on",
+        "ablation": False,
         "design_review": "off",
+        # The rig's runs record what a run records today, the search tool denied; the golden
+        # file's sessions were fakes, which no search tool reaches, and the queue reads none.
+        "tool_search": "denied",
+        "parts_on_hand": "off",
+        "review_compaction": "off",
     },
     "run_started": {"escalation_backend": "rules"},
     # The series records a session left: none, in every session the golden file recorded.
@@ -276,6 +292,7 @@ def test_the_golden_file_covers_every_scenario_every_mode_and_every_source() -> 
     assert all(run["events"] and run["ledger"] for run in golden.values())
 
 
+@BEFORE_THE_TABLE
 @pytest.mark.parametrize("name", STAND_IN_NAMES)
 def test_every_path_reaches_the_queue_exactly_as_before(name: str, tmp_path: Path) -> None:
     golden = _golden()[name]
@@ -283,6 +300,7 @@ def test_every_path_reaches_the_queue_exactly_as_before(name: str, tmp_path: Pat
     assert differences(comparable(golden), comparable(now)) == []
 
 
+@BEFORE_THE_TABLE
 @pytest.mark.usefixtures("no_law_table")
 def test_the_real_gate_s_three_modes_reach_the_queue_exactly_as_before(tmp_path: Path) -> None:
     from ui_three_mode_rig import three_mode_runs  # noqa: PLC0415 - real git and gate

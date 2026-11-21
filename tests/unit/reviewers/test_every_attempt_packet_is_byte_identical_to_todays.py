@@ -32,6 +32,7 @@ from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import Installed
 from physgate.orchestrator.protocols import IssuedSpec, IssuedState, PersonOrder
 from physgate.orchestrator.run_config import RunBounds
+from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.rubric import Rubric, parse_rubric
 
@@ -55,6 +56,10 @@ def shown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, form: str) -> dict[st
     monkeypatch.setattr(secrets, "token_hex", lambda size: next(draws))
     monkeypatch.setattr(uuid, "uuid4", lambda: SESSION)
     monkeypatch.setattr(claude, "binary_version", lambda binary: "2.1.301")
+    # The drawn name is fixed, so the session's own temporary directory goes under this test's
+    # directory: two workers never make the same one beneath the shared parent.
+    temps = tmp_path / "session-temps"
+    monkeypatch.setattr(claude, "make_session_temp", lambda: make_session_temp(str(temps)))
     attempt = make_attempt(tmp_path, stream())
     library = tmp_path / "harness"
     write_fixture(library, ("cross", "control"))
@@ -194,10 +199,36 @@ PINNED: dict[str, dict[str, str]] = {
 }
 
 
+REASON_SENTENCE = (
+    "The reason of every indicator you give, confirmed or dismissed, is written the same way: "
+    "in words, never a single word."
+)
+
+#: The prompt's digest with that sentence in its shape paragraph, by form.
+PROMPT_WITH_SENTENCE: dict[str, str] = {
+    "plain": "713fd103f15e7895624661ae554ca0a33776176ac58d372991055a1a7fec3390",
+    "ordered": "bd85a364f6dced5556e49f4c6d207a331f3406a9c1f48fe0aa5996513ae22656",
+    "integration": "d746b08a445956e633b15649c925001b90387fa32785a9fa8de7551328aa94f8",
+}
+
+
 @pytest.mark.parametrize("form", ["plain", "ordered", "integration"])
 def test_every_attempt_packet_is_byte_identical_to_todays(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, form: str
 ) -> None:
-    found = shown(tmp_path, monkeypatch, form)
+    # The shape paragraph gained one sentence, so the prompt's digest moved; every other byte is
+    # held to the digests taken before: with that sentence taken out, nothing differs.
+    sentence = " " + REASON_SENTENCE
+    assert sentence in claude.SHAPE
+    (tmp_path / "before").mkdir()
+    (tmp_path / "now").mkdir()
+    with monkeypatch.context() as before:
+        before.setattr(claude, "SHAPE", claude.SHAPE.replace(sentence, ""))
+        found = shown(tmp_path / "before", monkeypatch, form)
     assert len(found) > 10
     assert found == PINNED[form]
+    now = shown(tmp_path / "now", monkeypatch, form)
+    assert {k: v for k, v in now.items() if k != "<prompt>"} == {
+        k: v for k, v in found.items() if k != "<prompt>"
+    }
+    assert now["<prompt>"] == PROMPT_WITH_SENTENCE[form]

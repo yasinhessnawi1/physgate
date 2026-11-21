@@ -226,7 +226,7 @@ def test_the_debug_log_is_removed_once_read(tmp_path: Path) -> None:
 
 
 def test_the_traffic_settings_are_read_from_the_session_environment() -> None:
-    settings = traffic_settings()
+    settings = traffic_settings("2.1.301")
     assert (settings.nonessential_traffic, settings.telemetry) == ("disabled", "disabled")
     assert "2.1.272" in settings.measured
 

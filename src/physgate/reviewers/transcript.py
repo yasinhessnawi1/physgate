@@ -43,6 +43,8 @@ import re
 import secrets
 from typing import Any
 
+from physgate.lines import split_lines
+
 #: Event types, or ``system`` subtypes, left out of the rendering.
 DROPPED: tuple[str, ...] = (
     "stream_event",
@@ -98,6 +100,35 @@ def _value(value: object) -> str:
     return json.dumps(value, ensure_ascii=True)
 
 
+def harness_value(value: object) -> str:
+    """``value`` as a harness line shows it: a plain word as it is, anything else JSON-encoded."""
+    return _value(value)
+
+
+#: How the harness line a tool call is shown under begins.
+CALL_HEADING = "### tool call "
+
+
+def call_heading(name: object, call_id: object) -> str:
+    """The harness line a tool call is shown under."""
+    return f"{CALL_HEADING}{_value(name)} (id {_value(call_id)})"
+
+
+def result_heading(call_id: object, *, error: bool) -> str:
+    """The harness line a tool result is shown under."""
+    return f"### tool result for {_value(call_id)}" + (" (an error)" if error else "")
+
+
+def is_call_heading(line: str, call_id: str) -> bool:
+    """Whether ``line``, a harness line, is the heading of a call whose id is ``call_id``."""
+    return line.startswith(CALL_HEADING) and line.endswith(f" (id {_value(call_id)})")
+
+
+def is_result_heading(line: str, call_id: str) -> bool:
+    """Whether ``line``, a harness line, is the heading of the result of the call ``call_id``."""
+    return line in (result_heading(call_id, error=False), result_heading(call_id, error=True))
+
+
 def _blocks(content: Any) -> list[Any]:  # noqa: ANN401 - the stream's own content shape
     if isinstance(content, str):
         return [{"type": "text", "text": content}]
@@ -140,7 +171,7 @@ def _assistant(out: _Writer, message: dict[str, Any]) -> None:
             out.head("### assistant thinking")
             out.data("thinking", str(block.get("thinking") or ""))
         elif kind == "tool_use":
-            out.head(f"### tool call {_value(block.get('name'))} (id {_value(block.get('id'))})")
+            out.head(call_heading(block.get("name"), block.get("id")))
             body = json.dumps(block.get("input"), indent=1, sort_keys=True, ensure_ascii=False)
             out.data("tool input", body)
         else:
@@ -152,8 +183,7 @@ def _user(out: _Writer, message: dict[str, Any]) -> None:
     for block in _blocks(message.get("content")):
         kind = block.get("type") if isinstance(block, dict) else None
         if kind == "tool_result":
-            error = " (an error)" if block.get("is_error") is True else ""
-            out.head(f"### tool result for {_value(block.get('tool_use_id'))}{error}")
+            out.head(result_heading(block.get("tool_use_id"), error=block.get("is_error") is True))
             out.data("tool output", _result_text(block.get("content")))
         elif kind == "text":
             out.head("### user")
@@ -219,7 +249,7 @@ def render(stream: str, *, nonce: str | None = None) -> tuple[str, str]:
     """
     chosen = _fresh_nonce(stream, nonce)
     out = _Writer(chosen)
-    for line in stream.splitlines():
+    for line in split_lines(stream):
         if not line.strip():
             continue
         event = parse_event(line)
@@ -229,7 +259,7 @@ def render(stream: str, *, nonce: str | None = None) -> tuple[str, str]:
         else:
             _event(out, event)
     text = PREAMBLE.format(nonce=chosen) + "\n".join(out.lines) + "\n"
-    return "\n".join(piece for line in text.splitlines() for piece in cut_line(line)) + "\n", chosen
+    return "\n".join(piece for line in split_lines(text) for piece in cut_line(line)) + "\n", chosen
 
 
 def joined(rendered: str) -> str:

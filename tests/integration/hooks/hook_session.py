@@ -19,6 +19,7 @@ Three things are checked on every run, not left to the test that uses it:
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import shutil
@@ -35,12 +36,14 @@ from fake_messages_api import DUMMY_KEY, FakeMessagesApi, Script, serving
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.runtime import HookSpec
 from physgate.hooks.settings import Installed, InstallRequest, install
+from physgate.orchestrator.invocation import TRAFFIC_ALLOWED_VERSIONS, session_env_settings
 from physgate.oslayer.reaper_install import with_canary
 from physgate.oslayer.session_temp import make_session_temp
 
-#: The Claude Code version the hook contract was measured on: the one role
-#: sessions run on, so the hooks are proven on the binary that runs them.
-PINNED_VERSION = "2.1.301"
+#: The Claude Code versions the hook contract is measured on, each in a CI leg of its own: the
+#: ones role sessions run on, so the hooks are proven on the binary that runs them. A row whose
+#: expected value differs between them reads the version the binary reports (``pinned_version``).
+PINNED_VERSIONS = ("2.1.301", "2.1.322")
 
 
 class HarnessError(AssertionError):
@@ -60,26 +63,52 @@ def session_path() -> str:
 
 
 def claude_binary() -> str:
-    """The Claude Code binary to run, refusing any version but the pinned one."""
+    """The Claude Code binary to run, refusing any version but the pinned ones."""
     binary = os.environ.get("PHYSGATE_CLAUDE_BIN") or shutil.which("claude")
     if not binary:
         msg = "no Claude Code binary found (set PHYSGATE_CLAUDE_BIN)"
         raise HarnessError(msg)
+    _version_of(binary)
+    return binary
+
+
+@functools.cache
+def _version_of(binary: str) -> str:
     out = subprocess.run(
         [binary, "--version"], capture_output=True, text=True, check=False, timeout=60
     ).stdout
-    if out.split(" ", 1)[0].strip() != PINNED_VERSION:
-        msg = (
-            f"{binary} reports {out.strip()!r}; the hook contract was measured on {PINNED_VERSION}"
-        )
+    version = out.split(" ", 1)[0].strip()
+    if version not in PINNED_VERSIONS:
+        pinned = ", ".join(PINNED_VERSIONS)
+        msg = f"{binary} reports {out.strip()!r}; the hook contract was measured on {pinned}"
         raise HarnessError(msg)
-    return binary
+    return version
 
 
 def pinned_version() -> str:
     """The pinned version the binary under test reports."""
-    claude_binary()
-    return PINNED_VERSION
+    return _version_of(claude_binary())
+
+
+#: The switches every session of this harness was run with when only 2.1.301 was pinned.
+RIG_SWITCHES_2_1_301 = {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1",
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+}
+
+
+def session_switches(version: str) -> dict[str, str]:
+    """The environment switches a session of this harness on ``version`` is spawned with.
+
+    On 2.1.301, what every result on it was measured under. On a pin whose sessions carry the
+    catalog and flag traffic, the harness's own switches for that pin, so its rows are proven
+    under the environment its role sessions run in.
+    """
+    if version in TRAFFIC_ALLOWED_VERSIONS:
+        return session_env_settings(version)
+    return dict(RIG_SWITCHES_2_1_301)
 
 
 @dataclass
@@ -152,6 +181,7 @@ def run_session(
     unpin_disable: bool = False,
     os_layer: bool = False,
     check_installed: Callable[[Installed, dict[str, Any]], None] | None = None,
+    switches: Mapping[str, str] | None = None,
     **request_fields: Any,  # noqa: ANN401 - forwarded to the install request
 ) -> SessionRun:
     """Install hooks for a fresh worktree under ``root`` and run one scripted session.
@@ -183,6 +213,7 @@ def run_session(
             setting_sources=setting_sources,
             unpin_disable=unpin_disable,
             check_installed=check_installed,
+            switches=switches,
             request_fields={**request_fields, which: str(temp)},
         )
     finally:
@@ -202,6 +233,7 @@ def _run_session(
     unpin_disable: bool,
     check_installed: Callable[[Installed, dict[str, Any]], None] | None,
     request_fields: dict[str, Any],
+    switches: Mapping[str, str] | None = None,
 ) -> SessionRun:
     binary = claude_binary()
     worktree = make_worktree(root, files)
@@ -251,10 +283,8 @@ def _run_session(
             "TERM": "dumb",
             "ANTHROPIC_BASE_URL": api_url_override or base_url,
             "ANTHROPIC_API_KEY": DUMMY_KEY,
-            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-            "DISABLE_AUTOUPDATER": "1",
-            "DISABLE_TELEMETRY": "1",
-            "DISABLE_ERROR_REPORTING": "1",
+            # A measurement may name other switches, to compare; nothing a session reaches does.
+            **(session_switches(_version_of(binary)) if switches is None else switches),
             # A session that cannot reach the scripted API fails at once instead
             # of retrying with backoff for minutes.
             "CLAUDE_CODE_MAX_RETRIES": "0",
@@ -285,7 +315,9 @@ def _run_session(
             check=False,
             timeout=300,
         )
-    stream = [json.loads(line) for line in proc.stdout.splitlines() if line.startswith("{")]
+    # One event per "\n": the stream is JSON lines, and an event's string may hold a character
+    # ``splitlines`` would also break at (NEL, the Unicode line and paragraph separators).
+    stream = [json.loads(line) for line in proc.stdout.split("\n") if line.startswith("{")]
     log_path = Path(fields["state_dir"]) / "hooks.log.jsonl"
     hook_log = (
         [json.loads(line) for line in log_path.read_text().splitlines()]

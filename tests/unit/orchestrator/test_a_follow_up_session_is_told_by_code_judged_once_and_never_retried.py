@@ -26,6 +26,7 @@ from accounted import forged_account_before_each_open  # noqa: F401 - the rig's 
 from arbitration_runs import CLOSING, PerAttempt, events_of, refusal, resume
 from loop_fakes import FakeReviewer, KilledError, Rig
 from pydantic import ValidationError
+from sign_off_rig import a_person_signing_at_every_boundary  # noqa: F401 - the fixture, by name
 from test_a_blocked_review_is_a_review_that_goes_to_a_person import blocked_review
 from test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes import (
     BUS,
@@ -324,6 +325,7 @@ def _decided(events: list[Event]) -> list[Any]:
     return [*steps, {s: state.subtasks[s].status for s in state.order}]
 
 
+@pytest.mark.usefixtures("a_person_signing_at_every_boundary")
 def test_a_kill_between_two_follow_up_lines_writes_the_rest_on_resume(tmp_path: Path) -> None:
     whole = slice_rig(tmp_path / "whole", loop=True)
     assert ended(whole, plan=TWO_MODULES) == "done"
@@ -409,6 +411,7 @@ def test_a_follow_up_whose_order_no_read_shows_whole_is_owed_none(tmp_path: Path
 # --- every kill resumes to the uninterrupted run ---------------------------------------------
 
 
+@pytest.mark.usefixtures("a_person_signing_at_every_boundary")
 def test_a_kill_at_any_line_from_the_closing_pass_s_merge_resumes_to_the_same_log(
     tmp_path: Path,
 ) -> None:
@@ -472,8 +475,11 @@ def test_a_follow_up_merge_retests_its_module_s_pairs_never_first(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = _pairs_rig(tmp_path)
-    assert _pairs_run(rig, monkeypatch) == "done"
+    # The run records decisions, and drive is a control module: no decision signs its values, so
+    # the run ends escalated naming its sign-off, past the call and every contract result.
+    assert _pairs_run(rig, monkeypatch) == "escalated"
     events = events_of(rig)
+    assert replay(events).sign_offs_open() == [pairs.DRIVE]
     assert [(f["subtask_id"], f["owed"]) for f in follow_ups(events)] == [
         (pairs.DRIVE, [{"source": "budget.supply", "target": "drive.motor"}])
     ]

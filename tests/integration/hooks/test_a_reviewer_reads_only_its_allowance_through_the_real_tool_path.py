@@ -9,8 +9,8 @@ reviewer's rubric, each with a marker line. A reviewer whose allowance is its ow
 worktree is refused the corpus by absolute path, by a relative path, through a
 symlink planted in its allowance, and through a hard link planted there; it reads
 its own files. A role session in the same worktree is refused the rubric by the
-Read tool and by the shell, and reads the role's own standards file as the
-control.
+Read tool and by the shell, is refused the harness's copy of its standards as the
+whole checkout is, and reads its own worktree's standards file as the control.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import pytest
 from fake_messages_api import Script, text, tool
 from hook_session import run_session
 
-from physgate.hooks.reasons import OUTSIDE_REVIEW_REASON, REVIEW_MATERIAL_REASON
+from physgate.hooks.reasons import HARNESS_REASON, REVIEW_MATERIAL_REASON
 
 pytestmark = pytest.mark.integration
 
@@ -34,6 +34,8 @@ STANDARDS_MARKER = "a line the role standards hold"
 CORPUS = "harness/corpora/set/a01.json"
 RUBRIC = "harness/knowledge/reviewers/control/rubric.md"
 STANDARDS = "harness/knowledge/control/standards.md"
+#: The role's own standards, in its worktree, where a session is given them.
+OWN_STANDARDS = "knowledge/control/standards.md"
 
 
 def _stand_in(root: Path) -> Path:
@@ -48,12 +50,19 @@ def _stand_in(root: Path) -> Path:
     return root / "harness"
 
 
-def _session(tmp_path: Path, profile: str, steps: list[dict[str, Any]], prepare: Any = None) -> Any:  # noqa: ANN401
+def _session(
+    tmp_path: Path,
+    profile: str,
+    steps: list[dict[str, Any]],
+    prepare: Any = None,  # noqa: ANN401
+    files: dict[str, str] | None = None,
+) -> Any:  # noqa: ANN401
     harness = _stand_in(tmp_path)
     fields: dict[str, Any] = {"profile": profile, "harness_root": str(harness)}
     if profile == "reviewer":
         fields |= {"role": None, "own_branch": None, "read_roots": (str(tmp_path / "worktree"),)}
-    return run_session(tmp_path, Script(main=[*steps, text("end")]), prepare=prepare, **fields)
+    script = Script(main=[*steps, text("end")])
+    return run_session(tmp_path, script, prepare=prepare, files=files, **fields)
 
 
 def _refused_by(run: Any, hook: str) -> int:  # noqa: ANN401
@@ -75,7 +84,9 @@ def test_a_reviewer_is_refused_the_harness_corpus_by_every_spelling(tmp_path: Pa
     run = _session(tmp_path, "reviewer", steps, prepare=plant)
     told = [run.told_after(n) for n in range(1, len(steps) + 1)]
     assert all(CORPUS_MARKER not in t for t in told), "the reviewer was shown the corpus"
-    assert all(OUTSIDE_REVIEW_REASON in t for t in told[:3]), told[:3]
+    # Each of the three resolves into the harness checkout, refused to every read before the
+    # allowance is asked.
+    assert all(HARNESS_REASON in t for t in told[:3]), told[:3]
     assert "more than one name" in told[3], told[3]
     assert "a worktree" in told[4], "the reviewer could not read its own allowance"
     assert _refused_by(run, "paths") == 4
@@ -86,13 +97,16 @@ def test_a_role_session_is_refused_its_reviewer_s_rubric(tmp_path: Path) -> None
         tool("Read", file_path=str(tmp_path / RUBRIC)),
         tool("Bash", command="cat " + str(tmp_path / RUBRIC), description="attempt"),
         tool("Read", file_path=str(tmp_path / STANDARDS)),
+        tool("Read", file_path=str(tmp_path / "worktree" / OWN_STANDARDS)),
     ]
-    run = _session(tmp_path, "role", steps)
+    files = {"README.md": "a worktree\n", OWN_STANDARDS: STANDARDS_MARKER + "\n"}
+    run = _session(tmp_path, "role", steps, files=files)
     told = [run.told_after(n) for n in range(1, len(steps) + 1)]
     assert all(RUBRIC_MARKER not in t for t in told), "the role session was shown the rubric"
     assert REVIEW_MATERIAL_REASON in told[0] and REVIEW_MATERIAL_REASON in told[1], told[:2]
-    assert STANDARDS_MARKER in told[2], "the control read was refused too"
-    assert _refused_by(run, "paths") == 1 and _refused_by(run, "shell_paths") == 1
+    assert HARNESS_REASON in told[2], "the harness's copy of the standards was read"
+    assert STANDARDS_MARKER in told[3], "the control read was refused too"
+    assert _refused_by(run, "paths") == 2 and _refused_by(run, "shell_paths") == 1
 
 
 #: What the binary itself answers for a Read of a missing file, before any hook runs.
@@ -159,10 +173,12 @@ def test_a_rubric_read_by_a_path_built_at_run_time_shows_its_canary(tmp_path: Pa
 
     canary = "c0ffee" * 5 + "ab"
     rubric = tmp_path / RUBRIC
+    # No word names the checkout either: without the OS layer, as here, a command that names it
+    # for a read is refused as the checkout's.
     command = (
-        "d=$(printf view); cat "
-        + str(tmp_path / "harness" / "knowledge")
-        + "/re${d}ers/control/rubric.md"
+        "d=$(printf harness); cat "
+        + str(tmp_path)
+        + "/${d}/knowledge/re${e}viewers/control/rubric.md"
     )
 
     def plant(_: Path) -> None:

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import uuid
 from collections import Counter
@@ -36,16 +37,25 @@ from physgate.gate.catalogue import KINDS, QUALIFIERS, QUANTITIES, RELATIONS, sh
 from physgate.gate.units import UnitRefusedError
 from physgate.gate.units import parse as read_by_registry
 from physgate.hooks.settings import WEB_TOOLS, protected_in_a_worktree
-from physgate.knowledge.library import LibraryError, put_into, read_library
+from physgate.knowledge import loader
+from physgate.knowledge.library import LibraryError, put_into, read_library, skill_files
+from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import classify_session_end
+from physgate.orchestrator.budget import classify_session_end, writes_lost
 from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.common import GateMode, NonEmptyStr, first_problem
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
+    remove_debug_logs,
     remove_secrets,
     write_login,
+)
+from physgate.orchestrator.design_pairs import (
+    DesignPair,
+    misordered_pairs,
+    plan_design_pairs,
+    plan_mutual_namings,
 )
 from physgate.orchestrator.events import Followable
 from physgate.orchestrator.exceptions import (
@@ -57,8 +67,19 @@ from physgate.orchestrator.exceptions import (
     RunConfigError,
     RunStateError,
 )
-from physgate.orchestrator.git import commit_all, common_dir, git, init_repo
+from physgate.orchestrator.git import (
+    NO_TRANSPORT,
+    commit_all,
+    common_dir,
+    git,
+    git_bytes,
+    init_repo,
+    promisor,
+    shallow,
+    unreachable_from,
+)
 from physgate.orchestrator.invocation import (
+    TRAFFIC_ALLOWED_VERSIONS,
     claude_binary,
     decomposition_argv,
     isolated_env,
@@ -66,8 +87,10 @@ from physgate.orchestrator.invocation import (
     version_argv,
 )
 from physgate.orchestrator.managed import (
+    FlagCache,
     ObservedTraffic,
     drift,
+    flag_cache,
     flags_off_by_setting,
     observe_traffic,
     policy_limits_digest,
@@ -77,15 +100,25 @@ from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR as INTEGRATION_MODULE_DIR
 from physgate.orchestrator.plan import REQUIREMENT_MAX_CHARS as REQUIREMENT_MAX_CHARS
 from physgate.orchestrator.plan import SPEC_MAX_CHARS as SPEC_MAX_CHARS
+from physgate.orchestrator.plan import Component as Component
 from physgate.orchestrator.plan import Contribution as Contribution
-from physgate.orchestrator.plan import CriterionWords, plan_bytes
+from physgate.orchestrator.plan import (
+    CriterionWords,
+    component_id_problems,
+    component_name_problems,
+    duplicate_id_problems,
+    plan_bytes,
+)
+from physgate.orchestrator.plan import IntegratedPartsPlan as IntegratedPartsPlan
 from physgate.orchestrator.plan import IntegratedPlan as IntegratedPlan
 from physgate.orchestrator.plan import InterfaceConsumers as InterfaceConsumers
+from physgate.orchestrator.plan import PartsPlan as PartsPlan
 from physgate.orchestrator.plan import Plan as Plan
 from physgate.orchestrator.plan import PlannedModule as PlannedModule
 from physgate.orchestrator.plan import SystemRequirement as SystemRequirement
 from physgate.orchestrator.plan import list_problems as list_problems
 from physgate.orchestrator.plan import plan_sha256 as plan_sha256
+from physgate.orchestrator.plan import shared_node_id as shared_node_id
 from physgate.orchestrator.protocols import REJECTING_RESULTS, MessageUsage, ReviewResult, Usage
 from physgate.orchestrator.record import (
     DecompositionCall,
@@ -104,7 +137,7 @@ from physgate.reviewers.contract import criterion_words, issued_criteria
 from physgate.roles import CrossCuttingDuty, owners_of
 from physgate.series.collect import series_library
 from physgate.state.exceptions import MalformedNodeIdError
-from physgate.state.schema import Node, validate_node_id
+from physgate.state.schema import NODE_ID_MAX_LENGTH, Node, validate_node_id
 from physgate.state.store import Store, payload_digest
 from physgate.unit_spelling import (
     MAX_LENGTH,
@@ -169,6 +202,7 @@ FailureCause = Literal[
     "turn_limit",
     "no_result",
     "unexpected_exit",
+    "writes_lost",
     "refused",
     "malformed_output",
     "context_exceeded",
@@ -224,9 +258,16 @@ def _in_run(duty: CrossCuttingDuty, roles: Sequence[str]) -> tuple[str, ...]:
     return tuple(role for role in sorted(set(roles)) if role in owners)
 
 
-def plan_model(roles: Sequence[str]) -> type[Plan]:
-    """The plan's form for a run of ``roles``: integration's, where the run has that role."""
-    return IntegratedPlan if _in_run("completion", roles) else Plan
+def plan_model(roles: Sequence[str], *, parts: bool = False) -> type[Plan]:
+    """The plan's form for a run of ``roles``: integration's, where the run has that role.
+
+    With ``parts``, the run asks which parts a person has or can make, and the form is the
+    same one with the component list added; without, it is the form as before, untouched.
+    """
+    integrated = bool(_in_run("completion", roles))
+    if parts:
+        return IntegratedPartsPlan if integrated else PartsPlan
+    return IntegratedPlan if integrated else Plan
 
 
 #: Root-level keys that name the schema rather than shape the answer. Left in, they
@@ -235,7 +276,7 @@ def plan_model(roles: Sequence[str]) -> type[Plan]:
 _ROOT_NAMING = ("title", "description", "$id", "$comment")
 
 
-def plan_schema(roles: Sequence[str], brief: str | None = None) -> str:
+def plan_schema(roles: Sequence[str], brief: str | None = None, *, parts: bool = False) -> str:
     """The JSON schema the structured answer is held to by the binary, unnamed at its root.
 
     The schema of the plan's form for a run of ``roles`` (:func:`plan_model`). A run
@@ -243,8 +284,9 @@ def plan_schema(roles: Sequence[str], brief: str | None = None) -> str:
     role was planned for. Where the run has that role and ``brief`` numbers its acceptance
     criteria, a system requirement carries the pattern of those numbers
     (:func:`requirement_pattern`); with any other brief, or none, the schema is as before.
+    With ``parts`` it holds the component list as well, and without it not a byte of one.
     """
-    model = plan_model(roles)
+    model = plan_model(roles, parts=parts)
     schema = {k: v for k, v in model.model_json_schema().items() if k not in _ROOT_NAMING}
     pattern = requirement_pattern(brief) if issubclass(model, IntegratedPlan) else None
     if pattern is not None:
@@ -263,7 +305,7 @@ def schema_refusal(stdout: str) -> str | None:
     is the cause, and it is read from the stream's tool result, since the result
     object says only that the turns ran out.
     """
-    for line in stdout.splitlines():
+    for line in split_lines(stdout):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -336,7 +378,81 @@ def plan_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[str]:
                 f"interface node {node.id!r} names {name!r}, which shadows {relation!r}, a "
                 "quantity a relation reads; it is written under the catalogue's name"
             )
-    return found + _cross_cutting_problems(plan, roles) + _integration_problems(plan, roles, brief)
+    return (
+        found
+        + _declared_problems(plan)
+        + _cross_cutting_problems(plan, roles)
+        + _integration_problems(plan, roles, brief)
+        + _component_problems(plan, roles)
+    )
+
+
+def _declared_problems(plan: Plan) -> list[str]:
+    """A plan declares nothing for a person, whatever the run asks.
+
+    A declared quantity is written by code from a person's recorded decision. The plan is
+    written straight into the store, so one it carried would stand in the graph as a
+    person's own, fixed against every role, with no decision behind it.
+    """
+    return [
+        f"interface node {node.id!r} holds {name!r} as declared by a person; a plan declares "
+        "nothing, since only a person's recorded decision does"
+        for node in plan.interface_nodes
+        for name, quantity in node.quantities.items()
+        if quantity.declared is not None
+    ]
+
+
+def _component_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
+    """What is wrong with the component list of a plan that has one."""
+    if not isinstance(plan, PartsPlan):
+        return []
+    found = duplicate_id_problems(plan.components)
+    interfaces = {node.id for node in plan.interface_nodes}
+    module_roles = {module.role for module in plan.modules}
+    owners = _in_run("cross_nodes", roles)
+    # The one role that writes the quantities more than one domain depends on, if the run
+    # has exactly one: with none, or two, no node could hold a shared value.
+    owner = owners[0] if len(owners) == 1 else None
+    held: dict[str, str] = {}
+    for entry in plan.components:
+        said = f"component {entry.node!r}"
+        found += component_id_problems(entry, interfaces)
+        if entry.role in owners:
+            found.append(f"{said} is given the {entry.role} role, which writes no node of a domain")
+        elif entry.role not in module_roles:
+            found.append(f"{said} is given a role no module has")
+        found += component_name_problems(entry)
+        if not entry.shared:
+            continue
+        if owner is None:
+            found.append(
+                f"{said} names shared quantities, and the run has no role that writes the "
+                "quantities more than one domain depends on"
+            )
+            continue
+        if owner not in module_roles:
+            found.append(
+                f"{said} names shared quantities, and the plan has no {owner} module to hold them"
+            )
+            continue
+        shared = shared_node_id(owner, entry.node)
+        if len(shared) > NODE_ID_MAX_LENGTH:
+            found.append(f"the {owner} node of {said} would have an id longer than a node's may be")
+        elif shared in held and held[shared] != entry.node:
+            found.append(
+                f"components {held[shared]!r} and {entry.node!r} would share the {owner} "
+                f"node {shared!r}"
+            )
+        elif shared in interfaces:
+            found.append(f"the {owner} node {shared!r} of {said} has the id of an interface node")
+        held.setdefault(shared, entry.node)
+    for entry in plan.components:
+        if entry.node in held:
+            found.append(
+                f"component {entry.node!r} has the id of the {owner} node of {held[entry.node]!r}"
+            )
+    return found
 
 
 def _overlap(one: PurePosixPath, other: PurePosixPath) -> bool:
@@ -685,6 +801,93 @@ UNIT_SPELLING_SENTENCE = (
     "`V/(rad/s)` is refused, and is written `V*s/rad`."
 )
 
+#: What a plan fixes and what it leaves to the modules, as every decomposition prompt states it.
+#: The decomposition reads nothing but its prompt, so the rule is here or nowhere: a plan that
+#: writes a solution's law into a specification, or its tuned coefficients onto an interface
+#: node, takes from the module that designs the solution the freedom to meet its criteria, and no
+#: session may write an interface node to undo it. What "the brief fixes" means is stated as a
+#: test the planner can apply: a requirement that, in its own words, says the design shall use,
+#: run or contain the method; a program the brief only cites for a number stays a source. An
+#: interface node's contents are described by what both sides must agree on, physical
+#: properties included, not by a closed list a planner could read as excluding a motor
+#: constant. A quantity is on an interface node because another module reads it: one only its
+#: producer uses is that module's own and stays in its specification, and the plan review fails
+#: a quantity on a node that no other module's specification reads. A plan told to state every
+#: quantity puts such ones on the nodes unless told where they go, so the prompt says both
+#: halves, and that each reader's specification names the quantity as the node does, so the
+#: reader is found by its name. Where one module implements what another designs, whether or
+#: not a criterion says so, the designer comes before the implementer (not before every module),
+#: writes its design on a node both specifications name, and the implementer is held to that
+#: node as merged, so what runs is what was analysed; an implementer that starts before the node
+#: is merged reports it and implements no design of its own. The harness reads which module
+#: implements which from that node, by its id's first part, so the sentence says how the id is
+#: formed: the designing module's name, then what the node holds.
+SOLUTION_SENTENCE = (
+    "A specification states its module's interfaces and acceptance criteria, never the internal "
+    "law, structure or coefficients of a solution, unless the brief fixes them. The brief fixes "
+    "a method only where one of its requirements, in its own words, says the design shall use, "
+    "run or contain it; a program or document the brief cites as the source of a number, a part "
+    "or a condition is a source of those only. An interface node holds what both sides must "
+    "agree on before either works (the signals that cross, with their units and rates; the "
+    "limits both sides hold to; and the physical properties one side gives the other, such as a "
+    "mass or a motor constant), never a solution's tuned parameters. A quantity goes on an "
+    "interface node only where the specification of at least one module other than the one that "
+    "produces it reads it by name; a quantity that only its own module uses stays in that "
+    "module's specification, off every interface node; and each quantity on an interface node is "
+    "named, as the node names it, in the specification of every module that reads it. "
+    "Where one module implements "
+    "what another designs, such as firmware running the control law that was analysed, the "
+    "designing module comes before the implementing module in the plan and writes its design on "
+    'a node of its own, "<the designing module\'s name>.<what it holds>", named in both '
+    "specifications; the implementing module's acceptance "
+    "criteria compare its implementation with that node as merged, and where the node is not "
+    "merged when it starts, it reports that and implements no design of its own."
+)
+
+#: The form of one acceptance criterion, as every decomposition prompt states it. The plan
+#: review reads each criterion for how it is verified, named as one of the four methods of
+#: verification (analysis, demonstration, inspection, test), and for one requirement in "shall"
+#: form; a plan that leaves the method unsaid, or packs a value and a second check into one
+#: numbered line, fails the review on its form, whatever its design. The decomposition reads
+#: nothing but its prompt, so the form is given here in the words the review holds it to, with
+#: the kinds of bundle plans have written as one criterion named in general terms. Splitting a
+#: bundle leaves each part to be traced on its own, so the sentence asks for each criterion's
+#: trace as well; a goal, which is not a requirement, is kept out of the criteria. A criterion is
+#: written only against what the run can measure: a plan once asked firmware for timing "measured
+#: on the board" in a run with no board, so no session could ever meet it. The plan is written
+#: before a person says which parts they have, so no board is taken as connected unless the
+#: brief says so. A run environment may give firmware a compiler and no simulator, so the prompt
+#: promises none: a simulator is used only where the environment provides one, and otherwise a
+#: criterion is held to what can be measured (the build with no warning in the module's own
+#: files, as the board's core and libraries print their own; its size; a check of its logic with
+#: the environment's own tools), with behaviour on the target said to be unmeasured. No static
+#: analyser or host compiler is named, as the environment may have none.
+#: No product is named here, since the prompt does not know which is installed. A plan that
+#: gave a module no value for its timeouts, limits or fault rules left that module nothing it
+#: could build to, so each is stated with a value in the module's specification; an interface
+#: node carries one only where both sides must agree on it, as the interface paragraph has it, so
+#: a module's own limit is never put on one.
+CRITERION_FORM_SENTENCE = (
+    'Write each acceptance criterion as one statement of one thing, in the form "The <module> '
+    'shall <verb> <what>, <threshold with its unit and tolerance>, verified by <method>.", '
+    "where the method is one of analysis, demonstration, inspection or test, named by that word "
+    "in the criterion; a criterion that sets no figure has no threshold, and each criterion "
+    "names the brief requirement it traces to or says it is derived and why. A requirement that "
+    "holds several figures or conditions (a value and its agreement with another quantity, a "
+    "value and a rule for the rest of the module, two margins, a figure and a setting) becomes "
+    "one criterion for each, so that each is met or unmet on its own. A goal is written with "
+    '"should", outside the acceptance criteria. Write each criterion only against what the '
+    "run's environment can measure. No board is connected unless the brief says so; without "
+    "one, behaviour on the target is checked in a simulator only where the run's environment "
+    "provides one, and otherwise the criterion is written against what can be measured (that "
+    "the code compiles without a warning in the module's own files, its size, and a check of "
+    "its logic with the tools the environment provides) and the specification states that "
+    "behaviour on the target is not measured in this run. Each "
+    "module's specification states, with a value, every limit, timeout and fault behaviour the "
+    "module must implement, and names the interface node that carries one only where both sides "
+    "must agree on its value."
+)
+
 
 def _one_module_sentence(role: str) -> str:
     """The one sentence the prompt gains for the role that owns the cross nodes."""
@@ -695,18 +898,62 @@ def _one_module_sentence(role: str) -> str:
     )
 
 
-def prompt_for(brief: str, roles: Sequence[str]) -> str:
+#: Quantity names the parts sentence gives as examples, kept only while the gate's catalogue
+#: holds them: the sentence never names a quantity the gate does not check.
+PARTS_EXAMPLE_NAMES: tuple[str, ...] = tuple(
+    name for name in ("mass", "stall_current", "energy_capacity") if name in QUANTITIES
+)
+
+
+def parts_sentence(roles: Sequence[str]) -> str:
+    """The one sentence the prompt gains in a run that asks which parts a person has.
+
+    It asks for the component list and says what each entry holds. Shared quantities are asked
+    for only where a role of the run writes the quantities more than one domain depends on:
+    with none, there is no node that could hold them.
+    """
+    owners = _in_run("cross_nodes", roles)
+    examples = ", ".join(f"`{name}`" for name in PARTS_EXAMPLE_NAMES)
+    named = f"each a catalogue name such as {examples}" if examples else "each a catalogue name"
+    owner = owners[0] if len(owners) == 1 else None
+    if owner is not None:
+        role = f"the role of the module it belongs to, never the {owner} role"
+        lists = (
+            "in `own` those only its own domain reads, and in `shared` those more than one "
+            f"domain depends on, which the {owner} module holds on a node of its own for the part"
+        )
+    else:
+        role = "the role of the module it belongs to"
+        lists = (
+            "in `own` those its domain reads; leave `shared` empty, since no role of this run "
+            "writes the quantities more than one domain depends on"
+        )
+    return (
+        "List the design's components, the physical parts a person may already have or can "
+        "make themselves, such as a motor, a battery, a sensor or a bracket; a design with "
+        "none lists none. For each give a node id of its own, which no interface node has; "
+        f"its domain, one of mechanical, electrical, control or firmware; {role}; a label a "
+        "person would know the part by; and the names of the quantities a part on hand must "
+        f"state, {named}: {lists}. Give names only, never values: the person states them."
+    )
+
+
+def prompt_for(brief: str, roles: Sequence[str], *, parts: bool = False) -> str:
     """The decomposition prompt: a fixed template around the brief.
 
-    Every prompt says how an interface's unit is spelt (:data:`UNIT_SPELLING_SENTENCE`), and
-    where the gate has a bound and what forms each relation, generated from what the gate
-    loads. A cross-cutting role of the run adds its sentences: sizing's,
-    that it has one module at most, and that it keeps a node joined to each interface it
-    produces, which the interface follows; integration's, which ask for the system
-    requirements, by the brief's number where it numbers its criteria, and for module criteria
-    numbered as they are read. Integration is
-    not offered as a module's role, since the harness writes its specification. A run with
-    neither is sent the template as it was before either was planned for.
+    Every prompt says how an interface's unit is spelt (:data:`UNIT_SPELLING_SENTENCE`), that
+    a plan fixes interfaces and criteria and never a solution's law or coefficients
+    (:data:`SOLUTION_SENTENCE`), that each acceptance criterion is one statement with its
+    verification method named (:data:`CRITERION_FORM_SENTENCE`), and where the gate has a bound
+    and what forms each relation, generated from what the gate loads. A cross-cutting role of
+    the run adds its sentences: sizing's, that it has one module at most, and that it keeps a
+    node joined to each interface it produces, which the interface follows; integration's,
+    which ask for the system requirements, by the brief's number where it numbers its criteria,
+    and for module criteria numbered as they are read. Integration is not offered as a
+    module's role, since the harness writes its specification. A run with
+    neither is sent the template as it was before either was planned for. With ``parts`` the
+    run asks which parts a person has or can make, and the prompt gains the one sentence that
+    asks for the components (:func:`parts_sentence`); without, it gains nothing.
     """
     completion = _in_run("completion", roles)
     offered = sorted(role for role in roles if role not in completion)
@@ -721,6 +968,8 @@ def prompt_for(brief: str, roles: Sequence[str]) -> str:
         form = requirement_form_sentence(brief)
         asked = REQUIREMENTS_SENTENCE if form is None else f"{REQUIREMENTS_SENTENCE} {form}"
         added += f"{asked}\n\n{NUMBERING_SENTENCE}\n\n"
+    if parts:
+        added += f"{parts_sentence(roles)}\n\n"
     return (
         "Decompose the design brief below into modules, one per role that has work to do, "
         "and the interface nodes between them.\n\n"
@@ -732,6 +981,8 @@ def prompt_for(brief: str, roles: Sequence[str]) -> str:
         "unit, a source and the role that wrote it. "
         f"{UNIT_SPELLING_SENTENCE} "
         f"{NODE_ID_SENTENCE}\n\n"
+        f"{SOLUTION_SENTENCE}\n\n"
+        f"{CRITERION_FORM_SENTENCE}\n\n"
         f"{catalogue_sentence()}\n\n"
         f"{bounds_sentence()}\n\n"
         f"{relations_sentence()}\n\n"
@@ -803,17 +1054,25 @@ def replan_findings(result: ReviewResult) -> ReplanFindings:
     return ReplanFindings(text="\n".join(lines), lacks_input=bool(lacking))
 
 
-def replan_prompt(brief: str, roles: Sequence[str], plan: Plan, findings: ReplanFindings) -> str:
+def replan_prompt(
+    brief: str,
+    roles: Sequence[str],
+    plan: Plan,
+    findings: ReplanFindings,
+    *,
+    parts: bool = False,
+) -> str:
     """A re-plan's prompt: the decomposition prompt, the plan the review did not pass, its findings.
 
-    A fixed template, a function of these four alone. The plan is quoted as the canonical bytes
-    its digest is taken over, and the findings as the review gave them, each between fences the
-    text cannot close (the repair instructions' quotation), so both are data.
+    A fixed template, a function of these alone; ``parts`` as the first call's prompt took it.
+    The plan is quoted as the canonical bytes its digest is taken over, and the findings as
+    the review gave them, each between fences the text cannot close (the repair
+    instructions' quotation), so both are data.
     """
     canonical = plan_bytes(plan).decode()
     lacking = f"{NO_INPUT_SUPPLIED_LINE}\n\n" if findings.lacks_input else ""
     return (
-        f"{prompt_for(brief, sorted(roles))}\n{REPLAN_SENTENCE}\n\n"
+        f"{prompt_for(brief, sorted(roles), parts=parts)}\n{REPLAN_SENTENCE}\n\n"
         "The plan the reviewer did not pass:\n"
         + "\n".join(quoted(canonical))
         + "\n\nWhat the review found:\n"
@@ -831,20 +1090,30 @@ RETRY_SENTENCE = (
 
 
 def retry_prompt(
-    brief: str, roles: Sequence[str], prompt: str | None, refused: Outcome
+    brief: str,
+    roles: Sequence[str],
+    prompt: str | None,
+    refused: Outcome,
+    *,
+    parts: bool = False,
 ) -> str | None:
     """What the one retry of a call is sent: ``prompt`` as it was, or with why a unit was refused.
 
-    A plan refused for an interface unit (:data:`UNIT_REFUSAL_HEAD`) is the one refusal the
+    A plan refused for an interface unit (:data:`UNIT_REFUSAL_HEAD`), or for a module that
+    implements another's design put before it (:data:`ORDER_REFUSAL_HEAD`), is a refusal the
     designer corrects only if told: its retry is sent the prompt the refused call was sent
     (``prompt``, or the brief's own where that is ``None``), then the refusal's exact text, which
-    names the node, the quantity, the unit and the spelling to write, between fences the text
-    cannot close. The text is this module's own and the designer's own unit, never another
-    session's words. Any other refusal by the schema is made again with ``prompt`` as it was.
+    names the node, the quantity, the unit and the spelling to write, or the two modules and the
+    design's nodes, between fences the text cannot close. The text is this module's own and the
+    designer's own names, never another session's words. Any other refusal by the schema is made
+    again with ``prompt`` as it was.
+    ``parts`` is as the refused call's own prompt took it, so the brief's prompt rebuilt here
+    asks for the components exactly when the first did.
     """
-    if refused.cause != "schema_refused" or not refused.detail.startswith(UNIT_REFUSAL_HEAD):
+    told = (UNIT_REFUSAL_HEAD, ORDER_REFUSAL_HEAD)
+    if refused.cause != "schema_refused" or not refused.detail.startswith(told):
         return prompt
-    first = prompt_for(brief, sorted(roles)) if prompt is None else prompt
+    first = prompt_for(brief, sorted(roles), parts=parts) if prompt is None else prompt
     return (
         f"{first}\n{RETRY_SENTENCE}\n\n"
         "Why the plan was refused:\n"
@@ -889,6 +1158,8 @@ class Outcome(_Frozen):
     policy_limits_sha256: str | None = None
     #: The served catalog and feature flags as the call's debug log showed them.
     observed_traffic: ObservedTraffic | None = None
+    #: The flag cache the call left, on a pin whose sessions fetch the flags.
+    flag_cache: FlagCache | None = None
     #: The seal of the stream as the call wrote it, taken over exactly those bytes; ``None`` for
     #: an outcome no call wrote a stream for.
     stream_seal: Seal | None = None
@@ -908,6 +1179,14 @@ def read_stream(
     ``message_start`` in the same thread. A message with no ``message_delta``
     (a session killed mid-message) keeps the usage it started with.
 
+    A message the binary cut short and closed itself is marked ``abandoned``: one whose
+    ``message_start`` was seen, with no ``message_delta`` and no assistant event, closed by a
+    ``message_stop`` whose stream event's ``abandoned_blocks`` names it by its
+    ``api_message_id`` (the pinned binary's own mark, written when the API's stream failed,
+    stalled or ended early, or the turn was interrupted). Any one of these missing, and the
+    message is read as any other. What a marked message means for the account is the
+    accounting's to say (:func:`~physgate.orchestrator.accounting.require_matching_totals`).
+
     The answering model is each assistant message's own
     ``model``, not the result's ``modelUsage``: measured on 2.1.272 with the
     endpoint answering as another model, ``modelUsage`` still named the model
@@ -920,7 +1199,11 @@ def read_stream(
     raw_usage: dict[str, dict[str, Any]] = {}
     current: dict[str | None, str] = {}  # the open message per thread
     models: set[str] = set()
-    for line in stdout.splitlines():
+    started_ids: set[str] = set()  # a message_start was seen
+    finished: set[str] = set()  # a message_delta gave the final usage
+    asserted: set[str] = set()  # an assistant event carried the message
+    closed_cut: set[str] = set()  # a message_stop the binary marked as cutting it short
+    for line in split_lines(stdout):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -935,14 +1218,23 @@ def read_stream(
             started = inner.get("message") if inner.get("type") == "message_start" else None
             if isinstance(started, dict) and isinstance(started.get("id"), str):
                 current[thread] = started["id"]
+                started_ids.add(started["id"])
                 raw_usage.setdefault(started["id"], dict(started.get("usage") or {}))
             elif inner.get("type") == "message_delta" and thread in current:
                 raw_usage[current[thread]].update(inner.get("usage") or {})
+                finished.add(current[thread])
+            elif inner.get("type") == "message_stop":
+                marked = event.get("abandoned_blocks")
+                named = marked.get("api_message_id") if isinstance(marked, dict) else None
+                if isinstance(named, str) and named:
+                    closed_cut.add(named)
         message = event.get("message") if kind == "assistant" else None
         if isinstance(message, dict) and isinstance(message.get("id"), str):
+            asserted.add(message["id"])
             raw_usage.setdefault(message["id"], dict(message.get("usage") or {}))
             if isinstance(message.get("model"), str):
                 models.add(message["model"])
+    cut = (closed_cut & started_ids) - finished - asserted
     usages = tuple(
         MessageUsage(
             message_id=message_id,
@@ -952,6 +1244,7 @@ def read_stream(
                 cache_read_input_tokens=int(raw.get("cache_read_input_tokens") or 0),
                 cache_creation_input_tokens=int(raw.get("cache_creation_input_tokens") or 0),
             ),
+            abandoned=message_id in cut,
         )
         for message_id, raw in raw_usage.items()
     )
@@ -974,14 +1267,21 @@ def judge(
     brief: str,
     refused: str | None = None,
     declined: bool = False,
+    parts: bool = False,
+    lost: str | None = None,
+    accept_misorder: bool = False,
 ) -> tuple[FailureCause | None, str, Plan | None, str | None, int]:
     """Decide from the result object whether the call produced a usable plan.
 
     The answer is read as the plan's form for a run of ``roles`` and held to the
-    ``brief`` it was planned from. ``refused`` is the binary's schema refusal from the
-    stream, if any: a call that ran out of turns after one is ``schema_refused``, not
-    ``turn_limit``. ``declined`` is a model refusal the stream showed: the plan's refusal
-    (``refused``), as a result whose stop reason is a refusal is.
+    ``brief`` it was planned from; with ``parts``, as the form that lists the components.
+    ``refused`` is the binary's schema refusal from the stream, if any: a call that ran out
+    of turns after one is ``schema_refused``, not ``turn_limit``. ``declined`` is a model
+    refusal the stream showed: the plan's refusal (``refused``), as a result whose stop
+    reason is a refusal is.
+    ``lost`` is what the binary said in the stream it could not save, if anything
+    (:func:`~physgate.orchestrator.budget.writes_lost`): a call that ended as a finished
+    one and said so gives no plan, under its own cause.
     """
     end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
     turns = int((result or {}).get("num_turns") or 0)
@@ -1003,15 +1303,26 @@ def judge(
             return "refused", "the model declined to plan", None, seen_model, turns
     if refused is not None and end.cause == "turn_limit":
         return "schema_refused", refused, None, seen_model, turns
+    if (
+        end.cause == "disk_full"
+        or end.cause == "prompt_too_long"
+        or end.cause == "structured_output_retry_exhausted"
+    ):
+        # A role session's names, given only where a caller names its pin or a measured full
+        # volume: this call names neither, and reads the binary's reasons from its own table.
+        return "unexpected_exit", f"the call ended with {end.cause}", None, seen_model, turns
     if end.cause is not None:
         return end.cause, f"the call ended with {end.cause}", None, seen_model, turns
+    if lost is not None:
+        detail = f"the binary could not save its own {lost}"
+        return "writes_lost", detail, None, seen_model, turns
     if echoed != [model]:
         return "model_mismatch", f"asked for {model}, answered by {echoed}", None, seen_model, turns
     answer = (result or {}).get("structured_output")
     if answer is None:
         return "no_structured_output", "the call succeeded with no plan", None, seen_model, turns
     try:
-        plan = plan_model(roles).model_validate_json(json.dumps(answer))
+        plan = plan_model(roles, parts=parts).model_validate_json(json.dumps(answer))
     except ValidationError as exc:
         return "invalid_plan", first_problem(exc), None, seen_model, turns
     try:
@@ -1022,12 +1333,71 @@ def judge(
     problems = plan_problems(plan, roles, brief)
     if problems:
         return "invalid_plan", "; ".join(problems), None, seen_model, turns
+    misordered = None if accept_misorder else order_refusal(plan, roles)
+    if misordered is not None:
+        # A schema-stage refusal as a unit's is: the call is made once more, told why.
+        return "schema_refused", misordered, None, seen_model, turns
     return None, "a plan", plan, seen_model, turns
 
 
 #: How the refusal of a plan's interface unit begins: the node and the quantity follow. The
 #: binary's own refusal of an answer never begins so.
 UNIT_REFUSAL_HEAD = "interface node "
+#: How the refusal of a plan that puts a module before the module whose design it implements
+#: begins: the two modules and the design's nodes follow. The binary's own never begins so.
+ORDER_REFUSAL_HEAD = "the plan puts module "
+
+
+def _misordered(plan: Plan, roles: Sequence[str]) -> list[tuple[str, str, tuple[str, ...]]]:
+    """Each domain module the plan puts before a module whose design it may build."""
+    openings = set(_in_run("cross_nodes", roles))
+    domain = [module.name for module in plan.modules if module.role not in openings]
+    return misordered_pairs(plan, domain)
+
+
+def planned_misorders(
+    plan: Plan, roles: Sequence[str], subtask_of: Mapping[str, str]
+) -> tuple[DesignPair, ...]:
+    """The suspected misorders of ``plan`` as the run records them, with each module's subtask.
+
+    One entry for each builder listed before the designer whose design it may build: the entry's
+    ``builder`` is dispatched first, so nothing is held for it. A plan reaches the opening with
+    one only when it was refused for its order and made once more (:func:`judge`).
+    """
+    return tuple(
+        DesignPair(designer=subtask_of[designer], builder=subtask_of[builder], nodes=nodes)
+        for builder, designer, nodes in _misordered(plan, roles)
+    )
+
+
+def order_refusal(plan: Plan, roles: Sequence[str]) -> str | None:
+    """Why ``plan`` is refused for a builder put before its designer, or ``None``.
+
+    Among the domain modules, whose order in the plan is the run's (ARCH-051): a module whose
+    specification names a node that is a later module's own, which that module's specification
+    names too, would be dispatched before the design it implements and never held to it. Where
+    the later module names a node of the earlier one's own as well, no order could satisfy a
+    refusal, so none is made: the pair follows the plan's order. The refusal names the way out:
+    the two the other way round, or the quantity on an interface node. The module of the role
+    that opens the domain work runs first whatever the plan says and reads the domain's nodes to
+    size them, so it is no builder here.
+
+    The refusal is made once: the call made again accepts such a plan (``accept_misorder`` of
+    :func:`judge`), as a text check must not be able to end a run.
+    """
+    found = _misordered(plan, roles)
+    if not found:
+        return None
+    said = "; ".join(
+        f"{ORDER_REFUSAL_HEAD if at == 0 else 'module '}{builder!r} before module {designer!r}, "
+        f"whose design on {', '.join(nodes)} it implements"
+        for at, (builder, designer, nodes) in enumerate(found)
+    )
+    return (
+        f"{said}: the designing module comes before the implementing module in the plan; put the "
+        "two modules the other way round, or, where both sides must agree on the quantity, put it "
+        "on an interface node and name that instead"
+    )
 
 
 def _units_as_products(plan: Plan, roles: Sequence[str]) -> Plan:
@@ -1056,7 +1426,8 @@ def _units_as_products(plan: Plan, roles: Sequence[str]) -> Plan:
             quantity["unit"] = product
     if not changed:
         return plan
-    return plan_model(roles).model_validate_json(json.dumps(dumped))
+    # Read again as the form it was read in: the run's, with its component list where it asks.
+    return type(plan).model_validate_json(json.dumps(dumped))
 
 
 def _read_unit(unit: str) -> str:
@@ -1100,7 +1471,7 @@ def _registry_reads(unit: str) -> bool:
 
 def model_declined(stdout: str) -> bool:
     """Whether the stream shows the model declining: a ``model_refusal`` system event."""
-    for line in stdout.splitlines():
+    for line in split_lines(stdout):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -1137,6 +1508,7 @@ def call(
     credential: Credential,
     prompt: str | None = None,
     session_id: str | None = None,
+    accept_misorder: bool = False,
 ) -> Outcome:
     """Make one decomposition call, isolated, as session ``session_id``, and judge what came back.
 
@@ -1145,7 +1517,8 @@ def call(
     call's own configuration directory, removed when the call ends. It is sent
     ``prompt``, or without one the decomposition prompt for ``brief``, which is
     therefore the first call's prompt whatever the run does with a rejected plan; the
-    answer is judged against ``brief`` either way.
+    answer is judged against ``brief`` either way. ``accept_misorder`` is set for the call made once
+    more after a refusal, which accepts a plan the order check would refuse (:func:`judge`).
     """
     binary = claude_binary()
     reported = binary_version(binary)
@@ -1160,10 +1533,11 @@ def call(
     settings.write_text(json.dumps({"permissions": {"deny": list(WEB_TOOLS)}}) + "\n")
     session_id = session_id or str(uuid.uuid4())
     roles = sorted(config.models.roles)
-    sent = prompt_for(brief, roles) if prompt is None else prompt
+    parts = config.parts_on_hand == "on"
+    sent = prompt_for(brief, roles, parts=parts) if prompt is None else prompt
     argv = decomposition_argv(
         binary,
-        schema=plan_schema(roles, brief),
+        schema=plan_schema(roles, brief, parts=parts),
         model=config.models.decomposition,
         session_id=session_id,
         settings=settings,
@@ -1183,6 +1557,10 @@ def call(
     system_before = system_managed_facts()
     if credential.mode == "subscription":
         write_login(workdir / "config", credential.secret)
+    # Read only after the call ended on its own: one stopped at its clock may have left a
+    # process that writes the log again, so nothing of it is read then.
+    observed: ObservedTraffic | None = None
+    ended = False
     try:
         done = subprocess.run(
             argv,
@@ -1196,22 +1574,33 @@ def call(
             timeout=config.bounds.session_wall_clock_s,
         )
         stdout, exit_code, timed_out = done.stdout, done.returncode, False
+        ended = True
     except subprocess.TimeoutExpired as exc:
         raw = exc.stdout or b""
         stdout = raw.decode(errors="replace") if isinstance(raw, bytes) else raw
         exit_code, timed_out = None, True
     finally:
-        remove_secrets(workdir / "state", workdir / "config")
-        observed = read_debug_log(
-            workdir / DEBUG_LOG, flags_off_by_setting=flags_off_by_setting(reported, env)
-        )
+        # The credential, and every file named like the log (which may hold it), are removed
+        # whichever way the call ended, a failure to start included; each step runs whatever
+        # the one before it did.
+        try:
+            remove_secrets(workdir / "state", workdir / "config")
+        finally:
+            try:
+                if ended:
+                    observed = read_debug_log(
+                        workdir / DEBUG_LOG,
+                        flags_off_by_setting=flags_off_by_setting(reported, env),
+                    )
+            finally:
+                remove_debug_logs(workdir)
     # Sealed here, over the bytes written: a seal taken by a later reader would seal whatever
     # the file held by then, and the plan's review reads the stream only as this seal holds it.
     written = stdout.replace(credential.secret, REDACTED_TEXT).encode("utf-8")
     (workdir / "stdout.jsonl").write_bytes(written)
     stream_seal = seal(written)
     result, usage, answered = read_stream(stdout)
-    require_matching_totals(result, usage)
+    usage = require_matching_totals(result, usage)
     cause, detail, plan, model, turns = judge(
         result,
         exit_code=exit_code,
@@ -1222,13 +1611,13 @@ def call(
         brief=brief,
         refused=schema_refusal(stdout),
         declined=model_declined(stdout),
+        parts=parts,
+        lost=writes_lost(stdout),
+        accept_misorder=accept_misorder,
     )
     changed = drift(workdir / "config", system_before)
-    if not observed.all_off():
-        seen = (
-            f"the binary's served model catalog is {observed.served_catalog} and its remote "
-            f"feature flags are {observed.feature_flags}"
-        )
+    seen = traffic_refusal(observed, reported) if observed is not None else None
+    if seen is not None:
         changed = f"{changed}; {seen}" if changed else seen
     if changed is not None:
         cause, detail, plan = "managed_settings_changed", changed, None
@@ -1243,7 +1632,27 @@ def call(
         num_turns=turns,
         policy_limits_sha256=policy_limits_digest(workdir / "config"),
         observed_traffic=observed,
+        # The run's first reading, on a pin whose sessions fetch the flags.
+        flag_cache=(
+            flag_cache(workdir / "config") if reported in TRAFFIC_ALLOWED_VERSIONS else None
+        ),
         stream_seal=stream_seal,
+    )
+
+
+def traffic_refusal(observed: ObservedTraffic, claude_version: str) -> str | None:
+    """Why the decomposition call's catalog and flags state refuses the run, or ``None``.
+
+    On the earlier pins the run proceeds only under a served catalog seen off and feature flags
+    off, observed or off by the documented setting on a version that never reports them. On a
+    pin whose sessions carry the traffic the advisor needs, by the owner's choice, the state is
+    recorded with the run instead: it is what that pin's environment gives, not a drift.
+    """
+    if observed.all_off() or claude_version in TRAFFIC_ALLOWED_VERSIONS:
+        return None
+    return (
+        f"the binary's served model catalog is {observed.served_catalog} and its remote "
+        f"feature flags are {observed.feature_flags}"
     )
 
 
@@ -1352,6 +1761,302 @@ def _require_library_fits(repo: Path, commit: str, curated: Mapping[Path, bytes]
             if mode not in ("100644", "100755") or oid != _blob_id(data, object_format):
                 msg = "the target already holds a different file where the curated library goes"
                 raise DecompositionError(msg, path=name)
+
+
+#: Why a ``skills: off`` run refuses its target: a session's shell reads files, and both a commit
+#: the run branch descends from and an object in the store are files a command can open.
+SKILL_IN_TARGET = (
+    "under skills: off the target may hold no skill file, and it already holds one a session "
+    "of the run could read"
+)
+#: Why it refuses a store holding what no ref, reflog or stash reaches: such an object has no path
+#: left to judge it by, and a skill file of any version, an earlier run's among them, is one.
+UNREACHABLE_IN_TARGET = (
+    "under skills: off the target's store may hold no object that no ref, reflog or stash "
+    "reaches, since its content cannot be told from a skill file a session could read; an off "
+    "run starts from a fresh clone of the target made without sharing its object files (git "
+    "clone --no-local), and a target an earlier run used holds such objects once a merge of "
+    "that run was aborted"
+)
+#: Why it refuses a ref that names a file's content itself: that content has no path either.
+NAMELESS_IN_TARGET = (
+    "under skills: off no ref of the target may name a file's content directly, since it has no "
+    "path to judge it by and cannot be told from a skill file a session could read; delete the "
+    "ref, or start from a fresh clone of the target that leaves it out (git clone --no-local "
+    "--no-tags)"
+)
+#: Why it refuses a ref that names a tree directly: a tree has no path of its own, so a file in it
+#: cannot be judged by where it sits (a role's directory, tagged, holds skill.md at its root).
+TREE_IN_TARGET = (
+    "under skills: off no ref of the target may name a tree directly, since a tree has no path "
+    "of its own to judge its files by and any of them could be a skill file a session could "
+    "read; delete the ref, or start from a fresh clone of the target that leaves it out (git "
+    "clone --no-local --no-tags)"
+)
+#: Why it refuses a working tree of the target holding a skill file: a session's shell can read
+#: the target's working directories, whatever git tracks or ignores in them.
+SKILL_IN_WORKING_TREE = (
+    "under skills: off no working tree of the target may hold a skill file, tracked, untracked "
+    "or ignored, and one holds a file a session of the run could read; remove it, or start from "
+    "a fresh clone of the target"
+)
+#: Why it refuses a link where a skill file or its directory goes: it could name one anywhere.
+LINK_IN_WORKING_TREE = (
+    "under skills: off no working tree of the target may hold a link where a skill file or its "
+    "directory goes, since it could name a skill file anywhere; remove it, or start from a fresh "
+    "clone of the target"
+)
+#: Why it refuses a working tree it cannot list: what it holds cannot be judged.
+UNREADABLE_WORKING_TREE = (
+    "under skills: off every working tree of the target must be judged, and one could not be listed"
+)
+#: Why it refuses a target that is not a complete repository with a working tree: what it lacks
+#: cannot be judged, and what it lacks a partial clone fetches the moment it is read.
+BARE_TARGET = (
+    "under skills: off the target must be a complete repository with a working tree, and it is "
+    "a bare repository; start from a fresh clone of it (git clone --no-local)"
+)
+SHALLOW_TARGET = (
+    "under skills: off the target must be a complete repository, and it is a shallow clone, "
+    "whose missing history cannot be judged; start from a fresh full clone of it (git clone "
+    "--no-local, with no --depth)"
+)
+PARTIAL_TARGET = (
+    "under skills: off the target must be a complete repository, and it is a partial clone, "
+    "whose missing objects cannot be judged and would be fetched to be read; start from a fresh "
+    "full clone of it (git clone --no-local, with no --filter)"
+)
+
+
+def _require_complete(repo: Path) -> None:
+    """Refuse, under ``skills: off``, a target the check cannot judge whole, before it reads one.
+
+    Bare (no working tree), shallow (commits missing) or partial (objects missing, fetched from
+    a remote on reading). The first is asked of git in the target, with every transport refused;
+    the last two are read from the git directory's files, with no git command run in it, so
+    nothing is fetched to decide.
+
+    Raises:
+        DecompositionError: the target is one of the three.
+        GitError: git could not read the target.
+    """
+    bare = git(repo, *NO_TRANSPORT, "rev-parse", "--is-bare-repository").strip()
+    if bare == "true":
+        raise DecompositionError(BARE_TARGET, where="a bare repository")
+    if shallow(repo):
+        raise DecompositionError(SHALLOW_TARGET, where="a shallow clone")
+    if promisor(repo):
+        raise DecompositionError(PARTIAL_TARGET, where="a partial clone")
+
+
+def _tips(repo: Path, commit: str) -> list[str]:
+    """Every object the target names: its refs' own objects, its reflogs', its worktrees' heads.
+
+    ``rev-list --all --reflog --objects --no-walk`` with every tree and blob below a commit
+    left out names each ref, reflog entry (a tag's included) and worktree ``HEAD`` by the object
+    it records, not by the commit it peels to. A ref that names the root tree of a commit it
+    also names is left out with that commit's trees, and is judged with that commit.
+    """
+    walked = git(
+        repo, *NO_TRANSPORT, "rev-list", "--all", "--reflog", "--objects", "--no-walk=unsorted",
+        "--filter=tree:0",
+    )  # fmt: skip
+    named = [line.split(maxsplit=1)[0] for line in walked.splitlines() if line.strip()]
+    return list(dict.fromkeys([commit, *named]))
+
+
+def require_no_skill_file(repo: Path, commit: str, skills: Mapping[Path, bytes]) -> None:
+    """Refuse, under ``skills: off``, a target that already holds a skill file in a session's reach.
+
+    Every worktree of the run shares the target's object store, and a session's shell can open
+    any file of it, so the whole store is judged, nothing written, no transport allowed:
+
+    - whole: a bare, shallow or partial target is refused first, since what it lacks cannot be
+      judged (and a partial clone would fetch it on reading);
+    - by path: every commit reachable from ``commit``, from every ref (every branch, tag, other
+      namespace, the stash, every worktree's ``HEAD``) and from every reflog entry (older stashes
+      included), for any role's skill file, ``knowledge/*/skill.md`` in any letter case, of any
+      bytes, added, changed or removed at any commit;
+    - by presence: any tree or blob a ref, a tag or a reflog entry names directly, and any object
+      none of the above reaches (a dropped stash, a file staged and never committed, a loose
+      object nothing names, what an aborted merge left behind), whatever it holds, since no path
+      is left to judge it by (a ref to the root tree of a commit another ref names is judged
+      with that commit);
+    - by content: the bytes of ``skills``, the library's own skill files, anywhere in the store,
+      under any path;
+    - in every working tree of the store, the target's own and each linked one: any file at
+      ``knowledge/*/skill.md`` in any letter case, tracked, untracked or ignored, and any link
+      where it or its directories go (:func:`_require_no_skill_in_working_trees`).
+
+    The tips are named by the target itself, a tag by its own object; the history and the
+    objects are read through clean object stores, which hold none of the target's refs, so the
+    tips are handed to them on standard input or as a store's own refs, never as arguments.
+
+    Not judged: skill content under another path, in bytes the library does not hold now (a
+    renamed copy, ``skill.md.bak`` among them, in the store or a working tree); a submodule's
+    own store, which is another repository; a file put into a working tree of the target after
+    this check ran.
+
+    Raises:
+        DecompositionError: one of the rules finds one.
+        GitError: git could not read the target, or its store's connectivity.
+    """
+    _require_complete(repo)
+    tips = _tips(repo, commit)
+    object_format = git(
+        repo, *NO_TRANSPORT, "rev-parse", "--show-object-format", objects_only=True
+    ).strip()
+    # Each tip as what it peels to: a commit's history, a tree's paths, or a blob with neither.
+    peeled = git(
+        repo, *NO_TRANSPORT, "cat-file", "--batch-check=%(objecttype) %(objectname)",
+        stdin="".join(f"{tip}^{{}}\n" for tip in tips), objects_only=True,
+    )  # fmt: skip
+    kinds: dict[str, list[str]] = {}
+    for line in peeled.splitlines():
+        kind, _, oid = line.partition(" ")
+        kinds.setdefault(kind, []).append(oid)
+    pattern = f":(icase){(loader.DEFAULT_ROOT / '*' / loader.SKILL_NAME).as_posix()}"
+    found = git(
+        repo,
+        *NO_TRANSPORT,
+        "rev-list",
+        "--full-history",
+        "-1",
+        "--stdin",
+        "--",
+        pattern,
+        stdin="".join(f"{oid}\n" for oid in dict.fromkeys(kinds.get("commit", []))),
+        objects_only=True,
+    ).strip()
+    if found:
+        raise DecompositionError(SKILL_IN_TARGET, where="refs", commit=found)
+    if kinds.get("tree"):
+        # A tree has no path of its own: any file in it, at any depth, could be a skill file.
+        raise DecompositionError(TREE_IN_TARGET, where="a tree a ref names", first=kinds["tree"][0])
+    if kinds.get("blob"):
+        raise DecompositionError(
+            NAMELESS_IN_TARGET, where="a blob a ref names", first=kinds["blob"][0]
+        )
+    unreachable = unreachable_from(repo, tips)
+    if unreachable:
+        kind, oid = unreachable[0]
+        raise DecompositionError(
+            UNREACHABLE_IN_TARGET,
+            where="unreachable objects",
+            count=str(len(unreachable)),
+            first=f"{kind} {oid}",
+        )
+    if skills:
+        by_id = {_blob_id(data, object_format): rel for rel, data in sorted(skills.items())}
+        listed = git(
+            repo,
+            *NO_TRANSPORT,
+            "cat-file",
+            "--batch-check",
+            stdin="".join(f"{oid}\n" for oid in by_id),
+            objects_only=True,
+        )
+        for line in listed.splitlines():
+            oid, _, kind = line.partition(" ")
+            if kind != "missing" and oid in by_id:
+                raise DecompositionError(
+                    SKILL_IN_TARGET, where="object store", path=by_id[oid].as_posix()
+                )
+    _require_no_skill_in_working_trees(repo)
+
+
+def _working_trees(repo: Path) -> list[Path]:
+    """Every working tree of the target's store: its own and each linked one, as git lists them.
+
+    Read as bytes and each path turned by :func:`os.fsdecode`: a worktree record is a file of the
+    target's own, so a path in it need not be UTF-8, and it is walked as the bytes it names.
+    """
+    listed = git_bytes(repo, *NO_TRANSPORT, "worktree", "list", "--porcelain", "-z")
+    field = b"worktree "
+    return [
+        Path(os.fsdecode(item[len(field) :]))
+        for item in listed.split(b"\0")
+        if item.startswith(field)
+    ]
+
+
+def _shown(name: Path | str) -> str:
+    """``name`` as a refusal names it: its bytes, with any that are no UTF-8 escaped."""
+    return os.fsencode(name).decode("utf-8", errors="backslashreplace")
+
+
+def _entries(directory: str, root: Path, relative: str) -> list[os.DirEntry[str]]:
+    """What ``directory`` holds, sorted by name, no link followed; a refusal if it cannot be read.
+
+    Raises:
+        DecompositionError: the directory could not be listed.
+    """
+    try:
+        with os.scandir(directory) as found:
+            return sorted(found, key=lambda entry: entry.name)
+    except OSError as exc:
+        raise DecompositionError(
+            UNREADABLE_WORKING_TREE,
+            where="a working tree",
+            worktree=_shown(root),
+            path=_shown(relative or "."),
+            error=type(exc).__name__,
+        ) from None
+
+
+def _require_no_skill_in_working_trees(repo: Path) -> None:
+    """Refuse a working tree of the target holding ``knowledge/*/skill.md``, in any letter case.
+
+    Each working tree of the store (:func:`_working_trees`) is listed from the file system, so
+    nothing git tracks, ignores or leaves untracked changes what is found; only the two levels
+    the pattern names are listed (``<root>/knowledge/*/``), so ``.git`` is never entered. No link
+    is followed: a link at ``knowledge``, at ``knowledge/<x>`` or at a skill file's own path is
+    refused, since it could name a skill file anywhere. A working tree whose directory is gone
+    holds nothing and is passed over.
+
+    Raises:
+        DecompositionError: a skill file or such a link in a working tree, or a working tree
+            that could not be listed.
+    """
+    top, leaf = loader.DEFAULT_ROOT.as_posix().casefold(), loader.SKILL_NAME.casefold()
+    for root in _working_trees(repo):
+        if not os.path.lexists(root):
+            continue
+        for knowledge in _entries(str(root), root, ""):
+            if knowledge.name.casefold() != top:
+                continue
+            _refuse_a_link(knowledge, root, knowledge.name)
+            if not knowledge.is_dir(follow_symlinks=False):
+                continue
+            for role in _entries(knowledge.path, root, knowledge.name):
+                where = f"{knowledge.name}/{role.name}"
+                _refuse_a_link(role, root, where)
+                if not role.is_dir(follow_symlinks=False):
+                    continue
+                for held in _entries(role.path, root, where):
+                    if held.name.casefold() == leaf:
+                        _refuse_a_link(held, root, f"{where}/{held.name}")
+                        raise DecompositionError(
+                            SKILL_IN_WORKING_TREE,
+                            where="a working tree",
+                            worktree=_shown(root),
+                            path=_shown(f"{where}/{held.name}"),
+                        )
+
+
+def _refuse_a_link(entry: os.DirEntry[str], root: Path, relative: str) -> None:
+    """Refuse ``entry`` if it is a link, at a path where a skill file or its directory goes.
+
+    Raises:
+        DecompositionError: it is a link.
+    """
+    if entry.is_symlink():
+        raise DecompositionError(
+            LINK_IN_WORKING_TREE,
+            where="a working tree",
+            worktree=_shown(root),
+            path=_shown(relative),
+        )
 
 
 #: The sentence integration's specification states the run's gate mode in, one per mode. The
@@ -1590,6 +2295,13 @@ def _planned_subtasks(plan: Plan, config: RunConfig) -> list[_Issued]:
         raise DecompositionError(
             msg, integrated=str(isinstance(plan, IntegratedPlan)), completion=", ".join(completion)
         )
+    if isinstance(plan, PartsPlan) != (config.parts_on_hand == "on"):
+        # A run that asks is started only from a plan that answers, and a run that does not
+        # ask from a plan with no list: a list nobody decides would be a part nobody chose.
+        msg = "the plan is not of the form the run's switch for a parts list calls for"
+        raise DecompositionError(
+            msg, listed=str(isinstance(plan, PartsPlan)), parts_on_hand=config.parts_on_hand
+        )
     if isinstance(plan, IntegratedPlan):
         # The plan check holds them first; held again here, before anything is written,
         # since the line that records them is refused on these rules.
@@ -1790,12 +2502,22 @@ def start_run(
             head_revision=head,
             policy_limits_sha256=outcome.policy_limits_sha256,
             observed_traffic=outcome.observed_traffic,
+            flag_cache=outcome.flag_cache,
             plan_sha256=plan_sha256(plan),
             interface_consumers=consumers,
             system_requirements=requirements,
             contract_pairs=pairs,
+            design_pairs=_design_pairs(plan, planned) or None,
+            design_mutual=_design_pairs(plan, planned, mutual=True) or None,
+            design_misordered=planned_misorders(
+                plan,
+                sorted(config.models.roles),
+                {one.module: one.entry.subtask_id for one in planned[: len(plan.modules)]},
+            )
+            or None,
             brief_words=words or None,
             followable=followable,
+            components=plan.components if isinstance(plan, PartsPlan) else None,
         ),
         reviewed=reviewed,
         earlier=earlier,
@@ -1803,6 +2525,7 @@ def start_run(
         retried=retried,
     )
     record.hold_plan()  # a plan its review did not pass, under on: the one item it is held on
+    record.hold_parts()  # each part a person decides, once no plan's review holds the run
     return record
 
 
@@ -1846,6 +2569,11 @@ def require_startable(
             raise PlanRefusedError(msg, node=node.id[:64], reason=str(exc)) from None
     try:
         curated = read_library(library, (one.entry.assigned_role for one in planned))
+        if config.skills == "off":
+            # The ablation arm: no skill file goes into the target, and none may be there already.
+            left_out = skill_files(curated)
+            require_no_skill_file(target_repo, config.target_head, left_out)
+            curated = {path: data for path, data in curated.items() if path not in left_out}
         # The series writer goes with the library: a role's scripts import it from
         # .physgate/lib, and the run branch holds the very bytes the harness ships.
         curated.update(series_library())
@@ -1896,6 +2624,21 @@ def _contract_pairs(plan: Plan, planned: Sequence[_Issued]) -> tuple[ContractPai
         return plan_pairs(plan, subtask_of)
     except ContractError as exc:
         raise DecompositionError(str(exc), **exc.context) from None
+
+
+def _design_pairs(
+    plan: Plan, planned: Sequence[_Issued], *, mutual: bool = False
+) -> tuple[DesignPair, ...]:
+    """The plan's design pairs, with each module's subtask, in the order the run dispatches them.
+
+    The plan modules are the first of ``planned``, one each, in run order; a closing pass and
+    integration follow them and are no module of the plan, so neither is a designer or a builder.
+    With ``mutual``, each of those pairs the other way round instead (:func:`plan_mutual_namings`).
+    """
+    modules = planned[: len(plan.modules)]
+    subtask_of = {one.module: one.entry.subtask_id for one in modules}
+    read = plan_mutual_namings if mutual else plan_design_pairs
+    return read(plan, subtask_of, [one.module for one in modules])
 
 
 def _lists(

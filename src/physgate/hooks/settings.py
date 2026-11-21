@@ -25,15 +25,17 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import stat
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 import physgate
+from physgate.flags import Hooks
 from physgate.hooks import shell_startup
 from physgate.hooks.config import (
     AbsolutePath,
@@ -53,14 +55,18 @@ from physgate.hooks.reasons import GATE_REASON as GATE_REASON
 from physgate.hooks.reasons import GIT_USER_CONFIG_REASON as GIT_USER_CONFIG_REASON
 from physgate.hooks.reasons import HARNESS_REASON as HARNESS_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
+from physgate.hooks.reasons import HOME_CLAUDE_REASON as HOME_CLAUDE_REASON
 from physgate.hooks.reasons import HOOK_STATE_REASON as HOOK_STATE_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
+from physgate.hooks.reasons import SENTINEL_APART_REASON as SENTINEL_APART_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import SESSION_TEMPS_REASON as SESSION_TEMPS_REASON
 from physgate.hooks.reasons import SESSIONS_REASON as SESSIONS_REASON
 from physgate.hooks.reasons import SHELL_STARTUP_REASON as SHELL_STARTUP_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
+from physgate.hooks.reasons import TOOL_ENVIRONMENT_REASON as TOOL_ENVIRONMENT_REASON
 from physgate.hooks.reasons import WITHHELD_REASON as WITHHELD_REASON
+from physgate.hooks.reasons import WITHHELD_WHOLE_REASON as WITHHELD_WHOLE_REASON
 from physgate.hooks.reasons import series_outbox_reason
 from physgate.hooks.runtime import EVENTS, HookSpec
 from physgate.oslayer import reaper_install
@@ -68,6 +74,7 @@ from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.policy import NETWORK_UNENFORCED, sandbox_policy
 from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
 from physgate.oslayer.session_temp import session_temps_root
+from physgate.toolenv.register import load_register, server_tools
 
 WATCHDOG_SECONDS = 5
 HOOK_TIMEOUT_SECONDS = 30
@@ -88,6 +95,18 @@ PROFILE_TOOLS: Mapping[Profile, tuple[str, ...]] = {
     "baseline": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
 }
 
+#: The tool servers each profile's sessions may be offered, by their names in the register.
+#: A role session and the raw agent get the identical set: the environment is the same for
+#: every role, and the comparison is with the same tools. A reviewer and the orchestrator get
+#: none.
+_EVERY_SERVER = tuple(sorted(load_register().servers))
+PROFILE_SERVERS: Mapping[Profile, tuple[str, ...]] = {
+    "role": _EVERY_SERVER,
+    "reviewer": (),
+    "orchestrator": (),
+    "baseline": _EVERY_SERVER,
+}
+
 #: The web tools, which bring in text nobody reviewed.
 WEB_TOOLS = ("WebFetch", "WebSearch")
 #: The tools each profile's settings deny, a second layer beside the tools hook: a deny rule
@@ -96,12 +115,33 @@ WEB_TOOLS = ("WebFetch", "WebSearch")
 #: hook was their only layer, and ``network: none`` binds a session's shell but not its WebFetch
 #: tool. Every profile denies them. A profile made to read the web (a researcher's) would be the
 #: one exception, and would be listed here without them, with its own test.
+#:
+#: The binary's search tool is denied to every profile too. With it on (2.1.322 by default, and
+#: 2.1.301 against the live API host) the binary leaves a tool server's tools out of the request
+#: and tells the model to load them through that tool, which no closed list names; with it
+#: denied the binary offers every server tool directly, on both pins, whatever the environment
+#: says of tool search (measured, 14.11.2026). Nothing is widened: a session reaches no tool it
+#: could not, and each call still reaches the tools hook by its own name.
+TOOL_SEARCH = "ToolSearch"
+_DENIED = (*WEB_TOOLS, TOOL_SEARCH)
 PROFILE_DENIED: Mapping[Profile, tuple[str, ...]] = {
-    "role": WEB_TOOLS,
-    "reviewer": WEB_TOOLS,
-    "orchestrator": WEB_TOOLS,
-    "baseline": WEB_TOOLS,
+    "role": _DENIED,
+    "reviewer": _DENIED,
+    "orchestrator": _DENIED,
+    "baseline": _DENIED,
 }
+
+
+def session_tool_search() -> Literal["offered", "denied"]:
+    """Whether the sessions' settings deny the binary's search tool, as a run records it.
+
+    Read from :data:`PROFILE_DENIED`, never from a run's parameters: ``denied`` while every
+    profile denies it. What a pin sends depends on it (the search tool's beta flag on 2.1.322),
+    so a run's manifest reads the defaults measured for the setting the run recorded.
+    """
+    every = all(TOOL_SEARCH in denied for denied in PROFILE_DENIED.values())
+    return "denied" if every else "offered"
+
 
 #: The events on which Claude Code applies a tool matcher.
 _TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure"}
@@ -129,11 +169,20 @@ class InstallRequest(BaseModel):
     #: ``corpora`` directory, which is always one.
     answer_keys: tuple[AbsolutePath, ...] = ()
     extra_protected: tuple[AbsolutePath, ...] = ()
+    #: Paths beneath an ``extra_protected`` root that the root does not protect after all:
+    #: the one place under it a session writes (a blind check's own directory inside the
+    #: tier-set store, which holds its worktree). Each must lie beneath one of those roots.
+    extra_protected_exceptions: tuple[AbsolutePath, ...] = ()
     #: Paths no session tool may write, but which the runtime or the spawner writes
     #: while the session runs (its captured stream, its process record), so the
     #: sentinel must not put them back. Only the layers that refuse a write before
     #: it happens protect them.
     extra_protected_refuse_only: tuple[AbsolutePath, ...] = ()
+    #: The roots of the run's recorded tool environment: read and run by the session's
+    #: commands, written by none. Far too large to put back, so only the layers that refuse a
+    #: write before it happens protect them; the dispatcher refuses the next session if any
+    #: entry changed.
+    tool_environment_roots: tuple[AbsolutePath, ...] = ()
     #: The run's directory of every session's own directory (its ``sessions/``), which holds
     #: each session's login, captured stream, settings and hook records. Refused to every write;
     #: for a role or baseline session refused to every read of the hooks too, its own home
@@ -149,6 +198,26 @@ class InstallRequest(BaseModel):
     #: recorded configuration, which holds the held-out tier's canaries. Each is put back
     #: like any protected root, and refused to every read as well.
     withheld: tuple[AbsolutePath, ...] = ()
+    #: The run's place, outside every place of any session's own, where the hook sentinel keeps
+    #: the part of its record that names the protected entries: each entry beneath a root no
+    #: session reads (the held-out tier, the answer keys, the run's withheld records), by its
+    #: path, with its digest. The session's own directory can lie later where people and other
+    #: sessions read; this place no session reads or writes on any layer, and the sentinel
+    #: writes it while the session runs, so it is never put back. ``None``: the record is kept
+    #: whole in the session's hook state, as a session installed before the place existed has.
+    sentinel_apart: AbsolutePath | None = None
+    #: Roots withheld from the session whole, by rule rather than by a list taken now, but for
+    #: the worktree in ``own_place``: a protected trial's session in the store's work root, a
+    #: blind check's in the store. Whatever is made in them later, by anything, is refused to
+    #: every read and write on every layer; the session's worktree is not. Given with
+    #: ``own_place`` only, and both or neither.
+    withheld_whole: tuple[AbsolutePath, ...] = ()
+    #: The session's own place inside every ``withheld_whole`` root: a real directory, reached
+    #: through no link, holding the worktree. Its tools read and write the worktree there exactly
+    #: as spelt (no link, no file with a second name), and nothing else of the place but the
+    #: directory of its interpreter, read only (``os_layer_readable`` there); the OS layer opens
+    #: the same.
+    own_place: AbsolutePath | None = None
     #: The source checkout the orchestrator runs from, when it runs from one: the
     #: gate's source, the curated library and the frozen experiments the run is
     #: judged by. A session in any other worktree may write none of it.
@@ -202,6 +271,49 @@ class InstallRequest(BaseModel):
     #: spawn does. A session that gets the reaper is refused without it: its reaper could
     #: never prove its fence, and every command would be refused.
     spawns_with_canary: bool = False
+    #: The tool servers the session is offered, by their names in the tool-server register.
+    #: Their admitted tools join the session's closed list; only a profile whose server set
+    #: names them may be offered them (:data:`PROFILE_SERVERS`).
+    tool_servers: tuple[str, ...] = ()
+    #: Whether the session is held to the harness's design discipline: ``off`` is an ablation
+    #: run's arm (see :data:`DISCIPLINE_HOOKS` and :func:`build_config`), for a role session only.
+    #: The installer command takes it only for a run whose recorded configuration says so.
+    hooks: Hooks = "on"
+    #: For a reviewer whose run allows compaction (ARCH-060): the required files it reads again
+    #: in full after each compaction, and the note it is told then. Empty for every other
+    #: session, whose configuration is written with the bytes it always had.
+    after_compaction: tuple[AbsolutePath, ...] = ()
+    compaction_note: str | None = None
+
+    @model_validator(mode="after")
+    def _only_a_role_session_drops_the_discipline(self) -> InstallRequest:
+        if self.hooks == "off" and self.profile != "role":
+            msg = (
+                "only a role session is installed with hooks: off; the discipline it drops is "
+                f"the harness's over design work, and a {self.profile} session does none"
+            )
+            raise ValueError(msg)
+        return self
+
+
+#: The hooks that hold a role session to the harness's design discipline: required reading
+#: (ARCH-024), the always-loaded ceiling (ARCH-023) and the checks on a proposal, a completion
+#: declaration and a dispute before each is written. ``hooks: off`` wires none of them. Each is
+#: checked again where it counts, so dropping the first check measures it without opening a
+#: route: a proposal by the change check and the store at apply, the declaration and a dispute
+#: by the change check and the loop, and every shell route to those files by the OS layer.
+DISCIPLINE_HOOKS = ("graph", "reading", "token_ceiling")
+
+
+def full_session(request: InstallRequest) -> InstallRequest:
+    """``request`` as a full role session's, the discipline on: what the OS layer is made of."""
+    return request.model_copy(update={"hooks": "on"})
+
+
+def wired_hooks(request: InstallRequest, registry: Mapping[str, HookSpec]) -> dict[str, HookSpec]:
+    """The hooks ``request``'s session runs: all of ``registry``, or all but the discipline's."""
+    dropped = DISCIPLINE_HOOKS if request.hooks == "off" else ()
+    return {name: spec for name, spec in registry.items() if name not in dropped}
 
 
 #: The longest temporary directory Claude Code takes for a sandboxed session. A longer
@@ -248,6 +360,65 @@ def _inside(path: str, root: str) -> bool:
 #: the human-run promotion command.
 KNOWLEDGE_DIR_NAME = "knowledge"
 KNOWLEDGE_STAGING_NAME = "staging"
+
+
+def _beneath(path: str, root: str) -> bool:
+    """Whether ``path`` lies strictly beneath ``root``, both as spelt (normalised, not resolved)."""
+    inner, outer = PurePosixPath(os.path.normpath(path)), PurePosixPath(os.path.normpath(root))
+    return inner != outer and inner.is_relative_to(outer)
+
+
+def _whole_roots_refusal(request: InstallRequest) -> str | None:
+    """Why the request's roots withheld whole and its own place may not be installed, or ``None``.
+
+    Both or neither; the place a real directory, not a link and reached through none from any
+    root, lying strictly inside every root as spelt and as the system resolves it; the worktree
+    inside the place.
+    """
+    roots, place = request.withheld_whole, request.own_place
+    if not roots and place is None:
+        return None
+    if not roots or place is None:
+        return "a root withheld whole and the session's own place in it are given together"
+    try:
+        st = os.lstat(place)
+    except OSError as exc:
+        return f"the session's own place {place} is not there ({exc.strerror})"
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+        return f"the session's own place {place} is not a directory (a link is not one)"
+    real = os.path.realpath(place)
+    for root in roots:
+        resolved = os.path.realpath(root)
+        if not (_beneath(place, root) and _beneath(real, resolved)):
+            return f"the session's own place {place} does not lie inside the root {root}"
+        # Every step from the root down to the place is a directory, never a link.
+        if real != os.path.join(resolved, os.path.relpath(place, root)):
+            return f"the session's own place {place} is reached through a link inside {root}"
+    if not _beneath(os.path.realpath(request.worktree), real):
+        return f"the worktree {request.worktree} does not lie in the session's own place {place}"
+    return None
+
+
+def _own_in_place(request: InstallRequest) -> tuple[str, tuple[str, ...]]:
+    """What the session reaches of the roots withheld whole: its worktree, and what else it reads.
+
+    The worktree, spelt beneath the own place as the place is given (the place is checked to be
+    reached through no link, and the worktree to lie in it where it really is), is read and
+    written. Beside it, the one thing named exactly: each further place of its own the OS layer
+    opens to its commands (``os_layer_readable``: the directory of the interpreter they run)
+    that lies in the place, never in its home, where its commands write and could make a link.
+    Read only. Nothing else of the place: its login, its hook records and anything made there
+    beside the worktree are refused, as the OS layer refuses them.
+    """
+    place = str(request.own_place)  # given with the roots (checked before)
+    real = os.path.realpath(place)
+    worktree = os.path.join(place, os.path.relpath(os.path.realpath(request.worktree), real))
+    interpreter = tuple(
+        p
+        for p in request.os_layer_readable
+        if _inside(p, place) and not _inside(p, request.user_home)
+    )
+    return os.path.normpath(worktree), interpreter
 
 
 def _knowledge_root(worktree: Path) -> str:
@@ -347,15 +518,79 @@ def _startup_watch(site_packages: Path) -> tuple[str, ...]:
     )
 
 
-def _design_discipline(worktree: Path) -> tuple[str, ...]:
-    """The roots that are the harness's discipline over a design worktree, not integrity."""
+def _is_the_installing_user_s_home(home: Path) -> bool:
+    """True where a session is given the home of the user installing it, not a scratch one.
+
+    That home's ``.claude`` is the user's own Claude Code directory, which their other
+    sessions read and write: it is left to the two named files, as before.
+    """
+    try:
+        return home.resolve() == Path.home().resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
+def _worktree_sources(worktree: Path) -> tuple[str, ...]:
+    """The worktree's own copies of the gate source, the hook source and the knowledge tree.
+
+    Protecting them is discipline, not integrity: the live gate and hooks run from the harness
+    checkout and the installation, and the library a run trusts is the harness checkout's.
+    """
     return (
         str(worktree / "src" / "physgate" / "gate"),
         str(worktree / "src" / "physgate" / "hooks"),
         _knowledge_root(worktree),
+    )
+
+
+def _design_discipline(worktree: Path) -> tuple[str, ...]:
+    """The roots that are the harness's discipline over a design worktree, not integrity."""
+    return (
+        *_worktree_sources(worktree),
         str(worktree / ".physgate" / "lib"),
         str(worktree / ".physgate" / "series"),
     )
+
+
+def _tools_allowed(request: InstallRequest) -> tuple[str, ...]:
+    """The profile's list, and the admitted tools of the servers the session is offered.
+
+    Raises:
+        ValueError: a server is named twice, is not in the register, or is not one the
+            profile may be offered.
+    """
+    servers = request.tool_servers
+    if len(set(servers)) != len(servers):
+        msg = f"a tool server is named twice: {sorted(servers)}"
+        raise ValueError(msg)
+    for server in servers:
+        if server not in PROFILE_SERVERS[request.profile]:
+            msg = f"a {request.profile} session may not be offered the tool server {server!r}"
+            raise ValueError(msg)
+    return (*PROFILE_TOOLS[request.profile], *server_tools(load_register(), servers))
+
+
+def _withheld_inside_the_harness(request: InstallRequest) -> str | None:
+    """Why a place of the run's that no session reads lies in the harness checkout, if one does.
+
+    The run's withheld records, a root withheld whole, the sentinel's place apart and the run's
+    session directories belong to a run, never to the checkout it is judged by. Inside it, each
+    would sit beneath a root whose bytes the sentinel keeps, and a session's own issued state in
+    the session directories would be refused as the checkout's.
+    """
+    if request.harness_root is None:
+        return None
+    places = {
+        "a withheld run record": request.withheld,
+        "a root withheld whole": request.withheld_whole,
+        "the sentinel's place apart": (request.sentinel_apart,),
+        "the run's session directories": (request.sessions_root,),
+    }
+    for what, paths in places.items():
+        for path in (p for p in paths if p is not None):
+            if _inside(path, request.harness_root):
+                return f"{what} ({path}) is inside the harness checkout {request.harness_root}"
+    return None
 
 
 def build_config(request: InstallRequest, installation: Installation) -> SessionConfig:
@@ -377,6 +612,9 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         if _inside(path, request.worktree):
             msg = f"{what} ({path}) is inside the worktree, where the session could change it"
             raise ValueError(msg)
+    harness_refusal = _withheld_inside_the_harness(request)
+    if harness_refusal is not None:
+        raise ValueError(harness_refusal)
     for root in request.read_roots:
         if not root.strip("/"):
             msg = f"the read root {root!r} names the whole filesystem"
@@ -440,6 +678,13 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         # is what it is measured without.
         for path in _design_discipline(worktree):
             protected.pop(path, None)
+    if request.hooks == "off":
+        # An ablation run's arm without the design discipline: the hooks leave the worktree's own
+        # sources to the file tools, and nothing else. The OS layer still denies them to every
+        # shell command (``install``). The series writer and its outbox are kept, unlike the raw
+        # agent's: the gate and the reviewers read the records sealed through them.
+        for path in _worktree_sources(worktree):
+            protected.pop(path, None)
     # The one root the OS layer leaves to scripts: a record arrives by a script's own write,
     # which no OS rule can tell from any other command's, and the collector judges it.
     outbox = str(worktree / ".physgate" / "series")
@@ -467,6 +712,21 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         request.state_dir: "denied",
         request.claude_config_dir: "shell_denied",
     }
+    if not _is_the_installing_user_s_home(home):
+        # A scratch home is the session's own to write, all but the one directory in it the
+        # binary treats as a user's own: skills, mods, commands and settings a user keeps are
+        # read from a directory of that name, and a file a session left there is a file a
+        # later version may load. Whole, both ways, for every tool and every command.
+        # Where the OS layer does not run, nothing stands behind the hooks: whatever appears
+        # there is put back, and the binary makes nothing there itself (measured on 2.1.301
+        # and 2.1.322). Where it runs, the layer denies the write, and the root is not put
+        # back, because the runtime then makes directories there before a shell command
+        # (measured on macOS, 12.11.2026: 2.1.301 makes ``.claude`` and ``bridge-spawn`` in
+        # it, 2.1.322 those and ``ssh``, with other modes), as it writes its configuration
+        # directory.
+        watched: Watch = "revert" if request.os_layer_temp_dir is None else "none"
+        protected[str(home / ".claude")] = (HOME_CLAUDE_REASON, watched)
+        reads[str(home / ".claude")] = "denied"
     reaper_on = request.os_layer_temp_dir is not None and reaper_install.wanted()
     if reaper_on:
         # The reaper's front tells a hook command from a sandboxed one by whether it can
@@ -490,6 +750,17 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         root_exceptions[site_packages] = _startup_watch(Path(site_packages))
     for path in request.extra_protected:
         protected.setdefault(path, ("the orchestrator protects it for this session", "revert"))
+        carved = tuple(e for e in request.extra_protected_exceptions if _inside(e, path))
+        if carved:
+            root_exceptions[path] = carved
+    stray = [
+        e
+        for e in request.extra_protected_exceptions
+        if not any(_inside(e, path) for path in request.extra_protected)
+    ]
+    if stray:
+        msg = f"an exception lies beneath no root the session is protected from: {stray}"
+        raise ValueError(msg)
     for path in request.extra_protected_record:
         protected.setdefault(
             path,
@@ -508,6 +779,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             ),
         )
         reads.setdefault(path, "shell_denied")
+    for path in request.tool_environment_roots:
+        # Refused and never put back, and left open to every read: the session's commands run
+        # the interpreter and the build tools there and import its libraries.
+        protected.setdefault(path, (TOOL_ENVIRONMENT_REASON, "none"))
     read_exceptions: dict[str, tuple[str, ...]] = {}
     if request.sessions_root is not None:
         sessions = request.sessions_root
@@ -531,6 +806,22 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         else:
             protected.setdefault(sessions, (SESSIONS_REASON, "none"))
             reads.setdefault(sessions, "shell_denied")
+    if request.sentinel_apart is not None:
+        apart = request.sentinel_apart
+        places: list[str | None] = [request.worktree, request.user_home, request.state_dir]
+        places += [request.target_dir]
+        places += [request.claude_config_dir, request.os_layer_temp_dir, request.temp_dir]
+        for place in (p for p in places if p is not None):
+            if _inside(apart, place) or _inside(place, apart):
+                msg = (
+                    f"the sentinel's place apart {apart} and the session's own place {place} "
+                    "overlap: what it keeps apart would lie where the session reaches"
+                )
+                raise ValueError(msg)
+        # Assigned, not defaulted: refused to every read and write on every layer, and never
+        # put back, since the sentinel writes it while the session runs.
+        protected[apart] = (SENTINEL_APART_REASON, "none")
+        reads[apart] = "denied"
     if request.profile in OWN_TEMP_PROFILES:
         # The temporary directory every Claude Code session of the user shares, which holds the
         # other sessions' task outputs, the operator's among them. This session's binary is
@@ -557,6 +848,22 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     for path in request.held_out:
         protected.setdefault(path, (HELD_OUT_REASON, "revert"))
         reads[path] = "denied"
+    refusal = _whole_roots_refusal(request)
+    if refusal is not None:
+        raise ValueError(refusal)
+    for path in request.withheld_whole:
+        excepted, interpreter = _own_in_place(request)
+        # Assigned, not defaulted: refused to every read and write but the session's worktree in
+        # its own place, whatever is made there later, the rest of the place included: the OS
+        # layer opens the worktree alone, and the two layers say the same. Put back as it was if
+        # it was already (a blind check's store, written by none of its tools), and otherwise
+        # never: it is not snapshotted, so an entry made there by another process is refused,
+        # not removed.
+        watch = protected[path][1] if path in protected else "none"
+        protected[path] = (WITHHELD_WHOLE_REASON, watch)
+        reads[path] = "denied"
+        read_exceptions[path] = (excepted, *interpreter)
+        root_exceptions[path] = tuple(dict.fromkeys((*root_exceptions.get(path, ()), excepted)))
     answer_keys = sorted({str(worktree / "corpora"), *request.answer_keys})
     for path in answer_keys:
         protected.setdefault(path, (ANSWER_KEY_REASON, "revert"))
@@ -564,7 +871,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     if request.store_root is not None:
         protected[request.store_root] = (STORE_REASON, "journal")
     for path in protected:
-        if _inside(request.worktree, path):
+        # A worktree inside one of the root's own exceptions is written there, not refused.
+        if _inside(request.worktree, path) and not any(
+            _inside(request.worktree, e) for e in root_exceptions.get(path, ())
+        ):
             msg = (
                 f"the protected path {path} contains the worktree, so every write would be refused"
             )
@@ -612,15 +922,32 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
                 )
             )
         ),
-        required_reading=tuple(sorted(request.required_reading)),
-        always_loaded=tuple(sorted(request.always_loaded)),
+        # Under hooks: off nothing is required to be read and no ceiling is measured; what the
+        # session is given to read stays readable (its read exceptions above are the request's).
+        required_reading=() if request.hooks == "off" else tuple(sorted(request.required_reading)),
+        always_loaded=() if request.hooks == "off" else tuple(sorted(request.always_loaded)),
         token_ceiling=request.token_ceiling,
-        tools_allowed=tuple(sorted(PROFILE_TOOLS[request.profile])),
+        tools_allowed=tuple(sorted(_tools_allowed(request))),
         installation=installation,
         watchdog_seconds=WATCHDOG_SECONDS,
         hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
         survivor_reaper=reaper_on,
+        os_layer=request.os_layer_temp_dir is not None,
+        after_compaction=tuple(sorted(request.after_compaction)),
+        compaction_note=request.compaction_note,
     )
+
+
+#: The configuration's fields left out of its written bytes when empty: only a reviewer whose
+#: run allows compaction has the first two, and only a session inside the OS layer the third,
+#: so every other session's configuration keeps its bytes.
+_LEFT_OUT_WHEN_EMPTY = ("after_compaction", "compaction_note", "os_layer")
+
+
+def config_bytes(config: SessionConfig) -> bytes:
+    """The configuration's bytes as the installer writes them and the hooks read them."""
+    absent = {name for name in _LEFT_OUT_WHEN_EMPTY if not getattr(config, name)}
+    return _dump(config.model_dump(mode="json", exclude=absent))
 
 
 #: Where :func:`protected_in_a_worktree` places the role session it asks about. Nothing is
@@ -950,20 +1277,25 @@ def install(
         misplaced = placement_refusal(Path(request.worktree), writable)
         if misplaced is not None:
             raise ValueError(misplaced)
-    config = build_config(request, installation or current_installation())
+    installation = installation or current_installation()
+    config = build_config(request, installation)
     target = Path(request.target_dir)
     target.mkdir(parents=True, exist_ok=True)
     config_path = target / CONFIG_NAME
-    config_bytes = _dump(config.model_dump(mode="json"))
+    written = config_bytes(config)
     # The shape is validated where it is written, through the schema, on the very
     # bytes the hooks will read and whose digest they carry: the hooks validate
     # them again with the standard-library validator a test holds to this one.
-    if SessionConfig.model_validate_json(config_bytes) != config:
+    if SessionConfig.model_validate_json(written) != config:
         msg = "the configuration does not read back as the one that was built"
         raise ValueError(msg)
-    config_path.write_bytes(config_bytes)
+    config_path.write_bytes(written)
     settings = render_settings(
-        config, str(config_path), digest(config_bytes), registry, request.api_key_helper
+        config,
+        str(config_path),
+        digest(written),
+        wired_hooks(request, registry),
+        request.api_key_helper,
     )
     spawn_env = {"CLAUDE_CONFIG_DIR": request.claude_config_dir}
     if request.profile in OWN_TEMP_PROFILES:
@@ -1001,7 +1333,10 @@ def install(
             spawn_env.update(reaper_install.spawn_env(reaper_dir))
         _make_file_tool_dirs(request.worktree)
         policy = sandbox_policy(
-            config,
+            # Under hooks: off the hooks drop the discipline and the OS layer keeps every rule it
+            # gives a full role session: the arm switches off hooks, not the operating system's
+            # layer, so the layer is generated from the registry a full session's hooks read.
+            config if request.hooks == "on" else build_config(full_session(request), installation),
             home=request.user_home,
             temp_dir=temp,
             readable=readable,

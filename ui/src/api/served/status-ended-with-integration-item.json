@@ -1,0 +1,52 @@
+{
+  "acts": true,
+  "completion": {
+    "modules": [
+      {
+        "open": [
+          {
+            "name": "system_scope",
+            "reason": "the system-scope result failed at magnitude in on"
+          },
+          {
+            "name": "sign_off",
+            "reason": "its stability margin owes a person's sign-off: no approve that acts was given on the values queue item run-1-sign-off-c1-r2 shows"
+          }
+        ],
+        "sizing": false,
+        "state": "sign_off_owed",
+        "subtask_id": "c1"
+      },
+      {
+        "open": [
+          {
+            "name": "system_scope",
+            "reason": "the system-scope result failed at magnitude in on"
+          }
+        ],
+        "sizing": false,
+        "state": "not_declared",
+        "subtask_id": "s2"
+      }
+    ],
+    "owner": true
+  },
+  "ends_on_sign_offs_alone": false,
+  "halted": null,
+  "held": [],
+  "last_line_at": "2026-09-26T12:00:00.003000Z",
+  "misordered": [],
+  "next_step": {
+    "attempt": null,
+    "kind": "escalated",
+    "point": null,
+    "subtask_id": null
+  },
+  "owed_halt": null,
+  "server_now": "2026-11-21T14:29:12.009736Z",
+  "sign_offs_open_to_decide": [],
+  "sign_offs_owed": ["c1"],
+  "silence_bound_s": null,
+  "superseded": {},
+  "waiting": []
+}

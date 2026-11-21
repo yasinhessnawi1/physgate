@@ -1,0 +1,250 @@
+/* The Evidence screen: its tabs, each kind of run in a section of its own, the runs side by side,
+   the spend's tables and the comparison. Every colour, size and duration is a token. */
+
+.pg-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.evidence-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.evidence-note {
+  margin: 0;
+  color: var(--color-text-2);
+}
+
+.evidence-label {
+  display: block;
+  font-weight: 600;
+}
+
+.evidence-subtitle {
+  margin: var(--space-3) 0 var(--space-2);
+  font-size: var(--type-section-title-size);
+  line-height: var(--type-section-title-line);
+  font-weight: 600;
+}
+
+.evidence-kind {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.evidence-kind-tag,
+.evidence-kind > .pg-btn {
+  align-self: flex-start;
+}
+
+.evidence-run-name {
+  display: block;
+  font-weight: 600;
+}
+
+.evidence-root {
+  display: block;
+  color: var(--color-text-2);
+  font-size: var(--type-mono-small-size);
+}
+
+.evidence-value {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-small-size);
+  overflow-wrap: anywhere;
+}
+
+.evidence-matrix th[scope="row"] .pg-id,
+.evidence-compare th[scope="row"] .pg-id {
+  display: block;
+}
+
+.evidence-group td {
+  font-weight: 600;
+  color: var(--color-text-2);
+  background: var(--color-surface-2);
+}
+
+.evidence-view {
+  display: block;
+  font-weight: 400;
+  color: var(--color-text-2);
+}
+
+.evidence-at-least {
+  color: var(--color-text-2);
+}
+
+.evidence-mark,
+.evidence-marks,
+.evidence-sources,
+.evidence-choosers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.evidence-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.evidence-field select {
+  min-height: var(--size-touch-min);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: var(--space-4);
+}
+
+.evidence-reason {
+  display: block;
+  color: var(--color-text-2);
+}
+
+.evidence-pairs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+
+.evidence-pairs dt {
+  font-weight: 600;
+}
+
+.evidence-pairs dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.evidence-apart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.evidence-compare tr[data-differs="true"] th {
+  border-left: 2px solid var(--color-border-strong);
+}
+
+/* The gap trend: a point per gap with its interval, never a line through the points. */
+
+.evidence-figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  min-width: 0;
+}
+
+.evidence-chart {
+  display: block;
+  width: 100%;
+  max-width: 40rem;
+  height: auto;
+}
+
+.evidence-chart line[data-part="axis"],
+.evidence-chart line[data-part="tick"] {
+  stroke: var(--color-border-strong);
+  stroke-width: 1;
+}
+
+.evidence-chart line[data-part="zero"] {
+  stroke: var(--color-text-3);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.evidence-chart line[data-part="whisker"] {
+  stroke: var(--color-text-2);
+  stroke-width: 1.5;
+}
+
+.evidence-chart-label {
+  fill: var(--color-text-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.evidence-chart-label[data-missing="true"] {
+  fill: var(--color-text-3);
+}
+
+.evidence-gap-mark[data-kind="reward_hacking"] circle {
+  fill: var(--color-accent);
+  stroke: var(--color-surface);
+  stroke-width: 1.5;
+}
+
+.evidence-gap-mark[data-kind="optimiser_overfit"] rect {
+  fill: var(--color-surface);
+  stroke: var(--color-text-2);
+  stroke-width: 2;
+}
+
+.evidence-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  color: var(--color-text-2);
+}
+
+.evidence-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.evidence-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+}
+
+.evidence-legend-item[data-kind="reward_hacking"] .evidence-swatch {
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.evidence-legend-item[data-kind="optimiser_overfit"] .evidence-swatch {
+  border: 2px solid var(--color-text-2);
+  background: var(--color-surface);
+}
+
+.evidence-gaps td .evidence-reason {
+  font-size: var(--type-mono-small-size);
+}
+
+.evidence-warn {
+  color: var(--color-warn);
+}
+
+.evidence-gaps td[data-version] .pg-id-wrap,
+.evidence-gaps td .evidence-value {
+  white-space: nowrap;
+}

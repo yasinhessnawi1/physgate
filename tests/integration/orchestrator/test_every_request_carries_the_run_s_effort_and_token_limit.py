@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from git_rig import PARAMS, Gate, Reviewer, config, target_repo
+from git_rig import Gate, Reviewer, config, run_params, target_repo
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
 from physgate.cli import main
@@ -62,7 +62,7 @@ def test_the_decomposition_and_every_session_request_carry_the_recorded_pins(
     run_dir = tmp_path / "run"
     install = tmp_path / "install"
     prepare_install(install, Path(__file__).resolve().parents[3])
-    params = {**config().model_dump(include=PARAMS), "effort": "low", "max_output_tokens": 1000}
+    params = {**run_params(config()), "effort": "low", "max_output_tokens": 1000}
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)

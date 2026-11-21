@@ -22,18 +22,15 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
     _plan,
     _setup,
     _tasks,
+    _versions,
     _write_task,
 )
 
 from physgate.evaluation.per_role import author_session
-from physgate.evaluation.per_role.author_session import (
-    AuthorProgress,
-    author,
-    held_out_tier,
-    pool_dir,
-)
+from physgate.evaluation.per_role.author_session import AuthorProgress, author
 from physgate.evaluation.per_role.validate import sound
 from physgate.evaluation.tiers.authoring import AuthoringError
+from physgate.evaluation.tiers.store import pool_dir
 
 #: A canary flag the record does not carry at all.
 ABSENT = "absent"
@@ -42,7 +39,10 @@ WITHIN_S = 30.0
 
 
 def _listed(directory: Path) -> list[str]:
-    return sorted(p.name for p in directory.iterdir()) if directory.is_dir() else []
+    """What ``directory`` holds, its own records (a name beginning with a dot) aside."""
+    if not directory.is_dir():
+        return []
+    return sorted(p.name for p in directory.iterdir() if not p.name.startswith("."))
 
 
 def test_a_checkpoint_call_still_running_when_the_session_is_over_changes_nothing(
@@ -198,11 +198,10 @@ def _refused(tmp_path: Path) -> str | None:
     except AuthoringError as exc:
         refused = f"{exc} {exc.context}"
     if refused is not None:
-        assert _listed(pool_dir(plan.held_out_root, "control")) == []
-        assert not held_out_tier(plan.held_out_root, "control").exists()
-        assert not plan.visible.exists()
+        assert _listed(pool_dir(plan.store, "control")) == []
+        assert _versions(plan) == []
         # The stream is still secured and the work removed.
-        assert list((plan.held_out_root / "control.author").glob("*/stdout.jsonl"))
+        assert list((plan.root / "withheld" / "author").glob("*/stdout.jsonl"))
         assert not plan.work.exists()
     return refused
 
@@ -215,7 +214,7 @@ def test_a_session_whose_stream_showed_a_held_out_canary_pools_none_of_its_tasks
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, end: str, seen: bool | str
 ) -> None:
     # However it ended, and when the record cannot say it saw none: nothing is taken.
-    monkeypatch.setattr(author_session, "run_session", _Ending(_tasks(16), end, seen))
+    monkeypatch.setattr(author_session, "run_session", _Ending(_tasks(24), end, seen))
     staged: list[Any] = []
     stage = author_session.stage
 
@@ -234,7 +233,7 @@ def test_a_session_whose_stream_showed_a_held_out_canary_pools_none_of_its_tasks
 def test_a_session_its_watch_could_not_hold_pools_none_of_its_tasks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, end: str
 ) -> None:
-    monkeypatch.setattr(author_session, "run_session", _Ending(_tasks(16), end))
+    monkeypatch.setattr(author_session, "run_session", _Ending(_tasks(24), end))
     plan = _plan(tmp_path)
     (tmp_path / "scratch").mkdir()
     refused: str | None = None
@@ -244,11 +243,10 @@ def test_a_session_its_watch_could_not_hold_pools_none_of_its_tasks(
         refused = str(exc)
     assert refused is not None, f"the tasks of a session that ended {end} were taken"
     assert end in refused
-    assert _listed(pool_dir(plan.held_out_root, "control")) == []
-    assert not held_out_tier(plan.held_out_root, "control").exists()
-    assert not plan.visible.exists()
+    assert _listed(pool_dir(plan.store, "control")) == []
+    assert _versions(plan) == []
     # The stream is still secured and the work removed.
-    assert list((plan.held_out_root / "control.author").glob("*/stdout.jsonl"))
+    assert list((plan.root / "withheld" / "author").glob("*/stdout.jsonl"))
     assert not plan.work.exists()
 
 

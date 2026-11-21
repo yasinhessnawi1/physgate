@@ -54,6 +54,7 @@ from physgate.orchestrator.common import (
     utc_now,
     utc_stamp,
 )
+from physgate.orchestrator.design_pairs import DesignPair
 from physgate.orchestrator.dispute import plain
 from physgate.orchestrator.escalation import BackendName, Decision
 from physgate.orchestrator.escalation_state import EscalationState
@@ -65,11 +66,20 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
-from physgate.orchestrator.managed import ObservedTraffic, PolicyEntry, stricter_only
+from physgate.orchestrator.managed import (
+    FlagCache,
+    ObservedTraffic,
+    PolicyEntry,
+    SessionManaged,
+    stricter_only,
+)
 from physgate.orchestrator.plan import (
+    MAX_COMPONENTS,
+    Component,
     CriterionWords,
     InterfaceConsumers,
     SystemRequirements,
+    component_list_problems,
     list_problems,
     words_problems,
 )
@@ -84,7 +94,9 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
+from physgate.orchestrator.usage_limit import AccountWindow, UsageLimit
 from physgate.oslayer.probe import OsLayerState
+from physgate.reviewers.scan import ScanHit
 from physgate.roles import owner_of, owners_of
 from physgate.series.seal import SeriesCheck, SessionSeries
 from physgate.state.held_file import HeldFile
@@ -112,6 +124,8 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 #: issued state that the run's record, read again, no longer gives: a line it was built from was
 #: rewritten after the state was issued. ``declaration_mismatch`` is integration's declaration line
 #: that its merged commit, read again with the change check's parser, no longer gives.
+#: ``parts_record_mismatch`` is the parts record that the release line named, built again from
+#: the plan and the released decisions at a dispatch or a review, and no longer the one it named.
 #: ``decisions_unreadable`` is a line of the decisions file the queue's reader refuses: the run
 #: halts on it, named by file and line, until a person mends the file.
 IncidentCause = Literal[
@@ -138,6 +152,7 @@ IncidentCause = Literal[
     "interface_mismatch",
     "issued_state_mismatch",
     "declaration_mismatch",
+    "parts_record_mismatch",
     "decisions_unreadable",
     "run_records_changed",
 ]
@@ -149,15 +164,19 @@ HaltReason = Literal[
     "credential_refused",
     "decomposition_failed",
     "os_layer_unavailable",
+    "disk_full",
     "role_not_built",
+    "usage_limit",
 ]
 
 #: Halts a resume continues from, the same attempt with a fresh schedule: the
 #: infrastructure schedule ran out, the credential was refused and has since been
-#: replaced, or the OS layer would not start and has since been repaired. Any other
-#: halt is resolved by a person first.
+#: replaced, the OS layer would not start and has since been repaired, or the account's
+#: usage limit was reached (a resume goes on only after its reset: the loop's to hold).
+#: Any other halt is resolved by a person first; ``disk_full`` is one of those, since a
+#: session whose records a full disk lost is looked at before the run goes on.
 RESUMABLE_HALTS: frozenset[str] = frozenset(
-    {"infrastructure_exhausted", "credential_refused", "os_layer_unavailable"}
+    {"infrastructure_exhausted", "credential_refused", "os_layer_unavailable", "usage_limit"}
 )
 
 #: Who spent a token: ``<what>:<invocation id>``. The invocation id is the Claude Code
@@ -206,11 +225,48 @@ class RunStarted(_Event):
     #: hold every dispatch to the review's line, and but under ``observe`` to the person's decision
     #: on a plan it did not pass; left out of a run that does not, so its line keeps its bytes.
     design_review: Literal["observe", "on", "repair:1", "repair:2", "repair:3"] | None = None
+    #: ``on`` in a run that asks which parts a person has or can make, which replay reads to
+    #: hold every dispatch until each part is decided; left out of a run that does not ask, so
+    #: its line keeps its bytes.
+    parts_on_hand: Literal["on"] | None = None
+    #: ``on`` in a run whose reviewers may compact their conversation (ARCH-060); left out of a
+    #: run whose reviewers may not, so its line keeps its bytes.
+    review_compaction: Literal["on"] | None = None
+    #: ``generalist`` or ``off`` in a run whose role work is not reviewed by the paired
+    #: specialists; left out of a run reviewed by them, so its line keeps its bytes.
+    reviewers: Literal["generalist", "off"] | None = None
+    #: ``off`` in a run whose role sessions are not given their skill file; left out otherwise.
+    skills: Literal["off"] | None = None
+    #: ``off`` in a run whose role sessions run without the design discipline; left out otherwise.
+    hooks: Literal["off"] | None = None
+    #: ``True`` in an ablation run, which is never reportable; left out of every other run.
+    ablation: Literal[True] | None = None
+    #: ``hold`` in a run that acts on decisions and was started under the rule that every
+    #: dispatch of a subtask waits while a subtask it reads from waits on a person; replay refuses
+    #: such a dispatch with no hold or release line before it. Left out of every other run, so a
+    #: line written before the rule keeps its bytes and replays as it did.
+    producer_wait: Literal["hold"] | None = None
+    #: The digest of the version of the sign-off rule table the run started under, written by
+    #: code on every run started since the table existed, never by a parameter: which modules owe
+    #: a person's sign-off before they are complete (ARCH-130). Left out of a run started before
+    #: it, which owes none, so its line keeps its bytes.
+    sign_offs: Sha256 | None = None
 
     @model_serializer(mode="wrap")
     def _omit_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for absent in ("queue_decisions", "design_review"):
+        for absent in (
+            "queue_decisions",
+            "design_review",
+            "parts_on_hand",
+            "review_compaction",
+            "reviewers",
+            "skills",
+            "hooks",
+            "ablation",
+            "producer_wait",
+            "sign_offs",
+        ):
             if getattr(self, absent) is None:
                 data.pop(absent, None)
         return data
@@ -340,6 +396,24 @@ class Halted(_Event):
     kind: Literal["halted"] = "halted"
     reason: HaltReason
     detail: NonEmptyStr
+    #: For a halt on the account's usage limit: the reset as the stream gave it, and as an
+    #: instant where it parses.
+    usage_limit: UsageLimit | None = None
+
+    @model_validator(mode="after")
+    def _a_limit_halt_names_its_reset(self) -> Halted:
+        if (self.reason == "usage_limit") != (self.usage_limit is not None):
+            msg = "a halt on the usage limit carries the limit, and no other halt does"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_no_limit(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # A halt of any other reason is written byte for byte as before the limit was a cause.
+        data: dict[str, Any] = handler(self)
+        if self.usage_limit is None:
+            data.pop("usage_limit", None)
+        return data
 
 
 class GateRan(_Event):
@@ -404,6 +478,43 @@ class ReviewRan(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     result: ReviewResult
+    #: The earlier attempts of the subtask no review had judged whose scan hits this review was
+    #: given and answered, every one (ARCH-133), in order. A line without it judged its own
+    #: attempt's streams alone, as every line written before did; it is left out when empty, so
+    #: those lines keep their bytes, and a line that holds it holds at least one attempt.
+    judged_earlier: tuple[Attempt, ...] = ()
+    #: The hits of those earlier attempts this review was given to judge, each marked with its
+    #: attempt, as the scan found them: what :attr:`judged_earlier` is held to, with the answers
+    #: in :attr:`result`. Left out when empty, as :attr:`judged_earlier` is.
+    earlier_hits: tuple[ScanHit, ...] = ()
+
+    @field_validator("judged_earlier", "earlier_hits", mode="before")
+    @classmethod
+    def _some_when_present(cls, value: object) -> object:
+        # Present on a line, the list names an attempt: an empty one re-serialises to bytes no
+        # writer wrote. The writer's own empty tuple is the field left out.
+        if isinstance(value, list):
+            if not value:
+                msg = "a review line names the earlier attempts it judged, or leaves the field out"
+                raise ValueError(msg)
+            return tuple(value)
+        return value
+
+    @model_serializer(mode="wrap")
+    def _omit_none_judged(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.judged_earlier:
+            data.pop("judged_earlier", None)
+        if not self.earlier_hits:
+            data.pop("earlier_hits", None)
+        return data
+
+    @model_validator(mode="after")
+    def _earlier_hits_marked(self) -> ReviewRan:
+        if any(hit.attempt is None or hit.attempt >= self.attempt for hit in self.earlier_hits):
+            msg = "a review line's earlier hits are each marked with an attempt before its own"
+            raise ValueError(msg)
+        return self
 
 
 class ReviewUnavailable(_Event):
@@ -428,6 +539,14 @@ class ReviewUnavailable(_Event):
     reviewer_model: NonEmptyStr | None
     #: The specification defects the reviewer recorded, carried to the queue item.
     spec_defects: tuple[SpecDefect, ...] = ()
+    #: Per invocation of the review's session, on a pin whose sessions carry the catalog
+    #: and flag traffic, the conditions it ran under; empty, and not written, otherwise.
+    managed: tuple[SessionManaged, ...] = Field(default=(), exclude_if=lambda v: not v)
+    #: How many times the review's session compacted before it ended with no verdict
+    #: (ARCH-060); ``None``, and not written, where it never did.
+    compactions: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
     @model_validator(mode="after")
     def _only_infrastructure_is_retried(self) -> ReviewUnavailable:
@@ -435,6 +554,19 @@ class ReviewUnavailable(_Event):
             msg = "only an infrastructure failure of a review is retried"
             raise ValueError(msg)
         return self
+
+
+class ReviewSkipped(_Event):
+    """The review stage invoked no reviewer, because the run's reviewers are ``off``.
+
+    An ablation run's arm, not a result: no verdict exists, so none is written, and the attempt
+    merges on the gate's result alone. Written once per attempt the gate lets reach review.
+    """
+
+    kind: Literal["review_skipped"] = "review_skipped"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    reason: Literal["reviewers=off"]
 
 
 class TokensUsed(_Event):
@@ -451,6 +583,29 @@ class TokensUsed(_Event):
     #: Read from a session a killed orchestrator left behind, whose stream has no
     #: result: its last message may be cut off, and nothing checks the sum.
     partial: bool = False
+    #: The usage of a review session's compaction calls, which the binary counts in its totals
+    #: and shows as no message: one line per invocation that compacted. Left out of every other
+    #: line, so each keeps its bytes.
+    compaction: bool = Field(default=False, exclude_if=lambda v: not v)
+    #: The usage a response started with, where the binary cut that response short and closed
+    #: it itself: recorded under its attribution and listed apart. Unless ``in_binary_totals``,
+    #: it is kept out of the account's sums, so they stay what the binary's per-model totals
+    #: count, and whether the API billed it is unknown. Left out of every other line, so each
+    #: keeps its bytes.
+    abandoned: bool = Field(default=False, exclude_if=lambda v: not v)
+    #: A cut response the binary's per-model totals count: counted in the account's sums as
+    #: they count it, and still listed as cut short. Left out of every other line.
+    in_binary_totals: bool = Field(default=False, exclude_if=lambda v: not v)
+
+    @model_validator(mode="after")
+    def _one_kind_of_line(self) -> TokensUsed:
+        if self.compaction and self.abandoned:
+            msg = "a compaction's call is no response of the stream, so none is cut short"
+            raise ValueError(msg)
+        if self.in_binary_totals and not self.abandoned:
+            msg = "only a response cut short is marked as counted in the binary's totals"
+            raise ValueError(msg)
+        return self
 
 
 class SessionEnded(_Event):
@@ -475,6 +630,15 @@ class SessionEnded(_Event):
     #: The digest of the policy limits the session's invocation received, ``None`` if
     #: none: held to the decomposition call's.
     policy_limits_sha256: Sha256 | None = None
+    #: The served catalog and feature flags the session's debug log showed, on a pin whose
+    #: sessions carry that traffic: held to the run's first observation. ``None`` otherwise,
+    #: and then not written at all, so a session on an earlier pin is recorded byte for byte
+    #: as it was before the field existed.
+    observed_traffic: ObservedTraffic | None = Field(default=None, exclude_if=lambda v: v is None)
+    #: The remote feature flags the session's binary held when it ended, counted and
+    #: digested: a record only, since they differ between sessions minutes apart with nothing
+    #: of the run's changed. Not written where there is none, as above.
+    flag_cache: FlagCache | None = Field(default=None, exclude_if=lambda v: v is None)
     #: Why the session's missing policy limits were recorded and not held to the decomposition
     #: call's: it ended for infrastructure before any model answered it. ``None`` where they were
     #: judged, and on a line written before this was recorded.
@@ -485,6 +649,12 @@ class SessionEnded(_Event):
     #: The series records the session left, each sealed by digest and length, and what was
     #: refused or discarded instead. Every later reader holds a record to its seal here.
     series: SessionSeries = SessionSeries()
+    #: For an end on the account's usage limit: the reset as the stream gave it, and as an
+    #: instant where it parses.
+    usage_limit: UsageLimit | None = None
+    #: How full the account's usage windows were at the last rate-limit event the session's
+    #: stream gave, so a run's analysis can say how near the limit each session ended.
+    account_windows: tuple[AccountWindow, ...] = ()
 
     @model_validator(mode="after")
     def _completed_names_its_work(self) -> SessionEnded:
@@ -500,7 +670,21 @@ class SessionEnded(_Event):
         ):
             msg = "only an infrastructure end that left no policy limits has them unjudged"
             raise ValueError(msg)
+        if (self.cause == "usage_limit") != (self.usage_limit is not None):
+            msg = "an end on the usage limit carries the limit, and no other end does"
+            raise ValueError(msg)
         return self
+
+    @model_serializer(mode="wrap")
+    def _omit_no_limit(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Every other end is written byte for byte as before the limit was a cause.
+        data: dict[str, Any] = handler(self)
+        if self.usage_limit is None:
+            data.pop("usage_limit", None)
+        # And an end whose stream gave no rate-limit state, as before the windows were read.
+        if not self.account_windows:
+            data.pop("account_windows", None)
+        return data
 
 
 class InfraRetryScheduled(_Event):
@@ -630,16 +814,31 @@ class Escalated(_Event):
 
 #: A position a person may choose on an item whose kind offers two (``choose``): an arbitration's
 #: sizing (the graph's value stands) or domain (the disputing subtask's); a failed contract's
-#: producer or consumer (whose merged work stands).
-Position = Literal["sizing", "domain", "producer", "consumer"]
+#: producer or consumer (whose merged work stands); a part's have (the person states its values),
+#: make (the constraints a made part must meet) or find (it is sourced and sized as before).
+Position = Literal["sizing", "domain", "producer", "consumer", "have", "make", "find"]
 #: What a person's decision did when the loop took it (ARCH-133). ``resize``: the subtask waits
 #: for sizing's closing pass, ordered to write the domain's value, then returns to the gate.
 #: ``reopen``: a merged module's planning subtask takes one more attempt, to conform to the
 #: interface of a failed contract.
 #: ``release`` and ``end_run``: an approve of the plan's item lets the held run dispatch, a reject
 #: ends it with nothing dispatched.
+#: ``declare`` and ``find``: a choice on a part's item. The part is one the person has or makes,
+#: and what they stated of it is fixed; or it is sourced and sized as before.
+#: ``sign``: an approve of a sign-off item signs the values it shows (ARCH-130).
 DecisionEffect = Literal[
-    "merge", "retry", "fix", "end_subtask", "resize", "reopen", "release", "end_run", "none"
+    "merge",
+    "sign",
+    "retry",
+    "fix",
+    "end_subtask",
+    "resize",
+    "reopen",
+    "release",
+    "end_run",
+    "declare",
+    "find",
+    "none",
 ]
 #: Why a decision taken did not act. ``record_only_source``: approve or reject on an item whose
 #: source neither verb acts on. ``last_rejection_automated``: approve where an automated check,
@@ -648,10 +847,16 @@ DecisionEffect = Literal[
 #: the scan before review found one no review judged. ``not_bound``: a decision that names no
 #: verb, or no view. ``legacy_item``: an item that says nothing of what a verb does.
 #: ``held_os_layer_off``: written while a session ran without the OS layer, so its own shell
-#: could have written it; it acts once the operator confirms it. ``order_too_long``: a choice that
-#: would reopen a module whose order its reviewer could not read whole. ``superseded``: a
-#: decision on a contract item another item's reopen superseded, since what it said is no longer
-#: true.
+#: could have written it; it acts once the operator confirms it. ``order_too_long``: a choice,
+#: or a reject of a sign-off item, that would reopen a module whose order its reviewer could not
+#: read whole. ``superseded``: a decision on a contract item another item's reopen superseded, or
+#: on a sign-off item a later one superseded, since what it said is no longer true.
+#: ``module_reopened``: a reject of a sign-off item that promised the module's fix, which the
+#: record no longer allows because the module was reopened since (its follow-up, merged or not).
+#: ``no_attempt_left``: a reject of a sign-off item whose module has no attempt left to fix its
+#: values at: it merged on its last attempt number, or on a fix a person ordered earlier.
+#: Replay recomputes the reason, so a reject of such a module recorded under any other reason is
+#: refused; no run recorded before this reason carries a sign-off item, so none is.
 WhyNot = Literal[
     "record_only_source",
     "last_rejection_automated",
@@ -662,6 +867,8 @@ WhyNot = Literal[
     "held_os_layer_off",
     "order_too_long",
     "superseded",
+    "module_reopened",
+    "no_attempt_left",
 ]
 
 
@@ -702,6 +909,16 @@ class DecisionTaken(_Event):
     order_too_long: bool = False
     #: The planning subtask a choice on a failed contract's item reopens, with that effect alone.
     reopens: NonEmptyStr | None = None
+    #: The digest of what a choice of have or make stated of a part, as the decisions file
+    #: holds it: its values and its texts, in canonical form. Left out of every other line.
+    parts_sha256: Sha256 | None = None
+
+    @model_validator(mode="after")
+    def _only_a_part_one_has_or_makes_states_anything(self) -> DecisionTaken:
+        if (self.parts_sha256 is not None) != (self.position in ("have", "make")):
+            msg = "a choice of have or make names the digest of what it stated, and no other does"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _an_act_needs_no_excuse_and_a_non_act_has_one(self) -> DecisionTaken:
@@ -736,7 +953,7 @@ class DecisionTaken(_Event):
     @model_serializer(mode="wrap")
     def _omit_absent_position(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for absent in ("position", "reopens"):
+        for absent in ("position", "reopens", "parts_sha256"):
             if getattr(self, absent) is None:
                 data.pop(absent, None)
         return data
@@ -844,6 +1061,143 @@ class FollowUpEnded(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     why: FollowUpWhy
+
+
+class SignOffFixEnded(_Event):
+    """The one fix a rejected sign-off ordered ended without a merge: no retry, and no item follows.
+
+    The module's earlier merge stands, so its subtask is done again; its sign-off stays owed, so it
+    is not complete, and the run ends escalated naming it (ARCH-130). ``why`` is what ended the
+    attempt.
+    """
+
+    kind: Literal["sign_off_fix_ended"] = "sign_off_fix_ended"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    why: FollowUpWhy
+
+
+class NoFollowUpOwed(_Event):
+    """No follow-up is owed before the integration call, as the journal says where it is read.
+
+    Written by the integration step of a run that acts, where it decides the follow-ups sizing's
+    closing pass owes (ARCH-051) and finds none, while a person's sign-off is undecided
+    (ARCH-130). Follow-ups can change the values a sign-off binds, so the person is asked once
+    they are decided; replay cannot read the journal, and this line is how it knows they are.
+    Every other run writes none, and keeps its lines.
+    """
+
+    kind: Literal["no_follow_up_owed"] = "no_follow_up_owed"
+
+
+class DispatchHeld(_Event):
+    """A subtask's dispatch is held: a subtask it reads from waits on a person, unmerged.
+
+    "Reads from" is the run's recorded contract pairs: ``producer`` is a pair's producing subtask
+    whose consumer is ``subtask_id``, over ``interfaces``. The producer is escalated with its item
+    ``item_id`` undecided, or is held itself through a chain whose root waits on ``item_id``.
+    Written once per held producer, in a run that acts on decisions; the run goes on with what
+    does not read from it, and otherwise waits on the queue.
+    """
+
+    kind: Literal["dispatch_held"] = "dispatch_held"
+    subtask_id: NonEmptyStr
+    producer: NonEmptyStr
+    item_id: NonEmptyStr
+    interfaces: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
+
+
+#: How a held dispatch was let go, or why one was never held.
+#:
+#: ``merged``: the producer merged. ``ended_unmerged``: it ended without a merge (rejected,
+#: removed, or a decision that acted on nothing), so the subtask runs without its work.
+#: ``waits_for_closing_pass``: a person chose the producer's value in a dispute, and its attempt
+#: waits for sizing's closing pass, which comes after the subtask. ``mutual_readers``: the two
+#: read from each other, so the subtask is dispatched with the producer waiting, and never held.
+ReleasedHow = Literal["merged", "ended_unmerged", "waits_for_closing_pass", "mutual_readers"]
+
+
+class DispatchReleased(_Event):
+    """A held dispatch let go, or a dispatch not held although its producer waits on a person.
+
+    ``item_id`` is the item the hold named, or for ``mutual_readers`` the item the producer waits
+    on. Every outcome but ``mutual_readers`` closes the one hold of ``subtask_id`` on ``producer``.
+    """
+
+    kind: Literal["dispatch_released"] = "dispatch_released"
+    subtask_id: NonEmptyStr
+    producer: NonEmptyStr
+    item_id: NonEmptyStr
+    outcome: ReleasedHow
+
+
+#: Why a builder is held while the module whose design it implements has not merged.
+#:
+#: ``escalated``: the designer is with a person, its item undecided, named by the line.
+#: ``ended_unmerged``: the designer ended without a merge (rejected, removed, or a decision that
+#: acted on nothing): the builder stays held, since there is no design to build, and the run goes
+#: on without it. ``designer_held``: the designer is itself a builder held for good, so it will
+#: never merge either: the builder is held for good too, and the line names the chain.
+#: ``not_merged``: the designer has not merged yet for any other reason (it runs again after a
+#: person's decision, waits for sizing's closing pass, or is a builder still held).
+BuilderHeldWhy = Literal["escalated", "ended_unmerged", "designer_held", "not_merged"]
+
+
+class BuilderHeld(_Event):
+    """A builder's dispatch is held: the module whose design it implements has not merged.
+
+    "Implements" is the run's recorded design pairs: ``designer`` is a pair's designing subtask
+    whose builder is ``subtask_id``, over the design's ``nodes``. Written when the builder's
+    dispatch comes and its designer has not merged, and again whenever why changes; never a
+    failure, and nothing of the builder runs while it is held. ``item_id`` is the designer's
+    undecided item, exactly when ``why`` is ``escalated``. ``chain`` is exactly when ``why`` is
+    ``designer_held``: the designers in turn, from ``designer`` to the one that can no longer
+    merge (ended without a merge, or with a person in a run that records only), each once.
+    """
+
+    kind: Literal["builder_held"] = "builder_held"
+    subtask_id: NonEmptyStr
+    designer: NonEmptyStr
+    nodes: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
+    why: BuilderHeldWhy
+    item_id: NonEmptyStr | None = None
+    chain: Annotated[tuple[NonEmptyStr, ...], Field(min_length=2)] | None = None
+
+    @model_validator(mode="after")
+    def _item_when_escalated(self) -> BuilderHeld:
+        if (self.why == "escalated") != (self.item_id is not None):
+            msg = "a builder's hold names the designer's item exactly when the designer escalated"
+            raise ValueError(msg)
+        if (self.why == "designer_held") != (self.chain is not None):
+            msg = "a builder's hold names a chain exactly when its designer is itself held for good"
+            raise ValueError(msg)
+        chain = self.chain or (self.designer,)
+        if chain[0] != self.designer or len(set(chain)) != len(chain) or self.subtask_id in chain:
+            msg = "a hold's chain starts at its designer and names each subtask once, not its own"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_no_item(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.item_id is None:
+            data.pop("item_id", None)
+        if self.chain is None:
+            data.pop("chain", None)
+        return data
+
+
+class BuilderReleased(_Event):
+    """A builder's hold let go: the module whose design it implements merged.
+
+    Closes the one hold of ``subtask_id`` on ``designer``; the builder is then dispatched as
+    planned, against the design as merged.
+    """
+
+    kind: Literal["builder_released"] = "builder_released"
+    subtask_id: NonEmptyStr
+    designer: NonEmptyStr
+    nodes: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
 
 
 class Incident(_Event):
@@ -965,6 +1319,8 @@ class Decomposed(_Event):
     #: The binary's served catalog and remote feature flags as the call's debug log
     #: showed them; ``None`` for a run started with no call.
     observed_traffic: ObservedTraffic | None = None
+    #: The flag cache the call left, the run's first reading; not written where none.
+    flag_cache: FlagCache | None = Field(default=None, exclude_if=lambda v: v is None)
     #: sha256 of the plan's canonical JSON, every field of its own form in it, taken from
     #: the plan itself. ``None`` on a line written before the digest was recorded.
     plan_sha256: Sha256 | None = None
@@ -982,6 +1338,19 @@ class Decomposed(_Event):
     #: payload as the store held it; left out where that role produces none, or no one role owns
     #: the cross nodes, and then no interface follows.
     followable: Followable | None = None
+    #: The components a person decides before anything is dispatched, as the plan of a run that
+    #: asks which parts they have lists them, none included; left out of a run that does not
+    #: ask, so its line keeps its bytes. Typed with the plan's own model and bound, and held to
+    #: the plan's rules for the list and the line's own interface nodes.
+    components: Annotated[tuple[Component, ...], Field(max_length=MAX_COMPONENTS)] | None = None
+
+    @model_validator(mode="after")
+    def _the_components_hold_the_plan_s_rules(self) -> Decomposed:
+        if self.components is not None:
+            problems = component_list_problems(self.interface_nodes, self.components)
+            if problems:
+                raise ValueError("; ".join(problems))
+        return self
 
     @model_validator(mode="after")
     def _the_followable_interfaces_are_its_own(self) -> Decomposed:
@@ -1029,6 +1398,8 @@ class Decomposed(_Event):
             "system_requirements",
             "brief_words",
             "followable",
+            "components",
+            "flag_cache",
         ):
             if data.get(name) is None:
                 data.pop(name, None)
@@ -1173,6 +1544,41 @@ class ContractPairsPlanned(_Event):
 
     kind: Literal["contract_pairs_planned"] = "contract_pairs_planned"
     pairs: Annotated[tuple[ContractPair, ...], Field(min_length=1)]
+
+
+class DesignPairsPlanned(_Event):
+    """The modules that build what another designs, read from the plan's specifications.
+
+    Written once, in the run's opening after the planning lines and the contract pairs, and only
+    where the plan has such a pair or a suspected misorder, so the set is on the record before any
+    module runs. A builder is not dispatched until its designer merged (:class:`BuilderHeld`).
+    """
+
+    kind: Literal["design_pairs_planned"] = "design_pairs_planned"
+    pairs: tuple[DesignPair, ...]
+    #: Each pair the other way round, where its designer's specification also names a node of its
+    #: builder's own: no hold, as the plan's order is the pair's, and written so a reader sees it.
+    #: Left out of the line when empty, so every other line keeps its bytes.
+    mutual: tuple[DesignPair, ...] = ()
+    #: Each builder the plan lists before the designer whose design it may build, the plan having
+    #: been refused for it once and accepted when made again: ``builder`` is dispatched first, so
+    #: nothing is held for it. Left out of the line when empty, as ``mutual`` is.
+    misordered: tuple[DesignPair, ...] = ()
+
+    @model_validator(mode="after")
+    def _a_line_says_something(self) -> DesignPairsPlanned:
+        if not self.pairs and not self.misordered:
+            msg = "a design pairs line records a pair or a suspected misorder"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_what_is_empty(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        for name in ("mutual", "misordered"):
+            if not getattr(self, name):
+                data.pop(name, None)
+        return data
 
 
 class ContractTested(_Event):
@@ -1328,6 +1734,85 @@ class ContractItemRaised(_Event):
     item_id: NonEmptyStr
 
 
+class BoundValue(BaseModel):
+    """One node a sign-off binds, at the revision of the journal that holds its values."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    node_id: NodeIdKey
+    revision: Annotated[int, Field(ge=1)]
+
+
+class RaisedItem(BaseModel):
+    """One sign-off item a merge raised: its id, its module, the values it shows and their nodes.
+
+    ``module`` is the subtask that planned the module. ``bound`` is every node whose values the
+    item shows, sorted by id, each at the journal revision it holds them at; ``values_sha256``
+    is the digest of those values, which an approve binds through the item line's digest.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    item_id: NonEmptyStr
+    module: NonEmptyStr
+    values_sha256: Sha256
+    bound: tuple[BoundValue, ...]
+
+    @model_validator(mode="after")
+    def _sorted_once(self) -> RaisedItem:
+        ids = [value.node_id for value in self.bound]
+        if ids != sorted(set(ids)):
+            msg = "a sign-off names each node it binds once, sorted by id"
+            raise ValueError(msg)
+        return self
+
+
+class SignOffsRaised(_Event):
+    """The sign-off items a clean merge raised, in a run whose first line names the rule table.
+
+    Written straight after the diff of a merge that found nothing, once its items are in the
+    queue: one item for each module whose role owes a person's sign-off (ARCH-130)
+    and that this merge was of, or whose bound values it changed. ``subtask_id`` and ``attempt``
+    are the merge's. A merge that raised none writes no line, so a run with no such module keeps
+    every line it had. Where the log alone says the merge owes an item (the module's own merge,
+    or a write to a node its latest item binds), the line is owed before anything else, and a
+    fresh process writes it after a kill.
+    """
+
+    kind: Literal["sign_offs_raised"] = "sign_offs_raised"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    raised: Annotated[tuple[RaisedItem, ...], Field(min_length=1)]
+
+    @model_validator(mode="after")
+    def _one_item_a_module(self) -> SignOffsRaised:
+        modules = [item.module for item in self.raised]
+        if len(set(modules)) != len(modules):
+            msg = "a merge raises one sign-off item a module at most"
+            raise ValueError(msg)
+        return self
+
+
+class SignOffRaisedAgain(_Event):
+    """A module's sign-off raised again on values the graph gives and no sign-off line raised.
+
+    Written where the loop reads what the module's sign-off binds from the graph and finds other
+    nodes or revisions than its latest item bound, with no line on the record raising them: a
+    raise lost across a halt, which clears what owed it, or one the log alone cannot owe.
+    ``found`` says where, and so why: ``merge``, straight after the clean merge of ``subtask_id``
+    at ``attempt``, beside that merge's own sign-off line; ``completion``, where the module's
+    completion line was owed, after integration's merge ``subtask_id`` at ``attempt``, and
+    instead of that line. The module's earlier item stops counting (an undecided one is
+    superseded), and the module is complete only once a person signs this one.
+    """
+
+    kind: Literal["sign_off_raised_again"] = "sign_off_raised_again"
+    found: Literal["merge", "completion"]
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    raised: RaisedItem
+
+
 class ModuleCompleted(_Event):
     """A module of the plan recorded complete, which merged alone never says (ARCH-051).
 
@@ -1341,6 +1826,23 @@ class ModuleCompleted(_Event):
     subtask_id: NonEmptyStr
     declared_by: NonEmptyStr
     attempt: Attempt
+
+
+def flag_cache_readings(events: Iterable[_Event]) -> tuple[FlagCache, ...]:
+    """Every flag cache a run's sessions left, in the order the log holds them.
+
+    The decomposition call's, each role session's, and each invocation of each review's
+    session, whether or not the review gave a verdict.
+    """
+    found: list[FlagCache | None] = []
+    for event in events:
+        if isinstance(event, (Decomposed, SessionEnded)):
+            found.append(event.flag_cache)
+        elif isinstance(event, ReviewRan):
+            found.extend(m.flag_cache for m in event.result.managed)
+        elif isinstance(event, ReviewUnavailable):
+            found.extend(m.flag_cache for m in event.managed)
+    return tuple(r for r in found if r is not None)
 
 
 class WriteIntended(_Event):
@@ -1367,6 +1869,135 @@ class WriteDone(_Event):
     attempt: Attempt
     node_id: NonEmptyStr
     revision: Annotated[int, Field(ge=1)]
+
+
+class StatedValue(BaseModel):
+    """One value a decision stated of a part, as a line holds it (the body's own form)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    value: Annotated[float, Field(allow_inf_nan=False)] | int
+    unit: NonEmptyStr
+
+
+class StatedPart(BaseModel):
+    """What a choice of have or make stated of a part, as a line holds it.
+
+    The form of the queue's body, kept here so a line reads without the queue. Replay reads it
+    back as the body and holds it to the digest the decision's own line names.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    declared: dict[str, StatedValue]
+    texts: tuple[str, ...]
+
+
+class PartsWriteIntended(_Event):
+    """The orchestrator is about to write one node a part's decision owes, through ``declare``.
+
+    Synced before the write, as :class:`WriteIntended` is, and belonging to no subtask: it names
+    the node, the part's item, what the decision stated, the role that owns the node, the payload's
+    digest and the revision it expects. Replay derives the payload from the plan and the decision
+    and refuses a line that is not that derivation.
+    """
+
+    kind: Literal["parts_write_intended"] = "parts_write_intended"
+    node_id: NonEmptyStr
+    item_id: NonEmptyStr
+    parts: StatedPart
+    actor_role: NonEmptyStr
+    payload_sha256: Sha256
+    expected_revision: Annotated[int, Field(ge=1)]
+
+
+class PartsWriteDone(_Event):
+    """The intended parts write landed at this revision of the canonical journal."""
+
+    kind: Literal["parts_write_done"] = "parts_write_done"
+    node_id: NonEmptyStr
+    revision: Annotated[int, Field(ge=1)]
+
+
+class ReleasedPart(BaseModel):
+    """One component as the release records it: its item, node, choice, and what it stated."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    item_id: NonEmptyStr
+    node: NodeIdKey
+    choice: Literal["have", "make", "find"]
+    parts: StatedPart | None
+
+    @model_validator(mode="after")
+    def _only_a_part_that_is_found_states_nothing(self) -> ReleasedPart:
+        if (self.parts is None) != (self.choice == "find"):
+            msg = "a part states what it has or makes, and a part to find states nothing"
+            raise ValueError(msg)
+        return self
+
+
+class PartsReleased(_Event):
+    """Every part is decided and what the decisions owe is written: the run may dispatch.
+
+    One line per run that asks, naming each component in the plan's order with the choice and
+    what it stated, and the digest and length of the record a role reads (an empty list says the
+    run asked and found nothing to ask). Replay derives the record from the plan and the
+    decisions and refuses a line that is not it.
+    """
+
+    kind: Literal["parts_released"] = "parts_released"
+    components: tuple[ReleasedPart, ...]
+    record_sha256: Sha256
+    record_length: Annotated[int, Field(ge=1)]
+
+
+class PartsGateRan(_Event):
+    """The gate judged the parts' declared values at the release, before any session.
+
+    Belongs to no attempt, as :class:`IntegrationGateRan` does. ``base_revision`` is the
+    journal's head before the first parts write, so the view's own nodes are exactly the
+    declared ones; every round of the release is judged from it. It runs in the run's gate mode,
+    the one the line's envelope names; under ``off`` the call is skipped and this line records
+    the skip, with no result.
+    """
+
+    kind: Literal["parts_gate_ran"] = "parts_gate_ran"
+    base_revision: Annotated[int, Field(ge=0)]
+    result: GateResult | None
+
+    @model_validator(mode="after")
+    def _a_result_exactly_when_the_gate_runs(self) -> PartsGateRan:
+        if (self.result is None) != (self.gate_mode == "off"):
+            msg = "the release's gate line holds a result exactly when the gate runs"
+            raise ValueError(msg)
+        if self.result is not None and self.result.mode != self.gate_mode:
+            msg = "the release's gate result carries the mode the line names"
+            raise ValueError(msg)
+        return self
+
+
+class RaisedPart(BaseModel):
+    """One part raised again: its new item, the component's node, and why, in plain words."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    item_id: NonEmptyStr
+    node: NodeIdKey
+    why: NonEmptyStr
+
+
+class PartsRaisedAgain(_Event):
+    """Parts the release cannot take as decided, each raised again as a new round of its item.
+
+    ``gate``: the release's gate call blocked on the part's declared values. ``interface``: an
+    interface a domain produced, joined to a declared node, holds one of its names with another
+    value. The hold continues until each new item is decided.
+    """
+
+    kind: Literal["parts_raised_again"] = "parts_raised_again"
+    cause: Literal["gate", "interface"]
+    parts: Annotated[tuple[RaisedPart, ...], Field(min_length=1)]
 
 
 class NodeFilesRepaired(_Event):
@@ -1516,6 +2147,17 @@ class Resumed(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     point: Literal["resolve", "verify_reading", "diff"]
+    #: The operator who said on the command line that the account's usage limit has reset, for a
+    #: resume of a run waiting on a limit whose reset could not be read.
+    limit_reset_by: NonEmptyStr | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_no_word(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Every other resume is written byte for byte as before.
+        data: dict[str, Any] = handler(self)
+        if self.limit_reset_by is None:
+            data.pop("limit_reset_by", None)
+        return data
 
 
 Event = Annotated[
@@ -1531,6 +2173,7 @@ Event = Annotated[
     | IntegrationEscalated
     | ReviewRan
     | ReviewUnavailable
+    | ReviewSkipped
     | TokensUsed
     | SessionEnded
     | InfraRetryScheduled
@@ -1545,6 +2188,12 @@ Event = Annotated[
     | SubtaskReopened
     | AttemptReturned
     | FollowUpEnded
+    | SignOffFixEnded
+    | NoFollowUpOwed
+    | DispatchHeld
+    | DispatchReleased
+    | BuilderHeld
+    | BuilderReleased
     | FindingsRecorded
     | Incident
     | IncidentResolved
@@ -1554,7 +2203,13 @@ Event = Annotated[
     | PlanProposed
     | DesignReviewRan
     | PlanRejected
+    | PartsWriteIntended
+    | PartsWriteDone
+    | PartsReleased
+    | PartsGateRan
+    | PartsRaisedAgain
     | ContractPairsPlanned
+    | DesignPairsPlanned
     | ContractTested
     | IntegrationStateIssued
     | CompletionDeclared
@@ -1562,6 +2217,8 @@ Event = Annotated[
     | ArbitrationDecided
     | ContractRuled
     | ContractItemRaised
+    | SignOffsRaised
+    | SignOffRaisedAgain
     | ModuleCompleted
     | EnvironmentRecorded
     | InstallChecked

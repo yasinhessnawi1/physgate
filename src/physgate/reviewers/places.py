@@ -44,8 +44,11 @@ def standing_root(home: Path) -> Path:
     return Path(home) / STANDING_ROOT_NAME
 
 
-def _inside_a_checkout(path: Path) -> Path | None:
-    """The nearest directory at or above ``path`` that holds a ``.git``, if there is one."""
+def inside_a_checkout(path: Path) -> Path | None:
+    """The nearest directory at or above ``path`` that holds a ``.git``, if there is one.
+
+    A ``.git`` directory is a checkout's own; a ``.git`` file is a linked worktree's pointer.
+    """
     for candidate in (path, *path.parents):
         if (candidate / ".git").exists():
             return candidate
@@ -75,7 +78,7 @@ def require_review_root(root: Path) -> Path:
     if found:
         msg = "the review root's path holds a word that would tell a reviewer what it reads"
         raise ReviewRootError(msg, root=str(resolved), found=",".join(found))
-    checkout = _inside_a_checkout(resolved)
+    checkout = inside_a_checkout(resolved)
     if checkout is not None:
         msg = "the review root lies inside a git checkout"
         raise ReviewRootError(msg, root=str(resolved), checkout=str(checkout))

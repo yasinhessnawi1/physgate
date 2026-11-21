@@ -1,15 +1,21 @@
-"""The route table: every route the operator UI's server answers, in one tuple.
+"""The route table: every route the operator UI's server answers.
 
-The dispatcher consults this tuple and nothing else, and the route sweep walks it, so the
-list a test enumerates is exactly the list a request can reach. Every route is a read but
-one: the decision on an approval-queue item, of the ``act`` kind, whose handler calls the
-queue's own decision function. A route of a kind with no policy in the guard cannot even be
-declared.
+The command serves :func:`served`: the product's own tuple, :data:`ROUTES`, then the reads its
+composition root registers beside it (:func:`register`), the routes over the evaluation's
+records, which no module of this package may import. With nothing registered it is
+:data:`ROUTES` alone. The dispatcher consults the table it is given and nothing else, and the
+route sweeps walk the served table, so the list a test enumerates is exactly the list a request
+can reach. Every route is a read but one: the decision on an approval-queue item, of the ``act``
+kind, whose handler calls the queue's own decision function. A route of a kind with no policy in
+the guard cannot even be declared.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from physgate.ui import actions, library, readers, simulation
+from physgate.ui.guard import require_registered
 from physgate.ui.routes import Route, asset, engine_catalogue, index, runs
 
 #: The path every route over one run starts with.
@@ -29,6 +35,8 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", "/api/library/ratings", "read", library.ratings),
     Route("GET", f"{RUN}/config", "read", readers.config),
     Route("GET", f"{RUN}/events", "read", readers.events),
+    # The same log from a line on, for a page that follows a running run's log as it grows.
+    Route("GET", f"{RUN}/events/from/{{seq:seq}}", "read", readers.events_from),
     Route("GET", f"{RUN}/ledger", "read", readers.ledger),
     Route("GET", f"{RUN}/gate-events", "read", readers.gate_events),
     Route("GET", f"{RUN}/graph", "read", readers.graph),
@@ -64,6 +72,61 @@ ROUTES: tuple[Route, ...] = (
     # The one route that acts: a decision, through the approval queue's own function.
     Route("POST", f"{RUN}/queue/decisions", "act", actions.decide),
 )
+
+
+#: The read routes the command's composition root registered beside the product's own.
+_registered: tuple[Route, ...] = ()
+
+
+def _shape(route: Route) -> tuple[str, tuple[str, ...]]:
+    """The paths a route answers, whatever its parameters are called: its method and segments."""
+    parts = tuple(name if kind is None else f"{{{kind}}}" for name, kind in route.segments)
+    return route.method, parts
+
+
+def register(routes: Iterable[Route]) -> None:
+    """Serve ``routes`` beside :data:`ROUTES`, after every route of the product's own.
+
+    Called once, by the command's composition root, which wires the evaluation into the core:
+    no module of this package imports the evaluation, so the routes over its records are handed
+    in from outside. Only reads are taken, so the table still acts in exactly one place, and none
+    whose paths the table or an earlier route of the set already answers. The same routes again
+    are the same registration, since the root runs once per command and a test process runs it
+    many times; any other second set is refused.
+
+    Raises:
+        UnregisteredKindError: a route's kind has no policy in the guard.
+        ValueError: a route acts, answers a path already served, or the table already serves
+            another registration.
+    """
+    global _registered  # noqa: PLW0603 - the one place the command's root sets them
+    offered = tuple(routes)
+    if offered == _registered:
+        return
+    if _registered:
+        msg = "routes are registered once, by the command's composition root"
+        raise ValueError(msg)
+    shapes = {_shape(route) for route in ROUTES}
+    for route in offered:
+        require_registered(route.kind)
+        if route.kind != "read":
+            msg = f"only reads are registered beside the table: {route.pattern!r} is {route.kind}"
+            raise ValueError(msg)
+        if _shape(route) in shapes:
+            msg = f"{route.method} {route.pattern!r} is already served"
+            raise ValueError(msg)
+        shapes.add(_shape(route))
+    _registered = offered
+
+
+def registered() -> tuple[Route, ...]:
+    """The routes registered beside the product's own."""
+    return _registered
+
+
+def served() -> tuple[Route, ...]:
+    """Every route the server answers: the product's own, then what was registered."""
+    return (*ROUTES, *_registered)
 
 
 def methods(routes: tuple[Route, ...]) -> frozenset[str]:

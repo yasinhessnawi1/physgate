@@ -297,6 +297,9 @@ class EmptyGraph:
     def follow(self, payload: dict[str, Any], role: str, joined: tuple[str, ...]) -> int:
         raise AssertionError("no proposal, so no interface is followed")
 
+    def declare(self, payload: dict[str, Any], item_ids: tuple[str, ...]) -> int:
+        raise AssertionError("no part is decided, so nothing is declared")
+
     def divergences(
         self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
     ) -> tuple[Divergence, ...]:
@@ -322,15 +325,32 @@ PARAMS = {
     "max_output_tokens",
     "thinking_display",
     "role_python",
+    "tool_environment",
     "escalation_backend",
     "queue_decisions",
     "os_layer_absent",
     "design_review",
+    "parts_on_hand",
+    "review_compaction",
+    "reviewers",
+    "skills",
+    "hooks",
+    "ablation",
     "held_out",
     "held_out_canaries",
     "held_out_sha256",
     "network",
 }
+
+
+#: The account every run the rig starts names. The command records it with the fingerprint of
+#: the stand-in credential the test sets.
+TEST_ACCOUNT = "a-test-account"
+
+
+def run_params(source: RunConfig) -> dict[str, Any]:
+    """A parameters file for ``source``: its chosen fields, and the account the run names."""
+    return {**source.model_dump(include=PARAMS), "account": TEST_ACCOUNT}
 
 
 @functools.cache
@@ -372,17 +392,28 @@ def config(run_id: str = "run-1") -> RunConfig:
         max_output_tokens=64000,
         thinking_display="summarized",
         role_python=None,
+        tool_environment=None,
+        tool_servers=None,
+        tool_search="denied",
         git_binary=None,
         escalation_backend="rules",
         queue_decisions="record",
         # The rig also runs where the layer is absent (the hook suite's job has no sandbox).
         os_layer_absent="allow",
+        reviewers="paired",
+        skills="on",
+        hooks="on",
+        ablation=False,
         design_review="off",
+        parts_on_hand="off",
+        review_compaction="off",
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),
         network="open",
         network_enforced=None,
+        binary=None,
+        account=None,
         os_layer=None,
     )
 

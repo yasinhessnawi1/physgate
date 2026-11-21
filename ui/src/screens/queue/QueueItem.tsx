@@ -28,9 +28,13 @@ import {
   supersededWords,
   takenWords,
 } from "../../words/queue";
+import { statedWords } from "../../words/parts";
 import { clockTime, utc } from "../../words/runs";
+import { decisionPendingWords, type Phase } from "../../words/standing";
 import { ActorTag } from "../common/ActorTag";
+import { Finding } from "./Finding";
 import { SEAL_TAG, sealLine } from "./model";
+import { RunPhaseContext } from "./runPhase";
 
 export function QueueItem({
   view,
@@ -38,6 +42,7 @@ export function QueueItem({
   source,
   subtaskName,
   supersededBy,
+  phase,
   children,
 }: {
   readonly view: ItemView;
@@ -46,11 +51,18 @@ export function QueueItem({
   readonly subtaskName: string;
   /** The item whose choice reopened a module this one is about, when a reopen superseded it. */
   readonly supersededBy?: string | undefined;
+  /**
+   * Where the item's run stands, once read: on a run that is not going, one line beside the
+   * decision says a decision is recorded now and taken up when the run is resumed.
+   */
+  readonly phase?: Phase | undefined;
   readonly children?: ReactNode;
 }) {
   const { item } = view;
-  const { consequence } = item;
+  // A part's item says what each choice does beside its choices; approve and reject decide no part.
+  const consequence = item.source === "parts" ? null : item.consequence;
   const words = SOURCE_WORDS[item.source];
+  const pending = phase === undefined ? null : decisionPendingWords(phase);
   return (
     <section
       className="pg-queue-item"
@@ -96,7 +108,13 @@ export function QueueItem({
             {decided.taken !== null && (
               <>
                 <dt>What the run did</dt>
-                <dd className="pg-queue-taken">{takenWords(decided.taken)}</dd>
+                <dd className="pg-queue-taken">{takenWords(decided.taken, item.source)}</dd>
+              </>
+            )}
+            {decided.parts !== undefined && decided.parts !== null && (
+              <>
+                <dt>What was stated</dt>
+                <dd className="pg-queue-stated">{statedWords(decided.parts)}</dd>
               </>
             )}
             <dt>Time to decide</dt>
@@ -112,10 +130,15 @@ export function QueueItem({
         <>
           {supersededBy !== undefined && (
             <p className="pg-queue-superseded" role="note">
-              {supersededWords(supersededBy)}
+              {supersededWords(supersededBy, item.source)}
             </p>
           )}
-          {children}
+          {pending !== null && (
+            <p className="pg-queue-pending" role="note">
+              {pending}
+            </p>
+          )}
+          <RunPhaseContext.Provider value={phase}>{children}</RunPhaseContext.Provider>
         </>
       )}
       <section className="pg-card pg-panel" aria-label="What you are deciding on">
@@ -133,8 +156,10 @@ export function QueueItem({
             {subtaskName} <Id value={item.subtaskId} copy={false} />
           </dd>
           <dt>What triggered it</dt>
-          <dd className="pg-queue-finding">{item.triggeringFinding}</dd>
-          {consequence !== null && (
+          <dd className="pg-queue-finding">
+            <Finding text={item.triggeringFinding} source={item.source} itemId={item.itemId} />
+          </dd>
+          {consequence !== null && supersededBy === undefined && (
             <>
               <dt>If you approve</dt>
               <dd className="pg-queue-on-approve">{consequenceWords(consequence).approve}</dd>

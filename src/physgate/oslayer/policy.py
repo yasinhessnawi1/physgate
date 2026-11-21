@@ -76,6 +76,15 @@ mechanisms deny the reads differently, each measured on Claude Code 2.1.301:
 A platform with neither mechanism gets no policy at all: building one refuses, rather than
 leaving the outbox readable.
 
+**No command opens a board's device.** A board on USB appears as a serial device, and an
+upload, a flash and a serial monitor all open one; a programmer may open a USB or HID node
+directly. The hooks refuse the commands that say so; a program that builds the device's name
+as it runs, or starts the upload itself, says nothing they can read. So each platform's
+devices of that kind (the hooks' own table of them) are denied to every command of the
+session, to read and to write: without the read denial a read-only open of a serial device
+succeeded inside the sandbox (measured on macOS), which is all a serial monitor needs. On
+macOS a USB device is not a file and no rule here names it.
+
 **The file tools are left to the hooks.** No ``Read`` permission rule is written:
 Claude Code applies such a rule before any hook runs, so a refused tool call would
 be refused without the hooks' reason and without a line in their log, the record
@@ -95,7 +104,8 @@ from typing import Any, Literal
 
 from physgate.hooks.config import ExperimentRule, SessionConfig
 from physgate.hooks.graph import COMPLETION_DIR, DISPUTES_DIR, PROPOSALS_DIR
-from physgate.hooks.reasons import SESSION_TEMPS_REASON
+from physgate.hooks.hardware import BOARD_DEVICES
+from physgate.hooks.reasons import SESSION_TEMPS_REASON, WITHHELD_WHOLE_REASON
 
 #: What the OS layer does with each path field of the session configuration.
 FIELD_RULES: dict[str, str] = {
@@ -116,6 +126,7 @@ FIELD_RULES: dict[str, str] = {
     "review_material": "write- and read-denied (the file tools are the hooks')",
     "required_reading": "readable: the session must read it",
     "always_loaded": "readable: loaded into every session",
+    "after_compaction": "not used: only a reviewer has them, and each is required reading too",
     "installation": "write-denied through the protected roots that name it",
 }
 
@@ -202,8 +213,12 @@ def sandbox_policy(
         # As the kernel finds it: /var is /private/var on macOS, and either may be spelt.
         return any(_under(os.path.realpath(place), os.path.realpath(root)) for root in roots)
 
+    # The worktree alone is opened again in a root withheld whole around it, as the hooks except
+    # it alone, never the place, which holds the session's own login and hook records: an
+    # opening re-opens everything beneath it.
+    around = withheld_around_worktree(config)
     for place in (config.worktree, temp_dir):
-        others = read_denied - temps if place == temp_dir else read_denied
+        others = read_denied - temps if place == temp_dir else read_denied - around
         if real_under(place, others):
             what = "worktree" if place == config.worktree else "temporary directory"
             msg = f"the session's {what} ({place}) is inside a read-denied path"
@@ -213,10 +228,16 @@ def sandbox_policy(
     # inside a read-denied root (the run's sessions/), and its temporary directory inside the
     # parent of every session's: opened again.
     allow_read = sorted(
-        place for place in {home, temp_dir, *readable} if real_under(place, read_denied)
+        place
+        for place in {home, temp_dir, *readable, *([config.worktree] if around else [])}
+        if real_under(place, read_denied)
     )
     # Written by the session's commands, as its home is, where it lies in a denied parent.
-    own_writes = (temp_dir,) if real_under(temp_dir, temps) else ()
+    own_writes: tuple[str, ...] = (temp_dir,) if real_under(temp_dir, temps) else ()
+    # And the worktree, where it lies in a root withheld whole: named as the home is, so the layer
+    # that denies the root around it keeps it writable as the working directory always is.
+    own_writes += (config.worktree,) if around else ()
+    devices = board_devices(platform)
     settings: dict[str, Any] = {
         "sandbox": {
             "enabled": True,
@@ -226,8 +247,8 @@ def sandbox_policy(
             "excludedCommands": [],
             "filesystem": {
                 "allowWrite": _spelled(home, *own_writes, *shared_temp),
-                "denyWrite": _spelled(*deny_write, *claude_temp),
-                "denyRead": _spelled(*read_denied, *claude_temp),
+                "denyWrite": _spelled(*deny_write, *claude_temp, *devices),
+                "denyRead": _spelled(*read_denied, *claude_temp, *devices),
                 "allowRead": _spelled(*allow_read),
             },
         },
@@ -235,6 +256,27 @@ def sandbox_policy(
     if network == "none":
         settings["sandbox"]["network"] = offline_block()
     return OsPolicy(settings=settings, absent_named=tuple(sorted(absent_named)))
+
+
+def withheld_around_worktree(config: SessionConfig) -> frozenset[str]:
+    """The roots withheld from the session whole but for its worktree there, as they are named.
+
+    A protected trial's session and a blind check's: the one kind of read-denied root a worktree
+    may lie in, where the worktree is that root's exception. Empty for every other session.
+    """
+    worktree = os.path.realpath(config.worktree)
+    return frozenset(
+        r.path
+        for r in config.protected_roots
+        if r.reason == WITHHELD_WHOLE_REASON
+        and any(_under(worktree, os.path.realpath(place)) for place in r.read_exceptions)
+    )
+
+
+def board_devices(platform: str) -> tuple[str, ...]:
+    """A board's devices no command on ``platform`` opens, as the patterns the sandbox reads."""
+    key = "linux" if platform.startswith("linux") else platform
+    return tuple(BOARD_DEVICES.get(key, ()))
 
 
 def _spelled(*paths: str) -> list[str]:

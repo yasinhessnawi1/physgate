@@ -18,9 +18,17 @@ nothing, and is never evidence of no exposure.
 from __future__ import annotations
 
 import base64
+import functools
+import json
+import json.encoder
 import re
+import sys
+import unicodedata
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Literal
+
+from physgate.orchestrator.default_ignorable import RANGES as DEFAULT_IGNORABLE
 
 #: The shortest run of a canary's characters taken as the canary shown. A canary is 32
 #: random hex characters; a given 16-character run of one turns up by chance about once
@@ -29,6 +37,187 @@ from typing import Literal
 PART = 16
 
 _SQUEEZE = re.compile(r"\\[nrt]|\s")
+
+#: The JSON escapes a raw line can hold: a surrogate pair, a ``\\u`` escape, a short escape.
+_JSON_ESCAPE = re.compile(
+    r"\\(?:u([dD][89abAB][0-9a-fA-F]{2})\\u([dD][c-fC-F][0-9a-fA-F]{2})"
+    r"|u([0-9a-fA-F]{4})|([bfnrt\"\\\\/]))"
+)
+_SHORT = {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\", "/": "/"}
+
+
+@functools.cache
+def _unseen() -> dict[int, None]:
+    """Every code point that shows nothing, as a table that removes it.
+
+    The controls, the format characters and surrogates (by category, from the interpreter's
+    ``unicodedata``), and the Default_Ignorable_Code_Point set (generated from the same Unicode
+    version's data).
+    """
+    drop: dict[int, None] = {cp: None for lo, hi in DEFAULT_IGNORABLE for cp in range(lo, hi + 1)}
+    for cp in range(sys.maxunicode + 1):
+        if unicodedata.category(chr(cp)) in ("Cc", "Cf", "Cs"):
+            drop[cp] = None
+    return drop
+
+
+def unseen_removed(text: str) -> str:
+    """``text`` without any code point that shows nothing: what it reads as."""
+    return text.translate(_unseen())
+
+
+def _unescaped(raw: str) -> str:
+    def one(m: re.Match[str]) -> str:
+        if m.group(1):
+            high, low = int(m.group(1), 16), int(m.group(2), 16)
+            return chr(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
+        if m.group(3):
+            return chr(int(m.group(3), 16))
+        return _SHORT[m.group(4)]
+
+    return _JSON_ESCAPE.sub(one, raw)
+
+
+def _values(value: object) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _values(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _values(item)
+
+
+def _keys(value: object) -> Iterator[str]:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield str(key)
+            yield from _keys(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _keys(item)
+
+
+class _DuplicateKeyError(ValueError):
+    """A JSON object names one key twice: a decoder keeps only the last value."""
+
+
+def _no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    keys = [key for key, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise _DuplicateKeyError
+    return dict(pairs)
+
+
+def _event(raw: str) -> object:
+    return json.loads(raw, object_pairs_hook=_no_duplicates)
+
+
+def line_text(line: bytes) -> str | None:
+    """One stream line as both scans read it, or ``None`` if it cannot be read at all.
+
+    Decoded strictly as UTF-8, never by a guess at another encoding: a line that is not UTF-8
+    cannot be read. Read twice, so no one reading alone can find it clean: raw, its escapes
+    undone; and, when it decodes as JSON, as its string values joined, then its keys. A line
+    whose JSON names a key twice cannot be read, since a decoder keeps only the last value.
+    Every code point that shows nothing is removed, so a value split by one reads as itself.
+    """
+    try:
+        raw = line.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    as_raw = unseen_removed(_unescaped(raw))
+    try:
+        event = _event(raw)
+    except _DuplicateKeyError:
+        return None
+    except (ValueError, RecursionError):
+        return as_raw
+    if not isinstance(event, (dict, list, str)):
+        return as_raw
+    values = unseen_removed("".join(_values(event)))
+    return f"{values} {unseen_removed(''.join(_keys(event)))} {as_raw}"
+
+
+def _redacted(value: object, secret: str, mark: str) -> tuple[object, bool]:
+    if isinstance(value, str):
+        seen = unseen_removed(value)
+        return (seen.replace(secret, mark), True) if secret in seen else (value, False)
+    if isinstance(value, dict):
+        out: dict[str, object] = {}
+        hit = False
+        for key, item in value.items():
+            new_key, key_hit = _redacted(str(key), secret, mark)
+            new_item, item_hit = _redacted(item, secret, mark)
+            out[str(new_key)] = new_item
+            hit = hit or key_hit or item_hit
+        return out, hit
+    if isinstance(value, list):
+        items = [_redacted(item, secret, mark) for item in value]
+        return [i for i, _ in items], any(h for _, h in items)
+    return value, False
+
+
+def redact_line(line: bytes, secret: str, mark: str) -> bytes:
+    """``line`` with ``secret`` gone wherever :func:`line_text` reads the line as holding it.
+
+    A line that does not hold it keeps its bytes. One that does is rewritten, re-serialised with
+    every non-ASCII character escaped, when single strings of its event hold the secret; it is
+    replaced whole by ``mark`` when it cannot be read, does not decode as an event, holds the
+    secret only across two of its strings, or cannot be rewritten for any reason at all.
+    """
+    if not line.strip():
+        return line
+    whole = mark.encode()
+    try:
+        text = line_text(line)
+        if text is None:
+            return whole
+        if secret not in text:
+            # The last reading: the bytes themselves. A line kept must not hold it there either.
+            return whole if _raw_holds(line, secret) else line
+        rewritten, hit = _redacted(_event(line.decode("utf-8")), secret, mark)
+        if not hit:
+            return whole
+        out = json.dumps(rewritten, ensure_ascii=True, separators=(",", ":")).encode()
+        again = line_text(out)
+        clean = again is not None and secret not in again and not _raw_holds(out, secret)
+    except Exception:  # noqa: BLE001 - any failure fails closed: the whole line goes
+        return whole
+    return out if clean else whole
+
+
+def _raw_holds(line: bytes, secret: str) -> bool:
+    """Whether the line's bytes hold the secret as written, or as JSON would escape it."""
+    escape = (json.encoder.encode_basestring, json.encoder.encode_basestring_ascii)
+    forms = {secret, *(form(secret)[1:-1] for form in escape)}
+    return any(form.encode() in line for form in forms)
+
+
+def redact_text(data: bytes, secret: str, mark: str) -> bytes:
+    """A whole stream with ``secret`` gone, line by line and across lines.
+
+    Each line as :func:`redact_line` leaves it; then the stream is read as one text, every line's
+    reading joined without its line break, and each line a remaining occurrence touches is
+    replaced by ``mark``. If an occurrence cannot be placed on lines, the whole stream is.
+    """
+    out = [redact_line(line, secret, mark) for line in data.split(b"\n")]
+    for _ in range(len(out) + 1):
+        readings = [(line_text(line) or "") if line.strip() else "" for line in out]
+        joined = "".join(readings)
+        at = joined.find(secret)
+        if at < 0:
+            return b"\n".join(out)
+        start, placed = 0, False
+        for i, reading in enumerate(readings):
+            end = start + len(reading)
+            if reading and start < at + len(secret) and end > at:
+                out[i], placed = mark.encode(), True
+            start = end
+        if not placed:
+            return mark.encode()
+    return mark.encode()
 
 
 def _base64_cores(canary: str) -> list[str]:
@@ -53,8 +242,20 @@ def canary_seen(data: bytes, live: frozenset[str]) -> str | None:
     """
     if not live:
         return None
-    text = data.decode(errors="replace")
-    squeezed = _SQUEEZE.sub("", text.replace("\\/", "/"))
+    # Each line read as its decoded text, every code point that shows nothing removed: a canary
+    # split by one, however the line writes it, is the canary shown. A line that cannot be read
+    # at all counts as showing the canary: nothing is known of what it shows.
+    texts: list[str] = []
+    for line in data.split(b"\n"):
+        if not line.strip():
+            continue
+        read = line_text(line)
+        if read is None:
+            return sorted(live)[0]
+        texts.append(read)
+    # Joined as the redaction joins them: a value split across lines is read whole too.
+    text = "".join(texts)
+    squeezed = _SQUEEZE.sub("", text)
     lowered = (text.lower(), squeezed.lower())
     for canary in sorted(live):
         plain = canary.lower()

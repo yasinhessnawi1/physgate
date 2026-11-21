@@ -70,7 +70,16 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 #: sizing, since the same day, that its interfaces follow its joined node; since the catalogue
 #: widening (04.11.2026), the catalogue sentence's new names and kind labels; and since its check
 #: round, the sentence on names with added words; and since 12.11.2026 the sentence on how a unit
-#: is spelt, before which: f42a779e91ee... and 4faaf7ada5eb.... Before the sentence on names with
+#: is spelt, before which: f42a779e91ee... and 4faaf7ada5eb...; and since 16.11.2026 the paragraph
+#: saying a plan states interfaces and criteria, never a solution's law or coefficients, before
+#: which: 48c74090ae02... and 967efb517e3f...; and since 17.11.2026 that paragraph reworded,
+#: before which: bb54c67db294... and ea34d6962014...; and since 18.11.2026 the paragraph saying
+#: how one acceptance criterion is written, before which: 7a17a3f1ead9... and e71b13d25dc6...;
+#: and since the same day the sentence saying which quantities go on an interface node, before
+#: which: 4f6211c3a74e... and 0923e7e6198b...; and since 20.11.2026 the sentence saying a
+#: criterion is written only against what the run's environment can measure and that each
+#: specification states its limits, timeouts and fault behaviour, before which:
+#: 98ecf178fc9f... and 8fe35572c9e9.... Before the sentence on names with
 #: added words, at 470b3f34: 44f7ed176029...
 #: and eefbf4fe50d6...; before the widening: 08a7e77a7464... and b26536a34818...; before
 #: those two sentences: f56406956965... and 1a3802deb6f1..., in this order.
@@ -81,11 +90,17 @@ INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c3296
 #: too; with the rows and the peak headroom, before the sentence on how a unit is spelt:
 #: 58ac53907fa6... and 1545282914c0..., in this order;
 #: with the rows alone: 144a71155f84... and 6808f856328d..., in this order.
+#: Before the designer's node was said to be named by its module and a module's own limits to stay
+#: off the interface nodes: 02021140dcf2... and f3717294a8ce....
+#: Before a criterion's measurable checks named no instrument the environment may lack:
+#: bbf7b8f3427d... and f0cefb5fb842....
+#: Master's text without the law library's rows and the peak headroom (21.11.2026): 215bb9b26499...
+#: and ec4de60564d1..., in this order.
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "8ee1fd6a05c3024fbfd218f6b5c22c5ca4071d5a0c78d7e5f4b206776c9d25f2"
+        "7c2f57e91e6aa4d3acb4881719f0d1129f0d36f3653483719ccab0c4fcf912dc"
     ),
-    BOTH: "165ceded3341dcc182233ee0a5143f39e0d1149be6a8655d40523998bce1f908",
+    BOTH: "aabad78a5baf147e4052a005a224ea720064a74ecc03f2cd69b09f954c1858c1",
 }
 
 

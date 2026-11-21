@@ -1,0 +1,93 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/orchestrator/parts.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_the_bill_of_materials_lines_are_the_electrical_components_a_person_leaves_to_find.py",
+      "tests/unit/orchestrator/test_each_part_s_choice_is_read_from_the_release_and_sourcing_skips_what_is_owned_or_made.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "bom_kind_dropped",
+    "file": "src/physgate/orchestrator/parts.py",
+    "old": "node.kind == \"component\" and ",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_the_bill_of_materials_lines_are_the_electrical_components_a_person_leaves_to_find.py",
+      "tests/unit/orchestrator/test_each_part_s_choice_is_read_from_the_release_and_sourcing_skips_what_is_owned_or_made.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "bom_domain_widened",
+    "file": "src/physgate/orchestrator/parts.py",
+    "old": "node.domain == \"electrical\"",
+    "new": "node.domain != \"cross\"",
+    "tests": [
+      "tests/unit/orchestrator/test_the_bill_of_materials_lines_are_the_electrical_components_a_person_leaves_to_find.py",
+      "tests/unit/orchestrator/test_each_part_s_choice_is_read_from_the_release_and_sourcing_skips_what_is_owned_or_made.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "bom_domain_dropped",
+    "file": "src/physgate/orchestrator/parts.py",
+    "old": " and node.domain == \"electrical\"",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_the_bill_of_materials_lines_are_the_electrical_components_a_person_leaves_to_find.py",
+      "tests/unit/orchestrator/test_each_part_s_choice_is_read_from_the_release_and_sourcing_skips_what_is_owned_or_made.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "check_takes_what_is_owned_or_made",
+    "file": "src/physgate/orchestrator/parts.py",
+    "old": "choice_of(choices, line) == \"find\"",
+    "new": "choice_of(choices, line) != \"find\"",
+    "tests": [
+      "tests/unit/orchestrator/test_the_bill_of_materials_lines_are_the_electrical_components_a_person_leaves_to_find.py",
+      "tests/unit/orchestrator/test_each_part_s_choice_is_read_from_the_release_and_sourcing_skips_what_is_owned_or_made.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "check_takes_every_line",
+    "file": "src/physgate/orchestrator/parts.py",
+    "old": "if choice_of(choices, line) == \"find\"",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_the_bill_of_materials_lines_are_the_electrical_components_a_person_leaves_to_find.py",
+      "tests/unit/orchestrator/test_each_part_s_choice_is_read_from_the_release_and_sourcing_skips_what_is_owned_or_made.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/orchestrator/parts.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_the_bill_of_materials_lines_are_the_electrical_components_a_person_leaves_to_find.py",
+      "tests/unit/orchestrator/test_each_part_s_choice_is_read_from_the_release_and_sourcing_skips_what_is_owned_or_made.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  }
+]

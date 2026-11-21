@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from physgate.evaluation.per_role.arms import raw
+from physgate.hooks import shell_startup
 from physgate.orchestrator import dispatch
 from physgate.orchestrator.dispatch import spawn_held
 from physgate.orchestrator.exceptions import InvocationError
@@ -95,6 +96,24 @@ def test_an_environment_without_a_home_is_refused(tmp_path: Path) -> None:
     env = _env(home, zdotdir)
     del env["HOME"]
     _refused(tmp_path, env, marker, "home")
+
+
+@pytest.mark.parametrize("home", ["absent", "empty"])
+def test_an_environment_that_names_no_home_is_refused_in_words_and_nothing_else_is_judged(
+    tmp_path: Path, home: str
+) -> None:
+    # The refusal is a sentence the spawn can give, never an error from a check further on
+    # that was handed no home: whatever is raised instead is shown as what it was.
+    _, zdotdir, _ = _places(tmp_path)
+    env = {"PATH": "/usr/bin:/bin", "ZDOTDIR": str(zdotdir)}
+    if home == "empty":
+        env["HOME"] = ""
+    for judge in (shell_startup.environment_refusal, shell_startup.held_or_refused):
+        try:
+            said = judge(env)
+        except Exception as exc:  # noqa: BLE001 - shown in the assertion below
+            said = f"raised {type(exc).__name__}: {exc}"
+        assert said is not None and "names no home" in said, said
 
 
 @pytest.mark.parametrize(

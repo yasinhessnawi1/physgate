@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import json
 
+from physgate.lines import split_lines
+
 #: How bubblewrap starts every line it prints about itself.
 ABORT_PREFIX = "bwrap:"
 
@@ -33,7 +35,7 @@ OS_LAYER_ABORTED = "os_layer_aborted"
 
 def is_abort(told: str) -> bool:
     """Whether a command's result carries bubblewrap's own line: the command never ran."""
-    return any(line.lstrip().startswith(ABORT_PREFIX) for line in told.splitlines())
+    return any(line.lstrip().startswith(ABORT_PREFIX) for line in split_lines(told))
 
 
 def _result_text(content: object) -> str:
@@ -52,7 +54,7 @@ def aborted_tool_uses(stream: str) -> tuple[str, ...]:
     command with bubblewrap's failure. A line that is not one JSON event is skipped.
     """
     found: list[str] = []
-    for line in stream.splitlines():
+    for line in split_lines(stream):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:

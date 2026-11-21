@@ -105,7 +105,7 @@ REFUSED = [
     ("src/physgate/hooks/runtime.py", "hook layer's source"),
     ("@/outside/session/session-config.json", "settings and configuration"),
     ("@/outside/state/hooks.log.jsonl", "own records"),
-    ("@/outside/home/.claude/settings.json", "later sessions read"),
+    ("@/outside/home/.claude/settings.json", "Claude Code's own directory in this session's home"),
 ]
 ALLOWED = [
     "src/physgate/electrical/driver.py",

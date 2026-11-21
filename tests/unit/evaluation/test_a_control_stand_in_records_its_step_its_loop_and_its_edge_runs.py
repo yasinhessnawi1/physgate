@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "reviewers"))
 from rubric_fixture import PLACEHOLDER  # noqa: E402
 
 from physgate.evaluation.observe.rerun import rerun
+from physgate.orchestrator import record
 from physgate.orchestrator.events import Merged, ProposalsChecked, SessionEnded, read_events
 from physgate.orchestrator.protocols import Artefact
 from physgate.reviewers.packet import build_packet, check_parts, joined_parts
@@ -151,8 +152,11 @@ def test_the_packet_both_review_arms_are_given_lists_every_record_and_both_check
 
 
 def test_a_rerun_from_the_recorded_configuration_reproduces_the_run_series_included(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # A rerun is made under a new run id, which a sign-off item's id carries: the two runs'
+    # queues could not match. What is held is the records' series, so the run owes no sign-off.
+    monkeypatch.setattr(record, "SIGN_OFF_RULES", None)
     repo = target_repo(tmp_path)
     run = _run(tmp_path, repo, Reviewer())
     brief = tmp_path / "brief.md"

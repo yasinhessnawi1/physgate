@@ -14,15 +14,16 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fake_messages_api import DUMMY_KEY, Script, serving, text
-from hook_session import claude_binary
+from hook_session import claude_binary, pinned_version, session_switches
 
+from physgate.flags import Hooks
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import InstallRequest, install
 from physgate.oslayer.abort import ABORT_PREFIX
@@ -119,6 +120,10 @@ def run_session(
     aborts_fail: bool = True,
     network: Literal["open", "none"] = "open",
     reaper: bool = True,
+    tool_environment: tuple[str, ...] = (),
+    switches: Mapping[str, str] | None = None,
+    hooks: Hooks = "on",
+    fields: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     """Install a role session for ``layout``, with or without the OS layer, and run it.
 
@@ -129,9 +134,15 @@ def run_session(
 
     The session is spawned as the dispatcher spawns one, its pid exported as the survivor
     reaper's canary. ``reaper`` off leaves the reaper out of the session's environment: the
-    red control of the test that it stops what a command left running.
+    red control of the test that it stops what a command left running. ``tool_environment``
+    names the roots of a run's tool environment, as the dispatcher gives them to the installer.
+    ``switches`` replaces the pin's own environment switches, for a row that measures what
+    one of them does.
+    ``hooks`` installs the session with the design discipline on or off, an ablation run's arm;
+    ``fields`` replaces or adds fields of the install request, for a row that needs a place the
+    layout does not name.
     """
-    request = InstallRequest(
+    request_fields: dict[str, Any] = dict(
         profile="role",
         role="electrical",
         worktree=str(layout.worktree),
@@ -151,7 +162,10 @@ def run_session(
         temp_dir=None if layer else str(layout.temp.resolve()),
         os_layer_network=network,
         spawns_with_canary=True,
+        tool_environment_roots=tool_environment,
+        hooks=hooks,
     )
+    request = InstallRequest(**(request_fields | dict(fields or {})))
     installed = install(request, REGISTRY)
     binary = claude_binary()
     with serving(Script(main=[*steps, text("end")])) as (api, url):
@@ -161,10 +175,9 @@ def run_session(
             "TERM": "dumb",
             "ANTHROPIC_BASE_URL": url,
             "ANTHROPIC_API_KEY": DUMMY_KEY,
-            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-            "DISABLE_AUTOUPDATER": "1",
-            "DISABLE_TELEMETRY": "1",
-            "DISABLE_ERROR_REPORTING": "1",
+            # Each pin's own switches, as the hook harness spawns it: on 2.1.301 what every
+            # result on it was measured under. A measurement may name others, to compare.
+            **(session_switches(pinned_version()) if switches is None else switches),
             "CLAUDE_CODE_MAX_RETRIES": "0",
             **installed.spawn_env,
         }

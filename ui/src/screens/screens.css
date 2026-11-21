@@ -572,6 +572,35 @@
   display: block;
 }
 
+/* Records alike in one gate call: their count beside the check, each record on its own line. */
+.pg-check-count {
+  display: inline-block;
+  margin-left: var(--space-2);
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+}
+
+.pg-why-list,
+.pg-measured-list {
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.pg-why-list {
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+}
+
+.pg-counts-explained {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: grid;
+  gap: var(--space-1);
+}
+
 .pg-bound-line {
   color: var(--color-text-2);
   font-size: var(--type-label-size);
@@ -709,6 +738,15 @@
   gap: var(--space-3);
 }
 
+.pg-queue-pending {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-badge);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
 .pg-queue-flag {
   margin: 0;
   font-weight: 600;
@@ -808,6 +846,16 @@
   display: none;
 }
 
+/* What each decision will do, in a sentence each, under the buttons that take it. */
+.pg-queue-effects {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-2);
+  color: var(--color-text-2);
+}
+
 .pg-queue-why-not {
   margin: 0;
   color: var(--color-text-2);
@@ -840,6 +888,33 @@
 .pg-gate-unknown {
   color: var(--color-text-2);
   border-color: var(--color-border);
+}
+
+/* A long finding: its opening and the standards it cites, the whole of it folded under them. */
+.pg-queue-finding-lead,
+.pg-queue-finding-cites {
+  display: block;
+}
+
+.pg-queue-finding-cites {
+  margin-top: var(--space-1);
+  color: var(--color-text-2);
+}
+
+.pg-queue-finding-more {
+  margin-top: var(--space-2);
+}
+
+.pg-queue-finding-more > summary {
+  width: max-content;
+  max-width: 100%;
+  cursor: pointer;
+  color: var(--color-text-2);
+}
+
+.pg-queue-finding-whole {
+  margin: var(--space-2) 0 0;
+  overflow-wrap: anywhere;
 }
 
 .pg-queue-raw .pg-pre {
@@ -981,4 +1056,26 @@
    the next row's hit areas. */
 .pg-library .pg-table td {
   height: var(--size-touch-min);
+}
+
+/* Home's intro: what this page is, before anything else on it. */
+.pg-home-intro {
+  max-width: 72ch;
+}
+
+.pg-home-intro p {
+  margin: 0 0 var(--space-2);
+}
+
+/* The brief's short digest on Home's run list stays on one line. */
+.pg-runs-brief {
+  white-space: nowrap;
+}
+
+/* -- below 760 px: a row's value wraps rather than pushing the page sideways ----------------- */
+@media (max-width: 760px) {
+  .pg-row-value,
+  .pg-quantity {
+    white-space: normal;
+  }
 }

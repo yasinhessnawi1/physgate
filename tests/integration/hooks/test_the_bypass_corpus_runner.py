@@ -29,11 +29,14 @@ import bypass_corpus_runner as runner
 import hook_session
 import pytest
 import test_the_bypass_suite as bp
-from hook_session import PINNED_VERSION, SessionRun, session_path
+from hook_session import SessionRun, session_path
 
 from physgate import bypass_corpus as bc
 from physgate.oslayer.abort import ABORT_PREFIX
 from physgate.oslayer.probe import Absent, Present, claude_temp_dirs, shared_temp_dirs
+
+#: The version a stand-in binary reports: one the runner accepts.
+STAND_IN_VERSION = "2.1.301"
 
 FROZEN = Path(__file__).resolve().parents[3] / "experiments" / "R-HK-01" / "attempts.jsonl"
 REPO = Path(__file__).resolve().parents[3]
@@ -431,18 +434,18 @@ def _pins(repo: Path, binary: str, **kwargs: Any) -> dict[str, object]:
 
 def test_a_run_from_the_pinned_source_and_binary_is_stamped(tmp_path: Path) -> None:
     repo, _first, head = _repo(tmp_path)
-    binary, digest = _binary(tmp_path, PINNED_VERSION)
+    binary, digest = _binary(tmp_path, STAND_IN_VERSION)
     stamp = _pins(repo, binary, pinned_src=head, pinned_sha256=digest)
     assert stamp["physgate_package_dir"] == str((repo / "src" / "physgate").resolve())
     assert stamp["python_executable"] == sys.executable
     assert stamp["commit"] == head and stamp["tree_clean"] is True
     assert stamp["src_matches_pin"] is True and stamp["src_tree"] == stamp["src_pinned_tree"]
-    assert (stamp["binary_version"], stamp["binary_sha256"]) == (PINNED_VERSION, digest)
+    assert (stamp["binary_version"], stamp["binary_sha256"]) == (STAND_IN_VERSION, digest)
 
 
 def test_a_dirty_tree_is_refused(tmp_path: Path) -> None:
     repo, _first, head = _repo(tmp_path)
-    binary, digest = _binary(tmp_path, PINNED_VERSION)
+    binary, digest = _binary(tmp_path, STAND_IN_VERSION)
     (repo / "untracked.txt").write_text("x\n")
     with pytest.raises(runner.RunRefusedError, match="clean"):
         _pins(repo, binary, pinned_src=head, pinned_sha256=digest)
@@ -454,14 +457,14 @@ def test_a_dirty_tree_is_refused(tmp_path: Path) -> None:
 
 def test_a_source_tree_other_than_the_pinned_one_is_refused(tmp_path: Path) -> None:
     repo, first, _head = _repo(tmp_path)
-    binary, digest = _binary(tmp_path, PINNED_VERSION)
+    binary, digest = _binary(tmp_path, STAND_IN_VERSION)
     with pytest.raises(runner.RunRefusedError, match="src"):
         _pins(repo, binary, pinned_src=first, pinned_sha256=digest)
 
 
 def test_a_binary_of_another_version_or_digest_is_refused(tmp_path: Path) -> None:
     repo, _first, head = _repo(tmp_path)
-    binary, digest = _binary(tmp_path, PINNED_VERSION)
+    binary, digest = _binary(tmp_path, STAND_IN_VERSION)
     with pytest.raises(runner.RunRefusedError, match="sha256"):
         _pins(repo, binary, pinned_src=head, pinned_sha256="0" * 64)
     other, other_digest = _binary(tmp_path, "2.1.300")
@@ -472,7 +475,7 @@ def test_a_binary_of_another_version_or_digest_is_refused(tmp_path: Path) -> Non
 
 def test_a_physgate_imported_from_another_tree_is_refused(tmp_path: Path) -> None:
     repo, _first, head = _repo(tmp_path)
-    binary, digest = _binary(tmp_path, PINNED_VERSION)
+    binary, digest = _binary(tmp_path, STAND_IN_VERSION)
     with pytest.raises(runner.RunRefusedError, match="physgate"):
         runner.pins(
             repo,
@@ -502,7 +505,7 @@ def test_the_runner_accepts_the_pinned_commit_s_source_and_refuses_any_other(
     git = ["git", "-C", str(scratch)]
     checkout = [*git, "checkout", "-q", "--detach", runner.PINNED_SRC_COMMIT]
     subprocess.run(checkout, env=GIT_ENV, check=True)
-    binary, digest = _binary(tmp_path, PINNED_VERSION)
+    binary, digest = _binary(tmp_path, STAND_IN_VERSION)
     package = scratch / "src" / "physgate"
     stamp = runner.pins(scratch, binary, pinned_sha256=digest, package_dir=package)
     assert stamp["src_pinned_commit"] == runner.PINNED_SRC_COMMIT

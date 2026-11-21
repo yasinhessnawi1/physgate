@@ -114,8 +114,34 @@ def test_without_bwrap_the_reason_says_whether_installing_it_could_help() -> Non
     assert isinstance(hopeful, Absent) and "refused here" not in hopeful.reason
 
 
-def test_the_layer_is_generated_only_for_the_version_pinned_for_it() -> None:
-    assert frozenset({"2.1.301"}) == SANDBOX_VERSIONS
+def test_the_layer_is_generated_only_for_the_versions_its_rows_were_measured_on() -> None:
+    assert frozenset({"2.1.301", "2.1.322"}) == SANDBOX_VERSIONS
+
+
+@pytest.mark.parametrize("version", sorted({"2.1.301", "2.1.322"}))
+def test_on_each_measured_version_a_trial_that_ran_is_a_present_layer(version: str) -> None:
+    mac = judge(_facts(claude_version=version))
+    assert mac == Present(mechanism="seatbelt", claude_version=version)
+    linux = judge(_linux(claude_version=version))
+    assert linux == Present(mechanism="bubblewrap", claude_version=version)
+
+
+@pytest.mark.parametrize("version", ["2.1.302", "2.1.321", "2.1.323", "2.2.0", "3.0.0"])
+def test_a_later_version_no_row_was_measured_on_is_absent_and_not_called_earlier(
+    version: str,
+) -> None:
+    for facts in (_facts(claude_version=version), _linux(claude_version=version)):
+        state = judge(facts)
+        assert isinstance(state, Absent)
+        assert "predates" not in state.reason
+        assert "not measured on" in state.reason and version in state.reason
+        assert "2.1.301" in state.reason and "2.1.322" in state.reason
+
+
+@pytest.mark.parametrize("version", ["", "2.1", "latest", "2.1.x", "v2.1.322", "2.1.322 "])
+def test_a_version_that_is_no_three_numbers_is_absent(version: str) -> None:
+    state = judge(_facts(claude_version=version))
+    assert isinstance(state, Absent)
 
 
 def test_a_reason_is_bounded_whatever_a_program_printed() -> None:

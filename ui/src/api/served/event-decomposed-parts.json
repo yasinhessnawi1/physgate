@@ -1,0 +1,67 @@
+{
+  "components": [
+    {
+      "domain": "electrical",
+      "label": "Drive gearmotors, 50:1 Micro Metal HPCB 6V",
+      "node": "electrical.gearmotors",
+      "own": ["mass", "stall_current"],
+      "role": "control",
+      "shared": []
+    },
+    {
+      "domain": "mechanical",
+      "label": "Bumper cage",
+      "node": "mechanical.bumper_cage",
+      "own": ["mass"],
+      "role": "control",
+      "shared": []
+    },
+    {
+      "domain": "electrical",
+      "label": "Motor driver, DRV8838",
+      "node": "electrical.motor_driver",
+      "own": [],
+      "role": "control",
+      "shared": []
+    },
+    {
+      "domain": "firmware",
+      "label": "Inertial sensor, LSM6DS33",
+      "node": "firmware.imu",
+      "own": [],
+      "role": "firmware",
+      "shared": []
+    },
+    {
+      "domain": "electrical",
+      "label": "Six AA NiMH cells",
+      "node": "electrical.cells",
+      "own": ["energy_capacity"],
+      "role": "control",
+      "shared": []
+    },
+    {
+      "domain": "electrical",
+      "label": "Wheel encoders",
+      "node": "electrical.encoders",
+      "own": [],
+      "role": "control",
+      "shared": []
+    }
+  ],
+  "gate_mode": "on",
+  "head_revision": 1,
+  "interface_nodes": ["iface.motor_supply"],
+  "kind": "decomposed",
+  "model": "claude-sonnet-5",
+  "num_turns": 1,
+  "observed_traffic": null,
+  "plan_sha256": "6e03c01c0a440d5c211cca12f1028677a6da594b38e4f9e93437f897d37f6326",
+  "policy_limits_sha256": null,
+  "run_id": "run-parts",
+  "seq": 2,
+  "session_id": "decomposition-stand-in",
+  "spec_commit": "9798e5eb6929d704089f7d1ec9e216293cb1228d",
+  "subtasks": 2,
+  "ts": "2026-11-16T21:51:03.934168Z"
+}

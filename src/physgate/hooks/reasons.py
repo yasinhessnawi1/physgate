@@ -76,11 +76,34 @@ WITHHELD_REASON = (
 #: credential's helper; they read and write it in their own processes, never through a tool.
 HOOK_STATE_REASON = "it holds the hook layer's own records of this session"
 
+#: Given for a write into the run's recorded tool environment.
+TOOL_ENVIRONMENT_REASON = (
+    "it is the run's recorded tool environment: the interpreter, the libraries and the build "
+    "tools every session computes and builds with, held to the bytes the run recorded; it is "
+    "read and run, and written by no session"
+)
+
 #: Given for a role or baseline session's read of the run's session directories: every session's
 #: login, captured stream, settings and hook records. Only what it is given to read there is open.
 SESSIONS_REASON = (
     "it is the run's session directories, which hold each session's login, stream and records; "
     "a session reads there only what it is given to read"
+)
+
+#: Given for any tool's read or write of the run's place where the hook sentinel keeps, apart from
+#: each session's own directory, the part of its record that names the protected entries.
+SENTINEL_APART_REASON = (
+    "it holds the hook layer's record of the protected paths each session of the run started "
+    "with, which names what no session reads; no session reads or writes it"
+)
+
+#: Given for any tool's read or write of a root withheld whole from the session but for its
+#: worktree there (the store's work root around a protected trial's place, the store around a
+#: blind check's work): whatever lies there, made before the session's install or after it, the
+#: rest of the session's own place included.
+WITHHELD_WHOLE_REASON = (
+    "it lies in a root withheld from this session whole, but for the session's worktree there; "
+    "nothing else in it is this session's to read or write, whenever it was made"
 )
 
 #: Given for a role, baseline or reviewer session's read or write of the temporary directory every
@@ -110,6 +133,11 @@ GIT_USER_CONFIG_REASON = (
     "it is git's user configuration for this session, where a key could make a later git "
     "command run a program the session chose; a role session reads git's configuration and "
     "never writes it"
+)
+#: A root with this reason is read by nothing of the session, as well as written by nothing.
+HOME_CLAUDE_REASON = (
+    "it is Claude Code's own directory in this session's home, where the skills, mods, "
+    "commands and settings a user keeps are read from; nothing of a session writes or reads it"
 )
 SHELL_STARTUP_REASON = (
     "it is a shell startup file in this session's home, which a shell started outside the "

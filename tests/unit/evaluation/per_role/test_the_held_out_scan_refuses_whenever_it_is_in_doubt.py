@@ -242,3 +242,63 @@ def test_a_tier_file_that_cannot_be_read_refuses_the_run(tmp_path: Path) -> None
     finally:
         locked.chmod(0o600)
     assert any("could not be read" in p or "could not be checked" in p for p in problems)
+
+
+# ------------------------------------- the canary list, beneath the root it protects
+
+
+def _listed(root: Path, text: str) -> None:
+    (root / "canaries.json").write_text(text)
+
+
+def test_a_tier_holding_its_canary_list_beside_its_digest_has_no_problem(tmp_path: Path) -> None:
+    base = tmp_path.resolve()
+    root = _tier(base)
+    _listed(root, json.dumps([CANARY_B, CANARY_A]))
+    assert _scan(base, root) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        json.dumps([CANARY_A]),
+        json.dumps([CANARY_A, CANARY_B, "c" * 32]),
+        json.dumps([CANARY_A, "c" * 32]),
+        json.dumps([CANARY_A, CANARY_B, CANARY_B]),
+        "not json",
+        json.dumps({"canaries": [CANARY_A, CANARY_B]}),
+        json.dumps([CANARY_A, "short"]),
+        "[]",
+    ],
+    ids=[
+        "one short",
+        "one more",
+        "one other",
+        "one twice",
+        "not json",
+        "not a list",
+        "not canaries",
+        "empty",
+    ],
+)
+def test_a_canary_list_that_is_not_the_tasks_canaries_refuses_the_run(
+    tmp_path: Path, text: str
+) -> None:
+    base = tmp_path.resolve()
+    root = _tier(base)
+    _listed(root, text)
+    problems = _scan(base, root)
+    assert any("canary list" in p for p in problems), (
+        f"a list that does not name exactly the tasks' canaries passed: {problems}"
+    )
+
+
+@pytest.mark.parametrize(
+    "name", ["x.canaries.json", ".canaries.json", "canaries.json.part", "canaries", "canary.json"]
+)
+def test_any_other_top_level_name_still_refuses_the_run(tmp_path: Path, name: str) -> None:
+    base = tmp_path.resolve()
+    root = _tier(base)
+    _listed(root, json.dumps([CANARY_A, CANARY_B]))
+    (root / name).write_text(json.dumps([CANARY_A, CANARY_B]))
+    assert any(repr(name) in p and "not a task" in p for p in _scan(base, root))

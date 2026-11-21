@@ -4,6 +4,7 @@
  * with their seals, the gate's records, and the decision sequence. A record the server refuses
  * is shown as the refusal, with its reason, and nothing of it is shown partial.
  */
+import { countOf } from "../../words/count";
 import { useEffect, useState } from "react";
 
 import { getLines } from "../../api/client";
@@ -43,7 +44,7 @@ import { EngineWords } from "../common/engine";
 import { useJson, useLines } from "../common/read";
 import { subtaskNames } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
-import { inProgress, runKey, runSource, useChosenRun } from "../common/runs";
+import { phaseOfResult, runKey, runSource, useChosenRun } from "../common/runs";
 import { useResult } from "../common/useResult";
 import { TokensCard } from "./Cards";
 import { LedgerTable } from "./Ledger";
@@ -150,14 +151,14 @@ function Records({
             <Term term="manifest">Manifest</Term>
           </dt>
           <dd>
-            <Id value={config.manifestId} />
+            <Id value={config.manifestId} short={8} name="manifest id" />
           </dd>
           <dt>Harness commit</dt>
           <dd>
             {config.harnessCommit === null ? (
               <span className="pg-muted">no commit recorded</span>
             ) : (
-              <Id value={config.harnessCommit} />
+              <Id value={config.harnessCommit} short={8} name="harness commit" />
             )}
           </dd>
           <dt>Engine · auth</dt>
@@ -180,7 +181,7 @@ function Records({
             Brief <Term term="digest">digest</Term>
           </dt>
           <dd>
-            <Id value={config.briefSha256} />
+            <Id value={config.briefSha256} short={8} name="brief digest" />
           </dd>
           <dt>
             <Term term="seed">Seed</Term>
@@ -246,6 +247,7 @@ function Records({
                 source={source}
                 size="lg"
                 partial={going || cost.result.value.partial}
+                atLeast={cost.result.value.lowerBound}
               />
               <Figure
                 {...cost.result.value.nok}
@@ -253,6 +255,7 @@ function Records({
                 source={source}
                 size="lg"
                 partial={going || cost.result.value.partial}
+                atLeast={cost.result.value.lowerBound}
               />
             </div>
           </>
@@ -377,7 +380,9 @@ function Records({
               View: counted from {gates.result.value.length} gate records.
             </p>
             <details className="pg-details" open>
-              <summary>{gates.result.value.length} records, as the gate wrote them</summary>
+              <summary>
+                {countOf(gates.result.value.length, "record")}, as the gate wrote them
+              </summary>
               <div
                 className="pg-table-wrap"
                 role="region"
@@ -441,7 +446,9 @@ function Records({
           />
         ) : (
           <details className="pg-details">
-            <summary>{sequence.result.value.length} steps, in the order the run took them</summary>
+            <summary>
+              {countOf(sequence.result.value.length, "step")}, in the order the run took them
+            </summary>
             <ol className="pg-list">
               {sequence.result.value.map((d) => (
                 <li key={d.seq} className="pg-list-row">
@@ -469,7 +476,8 @@ export default function RunRecords({ setHeader, query }: ViewProps) {
   const chosen = useChosenRun(query);
   const { runs, config, status, base, label } = chosen;
   const configValue = config?.ok === true ? config.value : undefined;
-  const going = status?.ok === true && inProgress(status.value);
+  const phase = phaseOfResult(status);
+  const going = phase === "going";
   useEffect(() => {
     if (runs?.ok === true && runs.value.length === 0)
       setHeader({ title: "Run records", runState: "none" });
@@ -482,9 +490,11 @@ export default function RunRecords({ setHeader, query }: ViewProps) {
         gateMode: configValue.gateMode,
         osLayer: configValue.osLayer,
         inProgress: going,
+        phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, label, setHeader]);
+  }, [runs, config, configValue, going, phase, chosen.standing, label, setHeader]);
   if (runs === null) return <LoadingState reading="the run list" />;
   if (!runs.ok)
     return (

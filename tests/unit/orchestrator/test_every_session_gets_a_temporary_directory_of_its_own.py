@@ -67,6 +67,8 @@ def _dispatch(
     monkeypatch.setattr(dispatch, "empty_outbox", lambda *_a: ())
     monkeypatch.setattr(dispatch, "session_protected_roots", lambda *_a: ((), ()))
     monkeypatch.setattr(dispatch, "harness_protection", lambda: [])
+    # The stand-in run has no repository: its git directory is no one's to make anything in.
+    monkeypatch.setattr(dispatch, "common_dir", lambda repo: repo / "no-git-directory")
     monkeypatch.setattr(ClaudeDispatcher, "os_layer", lambda _self: layer)
     monkeypatch.setattr(
         ClaudeDispatcher, "environment", lambda _self: SimpleNamespace(system_managed=())
@@ -82,6 +84,7 @@ def _dispatch(
         run=SimpleNamespace(  # type: ignore[arg-type]
             open_subtask=open_subtask,
             run_dir=run_dir,
+            repo=run_dir,
             subtask_branch=lambda subtask, _reopen=0: f"b/{subtask}",
         ),
         store_root=run_dir / "store",

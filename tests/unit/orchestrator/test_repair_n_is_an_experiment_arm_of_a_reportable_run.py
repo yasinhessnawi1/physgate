@@ -28,6 +28,7 @@ from test_decompose_reviews_the_plan_before_it_writes_anything import (
 )
 
 import physgate.flags as flags
+import physgate.orchestrator.binaries as binaries
 import physgate.orchestrator.cli as orchestrator_cli
 from physgate.evaluation.requirements import REQUIREMENTS
 from physgate.orchestrator.requirements import RunFacts
@@ -109,11 +110,13 @@ def test_decompose_runs_a_repair_arm_and_spends_no_call_before_its_refusals(
     monkeypatch.setattr(orchestrator_cli, "refusals", lambda facts: [])
     real = orchestrator_cli._config
 
-    def reportable(args: Any) -> RunConfig:  # noqa: ANN401
+    def reportable(args: Any, credential: Any) -> RunConfig:  # noqa: ANN401
         update = {"design_review": "repair:2", "reportable": True, "harness": CLEAN_HARNESS}
-        return real(args).model_copy(update=update)
+        return real(args, credential).model_copy(update=update)
 
     monkeypatch.setattr(orchestrator_cli, "_config", reportable)
+    # Nor is the listed build of the binary: the stand-in is no build of any version.
+    monkeypatch.setattr(binaries, "require_listed", lambda version, binary: None)
     params = {**REVIEWING, "design_review": "on"}
     reviewer = StandIn(_verdict("pass"))
     # Named without where its review runs: refused before the call is spent.

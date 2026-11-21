@@ -46,6 +46,7 @@ from pydantic import (
     model_validator,
 )
 
+from physgate.lines import split_lines
 from physgate.orchestrator.budget import SessionEnd
 from physgate.reviewers.transcript import SYNTHETIC_MODEL
 
@@ -141,6 +142,9 @@ class TrafficSettings(BaseModel):
         "served model catalog and remote feature flags measured off under these settings on "
         "Claude Code 2.1.272, 27.09.2026, on the real subscription path"
     )
+    #: Every switch the run's sessions carried, in the order the environment writes them;
+    #: ``None`` in a record from before the switches were recorded.
+    switches: tuple[tuple[str, str], ...] | None = None
 
 
 #: What the decomposition call's own debug log says; a closed vocabulary, so nothing the
@@ -194,6 +198,89 @@ class ObservedTraffic(BaseModel):
         return self.served_catalog == "off" and self.feature_flags in ("off", FLAGS_OFF_BY_SETTING)
 
 
+#: Where the binary keeps the remote feature flags it fetched, inside its configuration
+#: directory, and the key they sit under. Measured on 2.1.322 against the real API
+#: (12.11.2026): present after the first session in a fresh directory, about 1,250 entries,
+#: and different between two sessions minutes apart with nothing of ours changed. The debug
+#: log names no flag at all, so this is the only record of them.
+FLAG_CACHE_FILE = ".claude.json"
+FLAG_CACHE_KEY = "cachedGrowthBookFeatures"
+
+
+class FlagCache(BaseModel):
+    """The remote feature flags one session's binary held: how many, and their digest.
+
+    Never a flag's name or value: the cache holds whatever the provider's side put there.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    entries: Annotated[int, Field(ge=0)]
+    #: Of the cache as JSON with its keys sorted, so the order the binary wrote them in
+    #: is no difference.
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
+class FlagDrift(BaseModel):
+    """How often the flag cache differed from one reading of a run to the next."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    #: The sessions of the run that left a flag cache, the decomposition call among them.
+    readings: Annotated[int, Field(ge=0)]
+    #: The readings whose digest was not the one before it.
+    changes: Annotated[int, Field(ge=0)]
+
+
+def flag_cache(config_dir: Path) -> FlagCache | None:
+    """The flag cache an invocation left in its configuration directory, or ``None``.
+
+    ``None`` where the binary left no state file, one that is not a JSON table, or one with
+    no table of flags in it: no reading, which is not an empty cache. Only the count and the
+    digest leave here; the file holds the account's own state beside the flags.
+    """
+    try:
+        state = json.loads((Path(config_dir) / FLAG_CACHE_FILE).read_bytes())
+    except (OSError, ValueError):
+        return None
+    flags = state.get(FLAG_CACHE_KEY) if isinstance(state, dict) else None
+    if not isinstance(flags, dict):
+        return None
+    canonical = json.dumps(flags, sort_keys=True).encode()
+    return FlagCache(entries=len(flags), sha256=hashlib.sha256(canonical).hexdigest())
+
+
+def flag_drift(readings: Iterable[FlagCache | None]) -> FlagDrift | None:
+    """The count of a run's flag-cache readings and of the changes between them, or ``None``.
+
+    A session that left no cache is no reading and is skipped; a run with no reading at all
+    has no count. A cache that went back to an earlier state changed twice.
+    """
+    read = [r for r in readings if r is not None]
+    if not read:
+        return None
+    changes = sum(1 for before, now in zip(read, read[1:], strict=False) if now != before)
+    return FlagDrift(readings=len(read), changes=changes)
+
+
+class SessionManaged(BaseModel):
+    """What one invocation of a session showed of the conditions it ran under.
+
+    On a pin whose sessions carry the catalog and flag traffic, a review session is held to
+    the run's first observation as a role session is: the catalog and flags its debug log
+    showed, what the managed tier held or changed, and the policy limits it received.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    observed_traffic: ObservedTraffic | None
+    managed_drift: str | None
+    policy_limits_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None
+    #: The flag cache the invocation left: recorded, and never a reason to hold a review.
+    #: Not written where there is none.
+    flag_cache: FlagCache | None = Field(default=None, exclude_if=lambda v: v is None)
+
+
 _SERVED = re.compile(r"\[servedCatalog\] (\S+)(?: \(([a-z_]{1,40})\))?")
 _FLAGS_OFF = "GrowthBook is off for this session"
 
@@ -206,7 +293,7 @@ def observe_traffic(debug_log: str, *, flags_off_by_setting: bool = False) -> Ob
     The one exception is the flags on a version that never reports them
     (``flags_off_by_setting``): they read as off by setting, a value of its own.
     """
-    served = [m for line in debug_log.splitlines() if (m := _SERVED.search(line))]
+    served = [m for line in split_lines(debug_log) if (m := _SERVED.search(line))]
     off = bool(served) and all(m.group(1) == "off" for m in served)
     reasons = {m.group(2) for m in served if m.group(2)}
     return ObservedTraffic(
@@ -271,6 +358,28 @@ def policy_limits_change(baseline: str | None, now: str | None) -> str | None:
     if now is None:
         return f"no policy limits arrived where the decomposition call received {baseline}"
     return f"the policy limits changed from {baseline} to {now}"
+
+
+def traffic_change(baseline: ObservedTraffic | None, now: ObservedTraffic | None) -> str | None:
+    """How a session's catalog and flags differ from the run's first observation, or ``None``.
+
+    On a pin whose sessions carry the feature-flag and non-essential traffic, the catalog and
+    flags are not switched off, so the run is held to what it first saw instead: a session
+    that saw another state ran under other conditions than the sessions before it. A session
+    that read no log (the earlier pins write none) is not held to anything here.
+    """
+    if now is None or baseline is None or now == baseline:
+        return None
+    return (
+        "the served catalog and feature flags changed within the run: the run began with "
+        f"catalog {_state(baseline)} and flags {baseline.feature_flags}, this session saw "
+        f"catalog {_state(now)} and flags {now.feature_flags}"
+    )
+
+
+def _state(seen: ObservedTraffic) -> str:
+    reason = f" ({seen.served_catalog_reason})" if seen.served_catalog_reason else ""
+    return f"{seen.served_catalog}{reason}"
 
 
 def drift(config_dir: Path, system_before: tuple[SystemManagedFile, ...]) -> str | None:

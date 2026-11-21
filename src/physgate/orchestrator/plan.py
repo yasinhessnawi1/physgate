@@ -12,13 +12,14 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
-from collections.abc import Sequence
-from typing import Annotated
+from collections.abc import Collection, Sequence
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from physgate.orchestrator.common import NonEmptyStr
-from physgate.state.schema import NODE_ID_MAX_LENGTH, Node
+from physgate.state.schema import NODE_ID_MAX_LENGTH, Node, NodeIdKey
+from physgate.state.vocabulary import shadowing_quantity_names
 
 
 class _Frozen(BaseModel):
@@ -122,6 +123,105 @@ class IntegratedPlan(Plan):
     system_requirements: SystemRequirements
 
 
+#: The most components a plan may list: a person decides each one before anything is
+#: dispatched, and each decision is its own item.
+MAX_COMPONENTS = 20
+#: The most quantity names a component may list in either of its two lists.
+MAX_COMPONENT_NAMES = 12
+#: The longest label a component is shown to a person under, in characters.
+LABEL_MAX_CHARS = 80
+
+#: A quantity's name, as the gate's catalogue spells its own: what a part on hand states.
+QuantityName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
+#: The domains a component may be of. The cross domain holds quantities, never parts.
+ComponentDomain = Literal["mechanical", "electrical", "control", "firmware"]
+ComponentNames = Annotated[tuple[QuantityName, ...], Field(max_length=MAX_COMPONENT_NAMES)]
+
+
+class Component(_Frozen):
+    """One physical part of the design that a person could already own or could make.
+
+    The node by an id of its own, which no interface node has; the domain the part is of;
+    the role of the module it belongs to; a label a person would know the part by; and the
+    quantities a part on hand must state, each by its catalogue name: in ``own`` those only
+    its own domain reads, in ``shared`` those more than one domain depends on. Names only:
+    the values are the person's to state, never the plan's.
+    """
+
+    node: NodeIdKey
+    domain: ComponentDomain
+    role: NonEmptyStr
+    label: Annotated[str, StringConstraints(min_length=1, max_length=LABEL_MAX_CHARS)]
+    own: ComponentNames
+    shared: ComponentNames
+
+
+class PartsPlan(Plan):
+    """The plan of a run that asks which parts a person has or can make (ARCH-122).
+
+    It lists the design's components, none where the design has no such part. The list is
+    fixed here, before anything is dispatched: a person decides each entry, and what they
+    state of a part they have is written onto its node before any role reads it.
+    """
+
+    components: Annotated[tuple[Component, ...], Field(max_length=MAX_COMPONENTS)]
+
+
+class IntegratedPartsPlan(IntegratedPlan, PartsPlan):
+    """The plan of a run with the integration role that also asks about parts: both forms."""
+
+
+def duplicate_id_problems(components: Sequence[Component]) -> list[str]:
+    """What is wrong where two components of a list are given one id."""
+    ids = [entry.node for entry in components]
+    return ["two components share a node id"] if len(set(ids)) != len(ids) else []
+
+
+def component_id_problems(entry: Component, interfaces: Collection[str]) -> list[str]:
+    """What is wrong with a component's id, given the plan's interface nodes' ids."""
+    if entry.node in interfaces:
+        return [f"component {entry.node!r} has the id of an interface node"]
+    return []
+
+
+def component_name_problems(entry: Component) -> list[str]:
+    """What is wrong with the quantity names a component lists, in its two lists."""
+    said = f"component {entry.node!r}"
+    found: list[str] = []
+    for name, count in Counter((*entry.own, *entry.shared)).items():
+        if name in entry.own and name in entry.shared:
+            found.append(f"{said} names {name!r} as its own and as shared")
+        elif count > 1:
+            found.append(f"{said} names {name!r} more than once")
+    # The rule an interface node's names are held to: a name that shadows a relation's
+    # quantity would put a person's value where no relation reads it.
+    for name, relation in shadowing_quantity_names(tuple((*entry.own, *entry.shared))):
+        found.append(
+            f"{said} names {name!r}, which shadows {relation!r}, a quantity a relation "
+            "reads; it is named by the catalogue's name"
+        )
+    return found
+
+
+def component_list_problems(
+    interfaces: Sequence[str], components: Sequence[Component]
+) -> list[str]:
+    """What is wrong with a component list, given only the interface nodes' ids.
+
+    The plan's rules that need nothing but the list and ``interfaces``: no two components
+    share an id, none has an interface node's, and each one's names are given once, in one
+    list, by the catalogue's spelling. The plan check holds a plan to them, beside the rules
+    that need its modules and the run's roles; the run-event log holds a recorded line to
+    them, with the line's own interface nodes, on its way back in.
+    """
+    found = duplicate_id_problems(components)
+    known = set(interfaces)
+    for entry in components:
+        found += component_id_problems(entry, known)
+        found += component_name_problems(entry)
+    return found
+
+
 class CriterionWords(_Frozen):
     """An acceptance criterion the brief numbers, in the brief's own words.
 
@@ -207,3 +307,12 @@ def plan_bytes(plan: Plan) -> bytes:
 def plan_sha256(plan: Plan) -> str:
     """The plan's digest: sha256 of :func:`plan_bytes`."""
     return hashlib.sha256(plan_bytes(plan)).hexdigest()
+
+
+def shared_node_id(owner: str, component: str) -> str:
+    """The node the role that writes the cross nodes holds a component's shared values on.
+
+    Named from the component's own id with its dots as underscores, under the role's name,
+    so the plan fixes where each value goes and no session chooses.
+    """
+    return f"{owner}.{component.replace('.', '_')}"

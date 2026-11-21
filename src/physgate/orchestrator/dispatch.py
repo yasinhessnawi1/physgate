@@ -31,6 +31,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import sysconfig
 import time
 import uuid
@@ -43,28 +44,35 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from physgate.hooks import withheld
 from physgate.hooks.config import SessionConfig
-from physgate.hooks.reading import outstanding
-from physgate.hooks.sentinel import _frozen_experiment_paths
+from physgate.hooks.reading import compactions, outstanding
+from physgate.hooks.sentinel import _frozen_experiment_paths, held_apart
 from physgate.hooks.settings import CONFIG_NAME, SETTINGS_NAME
 from physgate.hooks.shell_startup import held_or_refused
 from physgate.hooks.snapshot import Signature, file_digest, signature
 from physgate.hooks.state import LOG_NAME
 from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
+from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import classify_session_end
-from physgate.orchestrator.canaries import canary_seen
+from physgate.orchestrator.budget import DISK_FULL_BELOW_BYTES, WRITES_LOST_VERSIONS
+from physgate.orchestrator.canaries import canary_seen, redact_text
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
-    open_in_session,
+    debug_logs_removed_on_failure,
     remove_secrets,
     write_key_helper,
     write_login,
 )
 from physgate.orchestrator.declaration import DECLARATION_PATH
-from physgate.orchestrator.decompose import binary_version, interface_contracts, read_stream
+from physgate.orchestrator.decompose import (
+    DEBUG_LOG,
+    binary_version,
+    interface_contracts,
+    read_debug_log,
+    read_stream,
+)
 from physgate.orchestrator.events import (
     Decomposed,
     Event,
@@ -90,11 +98,24 @@ from physgate.orchestrator.git import common_dir, named_from, object_format, ver
 from physgate.orchestrator.held_records import second_names
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.integration_state import STATE_NAME
-from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
-from physgate.orchestrator.managed import drift, model_answered, policy_limits_digest
+from physgate.orchestrator.invocation import (
+    NO_TOOL_SERVERS,
+    TRAFFIC_ALLOWED_VERSIONS,
+    isolated_env,
+    role_argv,
+    session_search_path,
+)
+from physgate.orchestrator.managed import (
+    ObservedTraffic,
+    drift,
+    flag_cache,
+    model_answered,
+    policy_limits_digest,
+)
 from physgate.orchestrator.merge import RunGit, attempt_head, attempt_message, commit_attempt
 from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
 from physgate.orchestrator.params_record import recorded_params
+from physgate.orchestrator.parts_reading import parts_files
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
     Leftover,
@@ -116,9 +137,38 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root, os_layer_refusal
-from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
+from physgate.orchestrator.session_files import (
+    FileRefused,
+    open_beneath,
+    read_beneath,
+    read_bounded,
+)
+from physgate.orchestrator.stop_signals import track
+from physgate.orchestrator.tool_environment import (
+    changed_while_running,
+    forbidden_places,
+    hold_before_session,
+    sealing_environment,
+    series_environment,
+    session_environment,
+    wire_session,
+)
+from physgate.orchestrator.trajectory import (
+    Seal,
+    forged_tail,
+    own_loss_tail,
+    seal,
+    through_first_result,
+)
+from physgate.orchestrator.usage_limit import account_windows, session_end
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
+from physgate.oslayer.containment import (
+    ContainmentError,
+    ServerLaunch,
+    contained_servers,
+    wrappers,
+)
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
@@ -161,6 +211,7 @@ def spawn_held(
     session_id: str,
     on_spawn: SpawnHook | None,
     while_held: Callable[[int, str], None],
+    login_dir: Path | None = None,
 ) -> tuple[subprocess.Popen[bytes], str]:
     """Spawn a session held (:data:`HELD`), record it, and only then let it run.
 
@@ -169,6 +220,10 @@ def spawn_held(
     record to), and ``while_held`` runs (the process record, and any record that must
     precede the session). Any failure there stops the held process, which has run nothing,
     and raises. Returns the process and its start time.
+
+    From its spawn the process, and the login file in ``login_dir`` (the session's configuration
+    directory), are held for a stop signal of the run's (``stop_signals``): one that lands while
+    the session lives ends it and removes its credential files.
 
     Nothing is spawned with an environment through which a shell startup file could reach a
     shell the binary starts outside the sandbox (``shell_startup.held_or_refused``): held here,
@@ -198,6 +253,7 @@ def spawn_held(
         raise
     finally:
         os.close(hold)
+    track(process, login_dir)
     try:
         started = started_at(process.pid)
         if started is None:
@@ -217,38 +273,50 @@ def spawn_held(
     return process, started
 
 
+#: The most a session's own file (a stream, a hook log, an end record) is read to: far past any
+#: a session writes in its bounds, and short of what would exhaust the harness's memory.
+MAX_SESSION_FILE_BYTES = 1 << 30
+
+
+def _beneath(path: Path) -> tuple[Path, tuple[str, str, str]]:
+    """``path`` as the harness's own directory and the names below it a session could reach.
+
+    ``path`` is ``<session dir>/<name>/<file>`` or ``<session dir>/<file>``, the session
+    directory's parent the orchestrator's own (:func:`open_in_session`).
+    """
+    return path.parent.parent.parent, (path.parent.parent.name, path.parent.name, path.name)
+
+
 def read_session_file(path: Path) -> bytes:
     """The bytes of a session's own file, read without following a link (``b""`` if absent).
 
-    The file is reached as :func:`open_in_session` reaches its directory, and opened without
-    following a link: a link a session's process planted there is never read through.
+    The file is reached as :func:`open_in_session` reaches its directory, opened once without
+    following a link and without waiting on a named pipe, and read only as a regular file with
+    no other link, up to :data:`MAX_SESSION_FILE_BYTES`
+    (:func:`~physgate.orchestrator.session_files.read_beneath`).
 
     Raises:
-        InvocationError: the file, or a directory on the way, is a link or not a regular file.
+        InvocationError: the file, or a directory on the way, is a link, is not a regular file
+            with one link, or is larger than the bound.
     """
-    directory = open_in_session(path.parent)
-    if directory is None:
-        return b""
+    anchor, names = _beneath(path)
     try:
-        try:
-            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
-        except FileNotFoundError:
+        return read_beneath(anchor, names, limit=MAX_SESSION_FILE_BYTES)
+    except FileRefused as refused:
+        if refused.kind == "absent":
             return b""
-        except OSError as exc:
-            msg = "a session's file is a link or cannot be opened; it is not read through"
-            raise InvocationError(msg, path=str(path), error=repr(exc)) from exc
-    finally:
-        os.close(directory)
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            msg = "a session's file is not a regular file; it is not read"
-            raise InvocationError(msg, path=str(path))
-        chunks = []
-        while chunk := os.read(fd, 1 << 20):
-            chunks.append(chunk)
-        return b"".join(chunks)
-    finally:
-        os.close(fd)
+        raise InvocationError(
+            _refused_text(refused, "a link, not a regular file of its own, or too large", "read"),
+            path=str(path),
+            error=str(refused),
+        ) from None
+
+
+def _refused_text(refused: FileRefused, what: str, done: str) -> str:
+    """What a refusal of a session's file says: its directory's, or the file's own."""
+    if refused.directory:
+        return "a session's directory is a link or not a directory; it is not followed"
+    return f"a session's file is {what}; it is not {done} through"
 
 
 #: The run's recorded configuration, withheld from every role session's reads.
@@ -274,6 +342,39 @@ def withheld_paths(run_dir: Path) -> tuple[Path, ...]:
     params = recorded_params(run_dir)
     named = tuple(run_dir / name for name in WITHHELD_RECORDS)
     return (*named, params) if params is not None else named
+
+
+#: The run's place apart from every session's own directory, where each role session's sentinel
+#: keeps the part of its record that names the protected entries (a held-out task's directory,
+#: which is its id, and each file's digest): a session's directory can lie later where people and
+#: other sessions read; this place no role session reads or writes on any layer. Resume's checks
+#: read it there, as the session's own checks did.
+SENTINEL_APART_DIR = "sentinel-apart"
+
+
+def place_apart(run_dir: Path) -> Path:
+    """The run's place apart for the sentinel's record, made where it is not there yet.
+
+    Made private, with the run's directory where that is not there yet. One that is there is
+    taken only as the run's own: a real directory, no link, this user's, mode 0700; the sentinel
+    holds it to the same at every check, a resume's among them.
+
+    Raises:
+        InvocationError: it is there as anything else; nothing is installed.
+    """
+    apart = run_dir / SENTINEL_APART_DIR
+    run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        os.mkdir(apart, 0o700)
+    except FileExistsError:
+        pass  # judged below as it is: never changed here
+    else:
+        os.chmod(apart, 0o700)  # as made, whatever bits the parent passes down
+    try:
+        held_apart(str(apart))
+    except ValueError as exc:
+        raise InvocationError(str(exc), place=str(apart)) from None
+    return apart
 
 
 #: The run's own records, in the run directory. The session's working directory is
@@ -452,6 +553,45 @@ class Captured:
     result: dict[str, Any] | None
     usage: tuple[MessageUsage, ...]
     answered: frozenset[str]
+    #: What the binary said after its result that a full disk lost, where a pin says it.
+    lost: str | None = None
+
+
+def free_bytes(*places: Path) -> int | None:
+    """The least free space on the volumes holding ``places``, or ``None`` if unmeasured.
+
+    The harness's own measurement, of the volume each place resolves to. A place that is
+    not there holds nothing; a volume that cannot be measured, or no place at all, gives
+    ``None``, which is never read as a full volume.
+    """
+    least: int | None = None
+    for place in places:
+        try:
+            volume = os.statvfs(place)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return None
+        free = volume.f_bavail * volume.f_frsize
+        least = free if least is None else min(least, free)
+    return least
+
+
+def tail_owner(claude_version: str, session_id: str, free: int | None = None) -> str | None:
+    """The session whose own word may follow its result here, or ``None``.
+
+    A binary on a pin measured to write it says, in one event after its result, that a
+    full disk lost the session's records. A stream is something a session can reach, so
+    that event is never taken on its own word: it counts only where ``free``, the
+    harness's measurement of the volumes holding the session's records when it ended
+    (:func:`free_bytes`), is below ``DISK_FULL_BELOW_BYTES``. With space to spare, with
+    nothing measured, or on any other pin, a stream holds nothing after its result.
+    """
+    if claude_version not in WRITES_LOST_VERSIONS:
+        return None
+    if free is None or free >= DISK_FULL_BELOW_BYTES:
+        return None
+    return session_id
 
 
 def read_stream_file(stream: Path) -> bytes:
@@ -471,25 +611,44 @@ def read_stream_file(stream: Path) -> bytes:
     return data
 
 
-def read_captured(stream: Path, data: bytes | None = None) -> Captured:
+def read_captured(
+    stream: Path, data: bytes | None = None, *, own_tail_of: str | None = None
+) -> Captured:
     """Parse a session's stream (:func:`captured_from`), from ``data`` if its read is in hand."""
-    return captured_from(read_stream_file(stream) if data is None else data)
+    return captured_from(
+        read_stream_file(stream) if data is None else data, own_tail_of=own_tail_of
+    )
 
 
-def captured_from(data: bytes) -> Captured:
+def captured_from(data: bytes, *, own_tail_of: str | None = None) -> Captured:
     """Seal a session's stream bytes, find a forged tail, parse what the runtime wrote.
 
     One path for every reader, the session that ended under its orchestrator and the
     leftover a resume finds, from the bytes one read returned. A stream with a tail after
     the runtime's result is parsed only up to that result; the tail is reported, never read.
+
+    ``own_tail_of`` is the session whose binary may say, in one event after its result,
+    that a full disk lost its records, and is given only where the harness measured the
+    records' volume as full (:func:`tail_owner`): that event alone is then no forged tail,
+    and what it names is returned as ``lost``. Nothing after a result is parsed.
     """
     text = data.decode(errors="replace")
     tampered = forged_tail(text)
+    lost = None
     if tampered is not None:
+        if own_tail_of is not None:
+            lost = own_loss_tail(text, own_tail_of)
+        if lost is not None:
+            tampered = None
         text = through_first_result(text)
     result, usage, answered = read_stream(text)
     return Captured(
-        seal=seal(data), tampered=tampered, result=result, usage=usage, answered=answered
+        seal=seal(data),
+        tampered=tampered,
+        result=result,
+        usage=usage,
+        answered=answered,
+        lost=lost,
     )
 
 
@@ -515,6 +674,14 @@ def issued_state_path(sdir: Path) -> Path:
     session's directory is a root sessions may not write.
     """
     return sdir / "issued" / STATE_NAME
+
+
+def parts_record_dir(sdir: Path) -> Path:
+    """Where a session's parts record files are written.
+
+    Beside its issued state: outside its worktree, in a directory of the session's own.
+    """
+    return sdir / "parts"
 
 
 def write_issued_state(path: Path, data: bytes) -> None:
@@ -597,12 +764,23 @@ class _Input:
     tool_response: object = None
     agent_id: str | None = None
     error: str | None = None
+    source: str | None = None
 
 
 def read_in_full(config_path: Path, session_id: str) -> bool:
-    """The hook layer's own answer: is every required file read in full, as it is now?"""
+    """The hook layer's own answer: is every required file read in full, as it is now?
+
+    After a compaction, a file the configuration names to read again counts only through
+    reads made since the last one.
+    """
     config = SessionConfig.model_validate_json(config_path.read_bytes())
     return not outstanding(config, _Input(session_id=session_id))
+
+
+def compactions_seen(config_path: Path, session_id: str) -> int:
+    """The hook layer's own count of the session's compactions it was told of."""
+    config = SessionConfig.model_validate_json(config_path.read_bytes())
+    return compactions(config, session_id)
 
 
 @dataclass(frozen=True)
@@ -748,6 +926,22 @@ def process_rows() -> list[tuple[int, int, str, str]] | None:
     if done.returncode != 0 or os.getpid() not in {row[0] for row in rows}:
         return None
     return rows
+
+
+def settle_debug_log(
+    process: subprocess.Popen[bytes], *, confirmed: bool, debug_file: Path | None
+) -> ObservedTraffic | None:
+    """What a role session's debug log showed, read and removed once the session has ended.
+
+    Read only when the stop is ``confirmed``: the session's tree and group are gone, so nothing
+    can write the log again after it is read. Otherwise the group is killed first and nothing is
+    read; the log is removed with the credential, and whatever a process that left the group
+    writes later goes with every leftover session's credential at the resume.
+    """
+    if not confirmed:
+        kill_own(process)
+        return None
+    return read_debug_log(debug_file) if debug_file is not None else None
 
 
 def still_running(
@@ -996,7 +1190,8 @@ def _hook_records(state: Path) -> tuple[list[dict[str, Any]], str | None]:
         return [], f"{HOOK_LOG_UNREAD}: {exc}"
     records: list[dict[str, Any]] = []
     unread: str | None = None
-    for n, line in enumerate(text.splitlines(), start=1):
+    # One record per "\n": a record's string may hold a character ``splitlines`` also breaks at.
+    for n, line in enumerate(split_lines(text), start=1):
         try:
             record = json.loads(line)
         except ValueError:
@@ -1260,6 +1455,58 @@ def runtime_paths(worktree: Path, home: Path) -> None:
         os.close(fd)
 
 
+#: What a version's runtime makes in the target repository's git directory when a session
+#: starts inside the OS layer, each with the mode it gives it, parents first. Measured on
+#: macOS through the real binary (12.11.2026): 2.1.322 makes three empty directories there;
+#: the earlier pins make none.
+RUNTIME_GIT_DIRECTORIES: dict[str, tuple[tuple[tuple[str, ...], int], ...]] = {
+    "2.1.322": (
+        (("branches",), 0o755),
+        (("remotes",), 0o755),
+        (("objects", "info", "commit-graphs"), 0o755),
+    ),
+}
+
+
+#: On Linux (bubblewrap, measured on CI, 12.11.2026) a version that makes the directories
+#: above also leaves three marker directories of its own and an empty ``alternates`` file.
+RUNTIME_GIT_DIRECTORIES_LINUX: tuple[tuple[tuple[str, ...], int], ...] = (
+    (("info", ".claude-sandbox-noreplace"), 0o755),
+    (("objects", "info", ".claude-sandbox-noreplace"), 0o755),
+    (("objects", "info", "commit-graphs", ".claude-sandbox-noreplace"), 0o755),
+)
+RUNTIME_GIT_FILES_LINUX: tuple[tuple[tuple[str, ...], int], ...] = (
+    (("objects", "info", "alternates"), 0o644),
+)
+
+
+def runtime_git_paths(git_dir: Path, claude_version: str, platform: str = sys.platform) -> None:
+    """Make what the runtime of ``claude_version`` makes in a repository's git directory.
+
+    The git directory is a root every session's end is held to: a session whose runtime made
+    a directory there would end as one that changed it. Made here first, before the record
+    is taken, they are part of it; nothing is exempted, and a session that changes one is
+    still caught. A path already present is left as it is. Nothing is made through a link or
+    beneath a parent that is not a real directory already there.
+    """
+    made = RUNTIME_GIT_DIRECTORIES.get(claude_version, ())
+    files: tuple[tuple[tuple[str, ...], int], ...] = ()
+    if made and platform.startswith("linux"):
+        made = (*made, *RUNTIME_GIT_DIRECTORIES_LINUX)
+        files = RUNTIME_GIT_FILES_LINUX
+    for parts, mode in (*made, *files):
+        path = git_dir.joinpath(*parts)
+        parents = [git_dir.joinpath(*parts[:n]) for n in range(len(parts))]
+        if any(p.is_symlink() or not p.is_dir() for p in parents) or os.path.lexists(path):
+            continue
+        if (parts, mode) in files:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+            os.close(os.open(path, flags, mode))
+        else:
+            path.mkdir(mode=mode)
+        path.chmod(mode)
+
+
 class Installed(BaseModel):
     """What the hook layer's installer prints: its files and how to spawn the session."""
 
@@ -1274,38 +1521,34 @@ class Installed(BaseModel):
 def redact(path: Path, secret: str | None) -> None:
     """Replace every occurrence of ``secret`` in the file at ``path``, a session's own file.
 
-    The file is reached through its directory without following a link, and opened without
-    following one (:func:`open_in_session`): a link planted at its name is never written
-    through.
+    The file is reached and judged as :func:`read_session_file` reaches one, opened to write:
+    a link planted at its name, or a second link to a file elsewhere, is never written through.
 
     Raises:
-        InvocationError: the file, or a directory on the way, is a link.
+        InvocationError: the file, or a directory on the way, is a link, is not a regular file
+            with one link, or is larger than :data:`MAX_SESSION_FILE_BYTES`.
     """
     if not secret:
         return
-    directory = open_in_session(path.parent)
-    if directory is None:
-        return
+    anchor, names = _beneath(path)
+    try:
+        fd = open_beneath(anchor, names, write=True)
+    except FileRefused as refused:
+        if refused.kind == "absent":
+            return
+        raise InvocationError(
+            _refused_text(refused, "a link or not a regular file of its own", "written"),
+            path=str(path),
+            error=str(refused),
+        ) from None
     try:
         try:
-            fd = os.open(path.name, os.O_RDWR | os.O_NOFOLLOW, dir_fd=directory)
-        except FileNotFoundError:
-            return
-        except OSError as exc:
-            msg = "a session's file is a link or cannot be opened; it is not written through"
-            raise InvocationError(msg, path=str(path), error=repr(exc)) from exc
-    finally:
-        os.close(directory)
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            msg = "a session's file is not a regular file; it is not written"
-            raise InvocationError(msg, path=str(path))
-        chunks = []
-        while chunk := os.read(fd, 1 << 20):
-            chunks.append(chunk)
-        data = b"".join(chunks)
-        if secret.encode() in data:
-            redacted = data.replace(secret.encode(), REDACTED)
+            data = read_bounded(fd, MAX_SESSION_FILE_BYTES)
+        except FileRefused as refused:
+            msg = "a session's file is too large to scrub; it is not written"
+            raise InvocationError(msg, path=str(path), error=str(refused)) from None
+        redacted = redact_text(data, secret, REDACTED_TEXT)
+        if redacted != data:
             os.ftruncate(fd, 0)
             os.pwrite(fd, redacted, 0)
     finally:
@@ -1364,6 +1607,7 @@ class ClaudeDispatcher:
         credential: Credential,
         review_root: Path,
         quarantine: tuple[str, str, str] | None = None,
+        tool_servers: tuple[ServerLaunch, ...] = (),
     ) -> None:
         """Dispatch attempts of ``run`` with the hooks from ``install_bin``'s installation.
 
@@ -1373,6 +1617,9 @@ class ClaudeDispatcher:
         #: (session id, who, why): the operator's command-line request to set one leftover's
         #: gone stream aside at this resume. Never read from a file a session can write.
         self._quarantine = quarantine
+        #: The tool servers each role session is offered, each in its wrapper; none without the
+        #: OS layer, which is what contains them.
+        self._tool_servers = tool_servers
         self._config = config
         self._run = run
         self._store_root = store_root
@@ -1384,6 +1631,9 @@ class ClaudeDispatcher:
         self._review_root = review_root_path(review_root)
         self._facts: InstallFacts | None = None
         self._os_layer: Present | Absent | None = None
+        #: The scan of the run's tool environment every session is held to, taken around the
+        #: full measure this process made before its first session; ``None`` until then.
+        self._tool_environment_scan: str | None = None
         #: The last stop's leftovers, each with the end it writes once the loop has their findings.
         self._ending: list[tuple[Path, dict[str, Any], bool]] = []
         harness = harness_root()
@@ -1396,7 +1646,9 @@ class ClaudeDispatcher:
         """The installation's and the session directories' facts, taken once."""
         if self._facts is None:
             self._facts = install_facts(
-                self._install_bin.parent.parent, self._run.run_dir / "sessions"
+                self._install_bin.parent.parent,
+                self._run.run_dir / "sessions",
+                claude_version=self._config.claude_version,
             )
         return self._facts
 
@@ -1490,6 +1742,10 @@ class ClaudeDispatcher:
         # there; the OS layer opens its home to its commands, and its binary reads its
         # configuration itself.
         protect += ["--sessions-root", str(self._run.run_dir / "sessions")]
+        # Beside the session directories, never in one: made before the install, so the layers
+        # refuse a place that is there.
+        apart = place_apart(self._run.run_dir)
+        protect += ["--sentinel-apart", str(apart)]
         # A session in the target's worktree has nothing of its own in the harness
         # checkout, and the live gate reads from it.
         protect += harness_protection()
@@ -1506,20 +1762,29 @@ class ClaudeDispatcher:
             )
             raise InvocationError(msg, why=str(exc)) from exc
         protect += [arg for path in withheld_now for arg in ("--withheld", str(path))]
+        # The run's tool environment: read and run by the session's commands, written by none.
+        recorded_tools = self._config.tool_environment
+        if recorded_tools is not None:
+            protect += [
+                arg for root in recorded_tools.roots for arg in ("--tool-environment-root", root)
+            ]
         # The always-loaded set (cross's standards, the role's own standards and
         # skill) is a subset of required reading, which adds the module spec and every
         # interface contract the specification commit issued (a superset of the ones
         # touching the module, until the plan names each interface's consumers).
         # loader.py names them relative to the worktree being dispatched to, never
         # the orchestrator's own checkout — that is where this session's Read
-        # tool actually operates.
+        # tool actually operates. Under the run's skills: off the skill file leaves both, and
+        # nothing else changes: decomposition put no skill file into the run's target, so no
+        # worktree holds one, and nothing is withheld in its place.
         contracts = self._contracts(request)
-        reading_paths = loader.required_reading(
+        given = loader.session_reading(
             request.assigned_role,
             Path(request.spec_path),
+            skills=self._config.skills,
             interfaces=tuple(Path(path) for path in contracts),
         )
-        always_loaded_paths = loader.always_loaded(request.assigned_role)
+        reading_paths, always_loaded_paths = given.required, given.always_loaded
         reading_args = [
             arg for path in reading_paths for arg in ("--reading", str(worktree / path))
         ]
@@ -1527,6 +1792,10 @@ class ClaudeDispatcher:
         issued = self._issue_state(request, sdir)
         if issued is not None:
             reading_args += ["--reading", str(issued)]
+        # The parts record, where the run's decisions named parts: every file of it is required
+        # reading, so no session writes before it has read what a person said of the parts.
+        for record_file in self._issue_parts_record(request, sdir):
+            reading_args += ["--reading", str(record_file)]
         always_loaded_args = [
             arg for path in always_loaded_paths for arg in ("--always-loaded", str(worktree / path))
         ]
@@ -1561,12 +1830,23 @@ class ClaudeDispatcher:
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # The tool servers the session is offered: their admitted tools join its closed
+            # list. None without the OS layer, which alone contains them.
+            *(arg for name in self._offered_servers() for arg in ("--tool-server", name)),
             # Without the layer the session still keeps its temporary files in a directory of
             # its own, never in the one every session of the user shares.
             *(["--temp", str(own_temp)] if temp is None and own_temp is not None else []),
+            # Whether the session is held to the design discipline, as the run recorded it.
+            "--hooks",
+            self._config.hooks,
             # Without the layer the installer writes the settings only for a run whose recorded
-            # configuration allows that, and reads it there.
-            *(["--run-config", str(self._run.run_dir / "run.json")] if temp is None else []),
+            # configuration allows that, and reads it there; with hooks off, only for a run that
+            # recorded the arm, read there too.
+            *(
+                ["--run-config", str(self._run.run_dir / "run.json")]
+                if temp is None or self._config.hooks == "off"
+                else []
+            ),
             # The held spawn exports the session's pid as the survivor reaper's canary.
             "--spawns-with-canary",
             # No remote host where the run asks for it; only the OS layer can enforce that.
@@ -1575,11 +1855,16 @@ class ClaudeDispatcher:
                 if temp is not None and self._config.network != "open"
                 else []
             ),
-            # The run's named interpreter is linked in the session's own directory, which
-            # the OS layer keeps from shell commands; its directory is opened again.
+            # The run's named interpreter, and the programs of its tool environment, are
+            # linked in the session's own directory, which the OS layer keeps from shell
+            # commands; that directory is opened again.
             *(
                 ["--os-layer-readable", str(sdir / "bin")]
-                if temp is not None and self._config.role_python is not None
+                if temp is not None
+                and (
+                    self._config.role_python is not None
+                    or self._config.tool_environment is not None
+                )
                 else []
             ),
         ]
@@ -1614,6 +1899,44 @@ class ClaudeDispatcher:
             raise InvocationError(msg, subtask_id=request.subtask_id, path=str(path))
         return path
 
+    @staticmethod
+    def _issue_parts_record(request: SessionRequest, sdir: Path) -> list[Path]:
+        """Write the request's parts record where its session reads it, held to the release's line.
+
+        The record's bytes are held to the digest and length the release line named before any
+        file is written; the files are rendered from them (:func:`parts_files`: a person's words
+        cleaned, capped and fenced as data) and read back whole. A request with no record writes
+        nothing.
+
+        Raises:
+            InvocationError: the record is not the one the run recorded, or a file written is
+                not what was rendered.
+        """
+        held = request.parts_record
+        if held is None:
+            return []
+        data = held.text.encode("utf-8")
+        if (hashlib.sha256(data).hexdigest(), len(data)) != (held.sha256, held.length):
+            msg = "the parts record handed to the session is not the one the run recorded"
+            raise InvocationError(msg, subtask_id=request.subtask_id)
+        try:
+            files = parts_files(data)
+        except ValueError as exc:
+            msg = "the parts record the run recorded is not one the session can be shown"
+            raise InvocationError(msg, subtask_id=request.subtask_id, why=str(exc)) from exc
+        written = []
+        directory = parts_record_dir(sdir)
+        directory.mkdir(parents=True)
+        for name, content in files:
+            path = directory / name
+            with path.open("xb") as handle:
+                handle.write(content)
+            if path.read_bytes() != content:
+                msg = "the parts record file written for the session is not the one rendered"
+                raise InvocationError(msg, subtask_id=request.subtask_id, path=str(path))
+            written.append(path)
+        return written
+
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         """Run one attempt in a fresh session and report what it left.
 
@@ -1634,6 +1957,20 @@ class ClaudeDispatcher:
         if reported != self._config.claude_version:
             msg = "the binary is not the version this run recorded"
             raise InvocationError(msg, reported=reported, recorded=self._config.claude_version)
+        recorded_tools = self._config.tool_environment
+        if recorded_tools is not None:
+            # Before anything of the session exists: a session never runs on an environment
+            # other than the one the run recorded, and a refusal here leaves nothing behind.
+            self._tool_environment_scan = hold_before_session(
+                recorded_tools,
+                self._tool_environment_scan,
+                forbidden=forbidden_places(
+                    harness=harness_root(),
+                    install=self._install_bin.parent.parent,
+                    run_dir=self._run.run_dir,
+                    target=self._run.repo,
+                ),
+            )
         worktree = self._run.open_subtask(request.subtask_id, request.reopened)
         if self._layer_on():
             # Before anything of the session exists: in a place the sandbox makes writable,
@@ -1680,6 +2017,43 @@ class ClaudeDispatcher:
     def _layer_on(self) -> bool:
         return isinstance(self.os_layer(), Present)
 
+    def _offered_servers(self) -> tuple[str, ...]:
+        """The names of the tool servers a session is offered: none without the OS layer."""
+        if not self._tool_servers or not self._layer_on():
+            return ()
+        return tuple(server.name for server in self._tool_servers)
+
+    def _contained_servers(
+        self, installed: Installed, sdir: Path, own_temp: Path, env: dict[str, str]
+    ) -> tuple[str, tuple[str, ...]]:
+        """The session's tool-server configuration, and the wrappers its servers may name.
+
+        None without the OS layer: a server the binary starts runs outside the sandbox around
+        the session's commands, and only the layer's own programs contain it. Each server's
+        rules come from the session's own configuration, as installed.
+
+        Raises:
+            InvocationError: a server cannot be contained here, so the session is not started.
+        """
+        if not self._offered_servers():
+            return NO_TOOL_SERVERS, ()
+        platform = sys.platform
+        bwrap = shutil.which("bwrap", path=env["PATH"]) if platform.startswith("linux") else None
+        config = SessionConfig.model_validate_json(Path(installed.config).read_bytes())
+        try:
+            servers = contained_servers(
+                config,
+                self._tool_servers,
+                platform=platform,
+                temp_dir=own_temp,
+                profiles_dir=sdir / "servers",
+                bwrap=bwrap,
+            )
+        except ContainmentError as exc:
+            msg = "a tool server cannot be contained here, so the session is not started"
+            raise InvocationError(msg, error=str(exc)) from exc
+        return servers, wrappers(platform, bwrap)
+
     def _run_session(
         self,
         request: SessionRequest,
@@ -1697,9 +2071,7 @@ class ClaudeDispatcher:
         # Made before the installation, so the OS layer's rules name them as they will stand.
         (sdir / "home").mkdir(parents=True, exist_ok=True)
         runtime_paths(worktree, sdir / "home")
-        installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
-        # Read before the session starts, while nothing of it can have touched the file.
-        end_check = session_end_command(Path(installed.settings))
+        runtime_git_paths(common_dir(self._run.repo), self._config.claude_version)
         env = isolated_env(
             home=sdir / "home",
             config_dir=sdir / "config",
@@ -1710,9 +2082,29 @@ class ClaudeDispatcher:
             base_url=self._base_url,
             api_key=None,
         )
+        recorded_tools = self._config.tool_environment
+        wired: dict[str, str] = {}
+        if recorded_tools is not None:
+            # Before the installation, so the OS layer's rules name the directory of the
+            # session's programs as it will stand: the interpreter and each program of the
+            # environment by name, and in the session's temporary directory what its tools
+            # need there, all as the environment's own file says.
+            wired = wire_session(
+                recorded_tools, bin_dir=sdir / "bin", temp=own_temp, taken=tuple(env)
+            )
+        installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
+        # Read before the session starts, while nothing of it can have touched the file.
+        end_check = session_end_command(Path(installed.settings))
         env.update(installed.spawn_env)
         recorded_python = self._config.role_python
-        if recorded_python is not None:
+        if recorded_tools is not None:
+            # The environment's interpreter is the session's ``python3``; a run that also
+            # names it as its interpreter names the same one.
+            env = session_environment(env, wired, sdir / "bin")
+            # Its scripts' records name the environment's code once, by the run's roots and
+            # digest, and every other file outside the module by its path.
+            env = series_environment(env, recorded_tools)
+        elif recorded_python is not None:
             # The run's named interpreter, measured again, first on the session's PATH as
             # ``python3``: a directory holding nothing else, so nothing beside it comes too.
             require_same(
@@ -1722,6 +2114,15 @@ class ClaudeDispatcher:
                 install=self._install_bin.parent.parent,
             )
             env["PATH"] = f"{session_bin(sdir, recorded_python)}:{env['PATH']}"
+        tool_servers, contained_by = self._contained_servers(installed, sdir, own_temp, env)
+        # On a pin whose sessions carry the catalog and flag traffic, the session's own debug
+        # log says what it saw; it is written beside the session's login, in its
+        # configuration directory, and read and removed with the credential.
+        debug_file = (
+            sdir / "config" / DEBUG_LOG
+            if self._config.claude_version in TRAFFIC_ALLOWED_VERSIONS
+            else None
+        )
         argv = role_argv(
             self._binary,
             prompt=role_prompt(
@@ -1733,6 +2134,9 @@ class ClaudeDispatcher:
             max_turns=request.bounds.session_max_turns,
             effort=self._config.effort,
             thinking_display=self._config.thinking_display,
+            tool_servers=tool_servers,
+            wrappers=contained_by,
+            debug_file=debug_file,
         )
         stdout = sdir / "stdout.jsonl"
         before = placeholders.snapshot(str(worktree), absent=named_in(installed, worktree))
@@ -1761,7 +2165,11 @@ class ClaudeDispatcher:
             }
             write_record(sdir.parent, sdir.name, record, "process.json")
 
-        with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:
+        with (
+            debug_logs_removed_on_failure(sdir / "config"),
+            stdout.open("wb") as out,
+            (sdir / "stderr.txt").open("wb") as err,
+        ):
             process, spawned = spawn_held(
                 argv,
                 cwd=worktree,
@@ -1771,6 +2179,7 @@ class ClaudeDispatcher:
                 session_id=session_id,
                 on_spawn=on_spawn,
                 while_held=while_held,
+                login_dir=sdir / "config",
             )
             (roots,) = held
             # However the session ends, nothing it started is left running before any git
@@ -1791,6 +2200,9 @@ class ClaudeDispatcher:
                 # waits for the resume, which refuses while it runs.
                 kill_own(process)
             stop_done = time.time()
+        # Measured by the harness as the session ends, before anything of it is removed:
+        # the only thing that bears out a binary's word that a full disk lost its records.
+        records_free = free_bytes(sdir / "config", sdir / "config" / "projects")
         if ended is not None:
             # The table is read again: nothing the stop concluded is taken as its proof.
             unconfirmed = still_running(
@@ -1803,14 +2215,26 @@ class ClaudeDispatcher:
         # the credential's removal, the placeholder sweep, the series collection, the
         # commit. The credential is removed whatever the check did; the steps after it run
         # only once the stop and the check have settled.
+        observed: ObservedTraffic | None = None
         try:
             # On every path, the stop confirmed or not.
             after_stop = check_after_stop(end_check, session_id, worktree, env, sdir / "state")
         finally:
             # The credential is on disk only while its session runs: removed whatever the
-            # check did.
-            remove_secrets(sdir / "state", sdir / "config")
-            redact(stdout, self._credential.secret)
+            # check did. So is the debug log, which may hold it; only its reading is kept, and
+            # only from a session whose group is confirmed gone. Each step runs whatever the
+            # one before it did.
+            try:
+                observed = settle_debug_log(
+                    process,
+                    confirmed=ended is not None and unconfirmed is None,
+                    debug_file=debug_file,
+                )
+            finally:
+                try:
+                    remove_secrets(sdir / "state", sdir / "config")
+                finally:
+                    redact(stdout, self._credential.secret)
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
         try:
@@ -1833,6 +2257,13 @@ class ClaudeDispatcher:
                     if p not in roots.held and p not in linked
                 ]
                 linked += elsewhere or [f"{path} ({links} names)"]
+        # The tool environment, scanned once more: a change now was made while this session
+        # ran, by a write no layer refused. Nothing it left is then collected or committed.
+        tools_changed = (
+            changed_while_running(self._config.tool_environment, self._tool_environment_scan)
+            if self._config.tool_environment is not None and self._tool_environment_scan is not None
+            else None
+        )
         if (
             ended is None
             or unconfirmed is not None
@@ -1840,6 +2271,7 @@ class ClaudeDispatcher:
             or moved
             or linked
             or unread is not None
+            or tools_changed is not None
         ):
             settled = {
                 "left_running": list(ended.left_running) if ended is not None else [],
@@ -1848,6 +2280,7 @@ class ClaudeDispatcher:
                 "protected_changed": moved,
                 "held_record_names": linked,
                 "protected_unread": unread,
+                "tool_environment_changed": tools_changed,
             }
             # Beside the end record, not in it: a resume still finds the session unended,
             # stops and checks it again, and reads what it spent.
@@ -1855,6 +2288,8 @@ class ClaudeDispatcher:
             msg = (
                 "the session's stop is not confirmed, or the sentinel's check after it "
                 "failed; no git call follows on this attempt"
+                if tools_changed is None
+                else f"{tools_changed}; no git call follows on this attempt"
             )
             raise InvocationError(
                 msg,
@@ -1877,7 +2312,10 @@ class ClaudeDispatcher:
         # worktree; they are removed before anything is committed, and recorded. What
         # the sweep refuses, or a sweep that fails, is recorded and refuses the attempt.
         placeholders_refused = self._sweep(worktree, before, sdir) if temp is not None else None
-        captured = read_captured(stdout)
+        captured = read_captured(
+            stdout,
+            own_tail_of=tail_owner(self._config.claude_version, session_id, records_free),
+        )
         # A command bubblewrap aborted never ran: recorded as such, never as a denial.
         aborted = (
             aborted_tool_uses(read_stream_file(stdout).decode(errors="replace"))
@@ -1888,8 +2326,17 @@ class ClaudeDispatcher:
         held_out_seen = self.held_out_seen(stdout)
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
-        require_matching_totals(result, usage)
-        end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
+        usage = require_matching_totals(result, usage)
+        # An API error the stream names as the account's usage limit is that limit, its own cause.
+        streamed = read_stream_file(stdout)
+        end, usage_limit = session_end(
+            streamed,
+            result,
+            exit_code=exit_code,
+            stopped_at_wall_clock=timed_out,
+            lost=captured.lost,
+            claude_version=self._config.claude_version,
+        )
         if end.outcome == "completed":
             echoed = sorted(answered)
             if echoed != [request.model]:
@@ -1918,6 +2365,14 @@ class ClaudeDispatcher:
             # The session's own directory holds its home; with the machine's temporary
             # directories these are the places it can write besides its worktree.
             writable_roots=(sdir, *temporary_roots()),
+            # The run's environment, which this session was held to before it started (else it
+            # never started) and after it ended (else nothing reaches here); the roots were
+            # write-denied to it only where the OS layer ran.
+            tool_environment=sealing_environment(
+                self._config.tool_environment,
+                held=self._tool_environment_scan is not None,
+                layer=temp is not None,
+            ),
         )
         # The tripwire on the files no session reads, once more before the attempt is committed:
         # a second name, a changed file or one that cannot be checked refuses the attempt.
@@ -1962,6 +2417,14 @@ class ClaudeDispatcher:
             managed_drift=drift(sdir / "config", system_before),
             policy_limits_sha256=limits,
             model_answered=model_answered(answered),
+            observed_traffic=observed,
+            # Read on a pin whose sessions fetch the flags, where the binary keeps them; the
+            # earlier pins fetch none, and their record is what it was.
+            flag_cache=(
+                flag_cache(sdir / "config")
+                if self._config.claude_version in TRAFFIC_ALLOWED_VERSIONS
+                else None
+            ),
             trajectory_seal=sealed,
             trajectory_tampered=tampered,
             review_material_seen=seen,
@@ -1972,6 +2435,8 @@ class ClaudeDispatcher:
             withheld_problems=withheld_problems,
             os_layer_aborted=aborted,
             reaper_unverified=unverified,
+            usage_limit=usage_limit,
+            account_windows=account_windows(streamed),
         )
 
     @staticmethod
@@ -2197,6 +2662,8 @@ class ClaudeDispatcher:
         # tail after the runtime's result not taken, and a stream with a result held to the
         # runtime's own totals. A repair resume's totals are the whole session's, so each
         # stream's result is held to the usage of every stream up to it.
+        # No one measured its records' volume when it ended, so nothing bears out a word
+        # after its result: a tail is a forged one here on every pin.
         usage: tuple[MessageUsage, ...] = ()
         tampered: str | None = None
         complete = True
@@ -2207,7 +2674,7 @@ class ClaudeDispatcher:
             why = captured.tampered
             if why is None:
                 try:
-                    require_matching_totals(captured.result, usage)
+                    usage = require_matching_totals(captured.result, usage)
                 except AccountingError as exc:
                     why = f"{exc}: {exc.context}"
             tampered = tampered or why

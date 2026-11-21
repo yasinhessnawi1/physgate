@@ -31,17 +31,20 @@ write each value, and the disputed attempt then returns to the gate; otherwise i
 **What choosing a position on a failed contract does:** the chosen module's work stands, and the
 other module reopens for one more attempt of its own budget, told the interface's values, while it
 alone deviates, has an attempt or its fix left, and the integration call is not on the record;
-otherwise it records only.
+otherwise it records only. **What a decision on a sign-off item does:** an approve signs the values
+it shows; a reject orders the module's one fix, outside its repair budget, once per module per run,
+while it is merged with an attempt left and the integration call is not on the record; otherwise
+the reject records only, for the reason the item states.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from physgate.orchestrator.arbitration import clause_conflicts
-from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
+from physgate.orchestrator.budget import ATTEMPT_LIMIT, REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.events import (
     ContractTested,
     DecisionEffect,
@@ -59,6 +62,7 @@ from physgate.orchestrator.queue import (
     ConfirmedIndicator,
     ContractChoice,
     ItemConsequence,
+    JudgedEarlier,
     OnChoose,
     OnReject,
     QueueItem,
@@ -69,6 +73,7 @@ from physgate.orchestrator.queue import (
     held_windows_of,
     parses,
     plan_consequence,
+    sign_off_consequence,
     within,
 )
 from physgate.orchestrator.repair import (
@@ -79,7 +84,9 @@ from physgate.orchestrator.repair import (
     contract_conform_instruction,
     fix_instruction,
     person_repair_instruction,
+    sign_off_fix_instruction,
 )
+from physgate.orchestrator.sign_off import SignOffReject
 from physgate.reviewers.packet import fits_one_read, person_order_text
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError, scan
 
@@ -91,8 +98,9 @@ if TYPE_CHECKING:
 #: The sources whose approve can merge, and so whose scan before review counts: every one of
 #: them may carry an earlier attempt that ended at the gate or the change check unreviewed, whose
 #: work is in the commit an approve merges. Each attempt no review judged is scanned (a review
-#: that blocked judged its own attempt's streams, not an earlier one's); a hit makes approve
-#: record only. The same holds for each: the automated block, the indicator history, the scan.
+#: judged its own attempt's streams, and an earlier attempt's only where it was given that
+#: attempt's hits and answered every one: ``SubtaskState.judged``); a hit makes approve record
+#: only. The same holds for each: the automated block, the indicator history, the scan.
 SCANNED_SOURCES: frozenset[QueueSource] = frozenset(
     {"review_unavailable", "review_blocked", "repair_budget_exhausted", "escalation_decision"}
 )
@@ -140,6 +148,24 @@ def confirmed_indicators(sub: SubtaskState) -> tuple[ConfirmedIndicator, ...]:
     )
 
 
+def judged_earlier(sub: SubtaskState) -> tuple[JudgedEarlier, ...]:
+    """Each earlier attempt no review judged itself whose scan hits a later review judged.
+
+    Read from the review lines alone, in the attempts' order: what the item says of them is what
+    the log says, and the take-time rebuild reads the same.
+    """
+    return tuple(
+        sorted(
+            (
+                JudgedEarlier(attempt=n, judged_by=r.attempt)
+                for r in sub.reviews
+                for n in r.judged_earlier
+            ),
+            key=lambda j: j.attempt,
+        )
+    )
+
+
 def scan_hits_of(streams: Iterable[bytes]) -> tuple[ScanHit, ...]:
     """What the scan before review finds in an attempt's streams, each already held to its seal.
 
@@ -176,7 +202,9 @@ def source_of(sub: SubtaskState) -> QueueSource:
         return "review_unavailable"
     if now.rejected is not None:
         decided = now.decided
-        if decided is not None and not decided.decision.forced:
+        # The gate's rejection for declared values alone is a forced route with attempts left:
+        # sent to a person as the decision's own item, as an early answer is.
+        if decided is not None and (not decided.decision.forced or decided.state.all_declared):
             return "escalation_decision"
         return "repair_budget_exhausted"
     msg = "the subtask's last attempt did not end in a way that reaches the queue"
@@ -242,7 +270,8 @@ def contract_choices(state: RunState, tested: ContractTested) -> dict[Position, 
             why = "deviates"
         elif sub.status != "done" or state.integration is not None:
             why = "closed"
-        elif any(attempt.fix for attempt in sub.attempts):
+        elif any(attempt.fix for attempt in sub.attempts) or last >= ATTEMPT_LIMIT:
+            # A follow-up can merge on the subtask's last number though it is no fix.
             why = "spent"
         choices[position] = ContractChoice(
             why, side.module, side.subtask_id, last + 1, fix=last >= REPAIR_BUDGET
@@ -441,6 +470,7 @@ def item_consequence(
         why_record_only=why_not,
         confirmed_indicators=indicators,
         scan_hits=hits,
+        judged_earlier=judged_earlier(sub) if source in SCANNED_SOURCES else (),
     )
 
 
@@ -553,6 +583,11 @@ def _effect_of(
         if chosen == "record_only":
             return "none", "record_only_source"
         return chosen, None
+    if consequence.on_approve == "sign" or consequence.on_reject == "reopen_fix":
+        # A sign-off item's alone, whose decisions :func:`sign_off_outcome` computes from the
+        # record: every caller routes a sign-off item there before this table is read.
+        msg = "a decision on a sign-off item is computed from the record, never from its item"
+        raise ValueError(msg)
     if verb == "approve":
         if consequence.on_approve == "merge_attempt":
             return "merge", None
@@ -572,12 +607,16 @@ def decision_effect(
     line_sha256: str,
     scan_hits: tuple[ScanHit, ...],
     held: bool,
+    sign_off_fits: Callable[[str | None], bool] | None = None,
 ) -> Taken:
     """What the loop does with ``resolution`` on ``item``, from the run as its log replays.
 
     ``line_sha256`` is the digest of the item's line as the items file holds it now;
     ``scan_hits`` what the scan finds in the attempt's sealed streams now; ``held``
-    whether the decision was written while a session ran without the OS layer.
+    whether the decision was written while a session ran without the OS layer;
+    ``sign_off_fits`` whether the order a reject of a sign-off item gives, with the note given,
+    is one its reviewer reads whole: the loop alone reads the values it quotes. ``None`` where no
+    such reject is taken.
 
     Raises:
         QueueItemMismatchError: the item, the decision and the event log do not agree: the
@@ -589,6 +628,12 @@ def decision_effect(
         raise QueueItemMismatchError(msg, item=item.item_id, decided=resolution.item_id)
     if item.source == "contract":
         return _contract_effect(state, item, resolution, line_sha256=line_sha256, held=held)
+    if item.source == "parts":
+        return _parts_effect(item, resolution, line_sha256=line_sha256)
+    if item.source == "sign_off":
+        return _sign_off_effect(
+            state, item, resolution, line_sha256=line_sha256, held=held, fits=sign_off_fits
+        )
     if item.source == "plan_review" and resolution.verb is None:
         msg = "a plan's item is decided by approve or reject, and this decision is neither"
         raise QueueItemMismatchError(msg, item=item.item_id)
@@ -643,6 +688,39 @@ def decision_effect(
     return Taken(effect=effect, acts=True, why_not=None, order_too_long=too_long)
 
 
+#: What choosing each position of a part's item does: have and make declare what the person
+#: stated of it, find leaves it to be sourced and sized as before.
+PARTS_EFFECTS: dict[Position, DecisionEffect] = {
+    "have": "declare",
+    "make": "declare",
+    "find": "find",
+}
+
+
+def _parts_effect(item: QueueItem, resolution: QueueResolution, *, line_sha256: str) -> Taken:
+    """What the loop does with a choice on a part's item: always the effect of its position.
+
+    A part is decided by choosing have, make or find, on the view the item's line gives; any
+    other line on it is no decision, and the run halts on it rather than read it as one. It
+    acts, and is never held for the OS layer: no session runs while a part is undecided. That
+    the run holds this part, and the item is the one its record builds, are the loop's to check
+    beside this, and the replay's to check again.
+
+    Raises:
+        QueueItemMismatchError: the line is no bound choice of a position the item offers, or the
+            item's line changed since it was decided.
+    """
+    position = resolution.position
+    if position not in PARTS_EFFECTS:
+        # A choice alone has a position, and a choice alone is bound to a view.
+        msg = "a part's item is decided by choosing have, make or find, on the view it was shown"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    if resolution.shown_sha256 != line_sha256:
+        msg = "the item's line is not the one the decision was taken on"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    return Taken(effect=PARTS_EFFECTS[position], acts=True, why_not=None)
+
+
 def _contract_effect(
     state: RunState,
     item: QueueItem,
@@ -691,6 +769,163 @@ def _contract_effect(
     return Taken(effect, acts=True, why_not=None, reopens=reopens)
 
 
+def sign_off_reject(state: RunState, module: str) -> SignOffReject:
+    """What rejecting ``module``'s sign-off item does now, from the record alone.
+
+    The module's one fix while it has none ordered in this run, is merged with an attempt left,
+    and the integration call is not on the record; otherwise why the reject records only. Given
+    where the item is raised and asked again where it is decided: between the two only a reopen
+    of the module, or a later item superseding it, can change it.
+    """
+    sub = state.subtasks[module]
+    last = sub.attempts[-1] if sub.attempts else None
+    if sub.sign_off_fixed is not None:
+        return "used"
+    if state.integration is not None or sub.status != "done" or last is None or not last.merged:
+        return "closed"
+    if any(attempt.fix for attempt in sub.attempts) or last.number >= ATTEMPT_LIMIT:
+        return "spent"
+    return "reopen"
+
+
+def sign_off_outcome(
+    state: RunState, item_id: str, verb: Verb | None
+) -> tuple[DecisionEffect, WhyNot | None, str | None]:
+    """What a decision on the sign-off item ``item_id`` does: its effect, why not, and reopen.
+
+    The third is the module it reopens. One a later raise superseded records only. An approve
+    signs. A reject orders the module's one fix where its item said so and the record still
+    allows it; it records only where the item said so, and where the record no longer allows the
+    fix the item promised, as what the item said is no longer true: the module was reopened since
+    (``module_reopened``). The integration call waits while the item is undecided, so no such
+    reject is taken after it.
+    """
+    if item_id in state.superseded:
+        return "none", "superseded", None
+    if verb == "approve":
+        return "sign", None, None
+    raised = state.sign_offs[item_id]
+    if raised.reject == "spent":
+        return "none", "no_attempt_left", None
+    if raised.reject != "reopen":
+        return "none", "record_only_source", None
+    if sign_off_reject(state, raised.module) != "reopen":
+        return "none", "module_reopened", None
+    return "reopen", None, raised.module
+
+
+def sign_off_order(item_id: str, merged_at: int, values: str, note: str | None) -> PersonOrder:
+    """The order a reject of the sign-off item ``item_id`` gives the module's one fix.
+
+    ``merged_at`` is the attempt the module merged at; ``values`` the item's rendering of what
+    it binds. The same function builds it when the decision is taken and when the session starts.
+
+    Raises:
+        ValueError: no note: a reject says why.
+    """
+    if note is None:
+        msg = "a session a person ordered by a reject is ordered with the person's note"
+        raise ValueError(msg)
+    return PersonOrder(
+        kind="sign_off_fix",
+        item_id=item_id,
+        of_attempt=merged_at,
+        instruction=sign_off_fix_instruction(item_id, merged_at, values, note),
+    )
+
+
+def _sign_off_effect(
+    state: RunState,
+    item: QueueItem,
+    resolution: QueueResolution,
+    *,
+    line_sha256: str,
+    held: bool,
+    fits: Callable[[str | None], bool] | None,
+) -> Taken:
+    """What a decision on a sign-off item does: an approve signs, a reject may order the fix.
+
+    A reject orders the module's one fix where the item says so, and records otherwise
+    (:func:`sign_off_outcome`). Taken only in a run that acts: one that records decisions takes
+    none on it, so a recorded decision never reads as a signature. A decision written while a
+    session ran without the OS layer is held until an operator confirms it, as every decision that
+    closes an item is. One on an item a later raise superseded records only: the values it shows
+    are no longer the module's.
+    A fix whose order its reviewer could not read whole is never ordered: the reject records only.
+
+    Raises:
+        QueueItemMismatchError: the run raised no such item, the item's line changed since it was
+            decided, it states another consequence than the record gives, or the decision is no
+            approve or reject.
+    """
+    raised = state.sign_offs.get(item.item_id)
+    if raised is None:
+        msg = "the run raised no such sign-off item"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    if resolution.verb not in ("approve", "reject") or resolution.shown_sha256 is None:
+        # The writer refuses this line; one that reaches the file anyway is refused here.
+        msg = "a sign-off item is decided by approve or reject, bound to the line shown"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    if resolution.shown_sha256 != line_sha256:
+        msg = "the item's line is not the one the decision was taken on"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    if item.consequence != sign_off_consequence(raised.reject):
+        msg = "the item says another consequence than the run's record gives"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    hold: WhyNot | None = "held_os_layer_off" if held else None
+    effect, why, reopens = sign_off_outcome(state, item.item_id, resolution.verb)
+    if effect == "reopen" and not (fits is not None and fits(resolution.note)):
+        effect, why, reopens = "none", "order_too_long", None
+    if hold is not None or why is not None:
+        return Taken(effect=effect, acts=False, why_not=hold or why, reopens=reopens)
+    return Taken(effect=effect, acts=True, why_not=None, reopens=reopens)
+
+
+def _require_sign_off_taken(state: RunState, event: DecisionTaken) -> None:
+    """Refuse a decision on a sign-off item that this code could not have taken.
+
+    It is taken in a run that acts, names no subtask, attempt or commit, and is an approve or a
+    reject bound to the line shown, doing what :func:`sign_off_outcome` gives: a reject that
+    reopens names its module. One written while a session ran without the OS layer is held until
+    an operator confirms it. A reopen the record allows may instead record only for an order its
+    reviewer could not read whole: the loop alone reads the values that order quotes.
+    """
+    named = (event.subtask_id, event.attempt, event.attempt_commit)
+    if not state.acts or named != (None, None, None) or event.order_too_long:
+        msg = (
+            "a decision on a sign-off item is taken in a run that acts, and names no subtask, "
+            "attempt or commit"
+        )
+        raise ValueError(msg)
+    if event.verb not in ("approve", "reject") or event.shown_sha256 is None:
+        msg = "a decision on a sign-off item is an approve or a reject, bound to the line shown"
+        raise ValueError(msg)
+    written_held = within(event.decision_offset, held_windows_of(state.windows))
+    if event.confirmed_by is None and (event.why_not == "held_os_layer_off") != written_held:
+        msg = (
+            "a decision on a sign-off item is held exactly where its line was written while a "
+            "session ran without the OS layer"
+        )
+        raise ValueError(msg)
+    effect, why, reopens = sign_off_outcome(state, event.item_id, event.verb)
+    held = event.why_not == "held_os_layer_off" and event.confirmed_by is None
+    told: tuple[WhyNot | None, bool] = (event.why_not, event.acts)
+    exact = (event.effect, event.reopens) == (effect, reopens) and (
+        held or told == (why, why is None)
+    )
+    too_long = (
+        effect == "reopen"
+        and (event.effect, event.reopens) == ("none", None)
+        and (held or told == ("order_too_long", False))
+    )
+    if not (exact or too_long):
+        msg = "a decision on a sign-off item that does other than the record allows"
+        raise ValueError(msg)
+    if held and event.acts:
+        msg = "a held decision on a sign-off item acts only once it is confirmed"
+        raise ValueError(msg)
+
+
 def _reopen_of(state: RunState, tested: ContractTested, position: Position | None) -> str | None:
     """The planning subtask choosing ``position`` reopens, if it reopens one."""
     choice = contract_choices(state, tested).get(position) if position is not None else None
@@ -724,10 +959,17 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
         ):
             msg = "a confirmation follows a held decision, once"
             raise ValueError(msg)
+        # A sign-off item a later raise superseded while its decision was held, or whose fix the
+        # record no longer allows: what it showed is no longer true, so the confirmation of the
+        # same decision records only.
+        lapsed = (
+            event.item_id in state.sign_offs
+            and sign_off_outcome(state, event.item_id, event.verb)[0] != earlier.effect
+        )
         if (event.verb, event.position, event.effect, event.decision_offset) != (
             earlier.verb,
             earlier.position,
-            earlier.effect,
+            "none" if lapsed else earlier.effect,
             earlier.decision_offset,
         ):
             msg = "a confirmation is of the decision that was held"
@@ -737,6 +979,12 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
         raise ValueError(msg)
     if event.item_id in state.contract_items:
         _require_contract_taken(state, event)
+        return
+    if event.item_id in state.parts_ids:
+        _require_parts_taken(state, event)
+        return
+    if event.item_id in state.sign_offs:
+        _require_sign_off_taken(state, event)
         return
     if state.design_review is not None and event.item_id == state.design_review.held_item:
         _require_plan_taken(state, event)
@@ -837,6 +1085,46 @@ def _require_plan_taken(state: RunState, event: DecisionTaken) -> None:
         raise ValueError(msg)
     if event.acts and event.verb == "reject" and event.note is None:
         msg = "a reject that acts carries its note"
+        raise ValueError(msg)
+
+
+def _require_parts_taken(state: RunState, event: DecisionTaken) -> None:
+    """Refuse a decision on a part's item that this code could not have taken.
+
+    It is taken in a run that acts, once the plan's own hold is released and the plan was not
+    rejected. It is a choice of have, make or find on the view the item's line gave, which
+    acts, is never held, names no subtask, attempt or commit, and has the effect its position
+    has. Approve, reject and free text decide no part.
+    """
+    if not state.acts or state.plan_hold() is not None or state.plan_ends():
+        msg = (
+            "a part is decided in a run that acts, once the plan's hold is released and the "
+            "plan was not rejected"
+        )
+        raise ValueError(msg)
+    position = event.position
+    if event.verb != "choose" or position not in PARTS_EFFECTS:
+        msg = "a decision on a part's item is a choice of have, make or find, and nothing else"
+        raise ValueError(msg)
+    named = (
+        event.subtask_id,
+        event.attempt,
+        event.attempt_commit,
+        event.order_too_long,
+        event.reopens,
+        event.confirmed_by,
+    )
+    if (
+        event.shown_sha256 is None
+        or not event.acts
+        or event.why_not is not None
+        or event.effect != PARTS_EFFECTS.get(position)
+        or named != (None, None, None, False, None, None)
+    ):
+        msg = (
+            "a decision on a part's item is a bound choice that acts, has its position's "
+            "effect, and names no subtask, attempt or commit"
+        )
         raise ValueError(msg)
 
 

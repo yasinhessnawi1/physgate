@@ -496,7 +496,8 @@ def _recording(self: Any, path: str, headers: Any, body: dict[str, Any]) -> Any:
 def request_defaults(requests: list[dict[str, Any]], version: str) -> dict[str, Any]:
     """The distinct settings the reviewer requests carried, beside the version's role defaults."""
     distinct = Counter(json.dumps(r, sort_keys=True) for r in requests)
-    known = BINARY_DEFAULTS.get(version)
+    # Beside the role sessions' defaults, on the evaluation's implementer model.
+    known = BINARY_DEFAULTS.get((version, "claude-opus-5-5"))
     seen = [json.loads(k) for k in distinct]
     compared = None
     if known is not None:

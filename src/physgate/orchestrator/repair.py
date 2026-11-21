@@ -13,7 +13,7 @@ from the process that built this harness.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -217,8 +217,17 @@ def _number(output: NumericOutput) -> str:
     return f"{output.value:g} {output.unit}"
 
 
-def repair_instruction(attempt: int, finding: Finding) -> str:
+#: How a quantity a person declared is marked where a repair names it.
+DECLARED_MARK = "(declared by the person: fixed, and no role changes it)"
+
+
+def repair_instruction(
+    attempt: int, finding: Finding, declared: Collection[tuple[str, str]] = ()
+) -> str:
     """The instruction the next attempt starts from, after ``attempt`` was rejected.
+
+    A quantity the finding names that a person declared (``declared``, each ``(node, name)``)
+    is named as fixed at every attempt, so the repair goes to what the role can change.
 
     Raises:
         RepairBudgetExhaustedError: ``attempt`` was the last one; it escalates and
@@ -242,9 +251,11 @@ def repair_instruction(attempt: int, finding: Finding) -> str:
             else "none; the check reported no number"
         )
         lines.append(f"Computed value: {number}")
-        lines += [
-            f"Quantity: {q.node_id} {q.name} = {q.value:g} {q.unit}" for q in finding.quantities
-        ]
+    for q in finding.quantities:
+        fixed = (q.node_id, q.name) in declared
+        if attempt >= 2 or fixed:
+            mark = f" {DECLARED_MARK}" if fixed else ""
+            lines.append(f"Quantity: {q.node_id} {q.name} = {q.value:g} {q.unit}{mark}")
     remaining = REPAIR_BUDGET - attempt
     lines += [
         "",
@@ -565,4 +576,31 @@ def contract_conform_instruction(
     if note is not None:
         lines += ["The person's note:", *quoted(note)]
     lines.append("The specification as issued otherwise still governs.")
+    return "\n".join(lines)
+
+
+def sign_off_fix_instruction(item_id: str, attempt: int, values: str, note: str) -> str:
+    """The instruction the one fix a person ordered by rejecting a sign-off item starts from.
+
+    A fixed template: the values the person did not sign, as the item showed them, and the
+    person's note, each quoted as data, then the lines that the issued specification still
+    governs and that this is the module's one such fix. ``attempt`` is the one the module merged
+    at; ``values`` is the item's rendering of every value its sign-off binds, with their digest.
+    No model phrases any of it, and nothing of an earlier session's trajectory is in it.
+    """
+    from physgate.orchestrator import integration_state as render
+
+    item = render.held(item_id, ITEM_PATTERN, 2 * 128 + 8, REFUSED_ITEM)
+    lines = [
+        f"A person did not sign this module's values on queue item {item}, and ordered one fix "
+        f"of the module, merged at attempt {attempt}. The values the person did not sign:",
+        *quoted(values),
+        "",
+        "The person wrote:",
+        *quoted(note),
+        "",
+        f"{STILL_GOVERNS} {NO_INPUT_SUPPLIED}",
+        "This is the module's one fix after a rejected sign-off. If it merges, a person is asked "
+        "to sign its values again.",
+    ]
     return "\n".join(lines)

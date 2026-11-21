@@ -14,16 +14,21 @@ guard, which refuses any open outside what the request may read (a 500 naming th
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
 import pytest
-from ui_rig import RECORDER, context_over, fake_ui, real_runs, sealed_session, serving
+from ui_rig import RECORDER, context_over, fake_ui, real_runs, sealed_session, serving, swept
 
 from physgate.state.store import journal_records_after
+from physgate.ui.routes import split_target
+from physgate.ui.table import registered
 
 #: The marker written into every planted target: it must never appear in a response.
 MARKER = b"PLANTED-TARGET-MARKER"
+#: The name a published gap trend of the control role is found under, at the top of a root.
+GAP_TREND = "gap-trend-control.json"
 RUN = "run-observe"
 PRICES = "2026-09-27"
 
@@ -51,6 +56,7 @@ def _routes_reading(planted: str, session: str) -> list[str]:
         ],
         "events.jsonl": [
             f"{run}/events",
+            f"{run}/events/from/0",
             f"{run}/ledger",
             f"{run}/gate-events",
             f"{run}/trajectories/{session}",
@@ -95,7 +101,8 @@ def _plant(world: dict[str, Path], planted: str, toward: str, session: str) -> P
     """Replace the file ``planted`` with a link ``toward`` a target, and return the target."""
     run_dir = world["root"] / RUN
     relative = f"sessions/{session}/stdout.jsonl" if planted == "stream" else planted
-    path = run_dir / relative
+    # The published gap trend lies at the top of a root, beside the runs, not in one.
+    path = world["root"] / GAP_TREND if planted == "gap trend" else run_dir / relative
     if toward == "held-out tier":
         target = world["held"] / "target"
     elif toward == "outside every root":
@@ -104,7 +111,7 @@ def _plant(world: dict[str, Path], planted: str, toward: str, session: str) -> P
         target = run_dir / "sessions" / session / "config" / ".credentials.json"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(MARKER + b"\n")
-    path.unlink()
+    path.unlink(missing_ok=True)
     path.symlink_to(target)
     return target
 
@@ -348,3 +355,98 @@ def test_a_library_route_refuses_a_file_it_reads_that_links_out_of_its_roots(
     real_target = str(target.resolve())
     tried = [p for p in RECORDER.opened if str(Path(p).resolve()) == real_target]
     assert tried == [], f"a library route tried to open the planted target: {tried}"
+
+
+# -- the routes the composition root registers ------------------------------------------------
+#
+# The Evidence screen's routes, registered beside the table from the evaluation side, read the
+# same run files and are planted the same three ways. A listing over every run refuses the
+# planted run in its own row: the listing answers, that run's row carries the reason and none of
+# the target's bytes, and no other number. A route over one run answers 403. Either way the
+# target is never opened.
+
+#: The registered routes over one run, or two, planted here: the run's spend at a sheet, and the
+#: run compared with itself.
+SPEND = f"/api/evidence/spend/0/{RUN}/{PRICES}"
+COMPARE = f"/api/evidence/compare/0/{RUN}/0/{RUN}"
+#: Each run file a registered route reads, and per route whether it answers 403, a row of the
+#: run list, or a run the catch count names as not read.
+REGISTERED_PLANTS: dict[str, dict[str, str]] = {
+    "run.json": {
+        "/api/evidence/runs": "row",
+        SPEND: "403",
+        COMPARE: "403",
+        "/api/evidence/catches": "unread",
+    },
+    "events.jsonl": {
+        "/api/evidence/runs": "row",
+        SPEND: "403",
+        COMPARE: "403",
+        "/api/evidence/catches": "unread",
+    },
+    # A session's stream: the spend reads each call's result from it.
+    "stream": {SPEND: "403"},
+    # The gap trend a person published for the page, at the top of the root.
+    "gap trend": {"/api/evidence/gaps": "refused"},
+}
+
+
+def test_every_route_the_composition_root_registers_is_planted_here() -> None:
+    swept()
+    reached = [
+        segments
+        for routes in REGISTERED_PLANTS.values()
+        for target in routes
+        if (segments := split_target(target)) is not None
+    ]
+    unplanted = [
+        route.pattern
+        for route in registered()
+        if not any(route.match(segments) is not None for segments in reached)
+    ]
+    assert unplanted == []
+
+
+@pytest.mark.parametrize("toward", TOWARD)
+@pytest.mark.parametrize("planted", sorted(REGISTERED_PLANTS))
+def test_a_registered_route_refuses_a_run_file_that_links_out_of_its_roots(
+    built: dict[str, Path], tmp_path: Path, planted: str, toward: str
+) -> None:
+    import json
+
+    world = _world(built, tmp_path)
+    session = sealed_session(world["root"] / RUN)
+    target = _plant(world, planted, toward, session)
+    context = context_over(world["root"], ui_root=built["ui"], held_out=(str(world["held"]),))
+    routes = REGISTERED_PLANTS[planted]
+    with serving(context) as live, RECORDER.recording():
+        answers = {route: live.request("GET", route) for route in routes}
+    for route, expected in routes.items():
+        status, _, body = answers[route]
+        assert MARKER not in body, route
+        if expected == "403":
+            assert status == 403, (route, status, body[:200])
+            # The refusal names the run by its place, never a path on disk.
+            assert str(tmp_path) not in body.decode(), (route, body[:300])
+            assert os.path.realpath(tmp_path) not in body.decode(), (route, body[:300])
+            continue
+        assert status == 200, (route, status, body[:200])
+        answer = json.loads(body)
+        if expected == "refused":
+            (entry,) = [entry for entry in answer["roles"] if entry["role"] == "control"]
+            assert entry["state"] == "refused", entry
+            assert "weeks" not in entry, entry
+            continue
+        if expected == "unread":
+            assert set(answer) == {"kinds", "unread"}, answer
+            (row,) = [row for row in answer["unread"] if row["name"] == RUN]
+            assert "error" in row, row
+            counted = [run["name"] for kind in answer["kinds"] for run in kind["runs"]]
+            assert RUN not in counted, answer
+            continue
+        (row,) = [row for row in answer["runs"] if row["name"] == RUN]
+        assert "error" in row, row
+        assert not {"manifest_id", "flags", "pins"} & set(row), row
+    real_target = str(target.resolve())
+    tried = [p for p in RECORDER.opened if str(Path(p).resolve()) == real_target]
+    assert tried == [], f"a registered route tried to open the planted target: {tried}"

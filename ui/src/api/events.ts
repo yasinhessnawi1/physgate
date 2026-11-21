@@ -5,13 +5,33 @@
  */
 import type { GateMode } from "../design/components/verdict/GateMode";
 import { type Quantity, requireQuantity } from "../design/quantity";
-import { count, flag, list, object, oneOf, optionalText, text } from "./check";
+import { count, flag, list, object, oneOf, optionalCount, optionalText, text } from "./check";
+import { ShapeError } from "./client";
 
 /** The precedence table's levels, by the names a ruling's line holds. */
 export const LEVELS = ["gate", "person", "sizing", "queue"] as const;
 export type Level = (typeof LEVELS)[number];
 /** What ended a subtask rejected: a person, the fix a person ordered, or sizing's closing pass. */
 const REJECTED_BY = ["person", "fix_not_accepted", "closing_pass"] as const;
+/** How a held dispatch was let go, or why one was never held, as the loop writes it. */
+export const RELEASED_HOW = [
+  "merged",
+  "ended_unmerged",
+  "waits_for_closing_pass",
+  "mutual_readers",
+] as const;
+
+/** Why a builder is held until the design it implements merges, as the loop writes it. */
+export const BUILDER_HELD_WHY = [
+  "escalated",
+  "ended_unmerged",
+  "designer_held",
+  "not_merged",
+] as const;
+
+/** What raises a decided part again at the release, as the loop writes it. */
+export const RAISED_BY = ["gate", "interface"] as const;
+export type RaisedBy = (typeof RAISED_BY)[number];
 
 interface Line {
   readonly seq: number;
@@ -26,6 +46,20 @@ export type RunEvent = Line &
         readonly model: string;
         readonly subtasks: number;
         readonly interfaceNodes: readonly string[];
+        /** The parts a person decides, in a run that asks which they have; ``null`` otherwise. */
+        readonly components?: readonly PlanComponent[] | null;
+      }
+    | {
+        readonly kind: "parts_released";
+        /** Each component's item and the choice that released it, in the plan's order. */
+        readonly choices: readonly { readonly itemId: string; readonly choice: string }[];
+      }
+    | {
+        readonly kind: "parts_raised_again";
+        /** What raised them: the release's gate call, or an interface that holds another value. */
+        readonly cause: RaisedBy;
+        /** Each part's new item, in the line's order. */
+        readonly itemIds: readonly string[];
       }
     | { readonly kind: "subtask_planned"; readonly subtask: string; readonly role: string }
     | {
@@ -56,6 +90,8 @@ export type RunEvent = Line &
         readonly finding: string | null;
         readonly reviewerModel: string | null;
         readonly sessionId: string | null;
+        /** How many times the review's session compacted before its verdict; null when none. */
+        readonly compactions: number | null;
       }
     /** A review that reached no verdict on the attempt: never a pass or a fail. */
     | {
@@ -65,6 +101,8 @@ export type RunEvent = Line &
         readonly cause: string;
         readonly detail: string | null;
         readonly reviewerModel: string | null;
+        /** How many times the review's session compacted before it ended; null when none. */
+        readonly compactions: number | null;
       }
     | {
         readonly kind: "attempt_rejected";
@@ -164,6 +202,31 @@ export type RunEvent = Line &
         readonly attempt: number;
         readonly why: string;
       }
+    /** The sign-off items a clean merge raised: each item and the module it is about. */
+    | {
+        readonly kind: "sign_offs_raised";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly raised: readonly { readonly itemId: string; readonly module: string }[];
+      }
+    /** A module's sign-off raised again on values the graph moved with no item raised on them. */
+    | {
+        readonly kind: "sign_off_raised_again";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly found: "merge" | "completion";
+        readonly itemId: string;
+        readonly module: string;
+      }
+    /** No follow-up is owed before the integration call, while a sign-off waits. */
+    | { readonly kind: "no_follow_up_owed" }
+    /** The one fix a rejected sign-off ordered ended without a merge. */
+    | {
+        readonly kind: "sign_off_fix_ended";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly why: string;
+      }
     | {
         readonly kind: "subtask_rejected";
         readonly subtask: string;
@@ -171,14 +234,69 @@ export type RunEvent = Line &
         readonly by: (typeof REJECTED_BY)[number];
         readonly itemId: string | null;
       }
+    /** A subtask's dispatch held while a subtask it reads from is with a person. */
+    | {
+        readonly kind: "dispatch_held";
+        readonly subtask: string;
+        readonly producer: string;
+        readonly itemId: string;
+        readonly interfaces: readonly string[];
+      }
+    /** A held dispatch let go, or a dispatch not held because the two read from each other. */
+    | {
+        readonly kind: "dispatch_released";
+        readonly subtask: string;
+        readonly producer: string;
+        readonly itemId: string;
+        readonly outcome: (typeof RELEASED_HOW)[number];
+      }
+    /** The modules that build what another designs, read from the plan before any runs. */
+    | {
+        readonly kind: "design_pairs_planned";
+        readonly pairs: readonly DesignPair[];
+        readonly mutual: readonly DesignPair[];
+        /** Builders the plan lists before the designer whose design they may build. */
+        readonly misordered: readonly DesignPair[];
+      }
+    /** A builder's dispatch held: the module whose design it implements has not merged. */
+    | {
+        readonly kind: "builder_held";
+        readonly subtask: string;
+        readonly designer: string;
+        readonly nodes: readonly string[];
+        readonly why: (typeof BUILDER_HELD_WHY)[number];
+        readonly itemId: string | null;
+        readonly chain: readonly string[] | null;
+      }
+    /** A builder's hold let go: the module whose design it implements merged. */
+    | {
+        readonly kind: "builder_released";
+        readonly subtask: string;
+        readonly designer: string;
+        readonly nodes: readonly string[];
+      }
     | { readonly kind: "other"; readonly recorded: string }
   );
+
+/** A module that builds what another designs: the two subtasks, and the design's nodes. */
+export interface DesignPair {
+  readonly designer: string;
+  readonly builder: string;
+  readonly nodes: readonly string[];
+}
 
 /** Two modules whose shared interfaces a contract holds, each by its name in the plan. */
 export interface ContractPair {
   readonly producer: string;
   readonly consumer: string;
   readonly interfaces: readonly string[];
+}
+
+/** A review's compaction count: absent, or at least one, as the record writes it. */
+function compactionCount(value: unknown): number | null {
+  const found = optionalCount(value, "a compaction count");
+  if (found === 0) throw new ShapeError("a compaction count");
+  return found;
 }
 
 function contractPair(value: unknown): ContractPair {
@@ -190,7 +308,49 @@ function contractPair(value: unknown): ContractPair {
   };
 }
 
+/**
+ * One physical part of the design as the decomposition lists it (ARCH-122): its node, the domain
+ * it is of, the role of the module it belongs to, a label a person knows it by, and the names of
+ * the quantities a part on hand states, its own and those more than one domain reads.
+ */
+export interface PlanComponent {
+  readonly node: string;
+  readonly domain: string;
+  readonly role: string;
+  readonly label: string;
+  readonly own: readonly string[];
+  readonly shared: readonly string[];
+}
+
+function designPair(value: unknown): DesignPair {
+  const p = object(value, "a design pair");
+  return {
+    designer: text(p.designer, "a designing subtask"),
+    builder: text(p.builder, "a building subtask"),
+    nodes: list(p.nodes, "a design's nodes").map((n) => text(n, "a node")),
+  };
+}
+
+function planComponent(value: unknown): PlanComponent {
+  const c = object(value, "a component of the plan");
+  const names = (raw: unknown, what: string) => list(raw, what).map((n) => text(n, "a name"));
+  return {
+    node: text(c.node, "a component's node"),
+    domain: text(c.domain, "a component's domain"),
+    role: text(c.role, "a component's role"),
+    label: text(c.label, "a component's label"),
+    own: names(c.own, "a component's own names"),
+    shared: names(c.shared, "a component's shared names"),
+  };
+}
+
 /** One event line as the screens read it; a line of another shape is refused whole. */
+/** A sign-off item a line raised: its id and the module it is about. */
+function raisedSignature(value: unknown): { readonly itemId: string; readonly module: string } {
+  const r = object(value, "a sign-off item raised");
+  return { itemId: text(r.item_id, "an item id"), module: text(r.module, "a module") };
+}
+
 export function runEvent(value: unknown): RunEvent {
   const e = object(value, "an event");
   const line = { seq: count(e.seq, "a sequence number"), ts: text(e.ts, "a timestamp") };
@@ -211,6 +371,31 @@ export function runEvent(value: unknown): RunEvent {
         model: text(e.model, "a model"),
         subtasks: count(e.subtasks, "a subtask count"),
         interfaceNodes: list(e.interface_nodes, "interface nodes").map((n) => text(n, "a node")),
+        components:
+          e.components === undefined || e.components === null
+            ? null
+            : list(e.components, "the plan's components").map(planComponent),
+      };
+    case "parts_released":
+      return {
+        ...line,
+        kind: "parts_released",
+        choices: list(e.components, "the released parts").map((raw) => {
+          const part = object(raw, "a released part");
+          return {
+            itemId: text(part.item_id, "a part's item"),
+            choice: text(part.choice, "a part's choice"),
+          };
+        }),
+      };
+    case "parts_raised_again":
+      return {
+        ...line,
+        kind: "parts_raised_again",
+        cause: oneOf(e.cause, RAISED_BY, "what raised the parts again"),
+        itemIds: list(e.parts, "the parts raised again").map((raw) =>
+          text(object(raw, "a part raised again").item_id, "a part's new item"),
+        ),
       };
     case "subtask_planned":
       return {
@@ -260,6 +445,7 @@ export function runEvent(value: unknown): RunEvent {
         finding: optionalText(r.finding, "a finding"),
         reviewerModel: optionalText(r.reviewer_model, "a model"),
         sessionId: optionalText(r.session_id, "a session id"),
+        compactions: compactionCount(r.compactions),
       };
     }
     case "review_unavailable":
@@ -271,6 +457,7 @@ export function runEvent(value: unknown): RunEvent {
         cause: text(e.cause, "a cause"),
         detail: optionalText(e.detail, "a detail"),
         reviewerModel: optionalText(e.reviewer_model, "a model"),
+        compactions: compactionCount(e.compactions),
       };
     case "attempt_rejected": {
       const f = object(e.finding, "a finding");
@@ -425,6 +612,36 @@ export function runEvent(value: unknown): RunEvent {
         attempt: attempt(),
         why: text(e.why, "why a follow-up ended"),
       };
+    case "sign_offs_raised":
+      return {
+        ...line,
+        kind: "sign_offs_raised",
+        subtask: subtask(),
+        attempt: attempt(),
+        raised: list(e.raised, "the items raised").map(raisedSignature),
+      };
+    case "sign_off_raised_again": {
+      const raised = raisedSignature(e.raised);
+      return {
+        ...line,
+        kind: "sign_off_raised_again",
+        subtask: subtask(),
+        attempt: attempt(),
+        found: oneOf(e.found, ["merge", "completion"] as const, "where it was found"),
+        itemId: raised.itemId,
+        module: raised.module,
+      };
+    }
+    case "no_follow_up_owed":
+      return { ...line, kind: "no_follow_up_owed" };
+    case "sign_off_fix_ended":
+      return {
+        ...line,
+        kind: "sign_off_fix_ended",
+        subtask: subtask(),
+        attempt: attempt(),
+        why: text(e.why, "why a fix ended"),
+      };
     case "subtask_rejected":
       return {
         ...line,
@@ -433,6 +650,57 @@ export function runEvent(value: unknown): RunEvent {
         attempt: attempt(),
         by: oneOf(e.by, REJECTED_BY, "what ended a subtask"),
         itemId: optionalText(e.item_id, "an item id"),
+      };
+    case "dispatch_held":
+      return {
+        ...line,
+        kind: "dispatch_held",
+        subtask: subtask(),
+        producer: text(e.producer, "a producing subtask"),
+        itemId: text(e.item_id, "an item id"),
+        interfaces: list(e.interfaces, "interfaces").map((i) => text(i, "an interface")),
+      };
+    case "dispatch_released":
+      return {
+        ...line,
+        kind: "dispatch_released",
+        subtask: subtask(),
+        producer: text(e.producer, "a producing subtask"),
+        itemId: text(e.item_id, "an item id"),
+        outcome: oneOf(e.outcome, RELEASED_HOW, "how a hold was let go"),
+      };
+    case "design_pairs_planned":
+      return {
+        ...line,
+        kind: "design_pairs_planned",
+        pairs: list(e.pairs, "design pairs").map(designPair),
+        mutual: e.mutual === undefined ? [] : list(e.mutual, "design namings").map(designPair),
+        misordered:
+          e.misordered === undefined
+            ? []
+            : list(e.misordered, "suspected misorders").map(designPair),
+      };
+    case "builder_held":
+      return {
+        ...line,
+        kind: "builder_held",
+        subtask: subtask(),
+        designer: text(e.designer, "a designing subtask"),
+        nodes: list(e.nodes, "a design's nodes").map((n) => text(n, "a node")),
+        why: oneOf(e.why, BUILDER_HELD_WHY, "why a builder is held"),
+        itemId: optionalText(e.item_id, "an item id"),
+        chain:
+          e.chain === undefined
+            ? null
+            : list(e.chain, "a chain of designers").map((c) => text(c, "a designing subtask")),
+      };
+    case "builder_released":
+      return {
+        ...line,
+        kind: "builder_released",
+        subtask: subtask(),
+        designer: text(e.designer, "a designing subtask"),
+        nodes: list(e.nodes, "a design's nodes").map((n) => text(n, "a node")),
       };
     default:
       return { ...line, kind: "other", recorded: text(e.kind, "an event kind") };

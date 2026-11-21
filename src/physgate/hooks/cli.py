@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -39,6 +40,15 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     p.add_argument("--user-home", default=str(Path.home()))
     p.add_argument("--ceiling", required=True, type=int, help="token ceiling, no default")
     p.add_argument("--reading", action="append", default=[])
+    p.add_argument(
+        "--after-compaction",
+        action="append",
+        default=[],
+        help="a required file a reviewer reads again in full after each compaction",
+    )
+    p.add_argument(
+        "--compaction-note", help="what a reviewer is told when it starts again after a compaction"
+    )
     p.add_argument("--always-loaded", action="append", default=[])
     p.add_argument("--held-out", action="append", default=[])
     p.add_argument(
@@ -49,10 +59,29 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     )
     p.add_argument("--protect", action="append", default=[])
     p.add_argument(
+        "--protect-except",
+        action="append",
+        default=[],
+        help="a path beneath a --protect root that root does not protect: the one place "
+        "under it the session writes",
+    )
+    p.add_argument(
         "--protect-refuse-only",
         action="append",
         default=[],
         help="a path no tool may write that the runtime writes during the session (not reverted)",
+    )
+    p.add_argument(
+        "--tool-environment-root",
+        action="append",
+        default=[],
+        help="a root of the run's recorded tool environment: read and run, written by no tool",
+    )
+    p.add_argument(
+        "--tool-server",
+        action="append",
+        default=[],
+        help="a tool server the session is offered, by its name in the register",
     )
     p.add_argument(
         "--protect-record",
@@ -73,6 +102,25 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         "for a role or baseline session to every read of the hooks, its own home included, but "
         "for what it is given to read there (the OS layer opens its home to its commands); "
         "required for a role or baseline session",
+    )
+    p.add_argument(
+        "--sentinel-apart",
+        help="the run's place, outside every place of the session's own, where the sentinel "
+        "keeps the part of its record that names the protected entries: refused to every read "
+        "and write on every layer, never put back",
+    )
+    p.add_argument(
+        "--withheld-whole",
+        action="append",
+        default=[],
+        help="a root withheld from the session whole, by rule, but for its worktree in its own "
+        "place there (--own-place): refused to every read and write on every layer, whatever is "
+        "made in it later; repeatable; given with --own-place only",
+    )
+    p.add_argument(
+        "--own-place",
+        help="the session's own place inside every --withheld-whole root: a real directory, "
+        "reached through no link, holding the worktree; given with --withheld-whole only",
     )
     p.add_argument(
         "--harness",
@@ -119,7 +167,17 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     p.add_argument(
         "--run-config",
         help="the run's recorded configuration (run.json): a role session's settings without "
-        "the OS layer (no --os-layer-temp) are written only where it allows the layer's absence",
+        "the OS layer (no --os-layer-temp) are written only where it allows the layer's absence, "
+        "and settings with --hooks off only where it recorded hooks: off",
+    )
+    p.add_argument(
+        "--hooks",
+        choices=["on", "off"],
+        default="on",
+        help="'off', an ablation run's arm: a role session without the design discipline (no "
+        "required reading, no always-loaded ceiling, no proposal checks, its worktree's own gate, "
+        "hook and knowledge sources writable); taken only with --run-config naming a run that "
+        "recorded hooks: off, and the run's recorded value is held to whenever one is named",
     )
     p.add_argument(
         "--os-layer-network",
@@ -171,8 +229,38 @@ def _os_layer_refusal(args: argparse.Namespace) -> str | None:
     return os_layer_refusal(config, absent)
 
 
+def _hooks_refusal(args: argparse.Namespace) -> str | None:
+    """Why the session may not be installed with ``--hooks`` as asked, or ``None``.
+
+    The discipline is dropped only for a run whose recorded configuration says so, so a word on
+    this command line cannot install an arm the run did not record; and a run's recorded value,
+    whenever one is named, is the one installed.
+    """
+    if args.run_config is None:
+        if args.hooks == "off":
+            return (
+                "a session is installed with --hooks off only for a run whose recorded "
+                "configuration (--run-config) says hooks: off"
+            )
+        return None
+    # Only here: the hook layer's own modules import nothing of the orchestrator.
+    from physgate.orchestrator.exceptions import RunConfigError  # noqa: PLC0415
+    from physgate.orchestrator.run_config import load_run_config  # noqa: PLC0415
+
+    try:
+        config = load_run_config(Path(args.run_config))
+    except (RunConfigError, OSError) as exc:
+        return f"the run configuration named cannot be read, so nothing is written: {exc}"
+    if config.hooks != args.hooks:
+        return (
+            f"the run recorded hooks: {config.hooks}, and the session was asked for hooks: "
+            f"{args.hooks}; nothing is written"
+        )
+    return None
+
+
 def _install(args: argparse.Namespace) -> int:
-    refused = _os_layer_refusal(args)
+    refused = _hooks_refusal(args) or _os_layer_refusal(args)
     if refused is not None:
         print(json.dumps({"error": refused}), file=sys.stderr)
         return 2
@@ -194,10 +282,17 @@ def _install(args: argparse.Namespace) -> int:
         read_roots=tuple(_abs(p) for p in args.read_root),
         extra_review_material=tuple(_abs(p) for p in args.review_material),
         extra_protected=tuple(_abs(p) for p in args.protect),
+        extra_protected_exceptions=tuple(_abs(p) for p in args.protect_except),
         extra_protected_refuse_only=tuple(_abs(p) for p in args.protect_refuse_only),
+        tool_environment_roots=tuple(_abs(p) for p in args.tool_environment_root),
+        tool_servers=tuple(args.tool_server),
         sessions_root=_abs(args.sessions_root) if args.sessions_root else None,
         extra_protected_record=tuple(_abs(p) for p in args.protect_record),
         withheld=tuple(_abs(p) for p in args.withheld),
+        sentinel_apart=_abs(args.sentinel_apart) if args.sentinel_apart else None,
+        withheld_whole=tuple(_abs(p) for p in args.withheld_whole),
+        # Not resolved: the installer refuses a place that is a link or reached through one.
+        own_place=os.path.abspath(os.path.expanduser(args.own_place)) if args.own_place else None,
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,
         harness_root=_abs(args.harness) if args.harness else None,
         harness_site_packages=tuple(_abs(p) for p in args.harness_site_packages),
@@ -206,6 +301,9 @@ def _install(args: argparse.Namespace) -> int:
         os_layer_readable=tuple(_abs(p) for p in args.os_layer_readable),
         os_layer_network=args.os_layer_network,
         spawns_with_canary=args.spawns_with_canary,
+        hooks=args.hooks,
+        after_compaction=tuple(_abs(p) for p in args.after_compaction),
+        compaction_note=args.compaction_note,
     )
     done = install(request, REGISTRY)
     printed: dict[str, object] = {

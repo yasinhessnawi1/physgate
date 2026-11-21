@@ -26,10 +26,39 @@ function refusalOf(status: number, body: unknown): Refusal {
   return { status, error, context };
 }
 
-async function request(path: string): Promise<Result<string>> {
+async function request(path: string, options: ReadOptions = {}): Promise<Result<string>> {
+  const { timeoutMs, signal } = options;
+  if (timeoutMs === undefined && signal === undefined) return answered(path, undefined);
+  // The whole read, the answer's body included, is given up once the time has passed, or when
+  // the caller stops it.
+  const stop = new AbortController();
+  const stopped = () => {
+    stop.abort();
+  };
+  signal?.addEventListener("abort", stopped);
+  if (signal?.aborted === true) stop.abort();
+  const timer = timeoutMs === undefined ? undefined : setTimeout(stopped, timeoutMs);
+  try {
+    return await answered(path, stop.signal);
+  } catch (error) {
+    if (!stop.signal.aborted) throw error;
+    // Stopped by the caller, or else by the time passing.
+    const why =
+      signal?.aborted === true || timeoutMs === undefined
+        ? "the read was stopped"
+        : `the server did not answer within ${String(Math.round(timeoutMs / 1000))} s`;
+    return { ok: false, refusal: { status: 0, error: why, context: {} } };
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", stopped);
+  }
+}
+
+async function answered(path: string, signal: AbortSignal | undefined): Promise<Result<string>> {
   const response = await fetch(path, {
     headers: { Accept: "application/json" },
     credentials: "omit",
+    ...(signal === undefined ? {} : { signal }),
   });
   const text = await response.text();
   if (response.ok) return { ok: true, value: text };
@@ -51,9 +80,21 @@ function guarded<T>(text: string, guard: (value: unknown) => T): Result<T> {
   }
 }
 
+/** How a read may be bounded. */
+export interface ReadOptions {
+  /** Give the read up, as a refusal, when the server has not answered within this many ms. */
+  readonly timeoutMs?: number;
+  /** Stop the read, as a refusal, when this signal is aborted (a page that left the record). */
+  readonly signal?: AbortSignal;
+}
+
 /** One JSON document, held to ``guard``. */
-export async function getJson<T>(path: string, guard: (value: unknown) => T): Promise<Result<T>> {
-  const answer = await request(path);
+export async function getJson<T>(
+  path: string,
+  guard: (value: unknown) => T,
+  options: ReadOptions = {},
+): Promise<Result<T>> {
+  const answer = await request(path, options);
   return answer.ok ? guarded(answer.value, guard) : answer;
 }
 
@@ -61,8 +102,9 @@ export async function getJson<T>(path: string, guard: (value: unknown) => T): Pr
 export async function getLines<T>(
   path: string,
   guard: (value: unknown) => T,
+  options: ReadOptions = {},
 ): Promise<Result<readonly T[]>> {
-  const answer = await request(path);
+  const answer = await request(path, options);
   if (!answer.ok) return answer;
   const lines = answer.value.split("\n").filter((line) => line !== "");
   return guarded(`[${lines.join(",")}]`, (value) => {
@@ -78,6 +120,16 @@ export async function getLines<T>(
  */
 let held: string | null = null;
 
+/** Whether this page was reloaded without a token: a reload forgets the one held in memory. */
+let lostOnReload = false;
+
+/** How the browser came to this page: "reload" when a person reloaded it. */
+function navigationType(win: Window): string | null {
+  const entry = win.performance.getEntriesByType("navigation")[0] as
+    { readonly type?: string } | undefined;
+  return entry?.type ?? null;
+}
+
 /** The fragment the operator's address carries the token in. */
 export const ACT_FRAGMENT = "#act=";
 
@@ -87,7 +139,12 @@ export const ACT_FRAGMENT = "#act=";
  */
 export function takeTokenFromAddress(win: Window = window): void {
   const { hash, pathname, search } = win.location;
-  if (!hash.startsWith(ACT_FRAGMENT)) return;
+  if (!hash.startsWith(ACT_FRAGMENT)) {
+    // Never stored anywhere: a reload starts with no token, and the page says why.
+    lostOnReload = held === null && navigationType(win) === "reload";
+    return;
+  }
+  lostOnReload = false;
   const token = decodeURIComponent(hash.slice(ACT_FRAGMENT.length));
   held = token === "" ? null : token;
   win.history.replaceState(null, "", `${pathname}${search}`);
@@ -98,9 +155,15 @@ export function actToken(): string | null {
   return held;
 }
 
+/** Whether this page holds no token because it was reloaded, which forgets the one it held. */
+export function tokenLostOnReload(): boolean {
+  return lostOnReload;
+}
+
 /** Forget the token: for tests, which share one module between cases. */
 export function forgetToken(): void {
   held = null;
+  lostOnReload = false;
 }
 
 /** The name of the ``<meta>`` element naming the operator decisions are recorded under. */

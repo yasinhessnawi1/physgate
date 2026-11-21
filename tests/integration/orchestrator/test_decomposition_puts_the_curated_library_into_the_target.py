@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from git_rig import PARAMS, config, target_repo
+from git_rig import config, run_params, target_repo
 from scripted_endpoint import DUMMY_KEY, Script, serving, tool
 
 from physgate import roles as physgate_roles
@@ -75,7 +75,7 @@ def _decompose(
     repo = target_repo(root)
     if prepare is not None:
         prepare(repo)
-    params = config().model_dump(include=PARAMS)
+    params = run_params(config())
     params["models"] = ModelStrings(
         decomposition="claude-sonnet-5",
         roles=dict.fromkeys(roles, "claude-sonnet-5"),

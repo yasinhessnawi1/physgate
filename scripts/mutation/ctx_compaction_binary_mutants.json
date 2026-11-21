@@ -1,0 +1,62 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/integration/orchestrator/test_a_review_that_compacts_reaches_a_verdict_with_its_compaction_counted_once.py",
+   "tests/integration/orchestrator/scripted_endpoint.py",
+   "tests/integration/orchestrator/compaction_session.py",
+   "tests/integration/orchestrator/test_a_claude_review_is_a_verdict_only_when_it_read_everything.py"
+  ]
+ },
+ {
+  "name": "b01-line-not-added",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "        if line is not None:\n            usage = (*usage, line)\n",
+  "new": "",
+  "tests": [
+   "tests/integration/orchestrator/test_a_review_that_compacts_reaches_a_verdict_with_its_compaction_counted_once.py",
+   "tests/integration/orchestrator/scripted_endpoint.py",
+   "tests/integration/orchestrator/compaction_session.py",
+   "tests/integration/orchestrator/test_a_claude_review_is_a_verdict_only_when_it_read_everything.py"
+  ]
+ },
+ {
+  "name": "b02-boundaries-not-counted",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "            compactions=len(here),\n",
+  "new": "            compactions=0,\n",
+  "tests": [
+   "tests/integration/orchestrator/test_a_review_that_compacts_reaches_a_verdict_with_its_compaction_counted_once.py",
+   "tests/integration/orchestrator/scripted_endpoint.py",
+   "tests/integration/orchestrator/compaction_session.py",
+   "tests/integration/orchestrator/test_a_claude_review_is_a_verdict_only_when_it_read_everything.py"
+  ]
+ },
+ {
+  "name": "b03-prior-left-out",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "        line = compaction_line(\n            result,\n            usage,\n",
+  "new": "        line = compaction_line(\n            result,\n            captured.usage,\n",
+  "tests": [
+   "tests/integration/orchestrator/test_a_review_that_compacts_reaches_a_verdict_with_its_compaction_counted_once.py",
+   "tests/integration/orchestrator/scripted_endpoint.py",
+   "tests/integration/orchestrator/compaction_session.py",
+   "tests/integration/orchestrator/test_a_claude_review_is_a_verdict_only_when_it_read_everything.py"
+  ]
+ },
+ {
+  "name": "baseline_last",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/integration/orchestrator/test_a_review_that_compacts_reaches_a_verdict_with_its_compaction_counted_once.py",
+   "tests/integration/orchestrator/scripted_endpoint.py",
+   "tests/integration/orchestrator/compaction_session.py",
+   "tests/integration/orchestrator/test_a_claude_review_is_a_verdict_only_when_it_read_everything.py"
+  ]
+ }
+]

@@ -68,7 +68,52 @@ export const SOURCE_WORDS: Readonly<Record<QueueSource, SourceWords>> = {
       "verdict on it: in a run that acts on decisions, nothing is dispatched until a person " +
       "decides; in one that only records them, the run ends with the item open.",
   },
+  parts: {
+    kind: "A part of the plan to decide",
+    why:
+      "The run asks which parts you already have or will make: nothing is dispatched until " +
+      "you have decided each part of the plan.",
+  },
+  sign_off: {
+    kind: "A standing sign-off",
+    why:
+      "A module whose role owes a person's sign-off merged: it is not complete until you sign " +
+      "the values it shows.",
+  },
 };
+
+/** Said while a page keeps what it read last because its latest read again failed. */
+export const REFRESH_FAILED =
+  "The latest refresh of this page failed; it tries again in a few seconds. What is shown is " +
+  "from the last refresh that worked.";
+
+/**
+ * What an item's finding is the verdict of, by source, said before the finding's own words: a
+ * finding often opens with what the work does well, and its rejection comes later. ``null`` for a
+ * source whose finding is a question, not a verdict.
+ */
+export const FINDING_VERDICT: Readonly<Record<QueueSource, string | null>> = {
+  gate_escalation: "Did not pass: the gate failed the finished design.",
+  repair_budget_exhausted: "Did not pass: this finding rejected the attempt.",
+  review_unavailable: "No verdict: the review neither passed nor rejected the attempt.",
+  review_blocked:
+    "Did not pass: the review was blocked on a safety-critical check, whatever the finding says is met.",
+  arbitration: "Not settled: a domain disputes the value, and the gate did not decide it.",
+  escalation_decision: "Did not pass: this finding rejected the attempt.",
+  contract: "Did not pass: the interface contract does not hold.",
+  plan_review:
+    "Did not pass: the design reviewer did not pass the plan, or reached no verdict on it.",
+  parts: null,
+  sign_off: null,
+};
+
+/**
+ * The verdict a part's item carries once it is raised again at the release: the gate blocked the
+ * values stated for it, or an interface contradicts them. A part asked for the first time is a
+ * question and claims none.
+ */
+export const RAISED_PART_VERDICT =
+  "Did not pass: the release could not take the values stated for this part.";
 
 /** Every sentence a screen says about a decision. Nothing else on a screen says it. */
 export const DECISION_COPY = {
@@ -86,9 +131,22 @@ export const DECISION_COPY = {
   reasonRule: "Approving needs no reason; a rejection must say why.",
 } as const;
 
-/** The timeline's row for a subtask set aside, naming the queue item it became. */
-export function setAsideWith(itemId: string): string {
-  return `Set aside for a person to decide (${itemId}). The run goes on with the other subtasks.`;
+/**
+ * The line under a decision's buttons: the item was set aside, and, only on a run going, that the
+ * run goes on with the other subtasks. On any other run, or one whose state is not read, the run
+ * is not said to go on: the line above the buttons says where it stands.
+ */
+export function setAsideLine(going: boolean): string {
+  return going ? DECISION_COPY.setAside : "Set aside for a person to decide.";
+}
+
+/**
+ * The timeline's row for a subtask set aside, naming the queue item it became; that the run goes
+ * on with the other subtasks only on a run going now (not on one stopped, ended or not read).
+ */
+export function setAsideWith(itemId: string, going: boolean): string {
+  const line = `Set aside for a person to decide (${itemId}).`;
+  return going ? `${line} The run goes on with the other subtasks.` : line;
 }
 
 /** The dialog's opening sentence: who records what, about which item. */
@@ -144,6 +202,8 @@ const HEADLINES: Readonly<Record<QueueSource, string>> = {
   escalation_decision: "A subtask was sent to a person",
   contract: "Two merged modules break an interface contract",
   plan_review: "The plan's review did not pass",
+  parts: "A part of the plan to decide",
+  sign_off: "A module's values to sign",
 };
 
 /**
@@ -181,6 +241,9 @@ export const POSITION_WORDS: Readonly<Record<Position, string>> = {
   domain: "The domain's value",
   producer: "The producer's work",
   consumer: "The consumer's work",
+  have: "Have it",
+  make: "Make it",
+  find: "Find it",
 };
 
 /** What choosing a position does, from what the item says it does. */
@@ -202,6 +265,10 @@ export const CHOOSE_WORDS: Readonly<Record<OnChoose, string>> = {
     "interface's values it does not hold. Its earlier merge stays on the record, and the contract " +
     "is tested again once it is merged.",
   record_only: "Choose: the decision is recorded, and nothing in the run acts on it.",
+  declare:
+    "Choose: once every part is decided, what you stated of the part is written onto its node as " +
+    "fixed values, and the physics gate checks each value's unit and range before any agent starts.",
+  find: "Choose: the part is sourced and sized as before, and you state nothing of it.",
 };
 
 /**
@@ -228,7 +295,12 @@ export const UNSEALED_WORDS = {
 } as const;
 
 /** What a decision on an item a reopen superseded does, for every verb: it is recorded only. */
-export function supersededOutcome(by: string): string {
+export function supersededOutcome(by: string, source?: QueueSource): string {
+  if (source === "sign_off")
+    return (
+      `Recorded only: a later sign-off item on the module, ${by}, replaced this one, so nothing ` +
+      "in the run acts on this decision."
+    );
   return (
     `Recorded only: a choice on ${by} reopened a module this item is about, so nothing in the ` +
     "run acts on this decision."
@@ -265,8 +337,150 @@ const REJECT_WORDS: Readonly<Record<Consequence["onReject"], string>> = {
   end_run:
     "Reject: the run ends with no module dispatched, and your reason is recorded. A new run is " +
     "a new decomposition.",
+  reopen_fix:
+    "Reject: the module's one fix after a rejected sign-off is made by a fresh session of its " +
+    "role, told your note and the values shown, and gated and reviewed as any attempt. If it " +
+    "merges you are asked to sign again; if not, the module stays not complete.",
   record_only: "Reject: the decision is recorded, and nothing in the run acts on it.",
 };
+
+/** "1", "1 and 2", "1, 2 and 3". */
+function joined(values: readonly string[]): string {
+  if (values.length <= 1) return values.join("");
+  return `${values.slice(0, -1).join(", ")} and ${values[values.length - 1] ?? ""}`;
+}
+
+/**
+ * Why approve records only for the scan's hits, naming the attempt each is from; the item's own
+ * sentence for an item listed before hits named their attempt.
+ */
+function scanHitWords(c: Consequence): string {
+  const attempts = c.scanHitAttempts;
+  if (attempts.length === 0 || attempts.some((a) => a === null))
+    return WHY_RECORD_ONLY_WORDS.scan_hit;
+  const counts = new Map<number, number>();
+  for (const a of attempts) if (a !== null) counts.set(a, (counts.get(a) ?? 0) + 1);
+  const order = [...counts.keys()].sort((x, y) => x - y);
+  if (attempts.length === 1)
+    return `${WHY_RECORD_ONLY_WORDS.scan_hit}, in attempt ${String(order[0])}`;
+  const each = order.map((a) => `${String(counts.get(a))} in attempt ${String(a)}`);
+  return (
+    `the scan before review found ${String(attempts.length)} reward-hacking indicators that no ` +
+    `review judged: ${joined(each)}`
+  );
+}
+
+/** Which review judged each earlier attempt's hits, where no review judged the attempt itself. */
+function judgedEarlierWords(c: Consequence): string {
+  return c.judgedEarlier
+    .map(
+      (j) =>
+        ` No review judged attempt ${String(j.attempt)} itself; the review of attempt ` +
+        `${String(j.judgedBy)} judged what the scan found in it.`,
+    )
+    .join("");
+}
+
+/** The reason an approve records only, in a clause: from the item's own record, never guessed. */
+function reasonWords(c: Consequence): string {
+  return c.whyRecordOnly === "indicator_in_history" && c.confirmedIndicators.length > 0
+    ? indicatorWords(c)
+    : WHY_RECORD_ONLY_WORDS[c.whyRecordOnly ?? "source"];
+}
+
+/** What an order that is too long to review does to an order a person's note goes into. */
+const TOO_LONG =
+  "unless your note makes the order too long to review, when the subtask ends rejected instead";
+
+const REJECT_BESIDE: Readonly<Record<Exclude<Consequence["onReject"], "record_only">, string>> = {
+  retry: `Rejecting spends this attempt, and the next attempt starts from your note, ${TOO_LONG}.`,
+  fix:
+    "Rejecting orders one fix by a fresh session, the subtask's last attempt, " +
+    `${TOO_LONG}. If the fix is not accepted, the subtask ends rejected.`,
+  end_subtask: "Rejecting ends the subtask as rejected. Nothing of it is merged.",
+  end_run: "Rejecting ends the run with no module dispatched.",
+  reopen_fix:
+    "Rejecting orders the module's one fix after a rejected sign-off by a fresh session of its " +
+    "role, told your note and the values shown, and gated and reviewed as any attempt. If it " +
+    "merges, you are asked to sign its values again; if not, the module stays not complete. If " +
+    "your note makes the order too long to review, nothing is reopened and the decision is only " +
+    "recorded.",
+};
+
+/** Said once under the sentences: what no decision can be, and what the run may do with it. */
+export const DECISION_FINAL =
+  "A decision cannot be edited or undone, and the item closes. The run may hold it until an " +
+  "operator confirms it.";
+
+/** A part's choices, by position: the item's own record says declare or find, not which. */
+const PART_CHOICE: Readonly<Record<string, string>> = {
+  have: "the part is one you have, and what you stated of it is fixed.",
+  make: "the part is one you make, and what you stated of it is fixed.",
+  find: "the part is sourced and sized as before.",
+};
+
+/** One decision's effect, in plain words, with the verb or position it belongs to. */
+export interface Effect {
+  readonly key: string;
+  readonly text: string;
+}
+
+/**
+ * What each decision an item offers will do, in plain words and before a person decides, from the
+ * item's own consequence alone. An approve or a reject that only records says so, with the reason
+ * the record gives; what the run may decline to do is said in the sentence that promises it.
+ */
+export function effectWords(c: Consequence): readonly Effect[] {
+  let approve: string;
+  if (c.onApprove === "release")
+    approve = "Approving releases the hold, and the plan runs as it stands.";
+  else if (c.onApprove === "sign")
+    approve =
+      "Approving signs the values this item shows, as shown: the module may then be declared " +
+      "complete while they stand, and a later change to them is a new item.";
+  else if (c.onApprove === "merge_attempt") {
+    const commit = c.attemptCommit === null ? "" : ` (commit ${c.attemptCommit.slice(0, 12)})`;
+    approve =
+      `Approving puts attempt ${String(c.attempt ?? "")}${commit} into the run, merged exactly ` +
+      "as shown, unless the merge conflicts or is refused, when an incident is recorded and " +
+      "nothing is merged.";
+  } else {
+    const what = c.attempt === null ? "merge or change anything" : "merge this attempt";
+    approve =
+      "Approving records your decision and closes this item for good. " +
+      `It will not ${what}, because ${reasonWords(c)}.`;
+  }
+  const reject =
+    c.onReject === "record_only"
+      ? "Rejecting records your decision and closes this item for good. " +
+        "It will not change anything in the run" +
+        (c.whyRecordOnly === null ? "." : `, because ${reasonWords(c)}.`)
+      : REJECT_BESIDE[c.onReject];
+  const chosen = Object.entries(c.onChoose ?? {}).map(([position, effect]) => {
+    // A part's choice is named by its position, as the command line names it; its radio button
+    // says it in full beside the sentence.
+    const label =
+      PART_CHOICE[position] === undefined
+        ? (POSITION_WORDS as Readonly<Record<string, string | undefined>>)[position]
+        : position;
+    const what =
+      PART_CHOICE[position] ??
+      chooseWords(c, effect).replace(/^Choose: /, "") +
+        (effect === "retry" || effect === "fix" || effect === "resize"
+          ? " If your note makes the order too long to review, the subtask ends rejected instead."
+          : effect === "reopen"
+            ? " If the order to reopen it is too long to review, nothing is reopened and the " +
+              "decision is only recorded."
+            : "");
+    return { key: position, text: `Choosing ${label?.toLowerCase() ?? position}: ${what}` };
+  });
+  return [
+    { key: "approve", text: approve },
+    { key: "reject", text: reject },
+    ...chosen,
+    { key: "note", text: DECISION_FINAL },
+  ];
+}
 
 /** What approve and reject will do to an item, made from the consequence the run listed. */
 export function consequenceWords(c: Consequence): ChoiceWords {
@@ -277,23 +491,32 @@ export function consequenceWords(c: Consequence): ChoiceWords {
       approve: "Approve: the hold is released, and the plan runs as it stands.",
       reject,
     };
+  if (c.onApprove === "sign")
+    return {
+      approveLabel: "Approve…",
+      approve: "Approve: the values this item shows are signed, as shown.",
+      reject,
+    };
   if (c.onApprove === "merge_attempt") {
     const commit = c.attemptCommit === null ? "" : ` (commit ${c.attemptCommit.slice(0, 12)})`;
     return {
       approveLabel: "Approve…",
       approve:
         `Approve: attempt ${String(c.attempt ?? "")}${commit} is merged into the run exactly as ` +
-        "shown, by the run's own merge, and the whole-design gate then judges it with the rest.",
+        "shown, by the run's own merge, and the whole-design gate then judges it with the rest." +
+        judgedEarlierWords(c),
       reject,
     };
   }
   const why =
     c.whyRecordOnly === "indicator_in_history" && c.confirmedIndicators.length > 0
       ? indicatorWords(c)
-      : WHY_RECORD_ONLY_WORDS[c.whyRecordOnly ?? "source"];
+      : c.whyRecordOnly === "scan_hit"
+        ? scanHitWords(c)
+        : WHY_RECORD_ONLY_WORDS[c.whyRecordOnly ?? "source"];
   return {
     approveLabel: APPROVE_RECORDS_ONLY,
-    approve: `Approve records only: ${why}.`,
+    approve: `Approve records only: ${why}.${judgedEarlierWords(c)}`,
     reject,
   };
 }
@@ -310,10 +533,40 @@ const NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
   superseded:
     "Recorded only: a choice on another item reopened a module this item is about, so what it " +
     "said was no longer true.",
+  module_reopened:
+    "Recorded only: the module was reopened for its follow-up after the item was listed, so " +
+    "the fix the item offered could no longer be ordered.",
 };
 
-/** The note on an open item a reopen superseded, naming the item whose choice reopened it. */
-export function supersededWords(by: string): string {
+/** What a decision on a sign-off item did not do, where its words differ from another item's. */
+const SIGN_OFF_NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
+  superseded:
+    "Recorded only: a later sign-off item on the module replaced this one, so the values it " +
+    "showed are no longer the module's.",
+  // The item said why a reject records only: its one fix was ordered already, or it was not
+  // merged then or the integration call was made. A module with no attempt left has its own.
+  record_only_source:
+    "Recorded only: as the item said, no fix could be ordered for the module (its one fix was " +
+    "ordered already, or it was not merged then), so it stays not complete and its sign-off " +
+    "owed.",
+  no_attempt_left:
+    "Recorded only: the module has no attempt left to fix its values at, so it stays not " +
+    "complete and its sign-off owed.",
+  order_too_long:
+    "Recorded only: with your note, the fix's order would be longer than its reviewer can read " +
+    "whole, so no fix was ordered; the module stays not complete and its sign-off owed.",
+};
+
+/**
+ * The note on an open item a later one superseded: for a contract item, the item whose choice
+ * reopened a module it is about; for a sign-off item, the module's later sign-off item.
+ */
+export function supersededWords(by: string, source?: QueueSource): string {
+  if (source === "sign_off")
+    return (
+      `A later sign-off item on the module, ${by}, replaced this one: the values it shows are ` +
+      "no longer the module's. A decision on it is recorded only; decide the later item."
+    );
   return (
     `A choice on ${by} reopened a module this item is about, so what it says is no longer ` +
     "true. A decision on it is recorded only. The run lists the contract again if it still " +
@@ -334,20 +587,45 @@ export function reviewTimeWords(d: Decided): string {
       ? `${String(whole)} s`
       : `${String(Math.floor(whole / 60))} min ${String(whole % 60)} s`;
   const said = `${took}, from when this server showed the item to when the decision was written.`;
+  // A part's choice is left out of the one-minute rule (ARCH-130, ARCH-122): the server marks
+  // none, and a line a run wrote before that still carries its mark, which no longer means it.
+  if (d.position === "have" || d.position === "make" || d.position === "find") {
+    if (d.decompositionDefect)
+      return (
+        `${said} The record marks it over one minute, as runs did before a part's choice was ` +
+        `left out of the one-minute rule; ${PART_NOT_COUNTED}.`
+      );
+    return whole > 60
+      ? `${said} A part's choice is not held to the one-minute rule: ${PART_NOT_COUNTED}.`
+      : said;
+  }
   return d.decompositionDefect
     ? `${said} Over one minute: the record marks the item a decomposition defect, a sign the ` +
         "design was split too coarsely to decide in a minute."
     : said;
 }
 
-/** What the run did with a decision, from its own record of taking it. */
-export function takenWords(t: Taken): string {
+/** Why a part's choice is not counted under the one-minute rule. */
+const PART_NOT_COUNTED =
+  "stating a part's values is data entry, not a sign that the design was split too coarsely";
+
+/**
+ * What the run did with a decision, from its own record of taking it; ``source`` is the item's,
+ * where a sign-off item's words differ.
+ */
+export function takenWords(t: Taken, source?: QueueSource): string {
+  const isSignatureItem = source === "sign_off";
   if (!t.acts) {
-    const known = t.whyNot === null ? undefined : NOT_TAKEN_WORDS[t.whyNot];
-    return known ?? `Recorded only (${t.whyNot ?? "no reason recorded"}).`;
+    const why = t.whyNot;
+    const known =
+      why === null
+        ? undefined
+        : ((isSignatureItem ? SIGN_OFF_NOT_TAKEN_WORDS[why] : undefined) ?? NOT_TAKEN_WORDS[why]);
+    return known ?? `Recorded only (${why ?? "no reason recorded"}).`;
   }
   const done: Readonly<Record<Taken["effect"], string>> = {
     merge: "The run took it: the attempt it names was merged.",
+    sign: "The run took it: the values the item shows are signed.",
     retry: "The run took it: the next attempt was ordered, told what the decision said.",
     fix: "The run took it: one fix was ordered.",
     end_subtask: "The run took it: the subtask ended rejected.",
@@ -359,9 +637,19 @@ export function takenWords(t: Taken): string {
       "interface's values.",
     release: "The run took it: the hold was released, and the plan runs as it stands.",
     end_run: "The run took it: the run ended with no module dispatched.",
+    declare:
+      "The run took it: what was stated of the part is written onto its node as fixed values " +
+      "once every part is decided.",
+    find: "The run took it: the part is sourced and sized as before.",
     none: "The run took it; it changed nothing.",
   };
   const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;
+  if (isSignatureItem && t.effect === "reopen")
+    return (
+      "The run took it: the module was reopened for its one fix, told your note and the values " +
+      "the item showed." +
+      by
+    );
   if (t.orderTooLong)
     return (
       "The run took it: the subtask ended rejected, and no session was started. What that " +

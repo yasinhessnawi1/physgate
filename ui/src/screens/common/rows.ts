@@ -4,7 +4,7 @@
  * no cause, no advice, no comparison the record lacks. Lines that say nothing a person reads
  * (stage markers, token counts, worktree clean-ups) make no row.
  */
-import type { RunEvent } from "../../api/events";
+import type { RELEASED_HOW, RunEvent } from "../../api/events";
 import type { GateCheck } from "../../api/run";
 import type { GateMode } from "../../design/components/verdict/GateMode";
 import type { Verdict } from "../../design/components/verdict/verdict";
@@ -12,7 +12,9 @@ import type { Quantity } from "../../design/quantity";
 import { type Actor, eventActor, type Models } from "../../words/actors";
 import { checkWords } from "../../words/checks";
 import { nodeLabel, quantityLabel } from "../../words/humanise";
-import { causeWords, triesWords } from "../../words/review";
+import { releasedWords as partsReleasedWords } from "../../words/parts";
+import { causeWords, compactionWords, triesWords } from "../../words/review";
+import { countOf } from "../../words/count";
 import { setAsideWith } from "../../words/queue";
 
 export type RowEnd =
@@ -80,6 +82,22 @@ const SKIPPED_REASONS: Readonly<Record<string, string>> = {
 
 /** The longest first line a finding gets on a row before the rest is folded away. */
 const FIRST_LINE = 160;
+
+/**
+ * What ended a follow-up's, or a fix's after a rejected sign-off, one attempt without a merge, in
+ * words: the record's own reason, never a model's. A reason not known here is shown as written.
+ */
+const NOT_MERGED_WORDS: Readonly<Record<string, string>> = {
+  rejected: "the gate or its review rejected it",
+  blocked: "its review was blocked",
+  no_verdict: "its review reached no verdict",
+  for_a_person: "it was set aside for a person",
+};
+
+/** ``why`` a one-attempt follow-up or fix ended without a merge, in words. */
+export function notMergedWords(why: string): string {
+  return NOT_MERGED_WORDS[why] ?? why.replace(/_/g, " ");
+}
 
 /**
  * A finding as a short first line and the rest: the first sentence (or line), cut at a word when
@@ -160,6 +178,7 @@ export function rowOf(
   roles: Readonly<Record<string, string>>,
   models: Models,
   checks?: readonly GateCheck[],
+  going = false,
 ): Row | null {
   const actor = eventActor(event, roles, models);
   const base = {
@@ -192,6 +211,13 @@ export function rowOf(
             ? "no interface nodes"
             : `interface ${event.interfaceNodes.join(", ")}`,
       };
+    case "parts_released":
+      return {
+        ...base,
+        depth: 0,
+        sentence: partsReleasedWords(event.choices),
+        meta: `${String(event.choices.length)} ${event.choices.length === 1 ? "part" : "parts"}`,
+      };
     case "subtask_planned":
       return {
         ...base,
@@ -201,6 +227,7 @@ export function rowOf(
         subtask: event.subtask,
       };
     case "session_ended": {
+      // An infrastructure end names its cause as recorded, the account's usage limit among them.
       const sentence =
         event.outcome === "completed"
           ? `Attempt ${String(event.attempt)}: the agent's session ended`
@@ -257,7 +284,7 @@ export function rowOf(
               ? `The reviewer refused attempt ${String(event.attempt)}${first === null ? "" : `: ${first.head}`}`
               : `The review of attempt ${String(event.attempt)} ended ${event.verdict}${first === null ? "" : `: ${first.head}`}`,
         more: first?.rest ?? null,
-        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)}${event.sessionId === null ? "" : ` · session ${event.sessionId}`}`,
+        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)}${event.sessionId === null ? "" : ` · session ${event.sessionId}`}${compactionWords(event.compactions)}`,
         end: { kind: "review", verdict: event.verdict },
         subtask: event.subtask,
         attempt: event.attempt,
@@ -268,7 +295,7 @@ export function rowOf(
         ...base,
         depth: 2,
         sentence: `Review of attempt ${String(event.attempt)} reached no verdict: ${causeWords(event.cause)}${triesWords(event.detail)}`,
-        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)} · cause ${event.cause}`,
+        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)} · cause ${event.cause}${compactionWords(event.compactions)}`,
         end: { kind: "review", verdict: "no verdict" },
         subtask: event.subtask,
         attempt: event.attempt,
@@ -286,7 +313,7 @@ export function rowOf(
       return {
         ...base,
         depth: 1,
-        sentence: setAsideWith(event.itemId),
+        sentence: setAsideWith(event.itemId, going),
         meta: `${subtaskName(event.subtask)} · ${event.subtask}`,
         subtask: event.subtask,
       };
@@ -361,7 +388,7 @@ export function rowOf(
         ...base,
         depth: 2,
         sentence: `Issued the design's state to attempt ${String(event.attempt)}`,
-        meta: `${subtaskName(event.subtask)} · ${String(event.length)} bytes`,
+        meta: `${subtaskName(event.subtask)} · ${countOf(event.length, "byte")}`,
         subtask: event.subtask,
         attempt: event.attempt,
       };
@@ -426,7 +453,42 @@ export function rowOf(
       return {
         ...base,
         depth: 1,
-        sentence: `${subtaskName(event.subtask)}'s follow-up ended without a merge (${event.why.replace("_", " ")}), and is not retried; its earlier merge stands`,
+        sentence: `${subtaskName(event.subtask)}'s follow-up ended without a merge (${notMergedWords(event.why)}), and is not retried; its earlier merge stands`,
+        meta: `${event.subtask} · attempt ${String(event.attempt)}`,
+        subtask: event.subtask,
+      };
+    case "sign_offs_raised":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `A person's sign-off was asked for ${event.raised
+          .map((r) => `${subtaskName(r.module)} (${r.itemId})`)
+          .join(", ")}, after ${subtaskName(event.subtask)} merged`,
+        meta: `${event.subtask} · attempt ${String(event.attempt)}`,
+        subtask: event.subtask,
+        attempt: event.attempt,
+      };
+    case "sign_off_raised_again":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.module)}'s sign-off was asked for again (${event.itemId}): the values it binds had moved with no item raised on them, found ${event.found === "merge" ? `after ${subtaskName(event.subtask)} merged` : "where its completion was due"}`,
+        meta: `${event.subtask} · attempt ${String(event.attempt)}`,
+        subtask: event.module,
+      };
+    case "no_follow_up_owed":
+      return {
+        ...base,
+        depth: 0,
+        sentence:
+          "No follow-up is owed before the integration call; the run waits for a person's sign-off",
+        meta: "integration",
+      };
+    case "sign_off_fix_ended":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.subtask)}'s one fix after a rejected sign-off ended without a merge (${notMergedWords(event.why)}), and is not retried: its earlier merge stands, its sign-off stays owed, and nothing left in this run can give it`,
         meta: `${event.subtask} · attempt ${String(event.attempt)}`,
         subtask: event.subtask,
       };
@@ -444,8 +506,117 @@ export function rowOf(
         subtask: event.subtask,
       };
     }
+    case "dispatch_held":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.subtask)} is waiting for ${subtaskName(event.producer)}, which is with a person (${event.itemId})`,
+        meta: `${event.subtask} · reads ${event.interfaces.join(", ")}`,
+        subtask: event.subtask,
+      };
+    case "dispatch_released":
+      return {
+        ...base,
+        depth: 1,
+        sentence: releasedWords(
+          subtaskName(event.subtask),
+          subtaskName(event.producer),
+          event.outcome,
+        ),
+        meta: `${event.subtask} · ${event.itemId}`,
+        subtask: event.subtask,
+      };
+    case "design_pairs_planned": {
+      const built = event.pairs.map(
+        (p) =>
+          `${subtaskName(p.builder)} builds ${subtaskName(p.designer)}'s design on ${p.nodes.join(", ")}`,
+      );
+      const named = event.mutual.map(
+        (p) =>
+          `${subtaskName(p.builder)} also names ${p.nodes.join(", ")} of ${subtaskName(p.designer)}'s, which holds nothing`,
+      );
+      // A builder the plan lists before the designer whose design it may build holds nothing:
+      // the page says so in the sentence, where a person reads it.
+      const misordered = event.misordered.map(
+        (p) =>
+          `The plan lists ${subtaskName(p.builder)} before ${subtaskName(p.designer)}, whose design it may build: check the order`,
+      );
+      const nodesOf = event.misordered.map(
+        (p) => `${p.nodes.join(", ")} of ${subtaskName(p.designer)}'s`,
+      );
+      const planned =
+        event.pairs.length === 0
+          ? []
+          : [
+              `Planned ${String(event.pairs.length)} design ${event.pairs.length === 1 ? "pair" : "pairs"}`,
+            ];
+      return {
+        ...base,
+        depth: 0,
+        sentence: [...planned, ...misordered].join(". "),
+        meta: [...built, ...named, ...nodesOf].join("; "),
+      };
+    }
+    case "builder_held":
+      return {
+        ...base,
+        depth: 1,
+        sentence: heldWords(
+          subtaskName(event.subtask),
+          subtaskName(event.designer),
+          event,
+          subtaskName,
+        ),
+        meta: `${event.subtask} · implements ${event.nodes.join(", ")}`,
+        subtask: event.subtask,
+      };
+    case "builder_released":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.subtask)} released: ${subtaskName(event.designer)}'s design merged`,
+        meta: `${event.subtask} · implements ${event.nodes.join(", ")}`,
+        subtask: event.subtask,
+      };
     default:
       return null;
+  }
+}
+
+/** Why a builder is held until the design it implements is merged, in a sentence. */
+function heldWords(
+  builder: string,
+  designer: string,
+  event: Extract<RunEvent, { kind: "builder_held" }>,
+  subtaskName: (id: string) => string,
+): string {
+  switch (event.why) {
+    case "escalated":
+      return `${builder} is held until ${designer}'s design is merged: ${designer} is with a person (${event.itemId ?? "no item"})`;
+    case "ended_unmerged":
+      return `${builder} is held for good: ${designer} ended without merging, so there is no design to build`;
+    case "designer_held":
+      return `${builder} is held for good: ${designer} is itself held for good, through ${(event.chain ?? []).map(subtaskName).join(", then ")}`;
+    case "not_merged":
+      return `${builder} is held until ${designer}'s design is merged`;
+  }
+}
+
+/** Why a held dispatch was let go, or why it was never held, in a sentence. */
+function releasedWords(
+  subtask: string,
+  producer: string,
+  outcome: (typeof RELEASED_HOW)[number],
+): string {
+  switch (outcome) {
+    case "merged":
+      return `${subtask} released: ${producer} merged`;
+    case "ended_unmerged":
+      return `${subtask} released: ${producer} ended without merging`;
+    case "waits_for_closing_pass":
+      return `${subtask} released: ${producer} waits for sizing's closing pass, which comes after it`;
+    case "mutual_readers":
+      return `${subtask} is not held: it and ${producer} read from each other, so it runs while ${producer} is with a person`;
   }
 }
 
@@ -488,11 +659,14 @@ export function rowsOf(
   events: readonly RunEvent[],
   models: Models,
   checks?: readonly GateCheck[],
+  /** Whether the run is going now: only then does a set-aside row say the run goes on. */
+  going = false,
 ): readonly Row[] {
   const names = subtaskNames(events);
   const roles = subtaskRoles(events);
   return events.flatMap((event) => {
-    const row = rowOf(event, names, roles, models, checks) ?? unfinishedGate(event, events, names);
+    const row =
+      rowOf(event, names, roles, models, checks, going) ?? unfinishedGate(event, events, names);
     if (row === null) return [];
     if (event.kind !== "attempt_rejected") return [row];
     // A rejection that repeats the finding an earlier row of the same attempt already shows says

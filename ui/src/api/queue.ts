@@ -30,12 +30,25 @@ export const SOURCES = [
   "escalation_decision",
   "contract",
   "plan_review",
+  "parts",
+  "sign_off",
 ] as const;
 export type QueueSource = (typeof SOURCES)[number];
 
-/** ``release`` and ``end_run``: the plan's item, which lets a held run dispatch or ends it. */
-export const ON_APPROVE = ["merge_attempt", "release", "record_only"] as const;
-export const ON_REJECT = ["retry", "fix", "end_subtask", "end_run", "record_only"] as const;
+/**
+ * ``release`` and ``end_run``: the plan's item, which lets a held run dispatch or ends it.
+ * ``sign``: a sign-off item, whose approve signs the values it shows (ARCH-130).
+ */
+export const ON_APPROVE = ["merge_attempt", "release", "sign", "record_only"] as const;
+/** ``reopen_fix``: a sign-off item, whose reject orders the module's one fix (ARCH-130). */
+export const ON_REJECT = [
+  "retry",
+  "fix",
+  "end_subtask",
+  "end_run",
+  "reopen_fix",
+  "record_only",
+] as const;
 export const WHY_RECORD_ONLY = [
   "gate",
   "change_check",
@@ -50,9 +63,15 @@ export const POSITIONS = ["sizing", "domain"] as const;
 /** The positions a failed contract's item offers, in the order it states them: whose merged work stands. */
 export const CONTRACT_POSITIONS = ["producer", "consumer"] as const;
 /**
+ * The positions a part's item offers (ARCH-122), in the order it states them: the person has the
+ * part and states its values, makes it and states what it must meet, or has it found.
+ */
+export const PARTS_POSITIONS = ["have", "make", "find"] as const;
+/**
  * What choosing a position does: order the next attempt to the graph's value, order the one fix to
  * it, end the subtask, resize (the subtask waits for sizing's closing pass to write the domain's
- * value), or record the decision only.
+ * value), or record the decision only; on a part's item, declare (what the person stated of it is
+ * written as fixed) or find (it is sourced and sized as before).
  */
 export const ON_CHOOSE = [
   "retry",
@@ -61,8 +80,12 @@ export const ON_CHOOSE = [
   "resize",
   "reopen",
   "record_only",
+  "declare",
+  "find",
 ] as const;
-export type Position = (typeof POSITIONS)[number] | (typeof CONTRACT_POSITIONS)[number];
+export type PartsPosition = (typeof PARTS_POSITIONS)[number];
+export type Position =
+  (typeof POSITIONS)[number] | (typeof CONTRACT_POSITIONS)[number] | PartsPosition;
 export type OnChoose = (typeof ON_CHOOSE)[number];
 export type OnApprove = (typeof ON_APPROVE)[number];
 export type OnReject = (typeof ON_REJECT)[number];
@@ -83,6 +106,13 @@ export interface Consequence {
   readonly confirmedIndicators: readonly { readonly attempt: number; readonly kind: string }[];
   /** How many hits the scan before review found, for an item whose review never judged them. */
   readonly scanHits: number;
+  /**
+   * The attempt each of those hits is from, in the item's order; ``null`` for every hit of an
+   * item listed before hits named their attempt.
+   */
+  readonly scanHitAttempts: readonly (number | null)[];
+  /** Each earlier attempt no review judged itself, and the later attempt whose review judged its hits. */
+  readonly judgedEarlier: readonly { readonly attempt: number; readonly judgedBy: number }[];
   /** What choosing each position does, on an item that offers positions; ``null`` otherwise. */
   readonly onChoose: Readonly<Partial<Record<Position, OnChoose>>> | null;
 }
@@ -91,6 +121,7 @@ export interface Consequence {
 const OFFERED: Readonly<Partial<Record<QueueSource, readonly Position[]>>> = {
   arbitration: POSITIONS,
   contract: CONTRACT_POSITIONS,
+  parts: PARTS_POSITIONS,
 };
 
 /** The positions an item of ``source`` offers, in its order; none for any other kind. */
@@ -100,7 +131,7 @@ export function offeredPositions(source: QueueSource): readonly Position[] {
 
 /**
  * The positions an item states, held to its kind's set: any other shape is refused. As the queue's
- * own model holds it: only an arbitration or a failed contract's item states them, and one that
+ * own model holds it: only an arbitration, a failed contract's or a part's item states them, and one that
  * says what its verbs do must say what choosing each position does. The order is the kind's, as
  * read here: the server's routes write every object's keys sorted, so the order the queue's line
  * holds them in does not reach the page, and the set is what is held.
@@ -122,6 +153,14 @@ function onChoose(
   return Object.fromEntries(
     offered.map((p) => [p, oneOf(stated[p], ON_CHOOSE, `what choosing ${p} does`)]),
   );
+}
+
+/** A hit's attempt: absent on an item listed before hits named it, and otherwise one or more. */
+function attemptOf(value: unknown): number | null {
+  if (value === undefined) return null;
+  const attempt = count(value, "a hit's attempt");
+  if (attempt < 1) throw new ShapeError("a hit's attempt");
+  return attempt;
 }
 
 function consequence(value: unknown, source: QueueSource): Consequence | null {
@@ -147,6 +186,20 @@ function consequence(value: unknown, source: QueueSource): Consequence | null {
       };
     }),
     scanHits: list(c.scan_hits, "the scan's hits").length,
+    scanHitAttempts: list(c.scan_hits, "the scan's hits").map((raw) =>
+      attemptOf(object(raw, "a scan hit").attempt),
+    ),
+    judgedEarlier:
+      c.judged_earlier === undefined
+        ? []
+        : list(c.judged_earlier, "the earlier attempts a review judged").map((raw) => {
+            const j = object(raw, "an earlier attempt a review judged");
+            const attempt = count(j.attempt, "an earlier attempt");
+            const judgedBy = count(j.judged_by, "the review that judged it");
+            if (attempt < 1 || judgedBy <= attempt)
+              throw new ShapeError("an earlier attempt is judged by the review of a later one");
+            return { attempt, judgedBy };
+          }),
     onChoose: onChoose(c.on_choose, source),
   };
 }
@@ -201,6 +254,7 @@ export function queueItem(value: unknown): QueueItem {
 
 export const EFFECTS = [
   "merge",
+  "sign",
   "retry",
   "fix",
   "end_subtask",
@@ -208,6 +262,8 @@ export const EFFECTS = [
   "reopen",
   "release",
   "end_run",
+  "declare",
+  "find",
   "none",
 ] as const;
 export type Effect = (typeof EFFECTS)[number];
@@ -237,6 +293,46 @@ export interface Decided {
   readonly reviewTime: Quantity | null;
   /** Written over a minute after its view was shown: the record logs a decomposition defect. */
   readonly decompositionDefect: boolean;
+  /** The position a choice named; ``null`` for approve, reject and a free-text decision. */
+  readonly position?: Position | null;
+  /** What a choice of have or make stated of a part; ``null`` for every other decision. */
+  readonly parts?: StatedPart | null;
+}
+
+/** One value a person states of a part: a finite number with its unit, never a bare number. */
+export interface DeclaredValue {
+  readonly value: number;
+  readonly unit: string;
+}
+
+/** What a choice of have or make states of a part: its values by name, and a made part's texts. */
+export interface StatedPart {
+  readonly declared: Readonly<Record<string, DeclaredValue>>;
+  readonly texts: readonly string[];
+}
+
+/** Every position any kind of item offers, as a decision's line may name it. */
+const ALL_POSITIONS: readonly Position[] = [
+  ...POSITIONS,
+  ...CONTRACT_POSITIONS,
+  ...PARTS_POSITIONS,
+];
+
+function statedPart(value: unknown): StatedPart | null {
+  if (value === undefined || value === null) return null;
+  const p = object(value, "what a decision stated of a part");
+  const declared = object(p.declared, "a part's stated values");
+  return {
+    declared: Object.fromEntries(
+      Object.entries(declared).map(([name, raw]) => {
+        const v = object(raw, "a part's stated value");
+        if (typeof v.value !== "number" || !Number.isFinite(v.value))
+          throw new ShapeError("a part's stated value is a finite number");
+        return [name, { value: v.value, unit: text(v.unit, "a stated value's unit") }];
+      }),
+    ),
+    texts: list(p.texts, "a made part's texts").map((t) => text(t, "a made part's text")),
+  };
 }
 
 function taken(value: unknown): Taken | null {
@@ -268,6 +364,11 @@ function decided(value: unknown): Decided {
     taken: taken(d.taken),
     reviewTime: reviewTime(d.review_time),
     decompositionDefect: d.decomposition_defect === true,
+    position:
+      d.position === undefined || d.position === null
+        ? null
+        : oneOf(d.position, ALL_POSITIONS, "a decision's position"),
+    parts: statedPart(d.parts),
   };
 }
 
@@ -398,6 +499,30 @@ export function resolved(value: unknown): Resolved {
     decision: text(r.decision, "a decision"),
     resolvedBy: text(r.resolved_by, "who decided"),
   };
+}
+
+/**
+ * The body of a decision on a part: choose, the position, no note, what the choice states of the
+ * part (have and make only; find states nothing), what was shown and the view's id. The server
+ * holds it to the queue's own rules again and is the authority on it.
+ */
+export function partsRequest(
+  view: ItemView,
+  position: PartsPosition,
+  stated: StatedPart | null,
+): string {
+  return JSON.stringify({
+    item_id: view.item.itemId,
+    verb: "choose",
+    position,
+    note: "",
+    ...(stated === null ? {} : { parts: stated }),
+    shown: {
+      item_sha256: view.itemSha256,
+      trajectories: view.trajectories.map((t) => t.status),
+    },
+    ...(view.viewId === null ? {} : { view_id: view.viewId }),
+  });
 }
 
 /**

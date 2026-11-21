@@ -55,6 +55,11 @@ APPROVED = {
             # numbers is noted, not charged, and an input the parts sheet does not give never
             # blocks; every byte outside Sections 2 and 3 is the seventh version's.
             ("final_v8", "ae1fac81c028e403e0089d5c9184be6030b56597e41cb87ad60e03e568c12751", 56),
+            # Margins with the loop's delays, across every estimate's range; least added structure.
+            ("final_v9", "c87380ab9f3fb812d850abc1f54e7909253d14354400be4ff4f39eb11714f560", 59),
+            # A criterion with a stated bound that cannot be met together with the rest is
+            # recorded, not a reason to reject; a maker's tolerance counts only when quoted.
+            ("final_v10", "78b93a5ba5859d4a6bf49f71613ecee419431e9536978780e6352330f31e2f2f", 59),
         ),
         ("A", "D", "S", "R"),
     ),
@@ -73,6 +78,12 @@ APPROVED = {
             ("final_v6", "6e34b7524282e98923983e075f81b9f603d398f3ec79d1c92f0fada1562603fe", 54),
             # The same inherited-condition and absent-input rules as control's eighth version.
             ("final_v7", "dbcfb1b77bdb93fd734a84e0bd6ac7c9269a55b8bec44e6711e38c33fe088729", 54),
+            # A criterion written against an instrument the run does not have is not evaluable;
+            # what a provided simulator or a host-side test measures is judged as usual.
+            ("final_v8", "cdc18174f4326548ad0dc586cf36d9223131419a536e4d2c5295841b4205164e", 54),
+            # The tools the run provides: a test is judged on what the environment records, and what
+            # it cannot show is stated as not shown, not owed.
+            ("final_v9", "d3614df90d0b7dfdae6d0b2f8067dcce7bb0d4dd81a2b3083dc44005a0af4597", 54),
         ),
         ("AC", "DS", "AP", "RH"),
     ),
@@ -114,7 +125,17 @@ APPROVED = {
         ("IA", "IS", "IP", "IH"),
     ),
     "design": (
-        (("final", "04aa9d73f433efcf10376b5be74e74a2397ef66d653441a61e52819996931c67", 65),),
+        (
+            ("final", "04aa9d73f433efcf10376b5be74e74a2397ef66d653441a61e52819996931c67", 65),
+            # No method the brief does not require is fixed; a design built elsewhere is compared.
+            ("final_v2", "3112f529a7210d7e9aa33d3129816bf7a61904404deb79d15da29ea4b4786d46", 66),
+            # A simulator is named only where the run provides one; the supply voltage is the
+            # one a criterion of the brief pins.
+            ("final_v3", "3468ddb2adcb11413664e60f94fd9520f720914e43f50754dadb1702843f50a1", 66),
+            # What the run can measure is named as the environment provides it; a criterion naming
+            # an instrument that is not recorded fails.
+            ("final_v4", "16a09143f343af7e0b36247ab5939879bd1564abeeba3189b367b86db7f1b1e9", 66),
+        ),
         ("PA", "PS", "PP", "PH"),
     ),
     "sizing": (
@@ -123,6 +144,11 @@ APPROVED = {
             # SS-24 names the two fraction kinds the checks hold to 0 to 1; drafted
             # 03.11.2026 and staged for the owner's review, pinned as the version staged.
             ("final_v2", "305ec12d9f5e3acad8374be41c7ecf5c27a3fa81bbeed072bb36ea03664b1385", 65),
+            # Rotor inertia sourced with a range; a recovery needs a computed bound, not headroom.
+            ("final_v3", "9faafc4abb8dd009041bc9431bb96639dd7e937080620f324695e8dd215aad77", 68),
+            # A solid-cylinder rotor bound is a basis only with the bore sourced or with room left
+            # in the motor's published mass for what else it holds.
+            ("final_v4", "c9f6c3aa46be8d8934786c3b79005e17442f9c8e4b3a9d6e580de6dfc984c508", 68),
         ),
         ("SA", "SS", "SP", "SH"),
     ),

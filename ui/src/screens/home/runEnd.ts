@@ -9,7 +9,11 @@
  * "All merged · gate passed". A warn is not a pass here:
  * the harness itself accepts only "pass" (outside observe mode) as clearing the whole-design gate.
  * Anything else is "Ended", with what is left, and a module's completion withheld is named with
- * the server's own reasons. Counts are a view over the records, never a verdict.
+ * the server's own reasons. A run that records decisions only and ended escalated waits on no
+ * one, whatever its queue holds: no decision acts there, and the sign-offs owed are named instead.
+ * A run that acts and ended escalated owing a sign-off whose latest item was decided (a reject)
+ * waits on no one for it either: nothing left in the run can sign it, and it is named so.
+ * Counts are a view over the records, never a verdict.
  */
 import type { RunEvent } from "../../api/events";
 import type { QueueItem } from "../../api/queue";
@@ -34,11 +38,22 @@ export type RunEnd =
       readonly gate: IntegrationGate;
       /** Subtasks the log set aside for a person. */
       readonly setAside: number;
+      /**
+       * In a run that records decisions and ended escalated, the modules whose sign-off is owed:
+       * no decision acts there, so nothing waits for a person. ``null`` for any other run.
+       */
+      readonly recorded: readonly string[] | null;
+      /**
+       * In a run that acts and ended escalated, the modules whose sign-off is owed with nothing
+       * left in the run that can sign it: each one's latest item was decided. ``null`` otherwise.
+       */
+      readonly unsigned: readonly string[] | null;
     };
 
 /** A module not complete with nothing open: why, by the state the server read. */
 const STATE_WORDS: Readonly<Record<ModuleCompletion["state"], string>> = {
   complete: "complete",
+  sign_off_owed: "a person's sign-off is owed",
   not_declared: "integration did not declare it complete",
   owed: "its completion line is owed",
   withheld: "withheld",
@@ -55,11 +70,40 @@ export function waitingFor(
   return open === null ? null : open.filter((i) => !Object.hasOwn(superseded, i.itemId)).length;
 }
 
-/** ``openItems`` is what waits for a person (``waitingFor``), or ``null`` when the queue could not be read. */
+/**
+ * The modules whose sign-off is owed where the run records decisions only and ended escalated,
+ * or ``null`` for any other run: there a person's decision acts, or the run has not ended so.
+ */
+export function recordedEnd(status: RunStatus): readonly string[] | null {
+  return status.kind === "escalated" && status.acts === false
+    ? (status.signaturesOwed ?? [])
+    : null;
+}
+
+/**
+ * The modules whose sign-off is owed with nothing left to sign it, where the run acts and ended
+ * escalated and none of them has an item open to a decision; ``null`` for any other run, where
+ * the server did not say which are open, and where the run is escalated for another open item
+ * as well: a person's decision there is still owed, and the run waits for it.
+ */
+export function unsignedEnd(status: RunStatus): readonly string[] | null {
+  const owed = status.signaturesOwed ?? [];
+  const open = status.signaturesOpenToDecide;
+  if (status.kind !== "escalated" || status.acts !== true || open === undefined) return null;
+  if (status.endsOnSignaturesAlone === false) return null;
+  return owed.length > 0 && owed.every((m) => !open.includes(m)) ? owed : null;
+}
+
+/**
+ * ``openItems`` is what waits for a person (``waitingFor``), or ``null`` when the queue could not be
+ * read; ``recorded``, what ``recordedEnd`` gives; ``unsigned``, what ``unsignedEnd`` gives.
+ */
 export function runEnd(
   events: readonly RunEvent[],
   openItems: number | null,
   completion: RunStatus["completion"],
+  recorded: readonly string[] | null = null,
+  unsigned: readonly string[] | null = null,
 ): RunEnd {
   const planned = new Set(events.flatMap((e) => (e.kind === "subtask_planned" ? [e.subtask] : [])));
   const merged = new Set(events.flatMap((e) => (e.kind === "merged" ? [e.subtask] : [])));
@@ -100,6 +144,8 @@ export function runEnd(
     announced: count,
     gate,
     setAside: setAside.size,
+    recorded,
+    unsigned,
   };
 }
 
@@ -107,8 +153,13 @@ export function runEnd(
 export function runEndWords(end: RunEnd): string {
   if (end.kind === "complete") return "Complete";
   if (end.kind === "all-merged") return "All merged · gate passed";
+  if (end.recorded !== null)
+    return end.recorded.length === 0
+      ? "Ended · decisions recorded, none acted on"
+      : `Ended · decisions recorded, none acted on · sign-off owed: ${end.recorded.join(", ")}`;
   if (end.waiting !== null && end.waiting > 0)
     return `Ended · ${String(end.waiting)} waiting for you`;
+  if (end.unsigned !== null) return `Ended · sign-off not given: ${end.unsigned.join(", ")}`;
   if (end.announced !== null && end.announced !== end.planned)
     return `Ended · log incomplete: ${String(end.planned)} of ${String(end.announced)} subtasks planned`;
   if (end.withheld !== null)

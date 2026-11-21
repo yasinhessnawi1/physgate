@@ -67,8 +67,8 @@ def test_without_one_nothing_changes_but_the_session_s_own_temporary_directory(
     done = install(_request(tmp_path, None), REGISTRY)
     settings = json.loads(done.settings_path.read_text())
     assert "sandbox" not in settings
-    # The one permission rule is the web tools' deny, which every session carries.
-    assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch"]}
+    # The one permission rule is the deny every session carries: the web tools and tool search.
+    assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch", "ToolSearch"]}
     assert done.spawn_env["CLAUDE_CODE_TMPDIR"] == OWN_TEMP
 
 
@@ -76,7 +76,7 @@ def test_with_the_layer_the_settings_still_deny_the_web_tools(outside_tmp: Path)
     done = install(_request(outside_tmp, "/var/tmp/pgs/0123456789"), REGISTRY)
     settings = json.loads(done.settings_path.read_text())
     assert settings["sandbox"]["enabled"] is True
-    assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch"]}
+    assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch", "ToolSearch"]}
 
 
 def test_the_web_deny_survives_a_layer_whose_settings_carry_permissions(
@@ -123,7 +123,7 @@ def test_the_web_deny_survives_a_layer_whose_deny_is_a_tuple(
     _layered(monkeypatch, {"deny": ("Bash(curl:*)",)})
     done = install(_request(outside_tmp, "/var/tmp/pgs/0123456789"), REGISTRY)
     permissions = json.loads(done.settings_path.read_text()).get("permissions", {})
-    assert permissions.get("deny") == ["WebFetch", "WebSearch", "Bash(curl:*)"]
+    assert permissions.get("deny") == ["WebFetch", "WebSearch", "ToolSearch", "Bash(curl:*)"]
 
 
 @pytest.mark.parametrize(
@@ -242,7 +242,7 @@ def test_a_layer_naming_the_web_tools_itself_still_adds_to_the_session_s_own_den
     _layered(monkeypatch, {"deny": ["Bash(curl:*)", "WebSearch", "WebFetch"]})
     done = install(_request(outside_tmp, "/var/tmp/pgs/0123456789"), REGISTRY)
     permissions = json.loads(done.settings_path.read_text()).get("permissions", {})
-    assert permissions == {"deny": ["WebFetch", "WebSearch", "Bash(curl:*)"]}
+    assert permissions == {"deny": ["WebFetch", "WebSearch", "ToolSearch", "Bash(curl:*)"]}
 
 
 def test_a_directory_claude_code_would_replace_is_refused(outside_tmp: Path) -> None:

@@ -573,3 +573,34 @@ def test_an_exact_rerun_of_a_run_recorded_before_the_os_layer_is_not_handed_one(
     assert [("os_layer" in params) for params in handed] == [False]
     assert result.level == "exact" and result.reproduced
     assert result.exact["config"] is None
+
+
+def test_a_session_s_flag_cache_is_no_difference_between_a_run_and_its_rerun(
+    tmp_path: Path,
+) -> None:
+    # The provider's side changes the flags between sessions minutes apart (measured), so two
+    # runs of one brief never hold the same digests; everything else on the line is kept.
+    view = RunView(recorded(tmp_path, target_repo(tmp_path)))
+
+    def flags(digit: str) -> dict[str, Any]:
+        return {"entries": 1256, "sha256": digit * 64}
+
+    def lines(digit: str) -> list[dict[str, Any]]:
+        seen = {"managed_drift": None, "policy_limits_sha256": None, "flag_cache": flags(digit)}
+        return [
+            {"seq": 2, "kind": "decomposed", "subtasks": 1, "flag_cache": flags(digit)},
+            {"seq": 5, "kind": "session_ended", "outcome": "completed", "flag_cache": flags(digit)},
+            {
+                "seq": 7,
+                "kind": "review_ran",
+                "result": {"verdict": "pass", "managed": [seen, seen]},
+            },
+            {"seq": 8, "kind": "review_unavailable", "cause": "infrastructure", "managed": [seen]},
+        ]
+
+    first, second = ([view.line(line) for line in lines(digit)] for digit in "ab")
+    assert first == second
+    assert "flag_cache" not in json.dumps(first)
+    assert first[1] == {"seq": 5, "kind": "session_ended", "outcome": "completed"}
+    kept = {"managed_drift": None, "policy_limits_sha256": None}
+    assert first[2]["result"]["managed"] == [kept, kept] and first[3]["managed"] == [kept]

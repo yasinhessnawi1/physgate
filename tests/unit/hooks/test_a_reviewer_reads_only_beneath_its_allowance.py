@@ -19,7 +19,7 @@ from hook_helpers import bash, event
 from physgate.hooks import paths
 from physgate.hooks import shell_paths as sp
 from physgate.hooks.config import HookInput, SessionConfig
-from physgate.hooks.reasons import OUTSIDE_REVIEW_REASON, REVIEW_MATERIAL_REASON
+from physgate.hooks.reasons import HARNESS_REASON, OUTSIDE_REVIEW_REASON, REVIEW_MATERIAL_REASON
 from physgate.hooks.settings import InstallRequest, build_config, review_material
 from physgate.hooks.settings import current_installation as installation
 
@@ -116,14 +116,23 @@ def test_everything_else_is_refused_to_a_reviewer(root: Path, target: str) -> No
     told = _read(
         _reviewer(root), target.replace("@", str(root)), root / "review" / "read" / "worktree"
     )
-    assert OUTSIDE_REVIEW_REASON in told
+    # The harness checkout is refused to every read before the allowance is asked; anything
+    # else is refused for lying outside the allowance.
+    in_harness = "harness/" in target
+    assert (HARNESS_REASON if in_harness else OUTSIDE_REVIEW_REASON) in told
 
 
 def test_a_symlink_in_the_allowance_that_points_out_is_outside(root: Path) -> None:
+    elsewhere = root / "elsewhere" / "set"
+    elsewhere.mkdir(parents=True)
+    (elsewhere / "a01.json").write_text("{}\n")
     link = root / "review" / "read" / "worktree" / "alias"
-    link.symlink_to(root / "harness" / "corpora")
+    link.symlink_to(elsewhere.parent)
     told = _read(_reviewer(root), "alias/set/a01.json", link.parent)
     assert OUTSIDE_REVIEW_REASON in told
+    # Pointing into the harness checkout, it is refused as the checkout.
+    (root / "review" / "read" / "worktree" / "into").symlink_to(root / "harness" / "corpora")
+    assert HARNESS_REASON in _read(_reviewer(root), "into/set/a01.json", link.parent)
 
 
 def test_a_symlink_that_stays_inside_is_inside(root: Path) -> None:
@@ -180,12 +189,11 @@ def test_no_role_reads_reviewer_material_through_the_shell(root: Path, command: 
 
 def test_a_role_still_reads_its_own_library(root: Path) -> None:
     config = _role(root)
-    assert (
-        _read(config, str(root / "harness" / "knowledge" / "control" / "standards.md"), root)
-        == "allow"
-    )
     assert _read(config, "knowledge/control/skill.md", root / "target") == "allow"
     assert _shell(config, "cat knowledge/control/skill.md", root / "target") == "allow"
+    # Its own library is the one in its worktree; the harness checkout's copy is read by none.
+    harness_copy = str(root / "harness" / "knowledge" / "control" / "standards.md")
+    assert HARNESS_REASON in _read(config, harness_copy, root)
 
 
 def test_the_withheld_tree_is_one_structural_rule(root: Path) -> None:

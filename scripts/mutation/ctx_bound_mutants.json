@@ -1,0 +1,345 @@
+[
+ {
+  "name": "m15-install-never-reads-again",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "        if self._setup.review_compaction == \"on\":\n            # Read again",
+  "new": "        if False:\n            # Read again",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "m19b-build-drops-the-note",
+  "file": "src/physgate/hooks/settings.py",
+  "old": "        compaction_note=request.compaction_note,\n    )\n\n\n#: The",
+  "new": "        compaction_note=None,\n    )\n\n\n#: The",
+  "tests": [
+   "tests/unit/hooks/test_a_reviewer_that_compacts_reads_the_rubric_again.py",
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "b1-whole-streams-left-required",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "*(read / part.name for part in (hit_parts or earlier_parts)),",
+  "new": "*(read / part.name for part in earlier_parts),",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b1b-no-marker-streams-dropped",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "*(read / part.name for part in (hit_parts or earlier_parts)),",
+  "new": "*(read / part.name for part in hit_parts),",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b2-excerpts-held-to-nothing",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "    if not held or packet.earlier_hits_sha256 != (_digest(excerpts) if excerpts else None):",
+  "new": "    if packet.earlier_hits_sha256 != (_digest(excerpts) if excerpts else None):",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b2b-excerpts-digest-unchecked",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "    if not held or packet.earlier_hits_sha256 != (_digest(excerpts) if excerpts else None):",
+  "new": "    if not held:",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b2c-excerpts-on-disk-unchecked",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "    _issued(read, packet.earlier_hit_parts, \"an earlier marker's excerpt\")\n",
+  "new": "",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b3-no-lines-around",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "EARLIER_HIT_LINES = 40\n",
+  "new": "EARLIER_HIT_LINES = 0\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b4-result-dropped",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        named = is_call_heading(unit.text, hit.evidence) or is_result_heading(\n            unit.text, hit.evidence\n        )",
+  "new": "        named = is_call_heading(unit.text, hit.evidence)",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b4b-block-under-heading-dropped",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        if number + 1 < len(units) and units[number + 1].data:",
+  "new": "        if False:",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b5-unfound-call-dropped",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "                start, end = session.first, session.end - 1\n",
+  "new": "                continue\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b6-fence-blind",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        if line.startswith(opening):\n",
+  "new": "        if False:\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b7-first-occurrence-only",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        last = end if last is None else max(last, end)\n",
+  "new": "        last = end if last is None else max(last, end)\n        break\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b8-start-unclipped",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "                start = max(session.first, span[0] - EARLIER_HIT_LINES)\n",
+  "new": "                start = span[0] - EARLIER_HIT_LINES\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b8b-end-unclipped",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "                end = min(session.end - 1, span[1] + EARLIER_HIT_LINES)\n",
+  "new": "                end = span[1] + EARLIER_HIT_LINES\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b9-no-merge",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        if merged and start <= merged[-1][1] + 1:\n",
+  "new": "        if False:\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b10-line-numbers-off-by-one",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "    return name, index - begun + 1\n",
+  "new": "    return name, index - begun\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b11-cut-unchecked",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "    if [(p.name, p.sha256) for p in packet.earlier_parts] != [(n, _digest(b)) for n, b in cut]:\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b12-empty-excerpts-written",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "\"earlier_indicators\", \"earlier_hit_parts\"):",
+  "new": "\"earlier_indicators\"):",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b13-empty-digest-written",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        if self.earlier_hits_sha256 is None:\n            data.pop(\"earlier_hits_sha256\", None)\n",
+  "new": "",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b14-prompt-old-reading-line",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "    if excerpts:\n        # Each marker",
+  "new": "    if False:\n        # Each marker",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b15-prompt-old-clause",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "are shown around each marker in the \"\n    \"parts listed above;",
+  "new": "are shown in the earlier parts \"\n    \"listed above;",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b16-sessions-placed-one-early",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        placed.append(EarlierSession(line + 1, line + 1 + count, nonce, found))\n",
+  "new": "        placed.append(EarlierSession(line, line + count, nonce, found))\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b17-cut-heading-unjoined",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        while text.endswith(CONTINUED) and last + 1 < session.end:\n",
+  "new": "        while False:\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b18-lone-return-kept",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            while not lines[end].endswith(b\"\\n\") and end + 1 < session.end:\n",
+  "new": "            while False:\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b20-hits-of-a-merged-window-lost",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "before + [h for h in shown if h not in before])",
+  "new": "before)",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b21-check-without-hits-drops-excerpt-fields",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        if issued_any or packet.earlier_sha256 is not None or packet.earlier_hits_sha256:",
+  "new": "        if packet.earlier_parts or packet.earlier_sha256 is not None or packet.earlier_indicators:",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "t1-error-result-unfound",
+  "file": "src/physgate/reviewers/transcript.py",
+  "old": "    return line in (result_heading(call_id, error=False), result_heading(call_id, error=True))\n",
+  "new": "    return line == result_heading(call_id, error=False)\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b22-prompt-no-marker-line-dropped",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "    elif earlier_parts:\n",
+  "new": "    elif False:\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ }
+]

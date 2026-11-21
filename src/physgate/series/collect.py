@@ -22,6 +22,13 @@ outbox is taken out of the worktree:
   change check holds the attempt commit to every one of them, so the code is code the attempt
   commits with exactly those bytes (ignored or never-added code refuses the record there).
 
+A record whose module code changed after it was written, or was deleted or renamed since,
+and that nothing else refuses, is **discarded**, not refused: the session went on working
+after the run and records again under a new id, and it cannot take the earlier record out of
+the outbox. It is never sealed, so a quantity that names it still refuses the attempt; the
+record alone does not. It is listed with the seal of the bytes collected, and its review is
+shown it as no evidence. A changed or missing writer is refused.
+
 What this cannot prove is that the script produced the curve: a script that writes a curve
 it did not compute names itself honestly. Re-running the script is that proof, and it is not
 made here.
@@ -52,7 +59,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 import physgate.series.writer as writer
-from physgate.orchestrator.trajectory import seal
+from physgate.orchestrator.trajectory import Seal, seal
 from physgate.series.exceptions import RecordRefusedError, RecordTamperedError
 from physgate.series.reader import SERIES_DIR, record_path
 from physgate.series.record import (
@@ -66,6 +73,7 @@ from physgate.series.record import (
 from physgate.series.seal import (
     MAX_ENTRIES,
     NAME_PATTERN,
+    OVERFLOW_NAME,
     CodeBlob,
     CodeDigest,
     SealedRecord,
@@ -103,6 +111,20 @@ class _RefusedError(Exception):
     """A file is not sealed; the message is the reason the session's end records."""
 
 
+class _GoneError(_RefusedError):
+    """A file of code is not where the record names it: deleted, or renamed, since."""
+
+
+class _SupersededError(Exception):
+    """A record whose module code changed after it was written: discarded, not refused.
+
+    The session kept working after the run, so the curve no longer has its code. It is never
+    sealed, and a quantity that names it finds no sealed record and refuses the attempt; but
+    the record alone does not, since the session cannot take it out of the outbox and its
+    later run is recorded under a new id.
+    """
+
+
 def _printable(name: str) -> str:
     shown = name.encode("unicode_escape").decode("ascii")
     return (shown or "(empty name)")[:200]
@@ -115,16 +137,23 @@ class _Listing:
     entries: list[SetAside] = field(default_factory=list)
     overflow: int = 0
 
-    def add(self, name: str, reason: str) -> None:
+    def add(self, name: str, reason: str, held: Seal | None = None) -> None:
         if len(self.entries) < MAX_ENTRIES - 1:
-            self.entries.append(SetAside(name=_printable(name), reason=reason[:500]))
+            self.entries.append(
+                SetAside(
+                    name=_printable(name),
+                    reason=reason[:500],
+                    sha256=None if held is None else held.sha256,
+                    length=None if held is None else held.length,
+                )
+            )
         else:
             self.overflow += 1
 
     def done(self) -> tuple[SetAside, ...]:
         if self.overflow:
             more = f"{self.overflow} more entries, set aside like the ones above"
-            return (*self.entries, SetAside(name="(more)", reason=more))
+            return (*self.entries, SetAside(name=OVERFLOW_NAME, reason=more))
         return tuple(self.entries)
 
 
@@ -331,12 +360,12 @@ def _code_bytes(base: Path, relative: PurePosixPath) -> bytes:
     except OSError as exc:
         reason = "is reached through a link" if exc.errno in _NOT_A_DIRECTORY else "is missing"
         msg = f"the code file {relative} {reason}"
-        raise _RefusedError(msg) from None
+        raise (_GoneError if exc.errno == errno.ENOENT else _RefusedError)(msg) from None
     try:
         fd = os.open(relative.name, _NOFOLLOW_READ, dir_fd=directory)
     except OSError as exc:
         msg = f"the code file {relative} cannot be read ({exc.strerror})"
-        raise _RefusedError(msg) from None
+        raise (_GoneError if exc.errno == errno.ENOENT else _RefusedError)(msg) from None
     finally:
         os.close(directory)
     try:
@@ -359,6 +388,21 @@ def _read_all(fd: int, bound: int) -> bytes:
         chunks.append(chunk)
         total += len(chunk)
     return b"".join(chunks)
+
+
+@dataclass(frozen=True)
+class SeriesEnvironment:
+    """The run's recorded tool environment, as the session that left the records ran on it.
+
+    ``roots`` are spelt as the run recorded them and ``sha256`` is its manifest digest;
+    ``held`` says the environment was measured equal to that record before the session, and
+    ``layer`` that the OS layer ran around the session, so the roots were write-denied to it.
+    """
+
+    roots: tuple[str, ...]
+    sha256: str
+    held: bool
+    layer: bool
 
 
 @dataclass(frozen=True)
@@ -532,12 +576,54 @@ class _Provenance:
     environment: tuple[CodeDigest, ...]
 
 
+def _on_the_environment(record: Record, environment: SeriesEnvironment | None) -> None:
+    """Whether the record may stand on the tool environment it names, if it names one.
+
+    The record's ``producer.environment`` is the session's claim; it is held to the run's own.
+    A run that records a tool environment admits code from outside the module only as that
+    environment, named by the record once: the run's roots and digest, held to the run's
+    record before the session, with the OS layer keeping the roots from the session's writes.
+    Without the layer the record is kept unsealed, with the reason. A record that names no
+    environment there was written by a process not told it, which left its interpreter's own
+    places out unnamed; and a record that names one on a run that records none names code the
+    run never measured.
+
+    Raises:
+        _RefusedError: any of these does not hold.
+    """
+    named = record.producer.environment
+    if environment is None:
+        if named is not None:
+            msg = "the record names a tool environment, and this run records no tool environment"
+            raise _RefusedError(msg)
+        return
+    if named is None:
+        msg = (
+            "this run records a tool environment, and the record names no tool environment: it "
+            "was written by a process not told the run's, so the code it ran is not known"
+        )
+        raise _RefusedError(msg)
+    if named.roots != environment.roots or named.sha256 != environment.sha256:
+        msg = "the record names another tool environment than the run's"
+        raise _RefusedError(msg)
+    if not environment.held:
+        msg = "the tool environment was not held to the run's record before the session"
+        raise _RefusedError(msg)
+    if not environment.layer:
+        msg = (
+            "kept unsealed: the session ran without the OS layer, so nothing kept the tool "
+            "environment's roots from its writes"
+        )
+        raise _RefusedError(msg)
+
+
 def _provenance(
     record: Record,
     base: Path,
     module: PurePosixPath,
     object_format: str,
     roots: tuple[Path, ...],
+    environment: SeriesEnvironment | None = None,
 ) -> _Provenance:
     """The script's bytes, the blob of every other module file, and the environment code.
 
@@ -545,36 +631,66 @@ def _provenance(
     (the writer excepted) and unchanged since the record was written. Their blobs are what the
     change check holds the attempt commit to: code the attempt does not commit with these
     bytes cannot stand behind the curve. A file outside the worktree is admitted only as the
-    interpreter's own (:func:`_environment_code`), and is recorded.
+    interpreter's own (:func:`_environment_code`), and is recorded. Every file is checked for
+    a refusal before a changed or gone module file is reported, so a record that is both
+    changed and refused is refused.
 
     Raises:
         _RefusedError: a file lies outside the module and is not admissible as the interpreter's
-            own, cannot be read, or changed since the record was written.
+            own, cannot be read, or is the writer and changed or gone since the record was
+            written.
+        _SupersededError: a file of the module changed, or was deleted or renamed, since the
+            record was written.
     """
     script = _in_the_module(record.producer.script.path, module)
     if script == WRITER_PATH:
         msg = "a record names the writer as its script"
         raise _RefusedError(msg)
+    _on_the_environment(record, environment)
     script_bytes = b""
     loaded: dict[str, CodeBlob] = {}
-    environment: dict[str, CodeDigest] = {}
+    installed: dict[str, CodeDigest] = {}
+    changed: str | None = None
     for named in (record.producer.script, *record.producer.loaded):
         if named is not record.producer.script and PurePosixPath(named.path).is_absolute():
-            environment[named.path] = _environment_code(named, roots)
+            if environment is not None:
+                # The run's environment stands for all the code it admits, named once; the
+                # rule for an interpreter's own installation is not kept beside it.
+                msg = (
+                    "code from outside the module ran that is not the run's tool "
+                    f"environment: {named.path}"
+                )
+                raise _RefusedError(msg)
+            installed[named.path] = _environment_code(named, roots)
             continue
         relative = _in_the_module(named.path, module)
-        data = _code_bytes(base, relative)
+        try:
+            data = _code_bytes(base, relative)
+        except _GoneError:
+            if relative == WRITER_PATH:
+                raise
+            changed = changed or f"{relative} was deleted or renamed"
+            continue
         if hashlib.sha256(data).hexdigest() != named.sha256:
-            msg = f"{relative} changed after the record was written; run the script again"
-            raise _RefusedError(msg)
+            if relative == WRITER_PATH:
+                msg = f"{relative} changed after the record was written; run the script again"
+                raise _RefusedError(msg)
+            changed = changed or f"{relative} changed"
+            continue
         if relative == script:
             script_bytes = data
         else:
             loaded[str(relative)] = CodeBlob(path=str(relative), blob=blob_id(data, object_format))
+    if changed is not None:
+        msg = (
+            f"{changed} after the record was written, so it is not sealed and a "
+            "quantity that names it refuses the attempt; a later run is recorded under a new id"
+        )
+        raise _SupersededError(msg)
     return _Provenance(
         script=script_bytes,
         loaded=tuple(loaded[path] for path in sorted(loaded)),
-        environment=tuple(environment[path] for path in sorted(environment)),
+        environment=tuple(installed[path] for path in sorted(installed)),
     )
 
 
@@ -634,6 +750,7 @@ def collect(
     object_format: str,
     discarded_before: tuple[SetAside, ...] = (),
     writable_roots: tuple[Path, ...] | None = None,
+    tool_environment: SeriesEnvironment | None = None,
 ) -> SessionSeries:
     """Take every entry out of the outbox: seal what holds, set the rest aside, list both.
 
@@ -698,10 +815,14 @@ def collect(
                         f"the file is named for another record than the one it holds ({record.id})"
                     )
                     raise _RefusedError(msg)
-                found = _provenance(record, base, module, object_format, roots)
+                found = _provenance(record, base, module, object_format, roots, tool_environment)
             except _RefusedError as exc:
                 _move_aside(fd, name, refused_at)
                 refused.add(name, str(exc))
+                continue
+            except _SupersededError as exc:
+                _move_aside(fd, name, discarded_at)
+                discarded.add(name, str(exc), seal(data))
                 continue
             _write_sealed(sealed_at, name, data)
             os.unlink(name, dir_fd=fd)

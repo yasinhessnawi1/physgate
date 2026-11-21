@@ -113,7 +113,10 @@ describe("the Simulation screen's registry line", () => {
     expect(simulation?.title).toBe("Simulation");
     expect(simulation?.icon).toBe("chart-line");
     expect(simulation?.inspector).toBeUndefined();
-    expect(VIEWS.filter((v) => v.group === "analyse").map((v) => v.slug)).toEqual(["series"]);
+    expect(VIEWS.filter((v) => v.group === "analyse").map((v) => v.slug)).toEqual([
+      "series",
+      "evidence",
+    ]);
   });
 });
 

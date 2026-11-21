@@ -23,9 +23,11 @@ from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.dispute import Dispute
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
+from physgate.orchestrator.managed import FlagCache, ObservedTraffic
 from physgate.orchestrator.protocols import IssuedState, MessageUsage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.trajectory import Seal
+from physgate.orchestrator.usage_limit import AccountWindow, UsageLimit
 from physgate.series.seal import SeriesCheck, SessionSeries
 from physgate.state.divergence import Divergence
 from physgate.state.store import JournalLine, Payload
@@ -61,6 +63,10 @@ class SessionRequest(_Frozen):
     #: Integration's issued state, for a session of integration's subtask: the dispatcher writes it
     #: where the session reads it and adds it to the required reading.
     issued_state: IssuedState | None = None
+    #: The parts record, for every session of a run whose decisions named parts: the bytes the
+    #: release line names, which the dispatcher writes as files where the session reads them and
+    #: adds to the required reading.
+    parts_record: IssuedState | None = None
     #: Whether the session is told how to dispute a value of a cross node: a role that may, in a
     #: plan that holds the work of the role that writes those values.
     disputes: bool = False
@@ -100,6 +106,12 @@ class SessionReport(_Frozen):
     trajectory_tampered: NonEmptyStr | None = None
     #: The digest of the policy limits the invocation received, if it received any.
     policy_limits_sha256: NonEmptyStr | None = None
+    #: The served catalog and feature flags the session's own debug log showed, on a pin whose
+    #: sessions carry that traffic; ``None`` on the earlier pins, whose sessions write no log.
+    observed_traffic: ObservedTraffic | None = None
+    #: The remote feature flags the session's binary held when it ended, counted and
+    #: digested, on a pin whose sessions fetch them; ``None`` otherwise.
+    flag_cache: FlagCache | None = None
     #: Whether a model answered the session at least once (:func:`managed.model_answered`).
     #: A report that does not say is taken as answered, so its limits are judged.
     model_answered: bool = True
@@ -130,6 +142,12 @@ class SessionReport(_Frozen):
     #: end of the output, where its ``done`` line stands (``reaper_unverified`` in the hook
     #: layer's log). What the command started may have lived on, so it is an incident.
     reaper_unverified: tuple[NonEmptyStr, ...] = ()
+    #: The account's usage limit the session ended on, as its stream named it, for an end whose
+    #: cause is ``usage_limit``; ``None`` for every other end.
+    usage_limit: UsageLimit | None = None
+    #: How full the account's usage windows were at the last rate-limit event the session's
+    #: stream gave; empty where it gave none.
+    account_windows: tuple[AccountWindow, ...] = ()
 
 
 #: How a reason a hook layer's log says nothing of a session's reaping begins, where it stands
@@ -418,6 +436,15 @@ class GraphPort(Protocol):
 
         Raises ``StoreRefusalError`` for a revision that is not the derivation the store holds
         it to, and ``StoreStaleError`` when the journal moved underneath the handle.
+        """
+        ...
+
+    def declare(self, payload: Payload, item_ids: tuple[str, ...]) -> int:
+        """Write a node a person's decisions owe through the store's ``declare``; its revision.
+
+        Raises ``StoreRefusalError`` for a node the store does not hold to be the declared
+        revision of ``item_ids``, and ``StoreStaleError`` when the journal moved underneath the
+        handle.
         """
         ...
 
