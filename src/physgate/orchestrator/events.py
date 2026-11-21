@@ -855,6 +855,8 @@ DecisionEffect = Literal[
 #: record no longer allows because the module was reopened since (its follow-up, merged or not).
 #: ``no_attempt_left``: a reject of a sign-off item whose module has no attempt left to fix its
 #: values at: it merged on its last attempt number, or on a fix a person ordered earlier.
+#: Replay recomputes the reason, so a reject of such a module recorded under any other reason is
+#: refused; no run recorded before this reason carries a sign-off item, so none is.
 WhyNot = Literal[
     "record_only_source",
     "last_rejection_automated",
