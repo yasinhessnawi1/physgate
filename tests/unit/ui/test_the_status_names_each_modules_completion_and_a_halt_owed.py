@@ -33,6 +33,14 @@ from physgate.orchestrator.replay import replay  # noqa: E402
 
 BUDGET, DRIVE, FW, INTEG = runner.BUDGET, runner.DRIVE, runner.FW, runner.INTEG
 
+_RECORDED = Path(__file__).resolve().parents[1] / "evaluation" / "whole" / "recorded_runs"
+
+#: Recorded runs that ended escalated, each with whether the sign-offs alone are what is owed.
+ENDED_ESCALATED = {
+    "acts_rejected_a_sign_off_owed": True,
+    "acts_rejected_and_integration_escalated": False,
+}
+
 #: Each run: the rig's fields, and how integration declared.
 RUNS: dict[str, dict[str, Any]] = {
     "complete": {"sizing": True, "declared": (BUDGET, DRIVE, FW)},
@@ -81,6 +89,11 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Path]]
         runner.rewritten(rig.run_dir / "events.jsonl", holds.rewrite_declaration(modules=[FW]))
         assert holds.take_over(rig, lambda e, _: isinstance(e, Halted)).startswith("raised")
         shutil.copytree(rig.run_dir, root / "owed-halt")
+        # Two runs recorded elsewhere, each ended escalated: the status serves them as they stand.
+        for recorded in ENDED_ESCALATED:
+            (root / recorded).mkdir()
+            shutil.copyfile(_RECORDED / f"{recorded}.jsonl", root / recorded / "events.jsonl")
+            shutil.copyfile(root / "complete" / "run.json", root / recorded / "run.json")
     yield {"root": root, "ui": fake_ui(base / "checkout")}
 
 
@@ -198,9 +211,6 @@ def test_a_run_owing_a_halt_says_so(world: dict[str, Path], live: Live) -> None:
         assert served(live, run)["owed_halt"] is None
 
 
-_RECORDED = Path(__file__).resolve().parents[1] / "evaluation" / "whole" / "recorded_runs"
-
-
 @pytest.mark.parametrize(
     ("recorded", "open_to_decide"),
     [
@@ -239,3 +249,13 @@ def test_an_escalated_end_says_whether_the_sign_offs_alone_are_what_is_owed(
     state = replay(read_events(_RECORDED / f"{recorded}.jsonl"))
     assert state.next_step().kind == "escalated"
     assert state.ends_on_sign_offs_alone() is alone
+
+
+@pytest.mark.parametrize("recorded", sorted(ENDED_ESCALATED))
+def test_the_status_serves_whether_an_escalated_end_is_for_the_sign_offs_alone(
+    live: Live, recorded: str
+) -> None:
+    # The key itself, as the page reads it: an absent key reads as "not said", the old reading.
+    found = served(live, recorded)
+    assert found["next_step"]["kind"] == "escalated"
+    assert found["ends_on_sign_offs_alone"] is ENDED_ESCALATED[recorded]

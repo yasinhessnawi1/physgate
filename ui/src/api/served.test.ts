@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import { ShapeError } from "./client";
 import { itemView, queueListing } from "./queue";
 import { ledgerLine, runConfig } from "./records";
+import { phaseOf } from "../words/standing";
 import { runStatus } from "./run";
 import config from "./served/config.json";
 import contractItem from "./served/item-contract.json";
@@ -23,6 +24,8 @@ import ledger from "./served/ledger.json";
 import contractOpen from "./served/queue-contract-open.json";
 import decidedListing from "./served/queue-decided.json";
 import status from "./served/status.json";
+import endedWithItem from "./served/status-ended-with-integration-item.json";
+import endedOnSignatures from "./served/status-ended-on-signatures.json";
 
 /** A deep copy of a served answer, to change one field of it. */
 const copy = <T>(value: T): T => structuredClone(value);
@@ -199,5 +202,15 @@ describe("the run's other answers are read as they are", () => {
       ["control-c2599c", 3],
       ["firmware-a7cd7e", 3],
     ]);
+  });
+
+  it("where an escalated end is for the sign-offs alone, as the route wrote the field", () => {
+    // Each body is the status route's own answer for a recorded run that ended escalated.
+    const alone = runStatus(endedOnSignatures);
+    expect(alone.endsOnSignaturesAlone).toBe(true);
+    expect(phaseOf(alone)).toBe("done");
+    const beside = runStatus(endedWithItem);
+    expect(beside.endsOnSignaturesAlone).toBe(false);
+    expect(phaseOf(beside)).toBe("waiting-person");
   });
 });
