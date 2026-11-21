@@ -261,7 +261,8 @@ def test_the_issued_state_lists_each_owed_sign_off_and_only_when_one_is_owed(
     text = issued_state(replay(events[: issued.seq])).decode()
     assert "\n## Owed sign-offs\n" in text
     assert f'- Module "{CONTROL}" of the "control" role: its stability margin.' in text
-    # With the control module signed, the section is not there, and nothing else moved.
+    # With the control module signed, the section is not there, and nothing else moved but what
+    # the person's note on the sign-off adds: the sign-off is carried as a decision taken.
     plain = tmp_path / "signed"
     rig2, _ = journal_rig(plain)
     rig2.dispatcher.during[3] = approving(plain)
@@ -269,7 +270,9 @@ def test_the_issued_state_lists_each_owed_sign_off_and_only_when_one_is_owed(
     issued2 = next(e for e in signed if isinstance(e, IntegrationStateIssued))
     text2 = issued_state(replay(signed[: issued2.seq])).decode()
     assert "Owed sign-offs" not in text2
-    assert text.split("\n## Owed sign-offs\n")[0] == text2
+    decided = "\n## Decisions taken on queue items\n"
+    assert 'item kind: "sign-off"' in text2
+    assert text.split("\n## Owed sign-offs\n")[0] == text2.split(decided)[0]
 
 
 # --- the backstop before a completion line -----------------------------------------------------

@@ -29,6 +29,9 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 
 #: Where the declaration lives in a worktree, as git names the path.
 DECLARATION_PATH = ".physgate/completion/declaration.json"
+#: Where the closing record of a person's decisions lies, beside the declaration: the harness
+#: writes it into the merge of integration's attempt (``carried``), and the merge names the path.
+CLOSING_RECORD_PATH = ".physgate/completion/decisions.json"
 #: The declaration's one key.
 KEY = "complete"
 #: The most bytes a declaration holds: far more than any plan's list of modules needs.

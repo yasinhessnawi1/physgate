@@ -239,8 +239,9 @@ class _KilledAfterMerge(GitMerger):
         message: str,
         reopen: int = 0,
         contracts: Mapping[str, str] | None = None,
+        records: Mapping[str, str] | None = None,
     ) -> str:
-        super().merge(subtask_id, attempt, attempt_commit, message, reopen, contracts)
+        super().merge(subtask_id, attempt, attempt_commit, message, reopen, contracts, records)
         raise KeyboardInterrupt
 
 
@@ -285,11 +286,14 @@ def test_a_branch_moved_after_the_check_halts_the_run_as_an_incident(tmp_path: P
             message: str,
             reopen: int = 0,
             contracts: Mapping[str, str] | None = None,
+            records: Mapping[str, str] | None = None,
         ) -> str:
             worktree = run.subtask_worktree(subtask_id)
             (worktree / "modules" / "power" / "late.py").write_text("late\n")
             commit_attempt(worktree, subtask_id, attempt, "late", repo=run.repo)
-            return super().merge(subtask_id, attempt, attempt_commit, message, reopen, contracts)
+            return super().merge(
+                subtask_id, attempt, attempt_commit, message, reopen, contracts, records
+            )
 
     before = head_of(run.repo, run.run_branch)
     loop = _loop(run, GitDispatcher(run), Gate(), Moving(run, removal_timeout_s=60.0))
@@ -470,8 +474,11 @@ def test_the_merge_a_killed_process_made_and_never_recorded_is_where_the_run_lef
             message: str,
             reopen: int = 0,
             contracts: Mapping[str, str] | None = None,
+            records: Mapping[str, str] | None = None,
         ) -> str:
-            done = super().merge(subtask_id, attempt, attempt_commit, message, reopen, contracts)
+            done = super().merge(
+                subtask_id, attempt, attempt_commit, message, reopen, contracts, records
+            )
             if subtask_id == "s2":
                 raise KeyboardInterrupt
             return done
