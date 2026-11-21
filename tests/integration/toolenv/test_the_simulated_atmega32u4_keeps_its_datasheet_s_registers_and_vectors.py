@@ -304,7 +304,7 @@ def test_usb_with_no_host_locks_its_pll_and_raises_a_level_interrupt_from_udint_
         """
     )
     assert found == {
-        "reset": [0x20, 0x01, 0x00],
+        "reset": [0x20, 0x01, 0x02],
         "early": 0,
         "locked": 1,
         "unlocked": 0,
@@ -1824,3 +1824,336 @@ def test_every_figure_of_time_is_withheld_when_timing_is_not_evaluable() -> None
     # The bootloader's session, whose length is a figure of time as well, is on the list.
     listed = _summary("rig.noteUnmodelled('clock_prescaler');")["withheld"]
     assert "resets.*.bootloader_session_cycles" in listed
+
+
+#: A sketch that marks SRAM on its first start and starts the watchdog; on its second start (after
+#: the watchdog's reset, which the bootloader hides from MCUSR) it runs `%(second)s`.
+WATCHDOG_TWICE = """
+const put = (...parts) => { for (const w of parts.flat()) words[at++] = w; };
+put(asm.lds(16, 0x300), [0x3a05, 0xf039]);        // lds r16, 0x300; cpi r16, 0xa5; breq second
+put(asm.ldi(16, 0xa5), asm.sts(0x300, 16));       // the first start leaves its mark
+put(asm.ldi(16, 0x08), asm.sts(0x60, 16), asm.self());  // and starts the watchdog, WDP = 0
+%(second)s
+put(asm.self());
+"""
+
+
+def _twice(second: str, seconds: float, **more: Any) -> dict[str, Any]:
+    return _program(WATCHDOG_TWICE % {"second": second}, seconds=seconds, **more)
+
+
+def test_each_end_of_the_watchdog_carries_its_own_evidence_end_and_flags() -> None:
+    # The sketch reads a register the part has none at on its second start. At the fast end the
+    # second start comes about 148 ms in, at the slow end (a longer start-up and period) about 169
+    # ms: a scenario of 161 ms at the slow oscillator reaches it only in the fast end's own run.
+    found = _twice("put(asm.lds(17, 0x22));", 0.095, watchdog_oscillator_hz=112_000)
+    assert found["evidence_end"] is None and found["timing_evaluable"] is True
+    ends = found["watchdog"]["ends"]
+    fast, slow = ends["fast"], ends["slow"]
+    assert fast["evidence_end"]["cause"] == "reserved_register"
+    assert fast["evidence_end"]["address"] == 0x22
+    assert (fast["timing_evaluable"], fast["behaviour_evaluable"]) == (False, False)
+    assert fast["timing_not_evaluable_because"] == ["reserved_register"]
+    assert fast["behaviour_not_evaluable_because"] == ["reserved_register"]
+    # What the fast end measured is withheld, as in the run's own summary.
+    why = {"withheld": "timing not evaluable: reserved_register"}
+    assert fast["first_watchdog_reset_cycle"] == fast["period_cycles"] == why
+    assert slow["evidence_end"] is None
+    assert (slow["timing_evaluable"], slow["behaviour_evaluable"]) == (True, True)
+    assert slow["timing_not_evaluable_because"] == slow["behaviour_not_evaluable_because"] == []
+    assert slow["watchdog_resets"] == 1 and isinstance(slow["first_watchdog_reset_cycle"], int)
+
+
+def test_an_end_that_reports_a_feature_withholds_its_own_figures_and_the_other_end_does_not() -> (
+    None
+):
+    # The second start uses the SPI, which the rig does not model: only the end that got there
+    # has timing and values not evaluable.
+    found = _twice(
+        "put(asm.ldi(17, 0x40), asm.sts(0x4c, 17));", 0.095, watchdog_oscillator_hz=112_000
+    )
+    fast, slow = found["watchdog"]["ends"]["fast"], found["watchdog"]["ends"]["slow"]
+    assert fast["evidence_end"] is None and slow["evidence_end"] is None
+    assert (fast["timing_evaluable"], fast["behaviour_evaluable"]) == (False, False)
+    assert fast["timing_not_evaluable_because"] == ["spi"]
+    assert fast["first_watchdog_reset_cycle"] == {"withheld": "timing not evaluable: spi"}
+    assert (slow["timing_evaluable"], slow["behaviour_evaluable"]) == (True, True)
+    assert isinstance(slow["first_watchdog_reset_cycle"], int)
+
+
+def test_an_end_whose_evidence_ended_before_a_watchdog_reset_is_not_shown_as_never_reset() -> None:
+    # A power-down sleep right after the watchdog is started ends the evidence in every run
+    # before its first reset: a missing first reset is then "not reached", not "fed in time".
+    found = _program("store(0x60, 0x08); store(0x53, 0x05); words[at++] = 0x9588;", seconds=0.3)
+    assert found["evidence_end"]["cause"] == "sleep"
+    for name in ("fast", "slow"):
+        end = found["watchdog"]["ends"][name]
+        assert end["evidence_end"]["cause"] == "sleep", name
+        assert (end["timing_evaluable"], end["behaviour_evaluable"]) == (True, True), name
+        cycle = end["evidence_end"]["cycle"]
+        not_reached = {"withheld": f"the evidence ended at cycle {cycle} before a watchdog reset"}
+        assert end["first_watchdog_reset_cycle"] == end["period_cycles"] == not_reached, name
+        assert end["watchdog_resets"] == 0, name
+
+
+def test_the_run_s_own_watchdog_figures_say_at_which_oscillator_they_are() -> None:
+    # resets[].cycle and watchdog_period_cycles are at the scenario's oscillator (128 kHz by
+    # default: the fast end); the summary labels them, in each reset and for the run.
+    found = _program("store(0x60, 0x08);", seconds=0.2)
+    assert [reset["at_oscillator_hz"] for reset in found["resets"]] == [128_000] * len(
+        found["resets"]
+    )
+    assert found["watchdog"]["own"] == {"oscillator_hz": 128_000, "end": "fast"}
+    slow = _program("store(0x60, 0x08);", seconds=0.2, watchdog_oscillator_hz=112_000)
+    assert slow["resets"][1]["at_oscillator_hz"] == 112_000
+    assert slow["watchdog"]["own"] == {"oscillator_hz": 112_000, "end": "slow"}
+    mid = _program("store(0x60, 0x08);", seconds=0.2, watchdog_oscillator_hz=120_000)
+    assert mid["watchdog"]["own"] == {"oscillator_hz": 120_000, "end": "between"}
+    assert "oscillator_hz" in found["watchdog"]["statement"]
+
+
+def test_a_data_access_above_the_end_of_ram_ends_the_evidence_and_names_the_address() -> None:
+    # RAMEND is 0x0AFF (2560 bytes at 0x0100); the data space above it is not implemented, and
+    # the part reads and writes nothing there.
+    found = _registers(
+        """
+        const log = () => ends.splice(0).map((e) => ({ ...e }));
+        cpu.readData(0x0aff); cpu.writeData(0x0aff, 7); cpu.readData(0x0100);
+        const inside = log();
+        const first = [cpu.readData(0x0b00), log()];
+        cpu.writeData(0x0b10, 5); const write = log();
+        cpu.readData(0xffff); const top = log();
+        cpu.writeData(0xffff, 1); const topWrite = log();
+        console.log(JSON.stringify({ inside, first, write, top, topWrite,
+          seen: Object.keys(reports) }));
+        """
+    )
+
+    def end(access: str, address: int) -> dict[str, Any]:
+        return {"cause": "unmapped_memory", "space": "data", "access": access, "address": address}
+
+    assert found["inside"] == []
+    assert found["first"] == [0, [end("read", 0x0B00)]]
+    assert found["write"] == [end("write", 0x0B10)]
+    assert found["top"] == [end("read", 0xFFFF)]
+    assert found["topWrite"] == [end("write", 0xFFFF)]
+    assert found["seen"] == ["unmapped_memory"]
+
+
+def test_a_firmware_that_reads_past_the_end_of_ram_has_its_evidence_ended_at_that_address() -> None:
+    # lds r16, 0x0b00: a read the part does not answer.
+    found = _program("words[at++] = 0x9100; words[at++] = 0x0b00;")
+    end = found["evidence_end"]
+    assert (end["cause"], end["space"], end["access"], end["address"]) == (
+        "unmapped_memory",
+        "data",
+        "read",
+        0x0B00,
+    )
+    assert found["timing_evaluable"] is False and found["behaviour_evaluable"] is False
+    assert found["timing_not_evaluable_because"] == ["unmapped_memory"]
+    assert _program("words[at++] = 0x9100; words[at++] = 0x0aff;")["evidence_end"] is None
+
+
+def test_execution_past_the_end_of_flash_ends_the_evidence_and_names_the_address() -> None:
+    # Flash is 0x4000 words. A jump to the last word runs it (a no-op here) and the next
+    # instruction is past the end; a jump past the end is not run at all.
+    for target in (0x3FFF, 0x4000):
+        found = _program(f"for (const w of asm.jmp({target})) words[at++] = w;")
+        end = found["evidence_end"]
+        assert end is not None, hex(target)
+        assert (end["cause"], end["space"], end["access"]) == (
+            "unmapped_memory",
+            "program",
+            "execute",
+        )
+        assert end["address"] == 0x8000, hex(target)
+        assert end["cycle"] < START + 100, hex(target)
+
+
+LPM_PAST = """
+const load = (z, extra) => {
+  for (const w of [...asm.ldi(30, z & 0xff), ...asm.ldi(31, z >> 8), ...extra]) words[at++] = w;
+};
+"""
+
+
+def test_a_program_memory_read_past_the_end_of_flash_ends_the_evidence_at_that_address() -> None:
+    # LPM, LPM Rd,Z, LPM Rd,Z+ and ELPM read the byte at Z (with RAMPZ for ELPM); flash is
+    # 0x8000 bytes. The last byte reads, the next ends the evidence.
+    ldi_rampz = "...asm.ldi(16, 1), ...asm.sts(0x5b, 16)"
+    forms = {
+        "lpm": "[0x95c8]",
+        "lpm_z": "[0x9104]",
+        "lpm_z_plus": "[0x9105]",
+        "elpm": f"[{ldi_rampz}, 0x95d8]",
+        "elpm_z": f"[{ldi_rampz}, 0x9106]",
+        "elpm_z_plus": f"[{ldi_rampz}, 0x9107]",
+    }
+    for name, extra in forms.items():
+        z = 0x0000 if name.startswith("elpm") else 0x8000
+        found = _program(LPM_PAST + f"load({z:#x}, {extra});")
+        end = found["evidence_end"]
+        assert end is not None, name
+        assert (end["cause"], end["space"], end["access"]) == ("unmapped_memory", "program", "read")
+        assert end["address"] == (0x10000 if name.startswith("elpm") else 0x8000), name
+    for name in ("lpm", "lpm_z", "lpm_z_plus"):
+        found = _program(LPM_PAST + f"load(0x7fff, {forms[name]});")
+        assert found["evidence_end"] is None, name
+    reads = "[...asm.ldi(16, 0), ...asm.sts(0x5b, 16), 0x9106]"
+    assert _program(LPM_PAST + f"load(0x7fff, {reads});")["evidence_end"] is None
+
+
+def test_the_pll_starts_from_the_chip_s_reset_frequency_setting() -> None:
+    # PLLFRQ's initial value is 0x04: PDIV = 0100, 48 MHz (datasheet "PLLFRQ").
+    found = _registers("console.log(JSON.stringify(cpu.data[REG.PLLFRQ]));")
+    assert found == 0x04
+
+
+PLL_TRIAL = """
+const trial = (frq, csr) => {
+  const before = reports.pll_configuration ?? 0;
+  cpu.writeData(REG.PLLFRQ, frq); cpu.writeData(REG.PLLCSR, csr);
+  step(160_020);
+  const locked = cpu.data[REG.PLLCSR] & 0x01;
+  cpu.writeData(REG.PLLCSR, 0x00);
+  return [locked, (reports.pll_configuration ?? 0) - before];
+};
+"""
+
+
+def test_the_pll_locks_only_for_a_setting_that_fits_the_16_mhz_crystal() -> None:
+    # PINDIV = 1 (16 MHz input halved to the PLL's 8 MHz) with the crystal as the input
+    # (PINMUX = 0), and a PDIV the datasheet allows: 40, 48, 56, 72, 80, 88 or 96 MHz. Any other
+    # setting never locks and is reported.
+    found = _registers(
+        PLL_TRIAL
+        + """
+        const byPdiv = [...Array(16).keys()].map((p) => trial(0x60 | p, 0x12));
+        console.log(JSON.stringify({
+          byPdiv,
+          halfInput: trial(0x04, 0x02),
+          rcInput: trial(0x84, 0x12),
+          rcInputUndivided: trial(0x84, 0x02),
+          again: trial(0x04, 0x12),
+        }));
+        """
+    )
+    allowed = {3, 4, 5, 7, 8, 9, 10}
+    assert [pair[0] for pair in found["byPdiv"]] == [int(p in allowed) for p in range(16)]
+    assert [pair[1] for pair in found["byPdiv"]] == [int(p not in allowed) for p in range(16)]
+    # 16 MHz into the PLL undivided is 16 MHz, not its 8 MHz input.
+    assert found["halfInput"] == [0, 1]
+    # The 8 MHz RC oscillator is not this board's clock.
+    assert found["rcInput"] == [0, 1] and found["rcInputUndivided"] == [0, 1]
+    assert found["again"] == [1, 0]
+
+
+def test_a_pll_that_never_locks_is_a_reading_the_summary_does_not_show() -> None:
+    found = _program("store(0x49, 0x02);", seconds=0.05)
+    assert "pll_configuration" in found["unmodelled"]
+    assert found["timing_evaluable"] is False and found["behaviour_evaluable"] is False
+    assert "pll_configuration" in found["timing_not_evaluable_because"]
+    fits = _program("store(0x49, 0x12);", seconds=0.05)
+    assert "pll_configuration" not in fits["unmodelled"]
+    assert fits["timing_evaluable"] is True
+
+
+def test_usbsta_reads_id_set_and_every_bit_of_it_is_read_only() -> None:
+    # Datasheet "USBSTA": ID always reads 1, VBUS reads the pin (low here), bits 7:2 read 0.
+    found = _registers(
+        """
+        const reset = cpu.data[REG.USBSTA];
+        cpu.writeData(REG.USBSTA, 0xff);
+        console.log(JSON.stringify({ reset, written: cpu.data[REG.USBSTA] }));
+        """
+    )
+    assert found == {"reset": 0x02, "written": 0x02}
+
+
+def test_usbint_s_flag_is_cleared_by_a_zero_and_never_set_by_a_write() -> None:
+    found = _registers(
+        """
+        cpu.writeData(REG.USBINT, 0xff); const written = cpu.data[REG.USBINT];
+        cpu.data[REG.USBINT] = 0x01; cpu.writeData(REG.USBINT, 0x01);
+        const kept = cpu.data[REG.USBINT];
+        cpu.writeData(REG.USBINT, 0x00); const cleared = cpu.data[REG.USBINT];
+        console.log(JSON.stringify({ written, kept, cleared }));
+        """
+    )
+    assert found == {"written": 0, "kept": 1, "cleared": 0}
+
+
+def test_timer4_s_fault_protection_interrupt_and_enable_are_a_use_of_it() -> None:
+    # TCCR4D's FPIE4 (bit 7) and FPEN4 (bit 6) with Timer4 clocked: a fault input that stops
+    # the outputs and may interrupt. WGM40 alone (bit 0) is the Arduino core's set-up.
+    found = _registers(
+        """
+        const out = {};
+        cpu.writeData(0xc1, 0x01);                    // TCCR4B: clocked
+        cpu.writeData(0xc3, 0x01); out.wgm = reports.timer4 ?? 0;
+        cpu.writeData(0xc3, 0x80); out.interrupt = reports.timer4 ?? 0;
+        cpu.writeData(0xc3, 0x40); out.enable = reports.timer4 ?? 0;
+        console.log(JSON.stringify(out));
+        """
+    )
+    assert found == {"wgm": 0, "interrupt": 1, "enable": 2}
+
+
+def test_the_twi_address_register_resets_to_the_datasheet_s_value() -> None:
+    # TWAR's initial value is 0xFE (address 0x7F, general call off): the part answers to
+    # nobody on a bus with no master but the board's own, and a read of it ends nothing.
+    found = _registers(
+        "const value = cpu.readData(0xba); console.log(JSON.stringify({ value, ends }));"
+    )
+    assert found == {"value": 0xFE, "ends": []}
+
+
+COUNTED = """
+const src = %(src)s;
+const { Rig, Trace } = await import(`${src}/rig.js`);
+const { readScenario } = await import(`${src}/scenario.js`);
+const asm = { call: (k) => [0x940e, k], jmp: (k) => [0x940c, k], ret: () => [0x9508],
+  self: () => [0xcfff] };
+const words = new Uint16Array(0x4000);
+const at = 0x56;
+words.set(asm.jmp(at), 0);
+words.set([...asm.call(0x100), ...asm.call(0x100), ...asm.call(0x110), ...asm.call(0x120),
+  ...asm.self()], at);
+words.set(asm.ret(), 0x100); words.set(asm.ret(), 0x110); words.set(asm.ret(), 0x120);
+const symbols = new Map(Object.entries(%(symbols)s).map(
+  ([name, value]) => [name, { type: 'function', value }]));
+const scenario = readScenario(JSON.stringify({ avrsim_scenario: 1, duration_s: %(seconds)s }));
+const rig = new Rig({ flash: new Uint8Array(words.buffer), eeprom: null, symbols }, scenario,
+  new Trace(() => {}, 100));
+const s = rig.run();
+console.log(JSON.stringify({ usb: s.usb }));
+"""
+
+
+def _counted(symbols: dict[str, int]) -> dict[str, Any]:
+    found = _node(
+        COUNTED % {"src": _src(), "symbols": json.dumps(symbols), "seconds": START / 16e6 + 0.001}
+    )
+    assert isinstance(found, dict)
+    usb = found["usb"]
+    assert isinstance(usb, dict)
+    return usb
+
+
+def test_every_call_that_sends_to_the_usb_host_is_counted_with_the_serial_writes() -> None:
+    # Serial.write (byte and buffer) and USB_Send, which a HID or other class sends through.
+    byte, buffer, send = "_ZN7Serial_5writeEh", "_ZN7Serial_5writeEPKhj", "_Z8USB_SendhPKvi"
+    assert _counted({byte: 0x200})["serial_write_calls"] == 2
+    assert _counted({buffer: 0x220})["serial_write_calls"] == 1
+    assert _counted({send: 0x240})["serial_write_calls"] == 1
+    assert _counted({byte: 0x200, buffer: 0x220, send: 0x240})["serial_write_calls"] == 4
+    assert "USB_Send" in _counted({})["statement"]
+
+
+def test_a_write_symbol_that_is_no_function_start_or_lies_outside_flash_is_not_counted() -> None:
+    # An odd address is no word's start; one past the flash has no word to flag.
+    byte = "_ZN7Serial_5writeEh"
+    assert _counted({byte: 0x201})["serial_write_calls"] == 0
+    assert _counted({byte: 0x8000})["serial_write_calls"] == 0
+    assert _counted({byte: 0xFFFE})["serial_write_calls"] == 0
