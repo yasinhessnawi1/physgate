@@ -66,6 +66,7 @@ one.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -404,8 +405,10 @@ def _write_new(files: tuple[tuple[Path, bytes], ...]) -> None:
     to a new name :func:`tempfile.mkstemp` makes in the same directory, and renamed onto its
     claim only once every claim is still the file it made, so no name the export did not make
     is ever replaced. The harness makes no second name for a file, so nothing is linked into
-    place. Whatever fails, every name the export made, and every file it put, is removed, so a
-    failed write leaves nothing behind and the next export is not refused.
+    place. Whatever fails, every name the export made, and every file it put, is removed where it
+    can be, so a failed write leaves nothing behind and the next export is not refused. A removal
+    that itself fails is passed over, and leaves only that file (a temporary beside the answer's
+    name, which a person may delete).
     """
     # Held open to the end: while one is, the claimed file's inode cannot be freed and given
     # to another file at the same name, so the identity compared below is the claim's alone.
@@ -442,13 +445,18 @@ def _write_new(files: tuple[tuple[Path, bytes], ...]) -> None:
         raise ExportError(msg, out=str(at)) from exc
     finally:
         if not whole:
+            # Each removal is made if it can be: one that cannot (a temporary left read-only, say)
+            # does not stop the rest, and does not replace the error that brought us here.
             for temporary, _ in temporaries[len(placed) :]:
-                os.unlink(temporary)
+                with contextlib.suppress(OSError):
+                    os.unlink(temporary)
             for out, written in placed:
-                if _ours(out, written):
-                    os.unlink(out)
+                with contextlib.suppress(OSError):
+                    if _ours(out, written):
+                        os.unlink(out)
             for out, _, claim in claims[len(placed) :]:
-                if _ours(out, claim):
-                    os.unlink(out)
+                with contextlib.suppress(OSError):
+                    if _ours(out, claim):
+                        os.unlink(out)
         for _, claimed, _ in claims:
             os.close(claimed)

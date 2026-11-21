@@ -615,6 +615,11 @@ def test_a_run_that_acts_is_exported_once_a_person_signed(tmp_path: Path) -> Non
 def test_a_module_whose_sign_off_is_owed_with_another_precondition_open_is_unfinished(
     tmp_path: Path, recorded: str
 ) -> None:
+    """A guard: the check that a module owes its sign-off alone refused both runs already.
+
+    The export's reading of what is owed (the open preconditions being the sign-off and nothing
+    else) turned these away before the record existed; the row keeps it so.
+    """
     # The run records decisions, and the system-scope call failed: the control module's
     # sign-off is owed, and so is a passing call. It did not end only for want of a signature.
     run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
@@ -668,6 +673,11 @@ def test_the_record_of_a_run_that_owes_no_sign_off_says_none_is_owed(tmp_path: P
     ["unfinished", "acts_waiting_on_a_sign_off", "records_a_sign_off_owed_and_a_failed_call"],
 )
 def test_an_export_that_is_not_exported_writes_no_record(tmp_path: Path, recorded: str) -> None:
+    """A guard, not a row that fails without the record: the answer's own refusal came first.
+
+    A run that is not finished is refused before anything is written, so no file of either kind
+    was ever put down; this holds that to the record as well, now that there is one.
+    """
     run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded=recorded)
     record, out = _export(run, tmp_path)
     assert record.status == "unfinished"
@@ -725,6 +735,11 @@ def test_a_run_whose_integration_did_not_merge_is_unfinished_though_only_a_sign_
 def test_a_run_that_records_decisions_and_halted_after_integration_merged_is_unfinished(
     tmp_path: Path,
 ) -> None:
+    """A guard: a run that did not end escalated was already refused as unfinished.
+
+    The next step of a halted run is not the escalated end, which the reading of what is owed
+    requires; this holds the halt after a merge to that, whatever else the record owes.
+    """
     # Integration merged and the control module owes only its sign-off, but the run then halted
     # on an incident: it did not end escalated, and a person looks before anything is read off it.
     run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS))
@@ -945,3 +960,35 @@ def test_an_answer_that_cannot_be_put_in_place_takes_the_record_put_before_it_aw
     record = module.export_whole_run(run, out)
     assert record.status == "exported"
     assert _record_of(out).exists()
+
+
+def test_a_temporary_that_cannot_be_removed_after_a_failed_second_rename_stops_nothing_else(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The answer's rename fails, and its temporary then cannot be removed either: the export
+    # removes what it can (the record it placed, and its claim on the answer's name), and says
+    # the answer could not be written, not that a temporary could not be removed.
+    run = _run(tmp_path, *_split(FEEDBACK, PARAMETERS), recorded="records_a_sign_off_owed")
+    out = Path(os.path.realpath(tmp_path)) / "answers" / "whole_run.json"
+    module = _module()
+    replace, unlink = os.replace, os.unlink
+    renamed: list[str] = []
+
+    def record_then_no_space(src: str, dst: object) -> None:
+        if renamed:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        replace(src, dst)  # type: ignore[arg-type]
+        renamed.append(str(dst))
+
+    def stubborn(path: str) -> None:
+        if Path(path).name.startswith(f".{out.name}."):
+            raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
+        unlink(path)
+
+    monkeypatch.setattr(module.os, "replace", record_then_no_space)
+    monkeypatch.setattr(module.os, "unlink", stubborn)
+    with pytest.raises(module.ExportError):
+        module.export_whole_run(run, out)
+    left = sorted(p.name for p in out.parent.iterdir())
+    assert not out.exists() and not module.record_path(out).exists(), left
+    assert all(name.startswith(f".{out.name}.") for name in left), left
