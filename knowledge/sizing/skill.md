@@ -31,8 +31,9 @@ One row per quantity sizing writes (§1, §2):
 4. A value with none of these is a best estimate marked TBR, with its rationale, what would resolve
    it and who (§2).
 5. Use a name the automated checks know where the quantity is one. Under a name a check compares
-   with a bound, write the value it must judge (the largest demand, the rating); under any other,
-   the brief's or the nominal value. Other conditions go under `_max`, `_min` or `_nominal` (§10).
+   with a bound, write the value it must judge (the demand at the brief's pinned voltage, the
+   rating); under any other, the brief's or the nominal value. Other conditions go under `_max`,
+   `_min` or `_nominal`: the stall current at the top of the pack is `stall_current_max` (§4, §10).
    An efficiency or a duty cycle is a fraction in the unit `1`, under `efficiency`, `duty_cycle` or
    a name ending in `_efficiency` or `_duty_cycle` (§10).
 6. A quantity two domains read that the plan gave sizing no node for is listed as unowned (§1).
@@ -44,10 +45,9 @@ One row per quantity sizing writes (§1, §2):
    `constrains` edges and holds every one of the interface's quantities under the same name, in a
    unit of the same kind, with the value the domains are to read (§10). Values at other conditions
    go under suffixed names on that node.
-3. Never write the interface node: at the change check of your first pass the harness writes it
-   from your joined node, and your reviewer is shown each value that changes, old and new. An
-   interface with no joined node, a missing name, two joined nodes that disagree, or a unit of
-   another kind refuses the attempt before the gate (§10).
+3. Never write the interface node: the harness writes it from your joined node at your first
+   pass's change check. An interface with no joined node, a missing name, two joined nodes that
+   disagree, or a unit of another kind refuses the attempt (§10).
 
 ## Procedure: the supply range
 
@@ -71,7 +71,6 @@ One row per quantity sizing writes (§1, §2):
    supply range): stall current `V / R`, no-load speed, and the torque available at the speeds the
    specification asks for; and the reversal current `(V + K_e·ω) / R` at the largest speed the
    design states, unless a stated reason says it cannot occur (§7).
-   Arithmetic example: `R` = 2.0 Ω at 12 V is 6.0 A at stall.
 5. Note where the maker calls a figure extrapolated, and the maker's continuous-load guidance (§5).
 
 ## Procedure: a command limit
@@ -89,13 +88,16 @@ One row per quantity sizing writes (§1, §2):
 5. **The recovery bound (§12).** For each criterion, yours or that of a domain module's
    specification that reads the limit, that asks for recovery from a disturbance (a push), compute
    the bound as §12 states it, in a script that reads your node's values and prints every figure
-   §12 lists. Below 1, raise the limit as §12 says. State that the bound is necessary only.
+   §12 lists, with the largest limit the brief and the ratings allow as the bound a request is read
+   against. Below 1, raise the limit as §12 says: state what the limit you write trades (headroom
+   against current, heat and motor life), and do not take the smallest limit that only just meets
+   your own estimates. State that the bound is necessary only.
 
 ## Procedure: the current budget
 
 | Supply element | Rating, kind, source | Currents that flow at once, condition | Sum | Margin |
 |---|---|---|---|---|
-| e.g. one motor driver | peak rating, datasheet section | its motor at stall at the largest voltage it can be commanded; its reversal current, or the reason it cannot occur | | capability − demand, and capability ÷ demand |
+| e.g. one motor driver | peak rating, datasheet section | its motor at stall at the voltage the brief pins (§7); its reversal current, or the reason it cannot occur | | capability − demand, and capability ÷ demand |
 
 One row per element on each path (§7); a rating not found is written as missing.
 
@@ -118,12 +120,16 @@ In a record under your module directory, cited from the `source` of the value it
 1. For each node read in step 4 of the first procedure that changed: rewrite each joined sizing
    node to agree with it, citing the node it follows, or keep its values and write the reason in
    `no_change_justified` under the changed node's id (§11).
-2. Recompute the budgets and margins the change touches (§7, §8, §9).
-3. Where your specification or a person's order carries a value a person chose on a dispute, write
+2. Read each consumer's recorded request against a value you own (the value it needs, your stated
+   bound). Where a value inside your bound meets it (one value for all requests on a quantity), write
+   it, cite the request and say so under the request's id; the readers then follow (§11).
+   Otherwise record a conflict naming the request (§3) and say why under the request's id.
+3. Recompute the budgets and margins the change touches (§7, §8, §9).
+4. Where your specification or a person's order carries a value a person chose on a dispute, write
    it exactly as chosen (§11).
-4. For each rewritten value whose edges reach a domain node, record the node, the value and the
+5. For each rewritten value whose edges reach a domain node, record the node, the value and the
    follow-up it now owes (§11).
-5. Write no node of another role.
+6. Write no node of another role.
 
 ## Antipatterns
 
@@ -132,8 +138,6 @@ In a record under your module directory, cited from the `source` of the value it
 - **A number with no condition.** A stall current with no voltage, a speed with no load (§2, §5).
 - **Moving a brief's limit to make a criterion pass.** The brief's value stands, unless a person
   chose another; the conflict is recorded (§3).
-- **Negotiating a dispute.** Sizing does not see or reply to a dispute; precedence and a person
-  decide (§3).
 - **One voltage for every check.** A stall current at the nominal voltage understates the worst
   case; a speed at a fresh charge overstates it (§4).
 - **Equating constants fitted at a gearbox output.** The output torque carries the gearbox's losses
@@ -144,18 +148,12 @@ In a record under your module directory, cited from the `source` of the value it
   show" leaves a limit no controller can work with to a module that cannot change it (§12).
 - **Peak against continuous.** A stall current compared with a continuous rating, or a sustained
   draw with a peak one (§7).
-- **Stall as the worst current of a motor that reverses.** Reversed while turning, it draws more
-  (§7).
-- **Motors counted one at a time.** Motors that start together draw together (§7).
 - **A mass with parts missing.** The batteries are the usual omission (§8).
-- **An invented margin.** A margin no source requires, presented as one that does (§9).
 - **A name of your own for a known quantity.** It leaves the value unchecked (§10).
-- **A missing edge.** A cross node with no `constrains` edge to a node that uses it lets a change
-  go unpropagated (§10, §11).
+- **A missing edge.** A cross node with no `constrains` edge to a node that uses it leaves a change
+  unpropagated (§10, §11).
 - **An interface left to the plan's guess.** No node of sizing's joined to an interface it
   produces, or one that lacks one of its names: the attempt is refused, and the domains would read
   the plan's forecast instead of the computed values (§10).
-- **A percentage as a fraction.** An efficiency of 90 or a duty of 75 is refused; write 0.9 and
-  0.75 (§10).
-- **A closing pass that only re-reads.** A changed domain node owes a rewrite or a stated reason
-  (§11).
+- **A closing pass that only re-reads.** A changed domain node or a consumer's request owes a
+  rewrite or a stated reason (§11).

@@ -154,7 +154,7 @@ arithmetic (the next procedure); that the compiled logic ran is stated as not sh
 2. Run it over the inputs the spec names and the ends of each input's range, against the same law
    in floating point with the designer's coefficients; report the largest difference with its
    unit, and every clamp or wrap the inputs reach. Exercise each trip in the model (the tilt
-   limit, the command timeout, the sensor-fault rule) with the values the specification gives, on
+   limit, the stale-command timeout, the sensor-fault rule) with the values the specification gives, on
    both sides of each limit, and show the outputs it commands going off. A forced reset and a
    physically disconnected sensor are stated as not shown, with the reason (DS-12).
 3. Label the result as a model of the code, not the compiled code. Change the model with the
@@ -170,8 +170,28 @@ arithmetic (the next procedure); that the compiled logic ran is stated as not sh
 - After a `cd` to a bare relative path, any relative word that could name a device (`*.su`,
   `USBCore`): use paths from where the call starts.
 
+## Procedure: the safety values (standards §13)
+
+1. List the five checks (a stale command, a sensor fault during operation, reset, the bus, the
+   sensor's filter) and, for each, the value the specification gives and its source.
+2. For each, find the motor-off path in the code and its value in `config.h` or the like, with the
+   specification's name beside it. A value the specification does not give: the strictest the timing
+   allows, named in the module's record as its own choice, under "What the specification does not
+   give". The board's state in reset is not yours to choose: cite the plan's statement of it, or
+   list it there as not given.
+3. Read the sensor's filter setting from its document and check it gives the bandwidth and delay the
+   plan and control used; record the source and any difference; where there is no setting apart
+   from the output data rate and the power mode, say so and name the mode left selected.
+4. Exercise each path in the model of the code (the previous procedure, step 2) on both sides of its
+   value; a forced reset and a disconnected sensor are stated as not shown.
+
 ## Antipatterns: build and size
 
+- **A hung loop that holds the last command.** The loop that refreshes the command cannot be the
+  one that notices it stopped refreshing (standards §13).
+- **A safety path left out for want of a value, or a value invented and called sourced.** The path
+  is built; its value is the specification's, or the module's own choice, named as such (standards
+  §13).
 - **A size as a percentage with no denominator.** 12.5 % and 10.9 % are the same 3,570 bytes of
   flash against two totals.
 - **"RAM fits" because the static figure is under 2,560 bytes.** The stack still has to fit in

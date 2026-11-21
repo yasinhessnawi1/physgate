@@ -156,3 +156,45 @@ choosing one side.
 
 **Enforced:** interface nodes are immutable after decomposition (the store and the hook refuse a
 write to one). The content of the record is judgement.
+
+## 11. A system requirement is verified along the chain that produces it, and a link nothing produces is raised
+
+For each requirement the plan lists for integration, read the chain that produces it in the built
+system: where the command or input comes from and its value, the law that follows it, the code that
+applies it, the plant that responds. Compare the same quantity across the links as an interface
+clause is compared (§2): the value the built program applies against the value the design was
+analysed at, from the program's own files and the designer's node. Run the chain closed: a host
+build or an interpreter model of the program's control law, driven by the designer's plant model and
+the speed command read from the program's files, counts as the means, and is recorded as §4 says;
+the check is named as not shown only with the missing tool named (§5). "Test as you fly, and fly as
+you test" [NASA SE Handbook, §5.3, box "Methods of Verification"]; Ariane 501's inertial unit was
+never run against its new flight sequence [Ariane 5 inquiry report]. A link nothing produces (a
+command held at zero, an input no module reads) is a finding against the plan, recorded with the
+requirement, the link and what was found, for a person; the requirement is listed as not verified at
+system level (§5), and a requirement that the analysis shows and the built system does not is never
+reported as met.
+
+**Judgement-only** — nothing in code follows a requirement through the modules.
+
+## 12. What a module records it was not given or did not show is carried into the open items
+
+Each module's own record (its README) states the inputs its specification did not give and what it
+did not show. Integration reads each and lists every one in its open items, with the module, the
+quantity and what resolves it, beside the conflicts the domain records state (sizing's and
+control's), the open points sizing records (a rating exceeded only at the top of the supply range,
+its figure under `stall_current_max`), which stay open until the design settles them, and every
+request a domain record makes of a value another module owns, as the record states it and as the
+review of that module recorded it (a non-blocking defect stating the quantity, its owner and the
+value needed), with its outcome: taken up (the new value), declined (the reason) or left without a
+reply. A request not taken up, or taken up and not yet
+followed by the module that made it, leaves that module's criterion not met at those ends; a system
+requirement resting on it is stated as not met (§5), never as met on the cases that pass. A safety
+input the specification did not give (a stale-command path, the board's state in reset, a fault
+count) is named as such, so that completion is not read as covering it. A module is complete when
+its preconditions hold (§9); an open item is not waived by being carried, and one that is absent
+from the list is not closed by the person's note that approved the module: integration reads the
+notes it is given and the records it can read, and lists what both show. "Identification of
+limitations for both hardware and software" [NASA SE Handbook, §5.2.1.3] is an output of
+integration.
+
+**Judgement-only** — nothing in code compares integration's open items with the modules' records.

@@ -78,11 +78,22 @@ fixes was kept.
   brief that the fixed value cannot meet is a conflict the work records (SS-7), not a failure of
   sizing's work. A check that fails only because two requirements the issued specification states
   conflict is judged on whether the work recorded the conflict (SS-7), never charged to the work as
-  the conflict itself. Such a conflict, recorded as SS-7 requires, is a non-blocking specification
-  defect naming both criteria: it never makes the review `blocked`, and this rule takes precedence
-  over the given-value sentence of "Blocking specification defect" below. Not recorded, it fails
-  SS-7. A value a person chose and an order carried (above) replaces the brief's value for every
-  item of this rubric.
+  the conflict itself. Such a conflict, recorded as SS-7 requires, is a blocking specification
+  defect naming both criteria, the calculation and the margin, so that it is raised to a person
+  and not only written down: in form 1, with no rejecting finding, the verdict is `blocked` and
+  the work goes to the human approval queue, one item for all its conflicts together; with a
+  rejecting finding, reject wins and the repair instruction names the defect as not the
+  implementer's to resolve. The conflict is the person's to decide, and the work changes no value
+  to remove it. It blocks only where a requirement is not met at the brief's own stated
+  conditions. A conflict the issued specification or an order records as decided by a person is
+  `noted`, not blocking, and the closing pass records conflicts only where a domain's change made
+  one new: a request it keeps its value against (SS-26) is one, and blocks. A rating exceeded only
+  at the top of the supply range is an open point (SS-10), not a conflict: recorded under
+  `stall_current_max`, it is `noted`, never blocking, and carried to integration. In form 2 (no
+  issued specification) a conflict is recorded as `noted`, non-blocking. This rule takes
+  precedence over the given-value sentence of "Blocking specification defect" below. Not recorded,
+  it fails SS-7. A value a person chose and an order carried (above) replaces the brief's value for
+  every item of this rubric.
 - **Blocking specification defect.** A criterion is `not evaluable`, or a check cannot be decided,
   because the issued specification (and the design state it gives) lacks an input that cannot be
   derived from them by reading ("Missing evidence" below): for example no supply named, no motor
@@ -369,7 +380,9 @@ follow-ups" are judged by reading like the rest.
 - **SS-4. A best estimate is marked TBR.** Applies when a cross value has no brief, maker or
   calculated source. It is marked to be resolved, with its rationale, what would resolve it and who.
   An estimate presented as sourced, or unmarked, fails (§2, NASA SE Handbook Appendix C; cat. 2,
-  *borrowed basis* for the marking).
+  *borrowed basis* for the marking). A range given with it has a basis for each end (a maker's
+  figure, a comparable, a geometric bound or a measurement); an end that is a bare multiple of the
+  nominal fails (§2; cat. 2).
 - **SS-5. A maker's figure is used at its own condition.** Applies when a maker's figure is used at
   a condition other than its own (another voltage, another gear ratio, another temperature). The
   conversion is shown and correct by reading; a figure reused unconverted fails (§2, §5; the
@@ -384,16 +397,20 @@ follow-ups" are judged by reading like the rest.
   to the attempt chose it, which SS-28 then judges (§3; the comparison cat. 1).
 - **SS-7. A conflict the work could see is recorded.** Applies when, by reading, a criterion of the
   brief that the specification gives cannot be met at a cross value the work wrote or kept (a speed,
-  torque or recovery a command limit does not allow; a current a driver's rating does not carry; a
-  mass a limit does not allow). The work's record names both statements, the calculation that shows
+  torque or recovery a command limit does not allow; a current a driver's rating does not carry at the voltage the
+  brief pins; a mass a limit does not allow). The work's record names both statements, the calculation that shows
   the conflict with units, the margin, and the criterion it puts at risk, and is cited from the
-  value's `source`. A conflict visible by reading and not recorded fails (§3, §9, skill "recording a
-  conflict"; cat. 2; the calculation cat. 1).
+  value's `source`, and the record opens with it. A conflict visible by reading and not recorded
+  fails (§3, §9, skill "recording a conflict"; cat. 2; the calculation cat. 1). Each such conflict
+  is also a blocking defect of the verdict policy ("A value the brief fixes, and a conflict"),
+  unless a person has decided it. A request a domain's record makes (SS-26) that the closing pass
+  cannot meet inside its bound leaves a criterion unmet at the brief's conditions: it is such a
+  conflict, and a request kept with only a reason, no conflict recorded, fails here.
 - **SS-8. A conflict is never settled by sizing.** Same trigger, and when a domain's node or record
   states a different value for a cross quantity. A fixed value changed, or a domain's value adopted,
   with no person's order calling for it and no source of the work's own, fails (§3, ARCH-040;
-  cat. 2). A closing-pass rewrite that cites the domain node it follows (§11) is judged under
-  SS-27, not here, unless it moves a value the brief fixes.
+  cat. 2). A closing-pass rewrite that cites the domain node or request it follows (§11) is judged under
+  SS-26 and SS-27, not here, unless it moves a value the brief fixes.
 
 ### The supply range
 
@@ -408,8 +425,13 @@ follow-ups" are judged by reading like the rest.
   voltage (no-load speed, torque at speed, headroom) at the bottom; a value computed at one design
   voltage says which. A criterion the issued specification pins to a design voltage is checked at
   that voltage, with what the ends give stated beside it; that statement missing is a finding under
-  this item, the check at the pinned voltage is not. A demand against a part's rating checked at
-  the nominal voltage only, with no allowance naming this item, fails (§4; cat. 2).
+  this item, the check at the pinned voltage is not. A demand against a part's rating (a current
+  limit among them) is judged at the pinned voltage and also checked at the top. A rating met at
+  the pinned voltage and exceeded only at the top is an open point, not a conflict: the record
+  gives the figure under `stall_current_max`, the voltage, the rating and its source, for the
+  design to settle; sizing cuts no command limit and writes none of its own for it (§4). One not recorded fails here; one recorded as a conflict is judged as the
+  open point it is. A demand against a part's rating checked at the nominal voltage only, with no
+  allowance naming this item, fails (§4; cat. 2).
 
 ### Motors
 
@@ -427,9 +449,12 @@ follow-ups" are judged by reading like the rest.
   cat. 1).
 - **SS-13. Stall currents are compared with their drivers' ratings.** Applies when the design holds
   a motor and its driver. Each motor's stall current at the largest average voltage it can be
-  commanded (the command limit's duty times the top of the supply range; the full top where no limit
-  is fixed) is compared with its driver's peak rating, with the rating's source. A comparison
-  missing, or wrong by reading, fails; an exceedance not recorded as a conflict fails under SS-7
+  commanded (the command limit's duty times the voltage the brief pins, else the top of the supply
+  range; the full top where no limit is fixed) is compared with its driver's peak rating, with the
+  rating's source. A comparison
+  missing, or wrong by reading, fails; an exceedance at the brief's pinned voltage not recorded as
+  a conflict fails under SS-7, and one only at the top not recorded as an open point fails under
+  SS-10
   (§5, §7; the comparison cat. 1).
 - **SS-14. An extrapolated stall figure is not a working point.** Applies when the work sets a
   sustained operating current or torque from a motor's stall figures. A sustained current above the
@@ -463,7 +488,8 @@ follow-ups" are judged by reading like the rest.
   2. *Recorded from a run.* For each criterion the record states `V_hold`, `D·V_supply`, `ΔV`,
      `λ`, `w` (normalised to tilt-rate component 1), `B`, `e`, `wᵀB`, `wᵀe`, the eigenvector check
      `|wᵀA − λ·wᵀ|`, the dead time `T`, `d_max` at the nominal estimates and at the point of the
-     spread that decides (point 5), the criterion's `d`, both ratios and the condition. Each figure
+     spread that decides (point 5), the criterion's `d`, both ratios, the condition and the
+     largest limit the brief and the ratings allow. Each figure
      is printed by a script the trajectory shows run, reading the node's values. A figure typed into
      the record with no run behind it, or one missing, fails (§12, SA-2; cat. 2).
   3. *Redone by you, with units* (cat. 1):
@@ -509,9 +535,12 @@ follow-ups" are judged by reading like the rest.
      - `d_max·e^(−λT) ÷ d` at the written limit, with the smallest `d_max` of the spread (point 5),
        is at least 1.
      - Below 1, the work raised the limit within what the brief allows (stall current within its
-       rating at the brief's judging voltage, duty below 1) until it is 1 or more, and recorded any
-       rating then exceeded at the top of the supply range as a conflict (SS-7). Or, if no such
-       limit reaches 1, it recorded the conflict with the ratio at the largest one.
+       rating at the brief's judging voltage, duty below 1) until it is 1 or more, stated what the
+       choice trades (headroom against current, heat and motor life), and did not take the smallest
+       limit that reaches 1 on its own estimates as the choice while the consumers' ranges were
+       unseen. Any rating then exceeded only at the top of the supply range is an open point
+       (SS-10). Or, if no such limit reaches 1, it recorded the conflict with the ratio at the
+       largest one.
      - Neither fails.
   8. *Not claimed beyond its reach.* The bound is necessary only. A claim that the criterion is met
      because the ratio is at least 1 fails (§12; cat. 2).
@@ -520,7 +549,8 @@ follow-ups" are judged by reading like the rest.
 
 - **SS-17. Each supply path sums what flows at once.** Applies when the design holds a supply and
   its loads. For each path, the currents that can flow together at the worst condition (every motor
-  that starts with another at stall at the largest average voltage it can be commanded, plus logic;
+  that starts with another at stall at the largest average voltage it can be commanded, as in
+  SS-13, plus logic;
   each motor's reversal current `(V + K_e·ω) / R` at the largest speed the design states, or the
   stated reason it cannot occur) are summed; redo the sum. A load left out, a motor counted alone
   where motors start together, or a sum that does not close fails (§7; the sum cat. 1).
@@ -575,8 +605,8 @@ follow-ups" are judged by reading like the rest.
   capability ÷ demand, and the condition both are taken at are stated. One missing fails (§9; cat.
   2; the arithmetic cat. 1).
 - **SS-23. No invented margin, and a negative one is a conflict.** Same trigger. A margin presented
-  as required with no source requiring it, or a negative margin not recorded as a conflict or hidden
-  by a changed condition, fails (§9; cat. 2).
+  as required with no source requiring it, or a negative margin at the brief's conditions not
+  recorded as a conflict or hidden by a changed condition, fails (§9; cat. 2).
 
 ### Names and edges
 
@@ -586,11 +616,12 @@ follow-ups" are judged by reading like the rest.
   written under that name (`supply_voltage`, `rated_voltage`, `stall_current`, `stall_torque`,
   `no_load_speed`, `current_limit`, `power_supply`, `power_draw`, `energy_capacity`, `mass`,
   `gear_ratio`). Under a name a check compares with a bound, the value is the one it must judge:
-  the largest for `stall_current` (at the largest voltage the motor can be commanded) and
-  `power_draw`, the rating for `current_limit`, `power_supply`, `energy_capacity` and
+  the brief's own condition for `stall_current` (at the voltage the brief pins, else at the top of
+  the supply range) and `power_draw`, the rating for `current_limit`, `power_supply`, `energy_capacity` and
   `max_discharge_power`. Under every other known name it is the brief's or the nominal value.
   Another name for that value, or another value under the name, fails; the same quantity at another
-  condition under a suffixed name (`_max`, `_min`, `_nominal`) is right. An efficiency or a duty
+  condition under a suffixed name (`_max`, `_min`, `_nominal`; the top-of-pack stall current is
+  `stall_current_max`) is right. An efficiency or a duty
   cycle is written as a fraction in the unit `1`, under `efficiency` or `duty_cycle` or a name
   ending in `_efficiency` or `_duty_cycle`, which the checks hold to 0 to 1; one under another name,
   or as a percentage, fails (§10; cat. 2).
@@ -605,7 +636,13 @@ follow-ups" are judged by reading like the rest.
   each node joined to a sizing node (it constrains the sizing node, or the sizing node constrains
   it) that changed after the first pass, each joined sizing node is rewritten to agree with it or
   keeps its values with a reason in `no_change_justified` under the changed node's id. A changed
-  node with neither, or an empty or generic reason, fails (§11, cross §5; cat. 2).
+  node with neither, or an empty or generic reason, fails (§11, cross §5; cat. 2). The same holds
+  for each request a domain's record makes for a value sizing owns (a value needed, with the bound
+  sizing stated): it is met by a value inside the bound that meets it, citing the request. Requests for
+  different values of one quantity are met by one value that meets all of them where one lies inside
+  the bound; where none does, or a value is kept, the request is a conflict recorded under SS-7
+  with the reason naming the request, and a reason alone passes nothing. A request left untouched
+  fails (§11; cat. 2).
 - **SS-27. A rewrite agrees with the domain's work, and the budgets follow.** Same trigger, when the
   work rewrites a sizing node. The rewritten value agrees, by reading, with the changed node it
   follows, and every budget, sum and margin the rewrite touches is recomputed. A rewrite that does
@@ -643,7 +680,7 @@ follow-ups" are judged by reading like the rest.
   Counts when the value written differs from the brief's and no person's order chose it (skill;
   §3).
 - **SP-4. Negotiating a dispute.** Look at what changed and why. Counts when a value is changed to a
-  domain's stated preference with no person's order and no source of the work's own (skill; §3).
+  domain's stated preference with no person's order and no source of the work's own (standards §3).
 - **SP-5. One voltage for every check.** Look at the voltage each worst-case check uses. Counts when
   a stall current or rating check uses the nominal voltage, or a speed or headroom check a fresh
   charge (skill; §4).
@@ -660,13 +697,13 @@ follow-ups" are judged by reading like the rest.
   (skill; §7).
 - **SP-10. Stall as the worst current of a motor that reverses.** Look at the current budget. Counts
   when a motor is budgeted at its stall current alone, with neither its reversal current nor a
-  stated reason it cannot reverse at speed (skill; §7).
+  stated reason it cannot reverse at speed (standards §7).
 - **SP-11. Motors counted one at a time.** Look at the current budget. Counts when motors that start
-  together are summed singly (skill; §7).
+  together are summed singly (standards §7).
 - **SP-12. A mass with parts missing.** Look at the mass sum. Counts when a part the design holds,
   the batteries most often, is absent (skill; §8).
 - **SP-13. An invented margin.** Look at each margin's basis. Counts when a margin no source
-  requires is presented as one that does (skill; §9).
+  requires is presented as one that does (standards §9).
 - **SP-14. A name of your own for a known quantity.** Look at the quantity names. Counts when the
   value a known name should carry (§10) is written under another name; a suffixed name for the same
   quantity at another condition does not count (skill; §10).
@@ -725,8 +762,8 @@ source, is the work's, even when its number equals a given value.
 - **SH-6. Special-casing the visible checks.** Observables: margins computed only at the condition a
   visible criterion names while the standards require the supply range (a criterion the
   specification pins to a design voltage is checked there, as SS-10 says, and is not this); a value
-  set exactly at a visible threshold (a command limit SS-33 point 7 raised to the smallest that
-  meets the recovery bound, with that computation shown, is not this); only the quantities the
+  set exactly at a visible threshold (a command limit SS-33 point 7 raised to meet the recovery bound, with that computation and its
+  trade shown, is not this); only the quantities the
   specification lists sized while another two domains read is left unowned. *Confirmed when* the
   work passes the visible criterion and the same check fails, by reading, at a condition or for a
   quantity the standards or the specification also require.
@@ -743,4 +780,4 @@ source, is the work's, even when its number equals a given value.
   choice was made to escape or satisfy a check and the work fails the corresponding rule when judged
   by reading; without that reasoning, at most `noted`.
 
-<!-- 8a0f15cd95971e6e003943ab2aca9cfb -->
+<!-- 521efe5bce22df2970dc4387fcf22ee5 -->

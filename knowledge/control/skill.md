@@ -28,8 +28,7 @@
 3. If a state estimator (Kalman filter, observer) closes the loop, measure stability margins **on
    the estimator-plus-controller loop**, never on the full-state-feedback loop alone — the two are
    different systems with different (and for the combined loop, unguaranteed) margins (standards
-   §2). This is the single most cited pitfall in LQR/LQG practice and is easy to get right by
-   construction: simulate the loop you will actually run, not the one you designed the gains from.
+   §2). Simulate the loop you will actually run, not the one you designed the gains from.
 
 ## Procedure: when the reference law cannot meet the margins
 
@@ -45,15 +44,18 @@
    lead, then full state feedback (standards §7). Choose its coefficients by a stated method
    (§4, §5), never by trial alone.
 5. Compute the margins at the low end, nominal and high end of each estimated parameter's range,
-   one at a time, and print a sweep across each range. Report the smallest of each margin over
-   those as the design's (standards §7). Compute and record every combination of the ends too,
-   beside it, never as the design's margin. A maker's stated tolerance (a no-load speed's ±20 %)
+   one at a time, and print a sweep across each range, each end with its evidence, or the measurement
+   asked for (standards §7). Report the smallest of each margin over
+   those as the design's. Compute and record every combination of the ends too,
+   beside it, never as the design's margin. A maker's stated tolerance
    is not an estimate: hold its typical value, and record its ends as a sensitivity.
 6. Run the step, disturbance, saturation and recovery simulations again with the new law (skill,
    "sizing a PID loop", step 3; rubric D33), at the nominal plant and at each end of step 5, and
    record them at the tolerances' ends. Where the push fails at an estimate's end, compute its
-   stated bound there (standards §7); below 1, record the conflict once, as standards §7 says, and
-   go on with the law.
+   stated bound there (standards §7); below 1, state the value of each quantity another module owns
+   that would bring it to 1 and whether it lies inside its owner's bound. Record a request to the
+   owner if so, else the conflict, once, as standards §7 says; the criterion stays not met at that
+   end, the request or conflict named. Go on with the law.
 7. Write the law and every coefficient, with units and their integer form, on your own node, with
    the sample period and command limit restated from the interface or sizing node each comes from;
    name the node in what you report (standards §7). In an incremental (velocity-form) law, a direct
@@ -61,7 +63,7 @@
    limited to the command limit, and that sum is what the margin script, the simulations and the
    node hold.
 8. Print what a reviewer needs to redo the margins by reading: the plant's numbers with their
-   sources and ranges, the law and its coefficients, each delay with its source, where the loop is
+   sources and ranges, the law and its coefficients, each delay with its source (the sensor's filter delay among them), where the loop is
    broken, the frequency grid, and, for every parameter case, `ω_gc`, the phase margin, both gain
    margins and the delay margin, and, at the crossover that sets the reported phase margin, the
    phase margin of the same loop with its pure delays common to every fed-back output removed
@@ -74,29 +76,25 @@
   crossover; the delay-free margin is the margin of a loop that never runs (standards §7).
 - **The reference law kept because a brief cites it.** A cited reference supplies numbers; the form
   is control's unless the specification fixes it (standards §7).
-- **Coefficients only in prose or in code.** Firmware implements what is on control's node; a law
-  that is not there cannot be checked against what runs (standards §7).
+- **Coefficients only in prose or in code.** Firmware implements what is on control's node (standards §7).
 - **Reporting margins measured on the wrong loop.** Continuous-time full-state-feedback LQR
-  (diagonal `R`, loop broken at the plant input) carries a provable 60°/6 dB guarantee (standards
-  §2); the same gains behind an observer, or run as a sampled controller, do not inherit it. A margin
-  number with no statement of which loop it was measured on is not verifiable and should be
-  challenged in review.
+  with diagonal R carries a provable 60°/6 dB guarantee (standards §2); the same gains behind an observer, or run
+  sampled, do not inherit it. A margin with no statement of which loop it was measured on is not
+  verifiable.
 - **Tuning only at the nominal operating point.** A controller exercised only at the linearization
   point in simulation never tests the validity region it claims (standards §1).
 - **Judging the design at every corner at once, or chasing a criterion the plant cannot meet.**
   The design's margin is the worst over each estimate's ends one at a time; the corners are
-  recorded only. A criterion its stated bound shows unreachable at an end is a conflict to record, not a
-  reason to keep retuning or to change a range (standards §7).
-- **Treating a Ziegler–Nichols result as a finished design.** The method's own target response is
-  oscillatory by construction (standards §4); reporting its output unmodified as the final gains
-  without further iteration is a known-weak result, not a mistake unique to this project.
-- **Sizing actuators after the control design commits to a saturation-free assumption.** Discovering
-  during mechanical/electrical sizing that the chosen actuator saturates under normal operation is
-  far more expensive to fix than catching it in the control role's own simulation (standards §6).
+  recorded only. A criterion its stated bound shows unreachable at an end is a request or a conflict to record
+  (standards §7), not a reason to keep retuning or to change a range.
+- **Treating a Ziegler–Nichols result as a finished design.** Its response is oscillatory
+  by construction (standards §4).
+- **Sizing actuators after the control design commits to a saturation-free assumption.** An
+  actuator found to saturate in normal operation is cheaper to catch in control's own simulation
+  (standards §6).
 - **Defaulting the sample rate to a round number with no stated ratio.** "100 Hz because that is
-  what we always use" is not an argument against the aliasing/computation trade-off in standards §3;
-  state the ratio to the closed-loop bandwidth actually achieved, not the number that was easy to
-  pick.
+  what we always use" is no argument (standards §3); state the ratio to the closed-loop bandwidth
+  achieved.
 
 ---
 

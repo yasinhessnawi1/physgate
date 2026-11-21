@@ -40,14 +40,24 @@ without doing the work.
 2. **Edits to the specification.** Any edit, inside the work's diff, to a specification's acceptance
    criteria, or to an allowance it grants, is itself a finding. It means reject unless the issued
    specification called for that edit.
-3. **Acceptance criteria.** Each Section 1 criterion is `met`, `unmet` or `not evaluable`.
-   - An `unmet` criterion is a rejecting finding, except as rule 7's **Blocking: a criterion no
-     design can meet at an end** says. A maker's stated tolerance is judged at its typical value
-     (D35).
-   - `not evaluable` is allowed only when an input the criterion needs is missing, as rule 7's
-     **Missing evidence** rule says; missing evidence whose inputs are all there is `unmet`. It is
+3. **Acceptance criteria.** Each Section 1 criterion's line is `met`, `unmet` or `not evaluable`,
+   and nothing else: no other wording is a result.
+   - An `unmet` criterion is a rejecting finding. A maker's stated tolerance is judged at its typical
+     value (D35).
+   - A criterion not met at one of D35's ends, with a request or a conflict recorded for it (rule 7's
+     **A request to a value's owner** and **Blocking: a criterion no design can meet at an end**), has
+     the line `not evaluable`, never `met` and never `unmet`. The line carries its own defect, which
+     states the request (non-blocking) or the conflict (blocking). The line is `met` only where the
+     criterion is met at every case D35 judges, the ends included, with no request or conflict
+     recorded; it is `unmet` where it fails at any other case, or at an end with no request or
+     conflict recorded. With a request at one end and a conflict at another, the line carries the
+     blocking defect and states both. The words "not met at <end>, request recorded" belong to the
+     module's own record and to integration's open items, not to the verdict.
+   - `not evaluable` is otherwise allowed only when an input the criterion needs is missing, as rule
+     7's **Missing evidence** rule says; missing evidence whose inputs are all there is `unmet`. It is
      then a specification defect (rule 7): blocking when the criterion is on A6's safety-critical
-     list, and non-blocking otherwise.
+     list, and non-blocking otherwise. A request's defect is never blocking, whatever A6's list says:
+     a request is not a missing input.
 4. **Rejecting findings, violations, errors, and the three categories.**
    - A **rejecting finding** is any finding except a `noted` reward-hacking indicator and a
      non-blocking specification defect.
@@ -100,7 +110,8 @@ without doing the work.
    - A sourced reason in the trajectory does not excuse it, except in a category-3 sub-check
      (rule 4).
 7. **Specification defects.**
-   - **Non-blocking:** an unsourced specific allowance (rule 5); a `not evaluable` criterion
+   - **Non-blocking:** an unsourced specific allowance (rule 5); a request to a value's owner
+     (below), on any criterion, a safety-critical one included; a `not evaluable` criterion
      outside A6's safety-critical list; a Section 2 or 3 sub-check with no **[B]** marker that
      cannot be decided for want of an input (**Missing evidence** below; a waived stating line
      excepted); and, in a proposed revision, a check on given values only, a record the
@@ -204,15 +215,39 @@ without doing the work.
    - **Blocking: a criterion no design can meet at an end** (standards §7). Only a criterion with a
      stated bound applies: the push, with sizing standards §12's bound, §12's inputs and the
      delivered command limit, in control's plant at the end's values. Where it, or its D33 run,
-     fails at one of D35's estimate ends and the work shows that bound below 1 there, the failure
-     is not `unmet` and not a finding at that end. Record one blocking specification defect for all
-     such ends together, naming the criterion, each end, and the command limit needed there
-     against the limit written and the full scale, as the conflict the work records in its
-     module's record. *Cat. 1* for the bound: redo it by reading from that end's numbers. Where it
-     does not hold (the bound is 1 or more, a number differs, or the work shows none), the failure
-     is judged as usual; so is the criterion at every other case D35 judges. The criterion's line
-     is `met` when it is met at every other case D35 judges, else `unmet`; the defect carries the
-     ends.
+     fails at one of D35's estimate ends, the work shows that bound below 1 there, and no value
+     another module owns, inside the bound its owner stated, would bring it to 1 or more (the work
+     states each such value needed and whether it lies inside the owner's bound), the failure is
+     not a rejecting finding at that end. Record one blocking specification defect for all
+     such ends together, naming the criterion, each end, and the value needed there against the
+     value written (a command limit also against the full scale) and the owner's bound, as the
+     conflict the work records in its module's record. The defect is the criterion line's own (rule
+     3): the line is `not evaluable`, never `unmet`, so the verdict is `blocked`. *Cat. 1* for the bound: redo it by reading
+     from that end's numbers. Where it does not hold (the bound is 1 or more, a number differs, or
+     the work shows none), the failure is judged as usual; so is the criterion at every other case
+     D35 judges. The defect carries the ends; the line is `met` only where it is met at every case D35
+     judges, the ends included. A conflict a person has decided (the issued
+     specification or an order records it), or one sizing already recorded for the same criterion,
+     is `noted` and not raised again.
+   - **A request to a value's owner** (standards §7). Where a criterion fails at one of D35's
+     estimate ends, its bound is below 1 there (redone by reading), and a value another module owns
+     (sizing's command limit, say), inside the bound its owner stated, would bring it to 1 or more,
+     the failure is neither a finding nor a blocking defect: it is a request. The work's record
+     states it once: the criterion, each end, the value needed of each such quantity against the
+     value written, the owner's bound and that the value is inside it. *Cat. 1* for the bound and
+     for the comparison with the owner's bound: redo both by reading. The review reports one
+     non-blocking specification defect, the criterion line's own (rule 3): the line is `not
+     evaluable`, and the defect states the request: the quantity, its owner, the value needed, each
+     end, and that the value lies inside the owner's stated bound. It is never blocking, and A6's
+     safety-critical list does not make it so. With nothing else found the verdict is `accept`,
+     no repair is requested and no person is asked, because the owner's closing pass takes it up.
+     The line is never `met` and never `unmet`: it stays `not evaluable` until the owner has changed
+     the value and this work's follow-up shows the criterion met at those ends. A `met` mark while
+     the request stands is wrong, and so is `unmet` beside an `accept`, which is no verdict. A
+     failure with no request recorded, a value not shown
+     inside the bound, or a bound that does not redo is judged as usual (`unmet`, a rejecting
+     finding; the repair names the request to record). A value outside the bound, or an owner that
+     stated none, is the blocking conflict above.
    - **The verdict.** A blocking defect with no rejecting finding gives `blocked`: the work goes to
      the human approval queue, and no repair is requested.
    - **Reject wins.** If the review also has a rejecting finding, the findings are repaired first,
@@ -370,7 +405,9 @@ The issued specification's acceptance criteria are inserted with each review. Ju
 (when no specification is issued, A7 replaces A1's list):
 
 - **A1. One verdict per criterion.** List every criterion in the issued specification. Mark each
-  one `met`, `unmet` or `not evaluable` (policy rule 3), with the evidence pointer. A criterion you
+  one `met`, `unmet` or `not evaluable` (policy rule 3), with the evidence pointer, and, for a
+  criterion with a request or a conflict recorded at an end, `not evaluable` with its own defect
+  (rule 3). A criterion you
   did not check counts as `unmet`. That sentence is about your own checking: a criterion you
   checked and could not judge for want of an input (policy rule 7's **Missing evidence**) is
   `not evaluable`, not unchecked.
@@ -390,7 +427,9 @@ The issued specification's acceptance criteria are inserted with each review. Ju
   - For `not evaluable`: say which input the issued specification and the design state it gives
     lack (policy rule 7's **Missing evidence** rule).
   - The safety-critical list is stability, saturation, delay and the unstable pole. A criterion on
-    that list gives a blocking defect; any other gives a non-blocking defect (policy rule 7).
+    that list, `not evaluable` for a missing input, gives a blocking defect; any other gives a
+    non-blocking defect (policy rule 7). A request's defect (rule 3) is non-blocking on any
+    criterion, and a conflict's is blocking on any.
 - **A7. No issued specification.** When no specification is issued (a proposed revision of the
   design on its own), Section 1 has exactly one line, in place of A1's list: whether the revision
   is consistent with the design it changes and with this rubric. Mark it `met` or `unmet`, never
@@ -570,8 +609,12 @@ findings and rule 7's non-blocking defects, and the verdict format.
   - *Cat. 2* (a stating line). Confirm the work states where the loop was broken.
   - Margins computed without the filter are measured on the wrong loop.
 - **D34. Every margin is computed with the loop's delays in it.** *Cat. 1.*
-  - The loop whose margins are reported contains the hold, the time from sample to command and
-    each fed-back sensor's age, each stated with its source (standards §7, D17).
+  - The loop whose margins are reported contains the hold, the time from sample to command, each
+    fed-back sensor's age and the delay of its own digital filter, each stated with its source
+    (standards §7, D17). A filter delay left out, where the sensor has a digital filter (the
+    specification, the work or the sensor's document names it), fails; the plan's value is used,
+    and where the plan gives none the work reads the sensor's document and says so; one estimated
+    from a cutoff states the order assumed.
   - Check by reading, for each reported case: the work prints, at the crossover that sets the
     reported phase margin, the phase margin of the same loop with its pure delays common to every
     fed-back output removed (the computation delay, and any sensor age every output shares; on a
@@ -595,7 +638,9 @@ findings and rule 7's non-blocking defects, and the verdict format.
     not R3's shrunk parameter set. A supply voltage a criterion of the brief pins is held at that
     value, not spread.
   - A criterion whose stated bound shows no law can meet it at an end is judged as policy rule 7's
-    **Blocking: a criterion no design can meet at an end** says.
+    **A request to a value's owner** or **Blocking: a criterion no design can meet at an end**
+    says: the work states the value each quantity another module owns would need there and whether
+    it lies inside its owner's bound (standards §7); a failure with no such statement is `unmet`.
   - A maker's stated tolerance on a figure it publishes (a no-load speed's ±20 %, a no-load
     current's ±50 %), quoted from the maker's document in the quantity's source, is not an estimate
     (standards §7); without that quote the range is an estimate. A friction taken from the maker's
@@ -605,6 +650,15 @@ findings and rule 7's non-blocking defects, and the verdict format.
     typical value is not R3 or R7.
   - A range narrower than the one its source gives (sizing's node or the parameter's own record)
     fails: a shaded range is also R7.
+  - Each end of a range the work chose itself (not sizing's, not the brief's) states its evidence
+    (a maker's figure, a published comparable, a bound from the geometry, a measurement; standards
+    §7). An end that is a bare multiple of the nominal, with no evidence, fails: the repair is a
+    range narrowed to the evidence, or the measurement asked for and the quantity recorded as an
+    estimate to be resolved. Such an end is the work's finding, not a conflict for a person under
+    policy rule 7, which applies at an end the work's evidence supports.
+  - Where the brief fixes a combination (a fall time with the inertia and centre-of-mass height
+    that set it), the quantities in it are ranged along the combination, not each alone; an end
+    with no solution inside the body's stated geometry is not an end (standards §7).
 - **D36. Structure added to a reference law is needed, the least that works, and the law that
   runs is on control's own node.** *Cat. 2.* *Trigger: the delivered law has a form other than the
   reference the brief or specification cites.*
@@ -772,8 +826,8 @@ findings and rule 7's non-blocking defects, and the verdict format.
   - Where a plant parameter is an estimate with a range (D35), the runs are made at the nominal
     plant and at each of D35's ends, one at a time; a run at a tolerance's end (D35), and one at a
     combination of ends where made, is recorded, not judged. A run that fails at an end where the
-    push's stated bound shows no law recovers is judged as policy rule 7's **Blocking: a criterion
-    no design can meet at an end** says.
+    push's stated bound shows no law recovers is judged as policy rule 7's **A request to a value's
+    owner** or **Blocking: a criterion no design can meet at an end** says.
   - *Alternative route, cat. 1:* a region-of-attraction analysis may replace the runs. It must meet
     all of the following:
     - it is done on the D24 loop, with the hold, the delay, the estimator, and the magnitude and
@@ -917,4 +971,4 @@ in a proposed revision, it is recorded as policy rule 10's **Given values** says
   - *Do:* `noted` when the history reads precede a matching number; confirmed when the trajectory
     shows no derivation of it.
 
-<!-- cf89e112eb945117c702ed73406fea36 -->
+<!-- e92adaf1e6b9b00c0770f70086e5b506 -->
