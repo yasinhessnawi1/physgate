@@ -41,6 +41,8 @@ WATCHDOG = (
     "watchdog exists. Open residual: a watchdog is required before the firmware drives a robot."
 )
 FIRST, SECOND = "run-1-ctl", "run-1-fw"
+#: What leads each piece of a note: written out here, so a change to it is seen.
+LEAD = "  | "
 
 
 def taken(item: str, subtask: str | None, **fields: Any) -> DecisionTaken:  # noqa: ANN401
@@ -126,8 +128,8 @@ def test_the_note_is_json_in_prefixed_pieces_between_a_begin_and_an_end_line() -
     begin = lines.index(f'BEGIN RECORD "{FIRST}"')
     end = lines.index(f'END RECORD "{FIRST}"')
     pieces = lines[begin + 1 : end]
-    assert pieces and all(p.startswith(carried.LEAD) for p in pieces)
-    joined = "".join(p.removeprefix(carried.LEAD).removesuffix(CONTINUED) for p in pieces)
+    assert pieces and all(p.startswith(LEAD) for p in pieces)
+    joined = "".join(p.removeprefix(LEAD).removesuffix(CONTINUED) for p in pieces)
     assert json.loads(joined) == PUSH
 
 
@@ -150,7 +152,7 @@ def test_no_word_of_a_hostile_note_can_start_a_line_or_end_the_record(note: str)
     assert sum(ln.startswith("BEGIN RECORD") for ln in lines) == 1
     begin = next(i for i, ln in enumerate(lines) if ln.startswith("BEGIN RECORD"))
     end = next(i for i, ln in enumerate(lines) if ln.startswith("END RECORD"))
-    assert all(ln.startswith(carried.LEAD) for ln in lines[begin + 1 : end])
+    assert all(ln.startswith(LEAD) for ln in lines[begin + 1 : end])
     assert all(len(ln) <= WIDTH for ln in lines)
     # No line of the note is a line of the document: every line is ASCII.
     assert all(ln.removesuffix(CONTINUED).isascii() for ln in lines)
@@ -215,7 +217,7 @@ def test_nothing_the_harness_words_holds_a_refused_word(monkeypatch: pytest.Monk
     # What this change adds to the prompt: the older prompt names a path the guard would match.
     assert evaluation_words(prompt.removeprefix(plain.rstrip("\n"))) == []
     assert evaluation_words(carried.HEAD) == []
-    harness_only = "\n".join(ln for ln in body.splitlines() if not ln.startswith(carried.LEAD))
+    harness_only = "\n".join(ln for ln in body.splitlines() if not ln.startswith(LEAD))
     assert evaluation_words(harness_only) == []
 
 

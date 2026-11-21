@@ -37,6 +37,8 @@ def merged(run: RunGit, commit: str, **kw: dict[str, str]) -> str:
 def test_the_merge_commit_holds_the_record_and_the_attempt_does_not(tmp_path: Path) -> None:
     run, commit = attempt(tmp_path)
     merge = merged(run, commit, records={CLOSING_RECORD_PATH: RECORD})
+    held = _git(run.repo, "ls-tree", "--name-only", merge, "--", CLOSING_RECORD_PATH)
+    assert held == CLOSING_RECORD_PATH
     assert _git(run.repo, "show", f"{merge}:{CLOSING_RECORD_PATH}") + "\n" == RECORD
     assert _git(run.repo, "show", f"{merge}:m1/README.md") == "limits"
     assert _git(run.repo, "log", "-1", "--format=%P", merge).split()[1] == commit
