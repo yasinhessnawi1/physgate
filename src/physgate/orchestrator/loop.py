@@ -4093,10 +4093,12 @@ class Loop:
         events = self.log.events
         none = self.state.no_follow_up
         if none is not None:
-            # A skipped call is owed no follow-up: the line came before the skip, and the journal
-            # is not asked what a call that was never made would have been owed.
-            skipped = isinstance(self.state.integration, IntegrationGateSkipped)
-            if not skipped and self._owed(events[: none.seq]):
+            # Under gate off the call is never made, so the line came before the skip and the
+            # journal is not asked what that call would have been owed. A call skipped for any
+            # other reason has no such release: the line is held to what the journal owed.
+            call = self.state.integration
+            off = isinstance(call, IntegrationGateSkipped) and call.reason == "gate_mode=off"
+            if not off and self._owed(events[: none.seq]):
                 detail = "the journal owed a follow-up where the record says no follow-up is owed"
                 self._incident(None, "foreign_journal_line", detail)
                 return False

@@ -53,6 +53,7 @@ from physgate.orchestrator.events import (
     SignOffsRaised,
     SubtaskReopened,
     parse_events,
+    read_events,
 )
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.queue import sign_off_item_id
@@ -299,3 +300,56 @@ def test_a_line_the_journal_does_not_bear_out_halts_the_run_before_the_call(
     assert "no follow-up is owed" in incident.detail
     assert calls(events) == []
     replay(events)
+
+
+def _journal_owes_the_control_module_a_follow_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """What the journal owed where the line was written, as a journal that says otherwise."""
+    owed = {CONTROL: (OwedEdge(source=PLANT, target=LOOP),)}
+    monkeypatch.setattr(Loop, "_owed", lambda self, events, *, every=False: owed)
+
+
+def _held_to_the_journal(rig: Any) -> tuple[bool, list[str]]:  # noqa: ANN401
+    """Whether a fresh process finds the recorded follow-ups right, and the incidents it wrote."""
+    loop = rig.open()
+    try:
+        held = loop._follow_ups(write=False)  # noqa: SLF001 - the check under test
+    finally:
+        loop.close()
+    lines = read_events(rig.run_dir / "events.jsonl")
+    return held, [e.cause for e in lines if isinstance(e, Incident)]
+
+
+def test_a_call_skipped_under_gate_off_is_owed_no_follow_up_by_the_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig, _ = journal_rig(tmp_path, gate_mode="off")
+    drive(rig)
+    decide(tmp_path, "approve", NOTE, item_id=FIRST)
+    events, step = resume(rig)
+    assert step.kind == "done"
+    (call,) = calls(events)
+    assert isinstance(call, IntegrationGateSkipped) and call.reason == "gate_mode=off"
+    # The call was never made: what the journal would have owed it is not asked.
+    _journal_owes_the_control_module_a_follow_up(monkeypatch)
+    assert _held_to_the_journal(rig) == (True, [])
+
+
+def test_a_call_skipped_for_an_unmerged_subtask_holds_the_line_to_the_journal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig, graph = journal_rig(tmp_path)
+    graph.writes[CLOSING] = [[plant(0.40)]]
+    # Sizing's closing pass is rejected three times and goes to a person; the line is written
+    # beside the control module's sign-off, and the person ends the pass, so it never merged.
+    rig.reviewer.verdicts[:] = ["pass", "pass", "pass", "fail", "fail", "fail"]
+    events, step = drive(rig, closing=True)
+    assert step.kind == "wait"
+    assert len(none_owed(events)) == 1
+    decide(tmp_path, "reject", NOTE, item_id="run-1-zc")
+    decide(tmp_path, "approve", NOTE, item_id=FIRST)
+    events, step = resume(rig)
+    (call,) = calls(events)
+    assert isinstance(call, IntegrationGateSkipped) and call.reason == "not_all_merged"
+    # A skip for this reason is no release from the journal: a line it does not bear out halts.
+    _journal_owes_the_control_module_a_follow_up(monkeypatch)
+    assert _held_to_the_journal(rig) == (False, ["foreign_journal_line"])
