@@ -513,6 +513,8 @@ class RunState:
         #: Every person's decision the run took, by item, and the held ones since confirmed.
         self.taken: dict[str, DecisionTaken] = {}
         self.confirmed: set[str] = set()
+        #: The line each held decision was confirmed on, by item.
+        self.confirmed_at: dict[str, int] = {}
         #: Each interface node's consumers, as the decomposition's line records them; ``None`` in
         #: a run whose plan names none, which then records no contract pairs.
         self.consumers: dict[str, tuple[str, ...]] | None = None
@@ -2359,6 +2361,7 @@ class RunState:
             _refuse(str(exc))
         if event.confirmed_by is not None:
             self.confirmed.add(event.item_id)
+            self.confirmed_at[event.item_id] = event.seq
         else:
             self.taken[event.item_id] = event
         if event.acts and event.effect == "sign":

@@ -369,6 +369,10 @@ class Merger(Protocol):
         """The attempt's diff against where it started, for a person to read."""
         ...
 
+    def module_text(self, attempt_commit: str, module_dir: str) -> str:
+        """Every file under ``module_dir`` as ``attempt_commit`` holds it, as one text."""
+        ...
+
     def review_base(self, attempt_commit: str) -> str:
         """Where the attempt left the run branch: the commit its review diffs against."""
         ...

@@ -3694,14 +3694,16 @@ class Loop:
         """``check``, or the refusal of an integration attempt that leaves a carried item id out.
 
         Integration's issued state names each decision a person took with a note as an open point
-        of the design, by the item's id. The attempt's own diff under its module directory must
-        hold each id as written, in the limits statement; the ids missing are named. Nothing else
-        of its wording is checked here: its reviewer reads the same record. In either mode.
+        of the design, by the item's id. The files of its module directory, as the attempt's commit
+        holds them, must hold each id as written, in the limits statement; the ids missing are
+        named. A file an earlier pass wrote and this one left alone counts. A sign-off is carried
+        and is not asked for. Nothing else of its wording is checked here: its reviewer reads the
+        same record. In either mode.
         """
         if check.refused_by is not None or subtask_id != self.state.completion_subtask:
             return check
         module_dir = self.state.subtasks[subtask_id].plan.module_dir
-        missing = ids_missing(self.state, self._merger.artefact_diff(commit), module_dir)
+        missing = ids_missing(self.state, self._merger.module_text(commit, module_dir))
         if not missing:
             return check
         named = ", ".join(missing)

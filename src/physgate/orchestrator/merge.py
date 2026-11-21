@@ -42,8 +42,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from physgate.orchestrator.carried import CLOSING_RECORD_PATH
-from physgate.orchestrator.declaration import DECLARATION_PATH
+from physgate.orchestrator.declaration import CLOSING_RECORD_PATH, DECLARATION_PATH
 from physgate.orchestrator.dispute import DISPUTES_DIR
 from physgate.orchestrator.exceptions import GitError, MergeConflictError, MergeRefusedError
 from physgate.orchestrator.git import (
@@ -55,6 +54,7 @@ from physgate.orchestrator.git import (
     common_dir,
     diff_text,
     git,
+    git_bytes,
     git_timed,
     head_of,
     merge_base,
@@ -69,6 +69,8 @@ PROPOSALS = PurePosixPath(".physgate/proposals")
 DISPUTES = PurePosixPath(DISPUTES_DIR)
 _PROPOSAL = re.compile(r"^\.physgate/proposals/[a-z][a-z0-9_]*(\.[a-z0-9_]+)+\.json$")
 _REGULAR = "100644"
+#: The most bytes of one file :meth:`GitMerger.module_text` reads; a larger file is left out.
+MODULE_FILE_BYTES = 1 << 20
 _ABSENT = "000000"
 
 #: Directories a build tool makes for its own output, by name, wherever they lie in a module:
@@ -480,6 +482,36 @@ class GitMerger:
         run = self._run
         pinned = verified_git_dir(run.repo, linked=False)
         return merge_base(run.repo, run.run_branch, attempt_commit, git_dir=pinned)
+
+    def module_text(self, attempt_commit: str, module_dir: str) -> str:
+        """Every regular file under ``module_dir`` as ``attempt_commit`` holds it, as one text.
+
+        Read from git's objects at the commit, never from a worktree, so a file the attempt left
+        alone counts as much as one it changed. A path is whatever bytes the commit names (git
+        lists it unquoted, so a non-ASCII name is read as it is); a link, a submodule and a file
+        over :data:`MODULE_FILE_BYTES` are left out, and bytes that are not UTF-8 read as the
+        replacement character.
+        """
+        run = self._run
+        pinned = verified_git_dir(run.repo, linked=False)
+        listing = git(
+            run.repo, "ls-tree", "-r", "-l", "-z", "--full-tree", attempt_commit, "--",
+            f":(literal){module_dir}/",
+            objects_only=True, git_dir=pinned, errors="surrogateescape",
+        )  # fmt: skip
+        texts: list[str] = []
+        for entry in listing.split("\0"):
+            meta, _, _name = entry.partition("\t")
+            found = meta.split()
+            if len(found) != 4 or found[0] not in ("100644", "100755") or found[1] != "blob":
+                continue
+            if int(found[3]) > MODULE_FILE_BYTES:
+                continue
+            raw = git_bytes(
+                run.repo, "cat-file", "blob", found[2], objects_only=True, git_dir=pinned
+            )
+            texts.append(raw.decode("utf-8", errors="replace"))
+        return "\n".join(texts)
 
     def artefact_diff(self, attempt_commit: str) -> str:
         """The attempt's patch against where it left the run branch, without its disputes.

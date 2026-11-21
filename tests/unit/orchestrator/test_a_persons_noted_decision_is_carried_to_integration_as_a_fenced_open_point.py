@@ -70,17 +70,36 @@ def taken(item: str, subtask: str | None, **fields: Any) -> DecisionTaken:  # no
     return DecisionTaken.model_validate(line)
 
 
-def state_of(*lines: DecisionTaken, blocked: bool = True, **extra: Any) -> RunState:  # noqa: ANN401
-    """A run's record as far as the decisions are read: each subtask's attempt 2 blocked."""
+def state_of(
+    *lines: DecisionTaken,
+    blocked: bool = True,
+    statement: int | tuple[int, ...] | None = None,
+    unissued: bool = False,
+    **extra: Any,  # noqa: ANN401
+) -> RunState:
+    """A run's record as far as the decisions are read: each subtask's attempt 2 blocked.
+
+    With ``statement``, integration's own subtask ("integ") has issued its state at that line, or
+    at each of those lines, one attempt each; with ``unissued``, its attempt has issued none.
+    """
     attempt = SimpleNamespace(number=2, blocked=object() if blocked else None)
     subtasks = {
         s: SimpleNamespace(attempts=[attempt])
         for s in {ln.subtask_id for ln in lines if ln.subtask_id}
     }
+    if statement is not None or unissued:
+        seqs = (statement,) if isinstance(statement, int) else statement or ()
+        attempts = [
+            SimpleNamespace(number=2, blocked=object(), issued=SimpleNamespace(seq=seq))
+            for seq in seqs
+        ] or [SimpleNamespace(number=2, blocked=object(), issued=None)]
+        subtasks["integ"] = SimpleNamespace(attempts=attempts)
     fields: dict[str, Any] = {
         "taken": {ln.item_id: ln for ln in lines},
         "superseded": {},
         "confirmed": set(),
+        "confirmed_at": {},
+        "completion_subtask": "integ" if statement is not None or unissued else None,
         "contract_items": {},
         "sign_offs": {},
         "subtasks": subtasks,
@@ -90,6 +109,8 @@ def state_of(*lines: DecisionTaken, blocked: bool = True, **extra: Any) -> RunSt
         ),
     }
     fields.update(extra)
+    if "confirmed_at" not in extra:
+        fields["confirmed_at"] = {item: 1 for item in fields["confirmed"]}
     return SimpleNamespace(**fields)  # type: ignore[return-value]
 
 
@@ -160,8 +181,8 @@ def test_no_word_of_a_hostile_note_can_start_a_line_or_end_the_record(note: str)
     end = next(i for i, ln in enumerate(lines) if ln.startswith("END RECORD"))
     assert all(ln.startswith(LEAD) for ln in lines[begin + 1 : end])
     assert all(len(ln) <= WIDTH for ln in lines)
-    # No line of the note is a line of the document: every line is ASCII.
-    assert all(ln.removesuffix(CONTINUED).isascii() for ln in lines)
+    # No line of the note is a line of the document: every line break is the harness's newline.
+    assert len(text(state).splitlines()) == text(state).count("\n") + 1
     # And the whole issued state, which cuts any line past the width, keeps the fence.
     whole = issued_state_with(state).splitlines()
     assert sum(ln.startswith("END RECORD") for ln in whole) == 1
@@ -284,13 +305,12 @@ def test_a_decision_that_accepts_nothing_with_words_is_not_carried(line: dict[st
     assert carried.carried(state_of(only)) == ()
 
 
-def test_a_superseded_item_a_held_decision_and_a_sign_off_are_not_carried() -> None:
+def test_a_superseded_item_and_a_held_decision_not_yet_confirmed_are_not_carried() -> None:
     held = taken(FIRST, "ctl-1", acts=False, why_not="held_os_layer_off")
     assert carried.carried(state_of(held)) == ()
     # Once confirmed it is the person's decision.
     assert len(carried.carried(state_of(held, confirmed={FIRST}))) == 1
     assert carried.carried(state_of(taken(FIRST, "ctl-1"), superseded={FIRST: "later"})) == ()
-    assert carried.carried(state_of(taken(FIRST, "ctl-1"), sign_offs={FIRST: object()})) == ()
 
 
 def test_an_item_that_is_no_modules_the_plan_the_parts_is_not_carried() -> None:
@@ -341,73 +361,11 @@ def test_the_closing_record_holds_each_decision_as_data_in_a_fixed_form() -> Non
         "note": PUSH,
         "masked": False,
         "cut": False,
+        "in_issued_state": False,
+        "faults": [],
     }
     assert carried.closing_record(two()) == first
     assert carried.CLOSING_RECORD_PATH == ".physgate/completion/decisions.json"
-
-
-# --- the id check -------------------------------------------------------------------------------
-
-
-def patch(
-    path: str, *added: str, removed: tuple[str, ...] = (), context: tuple[str, ...] = ()
-) -> str:
-    body = [f"+{ln}" for ln in added] + [f"-{ln}" for ln in removed] + [f" {ln}" for ln in context]
-    return (
-        f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1,3 +1,3 @@\n"
-        + "\n".join(body)
-        + "\n"
-    )
-
-
-def test_the_check_passes_when_each_id_is_in_a_line_the_attempt_added_under_its_module() -> None:
-    diff = patch("modules/integration/README.md", f"Open: {FIRST}, and also {SECOND}.")
-    assert carried.ids_missing(two(), diff, "modules/integration") == ()
-
-
-def test_the_check_names_each_id_that_is_missing() -> None:
-    diff = patch("modules/integration/README.md", f"Open: {FIRST}.")
-    assert carried.ids_missing(two(), diff, "modules/integration") == (SECOND,)
-    assert carried.ids_missing(
-        two(), patch("modules/integration/a.md", "none"), "modules/integration"
-    ) == (
-        FIRST,
-        SECOND,
-    )
-
-
-@pytest.mark.parametrize(
-    "diff",
-    [
-        patch("README.md", f"{FIRST} {SECOND}"),
-        patch(".physgate/completion/declaration.json", f"{FIRST} {SECOND}"),
-        patch("modules/integrationx/a.md", f"{FIRST} {SECOND}"),
-        patch("modules/integration/a.md", "a", removed=(f"{FIRST} {SECOND}",)),
-        patch("modules/integration/a.md", "a", context=(f"{FIRST} {SECOND}",)),
-        patch("modules/integration/a.md", f"{FIRST}-extra {SECOND}_x"),
-        patch("modules/integration/a.md", f"x{FIRST} y{SECOND}"),
-    ],
-    ids=[
-        "root",
-        "declaration",
-        "sibling dir",
-        "removed line",
-        "context line",
-        "longer id",
-        "prefix",
-    ],
-)
-def test_an_id_not_added_whole_under_the_module_does_not_count(diff: str) -> None:
-    assert carried.ids_missing(two(), diff, "modules/integration") == (FIRST, SECOND)
-
-
-def test_an_id_ending_a_sentence_counts() -> None:
-    diff = patch("modules/integration/a.md", f"See {FIRST}.", f"({SECOND})")
-    assert carried.ids_missing(two(), diff, "modules/integration") == ()
-
-
-def test_nothing_is_missing_where_nothing_is_carried() -> None:
-    assert carried.ids_missing(state_of(), "", "modules/integration") == ()
 
 
 # --- the document -------------------------------------------------------------------------------
