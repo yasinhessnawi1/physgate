@@ -1208,6 +1208,7 @@ def test_idle_sleep_halts_the_cpu_until_an_interrupt_which_then_responds_five_cy
         "[...asm.sei(), ...asm.sleep(), ...asm.inc(21), ...asm.jmp(loop)]) words[at++] = w;",
         seconds=0.001,
     )
+    assert "ADC" in adc["vectors"], adc["vectors"]
     assert adc["vectors"]["ADC"]["count"] == adc["sleep"]["wakes"] > 10
     assert set(adc["vectors"]) == {"ADC"}
 
@@ -1221,6 +1222,7 @@ def test_a_sleep_other_than_idle_or_with_interrupts_off_ends_the_run_s_evidence(
     marker = [{"name": "m", "t_s": START / 16e6 + 0.005}]
     found = _program(IDLE.replace("0x53, 0x01", "0x53, 0x05"), seconds=0.01, markers=marker)
     end = found["evidence_end"]
+    assert end is not None, "a power-down sleep ran on"
     assert (end["cause"], end["mode"], end["interrupts_enabled"]) == ("sleep", "power_down", True)
     # The run stops at the end of the instruction that ended the evidence.
     assert (
@@ -1232,8 +1234,9 @@ def test_a_sleep_other_than_idle_or_with_interrupts_off_ends_the_run_s_evidence(
     assert [event[key] for key in ("motors_off_cycle", "motors_off_delay_s")] == [after, after]
     for smcr, mode in ((0x03, "adc_noise_reduction"), (0x07, "power_save"), (0x0D, "standby")):
         other = _program(IDLE.replace("0x53, 0x01", f"0x53, {smcr}"), seconds=0.01)
-        assert other["evidence_end"]["mode"] == mode
+        assert other["evidence_end"] is not None and other["evidence_end"]["mode"] == mode
     off = _program(IDLE.replace("...asm.sei(), ", ""), seconds=0.01)
+    assert off["evidence_end"] is not None, "an idle sleep with interrupts off ran on"
     assert (off["evidence_end"]["mode"], off["evidence_end"]["interrupts_enabled"]) == (
         "idle",
         False,
@@ -1248,6 +1251,7 @@ def test_a_peripheral_stopped_through_the_power_reduction_registers_ends_the_evi
     marker = [{"name": "m", "t_s": START / 16e6 + 0.005}]
     found = _program(BALBOA_PWM + _ocr(200) + "store(0x64, 0x88);", seconds=0.01, markers=marker)
     end = found["evidence_end"]
+    assert end is not None, "Timer1 and the TWI stopped and the run went on"
     assert {key: end[key] for key in ("cause", "register", "value", "modules")} == {
         "cause": "power_reduction",
         "register": "PRR0",
@@ -1268,6 +1272,7 @@ def test_a_peripheral_stopped_through_the_power_reduction_registers_ends_the_evi
         ("store(0x64, 0x25);", "PRR0", ["adc", "spi", "timer0"]),
     ):
         other = _program(setup)["evidence_end"]
+        assert other is not None, setup
         assert (other["register"], other["modules"]) == (register, modules)
     # A zero written stops nothing.
     assert _program("store(0x64, 0x00); store(0x65, 0x00);")["evidence_end"] is None
