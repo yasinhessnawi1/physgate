@@ -9,11 +9,13 @@ decided. The run waits on the queue, or goes on with whatever else is free, and 
 goes ahead once each such module merged or ended without a merge.
 
 Not waited for: a module that waits for the closing pass itself (a person chose its producer's
-value, and its attempt returns once the closing pass merged), and a builder held on the design of
-such a module, directly or through a chain of builders, which cannot run before the closing pass
-either. A sign-off a merged module owes is not waited for: it is asked after the follow-ups, which
-can change the values it binds, and the closing pass reads the graph, not a signature. A module
-reopened for a sign-off's fix is not merged, so the closing pass waits for it.
+value, and its attempt returns once the closing pass merged), and a module held on one that cannot
+go on before the closing pass, at any depth: a builder of the design of such a module, a builder
+held for good, or a reader of either. Holds are followed to what they end in, so no chain of
+waits ends back at the closing pass. A sign-off a merged module owes is not waited for: it is
+asked after the follow-ups, which can change the values it binds, and the closing pass reads the
+graph, not a signature. A module reopened for a sign-off's fix is not merged, so the closing pass
+waits for it.
 
 No line is written for the wait: the step is the wait the run already takes, and the status names
 the closing pass with the modules it waits for.
@@ -29,7 +31,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from physgate.orchestrator.design_wait import _designers, held_for_good
-from physgate.orchestrator.producer_wait import dispatch_due, waiting_item
+from physgate.orchestrator.producer_wait import (
+    _mutual,
+    _reads_from,
+    dispatch_due,
+    waiting_item,
+)
 
 if TYPE_CHECKING:
     from physgate.orchestrator.replay import RunState
@@ -58,20 +65,34 @@ def _domains(state: RunState, closing: str) -> list[str]:
     return found
 
 
-def _stuck_on_closing(state: RunState, subtask_id: str, seen: frozenset[str] = frozenset()) -> bool:
-    """Whether ``subtask_id`` cannot go on before the closing pass.
+def _cannot_move(state: RunState, subtask_id: str, seen: frozenset[str] = frozenset()) -> bool:
+    """Whether ``subtask_id`` cannot go on before the closing pass, whatever a person decides.
 
-    It waits for the closing pass itself, or builds the design of a module that cannot go on.
+    It waits for the closing pass itself; or it is planned or running and is held for good, or
+    is held on what cannot go on: the designer whose design it builds, or a producer it reads
+    from that is still to run and cannot go on either. A producer that waits for the closing pass
+    lets its reader go (the reader is released, and runs), so it does not hold it. Two modules
+    that read from each other hold nothing, and no module is visited twice.
     """
     sub = state.subtasks[subtask_id]
     if sub.status == "waiting":
         return True
     if sub.status not in ("planned", "active") or subtask_id in seen:
         return False
-    return any(
-        _stuck_on_closing(state, pair.designer, seen | {subtask_id})
-        for pair in _designers(state, subtask_id)
-    )
+    if held_for_good(state, subtask_id):
+        return True
+    beyond = seen | {subtask_id}
+    if any(_cannot_move(state, pair.designer, beyond) for pair in _designers(state, subtask_id)):
+        return True
+    for pair in _reads_from(state, subtask_id):
+        producer = pair.producer.subtask_id
+        if _mutual(state, subtask_id, producer):
+            continue
+        if state.subtasks[producer].status in ("planned", "active") and _cannot_move(
+            state, producer, beyond
+        ):
+            return True
+    return False
 
 
 def _is_pending(state: RunState, subtask_id: str) -> bool:
@@ -79,7 +100,7 @@ def _is_pending(state: RunState, subtask_id: str) -> bool:
     if sub.status == "escalated":
         return waiting_item(state, subtask_id) is not None
     if sub.status in ("planned", "active"):
-        return not held_for_good(state, subtask_id) and not _stuck_on_closing(state, subtask_id)
+        return not _cannot_move(state, subtask_id)
     return False
 
 

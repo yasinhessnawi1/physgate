@@ -281,9 +281,14 @@ def stub(
     designers: dict[str, str] | None = None,
     undecided: bool = True,
     items: dict[str, str | None] | None = None,
+    closers: tuple[str, ...] = (),
 ) -> Any:  # noqa: ANN401 - a stand-in for the replayed state
-    """A state of subtasks in plan order, the last of them sizing's closing pass."""
+    """A state of subtasks in plan order, the last of them sizing's closing pass.
+
+    ``closers`` name the subtasks of sizing's module directory when it is not the last one.
+    """
     order = list(statuses)
+    sizing = {order[0], *closers} if closers else {order[0], order[-1]}
     roles = roles or {}
     items = items or {}
     subtasks = {
@@ -294,8 +299,8 @@ def stub(
             attempts=[],
             plan=SimpleNamespace(
                 subtask_id=s,
-                assigned_role=roles.get(s, "sizing" if s in (order[0], order[-1]) else "control"),
-                module_dir="modules/sizing" if s in (order[0], order[-1]) else f"modules/{s}",
+                assigned_role=roles.get(s, "sizing" if s in sizing else "control"),
+                module_dir="modules/sizing" if s in sizing else f"modules/{s}",
             ),
         )
         for s, st in statuses.items()
@@ -349,6 +354,11 @@ def test_a_module_that_ended_without_a_merge_is_not_waited_for() -> None:
 
 def test_a_module_escalated_with_no_item_waits_on_no_one() -> None:
     state = stub({"z0": "done", "a": "escalated", "zc": "planned"}, items={"a": None})
+    assert closing_wait.pending(state, "zc") == []
+
+
+def test_a_module_planned_after_the_closing_pass_is_not_waited_for() -> None:
+    state = stub({"z0": "done", "zc": "planned", "late": "escalated"}, closers=("zc",))
     assert closing_wait.pending(state, "zc") == []
 
 
