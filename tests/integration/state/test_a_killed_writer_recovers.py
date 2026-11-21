@@ -53,16 +53,21 @@ TOTAL_OPS = 1230
 POLL_SECONDS = 0.001
 
 
+def complete_lines(data: bytes) -> list[bytes]:
+    """The lines of ``data`` that end in a newline. A torn final line is not one."""
+    out: list[bytes] = []
+    for raw in data.splitlines(keepends=True):
+        if not raw.endswith(b"\n"):
+            break
+        out.append(raw)
+    return out
+
+
 def acknowledgements(path: Path) -> list[Acknowledgement]:
     """Every complete acknowledgement line. A torn final line is not one."""
     if not path.exists():
         return []
-    out: list[Acknowledgement] = []
-    for raw in path.read_bytes().splitlines(keepends=True):
-        if not raw.endswith(b"\n"):
-            break
-        out.append(Acknowledgement.model_validate_json(raw))
-    return out
+    return [Acknowledgement.model_validate_json(raw) for raw in complete_lines(path.read_bytes())]
 
 
 def kill_target(seed: int) -> int:
@@ -96,8 +101,7 @@ def run_until_killed(seed: int, root: Path) -> tuple[bool, int, int]:
         while True:
             if child.poll() is not None:
                 break
-            with ack_path.open("rb") as handle:
-                landed = sum(1 for _ in handle)
+            landed = len(complete_lines(ack_path.read_bytes()))
             if landed >= target:
                 break
             time.sleep(POLL_SECONDS)
@@ -240,3 +244,12 @@ def test_the_kill_target_is_seeded_and_inside_the_workload() -> None:
     for seed, target in targets.items():
         assert 250 <= target <= 900, (seed, target)
         assert target < TOTAL_OPS
+
+
+def test_the_poll_does_not_count_a_half_written_acknowledgement_line() -> None:
+    """The poll and the parse count the same thing: lines that end in a newline."""
+    whole = b'{"a": 1}\n{"a": 2}\n'
+    assert len(complete_lines(whole)) == 2
+    assert len(complete_lines(whole + b'{"a": 3')) == 2, "a partial last line was counted"
+    assert len(complete_lines(b'{"a": 1')) == 0
+    assert complete_lines(b"") == []
