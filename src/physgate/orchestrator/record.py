@@ -18,11 +18,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from physgate.contracts.pairs import ContractPair
 from physgate.orchestrator.common import NonEmptyStr, Timestamp, utc_now, utc_stamp
+from physgate.orchestrator.design_pairs import DesignPair
 from physgate.orchestrator.events import (
     RETRIED_CAUSE,
     ContractPairsPlanned,
     Decomposed,
     DecompositionRetried,
+    DesignPairsPlanned,
     DesignReviewRan,
     DesignUnavailable,
     Envelope,
@@ -65,6 +67,7 @@ from physgate.orchestrator.queue import (
 )
 from physgate.orchestrator.replay import RunState, project_ledger
 from physgate.orchestrator.run_config import RunConfig, require_recorded, write_run_config
+from physgate.orchestrator.sign_off import CURRENT_SHA256
 from physgate.orchestrator.trajectory import Seal
 from physgate.roles import owners_of
 from physgate.state.exceptions import CorruptRecordError
@@ -118,6 +121,16 @@ class DecompositionSummary(BaseModel):
     #: The module pairs whose contract is tested, read from the plan; ``None`` without the
     #: consumers, so a run without the integration role records no such line.
     contract_pairs: tuple[ContractPair, ...] | None = None
+    #: The modules that build what another designs, read from the plan's specifications;
+    #: ``None`` or empty where the plan has none, so the run records no such line.
+    design_pairs: tuple[DesignPair, ...] | None = None
+    #: Each of those pairs the other way round, where its designer names a node of its builder's
+    #: own too; ``None`` or empty where there is none, and then left out of the pairs line.
+    design_mutual: tuple[DesignPair, ...] | None = None
+    #: Each builder the plan lists before the designer whose design it may build, the plan
+    #: accepted on its second making; ``None`` or empty where there is none, and then left out of
+    #: the pairs line.
+    design_misordered: tuple[DesignPair, ...] | None = None
     #: The brief's own words for each system requirement the plan gives by number; ``None`` or
     #: empty when there are none, and then left out of the line.
     brief_words: tuple[CriterionWords, ...] | None = None
@@ -241,6 +254,9 @@ _UNWRITTEN_TS = utc_stamp(datetime(1970, 1, 1, tzinfo=UTC))
 #: The mark a run that acts on decisions writes on its first line: it started under the rule that
 #: every dispatch of a subtask waits while a subtask it reads from waits on a person.
 PRODUCER_WAIT: Literal["hold"] | None = "hold"
+
+#: The digest of the sign-off rule table's version every run started now writes on its first line.
+SIGN_OFF_RULES: str | None = CURRENT_SHA256
 
 
 def _fields(line: BaseModel, names: Sequence[str]) -> tuple[object, ...]:
@@ -558,6 +574,9 @@ class RunRecord:
             hooks=None if self.config.hooks == "on" else self.config.hooks,
             ablation=True if self.config.ablation else None,
             producer_wait=PRODUCER_WAIT if self._said()[0] == "act" else None,
+            # Never a parameter of the run: which modules owe a person's sign-off is the rule
+            # this code holds, and the run names its version so replay reads the same rows.
+            sign_offs=SIGN_OFF_RULES,
         )
         calls = [*(one.call for one in earlier), *((call,) if call is not None else ())]
         if calls:
@@ -778,6 +797,13 @@ class RunRecord:
             )
         if decomposed is not None and decomposed.contract_pairs is not None:
             yield ContractPairsPlanned(**envelope(), pairs=decomposed.contract_pairs)
+        if decomposed is not None and (decomposed.design_pairs or decomposed.design_misordered):
+            yield DesignPairsPlanned(
+                **envelope(),
+                pairs=decomposed.design_pairs or (),
+                mutual=decomposed.design_mutual or (),
+                misordered=decomposed.design_misordered or (),
+            )
 
     def _unwritten(self) -> Callable[[], Envelope]:
         """Envelopes numbered from a log's first line, for lines checked and never written."""

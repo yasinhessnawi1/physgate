@@ -395,7 +395,7 @@ describe("a follow-up after sizing's closing pass reads as code's reopen, and it
       "Subtask 3 reopened for attempt 3, once and by code: sizing's closing pass changed values its nodes depend on (2 owed edges); its earlier merge stays on the record",
     );
     expect(ended?.sentence).toBe(
-      "Subtask 3's follow-up ended without a merge (no verdict), and is not retried; its earlier merge stands",
+      "Subtask 3's follow-up ended without a merge (its review reached no verdict), and is not retried; its earlier merge stands",
     );
     expect(ended?.meta).toBe("s3 · attempt 3");
   });

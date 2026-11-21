@@ -16,6 +16,7 @@ import pytest
 from gate_fixtures import node
 from parts_rig import body, decide, log_of, started
 from plan_hold_rig import again, dispatched
+from sign_off_rig import signing
 
 from physgate.orchestrator.queue import QueueResolution
 
@@ -55,7 +56,8 @@ def _released_with(tmp_path: Path, iface: dict[str, Any]) -> tuple[str, Any]:
     assert isinstance(decide(run_dir, IDS[0], "have", stated), QueueResolution)
     assert isinstance(decide(run_dir, IDS[1], "find"), QueueResolution)
     assert isinstance(decide(run_dir, IDS[2], "find"), QueueResolution)
-    return again(the_rig), the_rig
+    # The plan's modules are control modules: a person signs each one's values where it waits.
+    return signing(lambda: again(the_rig), run_dir), the_rig
 
 
 def test_a_joined_domain_interface_with_another_value_raises_the_part_again(

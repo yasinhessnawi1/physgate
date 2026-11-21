@@ -54,6 +54,7 @@ from physgate.orchestrator.common import (
     utc_now,
     utc_stamp,
 )
+from physgate.orchestrator.design_pairs import DesignPair
 from physgate.orchestrator.dispute import plain
 from physgate.orchestrator.escalation import BackendName, Decision
 from physgate.orchestrator.escalation_state import EscalationState
@@ -245,6 +246,11 @@ class RunStarted(_Event):
     #: such a dispatch with no hold or release line before it. Left out of every other run, so a
     #: line written before the rule keeps its bytes and replays as it did.
     producer_wait: Literal["hold"] | None = None
+    #: The digest of the version of the sign-off rule table the run started under, written by
+    #: code on every run started since the table existed, never by a parameter: which modules owe
+    #: a person's sign-off before they are complete (ARCH-130). Left out of a run started before
+    #: it, which owes none, so its line keeps its bytes.
+    sign_offs: Sha256 | None = None
 
     @model_serializer(mode="wrap")
     def _omit_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -259,6 +265,7 @@ class RunStarted(_Event):
             "hooks",
             "ablation",
             "producer_wait",
+            "sign_offs",
         ):
             if getattr(self, absent) is None:
                 data.pop(absent, None)
@@ -818,8 +825,10 @@ Position = Literal["sizing", "domain", "producer", "consumer", "have", "make", "
 #: ends it with nothing dispatched.
 #: ``declare`` and ``find``: a choice on a part's item. The part is one the person has or makes,
 #: and what they stated of it is fixed; or it is sourced and sized as before.
+#: ``sign``: an approve of a sign-off item signs the values it shows (ARCH-130).
 DecisionEffect = Literal[
     "merge",
+    "sign",
     "retry",
     "fix",
     "end_subtask",
@@ -838,10 +847,16 @@ DecisionEffect = Literal[
 #: the scan before review found one no review judged. ``not_bound``: a decision that names no
 #: verb, or no view. ``legacy_item``: an item that says nothing of what a verb does.
 #: ``held_os_layer_off``: written while a session ran without the OS layer, so its own shell
-#: could have written it; it acts once the operator confirms it. ``order_too_long``: a choice that
-#: would reopen a module whose order its reviewer could not read whole. ``superseded``: a
-#: decision on a contract item another item's reopen superseded, since what it said is no longer
-#: true.
+#: could have written it; it acts once the operator confirms it. ``order_too_long``: a choice,
+#: or a reject of a sign-off item, that would reopen a module whose order its reviewer could not
+#: read whole. ``superseded``: a decision on a contract item another item's reopen superseded, or
+#: on a sign-off item a later one superseded, since what it said is no longer true.
+#: ``module_reopened``: a reject of a sign-off item that promised the module's fix, which the
+#: record no longer allows because the module was reopened since (its follow-up, merged or not).
+#: ``no_attempt_left``: a reject of a sign-off item whose module has no attempt left to fix its
+#: values at: it merged on its last attempt number, or on a fix a person ordered earlier.
+#: Replay recomputes the reason, so a reject of such a module recorded under any other reason is
+#: refused; no run recorded before this reason carries a sign-off item, so none is.
 WhyNot = Literal[
     "record_only_source",
     "last_rejection_automated",
@@ -852,6 +867,8 @@ WhyNot = Literal[
     "held_os_layer_off",
     "order_too_long",
     "superseded",
+    "module_reopened",
+    "no_attempt_left",
 ]
 
 
@@ -1046,6 +1063,33 @@ class FollowUpEnded(_Event):
     why: FollowUpWhy
 
 
+class SignOffFixEnded(_Event):
+    """The one fix a rejected sign-off ordered ended without a merge: no retry, and no item follows.
+
+    The module's earlier merge stands, so its subtask is done again; its sign-off stays owed, so it
+    is not complete, and the run ends escalated naming it (ARCH-130). ``why`` is what ended the
+    attempt.
+    """
+
+    kind: Literal["sign_off_fix_ended"] = "sign_off_fix_ended"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    why: FollowUpWhy
+
+
+class NoFollowUpOwed(_Event):
+    """No follow-up is owed before the integration call, as the journal says where it is read.
+
+    Written by the integration step of a run that acts, where it decides the follow-ups sizing's
+    closing pass owes (ARCH-051) and finds none, while a person's sign-off is undecided
+    (ARCH-130). Follow-ups can change the values a sign-off binds, so the person is asked once
+    they are decided; replay cannot read the journal, and this line is how it knows they are.
+    Every other run writes none, and keeps its lines.
+    """
+
+    kind: Literal["no_follow_up_owed"] = "no_follow_up_owed"
+
+
 class DispatchHeld(_Event):
     """A subtask's dispatch is held: a subtask it reads from waits on a person, unmerged.
 
@@ -1085,6 +1129,75 @@ class DispatchReleased(_Event):
     producer: NonEmptyStr
     item_id: NonEmptyStr
     outcome: ReleasedHow
+
+
+#: Why a builder is held while the module whose design it implements has not merged.
+#:
+#: ``escalated``: the designer is with a person, its item undecided, named by the line.
+#: ``ended_unmerged``: the designer ended without a merge (rejected, removed, or a decision that
+#: acted on nothing): the builder stays held, since there is no design to build, and the run goes
+#: on without it. ``designer_held``: the designer is itself a builder held for good, so it will
+#: never merge either: the builder is held for good too, and the line names the chain.
+#: ``not_merged``: the designer has not merged yet for any other reason (it runs again after a
+#: person's decision, waits for sizing's closing pass, or is a builder still held).
+BuilderHeldWhy = Literal["escalated", "ended_unmerged", "designer_held", "not_merged"]
+
+
+class BuilderHeld(_Event):
+    """A builder's dispatch is held: the module whose design it implements has not merged.
+
+    "Implements" is the run's recorded design pairs: ``designer`` is a pair's designing subtask
+    whose builder is ``subtask_id``, over the design's ``nodes``. Written when the builder's
+    dispatch comes and its designer has not merged, and again whenever why changes; never a
+    failure, and nothing of the builder runs while it is held. ``item_id`` is the designer's
+    undecided item, exactly when ``why`` is ``escalated``. ``chain`` is exactly when ``why`` is
+    ``designer_held``: the designers in turn, from ``designer`` to the one that can no longer
+    merge (ended without a merge, or with a person in a run that records only), each once.
+    """
+
+    kind: Literal["builder_held"] = "builder_held"
+    subtask_id: NonEmptyStr
+    designer: NonEmptyStr
+    nodes: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
+    why: BuilderHeldWhy
+    item_id: NonEmptyStr | None = None
+    chain: Annotated[tuple[NonEmptyStr, ...], Field(min_length=2)] | None = None
+
+    @model_validator(mode="after")
+    def _item_when_escalated(self) -> BuilderHeld:
+        if (self.why == "escalated") != (self.item_id is not None):
+            msg = "a builder's hold names the designer's item exactly when the designer escalated"
+            raise ValueError(msg)
+        if (self.why == "designer_held") != (self.chain is not None):
+            msg = "a builder's hold names a chain exactly when its designer is itself held for good"
+            raise ValueError(msg)
+        chain = self.chain or (self.designer,)
+        if chain[0] != self.designer or len(set(chain)) != len(chain) or self.subtask_id in chain:
+            msg = "a hold's chain starts at its designer and names each subtask once, not its own"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_no_item(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.item_id is None:
+            data.pop("item_id", None)
+        if self.chain is None:
+            data.pop("chain", None)
+        return data
+
+
+class BuilderReleased(_Event):
+    """A builder's hold let go: the module whose design it implements merged.
+
+    Closes the one hold of ``subtask_id`` on ``designer``; the builder is then dispatched as
+    planned, against the design as merged.
+    """
+
+    kind: Literal["builder_released"] = "builder_released"
+    subtask_id: NonEmptyStr
+    designer: NonEmptyStr
+    nodes: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
 
 
 class Incident(_Event):
@@ -1433,6 +1546,41 @@ class ContractPairsPlanned(_Event):
     pairs: Annotated[tuple[ContractPair, ...], Field(min_length=1)]
 
 
+class DesignPairsPlanned(_Event):
+    """The modules that build what another designs, read from the plan's specifications.
+
+    Written once, in the run's opening after the planning lines and the contract pairs, and only
+    where the plan has such a pair or a suspected misorder, so the set is on the record before any
+    module runs. A builder is not dispatched until its designer merged (:class:`BuilderHeld`).
+    """
+
+    kind: Literal["design_pairs_planned"] = "design_pairs_planned"
+    pairs: tuple[DesignPair, ...]
+    #: Each pair the other way round, where its designer's specification also names a node of its
+    #: builder's own: no hold, as the plan's order is the pair's, and written so a reader sees it.
+    #: Left out of the line when empty, so every other line keeps its bytes.
+    mutual: tuple[DesignPair, ...] = ()
+    #: Each builder the plan lists before the designer whose design it may build, the plan having
+    #: been refused for it once and accepted when made again: ``builder`` is dispatched first, so
+    #: nothing is held for it. Left out of the line when empty, as ``mutual`` is.
+    misordered: tuple[DesignPair, ...] = ()
+
+    @model_validator(mode="after")
+    def _a_line_says_something(self) -> DesignPairsPlanned:
+        if not self.pairs and not self.misordered:
+            msg = "a design pairs line records a pair or a suspected misorder"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_what_is_empty(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        for name in ("mutual", "misordered"):
+            if not getattr(self, name):
+                data.pop(name, None)
+        return data
+
+
 class ContractTested(_Event):
     """A pair's interface contract, held to the clause after a merge in one of its modules.
 
@@ -1584,6 +1732,85 @@ class ContractItemRaised(_Event):
 
     kind: Literal["contract_item_raised"] = "contract_item_raised"
     item_id: NonEmptyStr
+
+
+class BoundValue(BaseModel):
+    """One node a sign-off binds, at the revision of the journal that holds its values."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    node_id: NodeIdKey
+    revision: Annotated[int, Field(ge=1)]
+
+
+class RaisedItem(BaseModel):
+    """One sign-off item a merge raised: its id, its module, the values it shows and their nodes.
+
+    ``module`` is the subtask that planned the module. ``bound`` is every node whose values the
+    item shows, sorted by id, each at the journal revision it holds them at; ``values_sha256``
+    is the digest of those values, which an approve binds through the item line's digest.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    item_id: NonEmptyStr
+    module: NonEmptyStr
+    values_sha256: Sha256
+    bound: tuple[BoundValue, ...]
+
+    @model_validator(mode="after")
+    def _sorted_once(self) -> RaisedItem:
+        ids = [value.node_id for value in self.bound]
+        if ids != sorted(set(ids)):
+            msg = "a sign-off names each node it binds once, sorted by id"
+            raise ValueError(msg)
+        return self
+
+
+class SignOffsRaised(_Event):
+    """The sign-off items a clean merge raised, in a run whose first line names the rule table.
+
+    Written straight after the diff of a merge that found nothing, once its items are in the
+    queue: one item for each module whose role owes a person's sign-off (ARCH-130)
+    and that this merge was of, or whose bound values it changed. ``subtask_id`` and ``attempt``
+    are the merge's. A merge that raised none writes no line, so a run with no such module keeps
+    every line it had. Where the log alone says the merge owes an item (the module's own merge,
+    or a write to a node its latest item binds), the line is owed before anything else, and a
+    fresh process writes it after a kill.
+    """
+
+    kind: Literal["sign_offs_raised"] = "sign_offs_raised"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    raised: Annotated[tuple[RaisedItem, ...], Field(min_length=1)]
+
+    @model_validator(mode="after")
+    def _one_item_a_module(self) -> SignOffsRaised:
+        modules = [item.module for item in self.raised]
+        if len(set(modules)) != len(modules):
+            msg = "a merge raises one sign-off item a module at most"
+            raise ValueError(msg)
+        return self
+
+
+class SignOffRaisedAgain(_Event):
+    """A module's sign-off raised again on values the graph gives and no sign-off line raised.
+
+    Written where the loop reads what the module's sign-off binds from the graph and finds other
+    nodes or revisions than its latest item bound, with no line on the record raising them: a
+    raise lost across a halt, which clears what owed it, or one the log alone cannot owe.
+    ``found`` says where, and so why: ``merge``, straight after the clean merge of ``subtask_id``
+    at ``attempt``, beside that merge's own sign-off line; ``completion``, where the module's
+    completion line was owed, after integration's merge ``subtask_id`` at ``attempt``, and
+    instead of that line. The module's earlier item stops counting (an undecided one is
+    superseded), and the module is complete only once a person signs this one.
+    """
+
+    kind: Literal["sign_off_raised_again"] = "sign_off_raised_again"
+    found: Literal["merge", "completion"]
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    raised: RaisedItem
 
 
 class ModuleCompleted(_Event):
@@ -1961,8 +2188,12 @@ Event = Annotated[
     | SubtaskReopened
     | AttemptReturned
     | FollowUpEnded
+    | SignOffFixEnded
+    | NoFollowUpOwed
     | DispatchHeld
     | DispatchReleased
+    | BuilderHeld
+    | BuilderReleased
     | FindingsRecorded
     | Incident
     | IncidentResolved
@@ -1978,6 +2209,7 @@ Event = Annotated[
     | PartsGateRan
     | PartsRaisedAgain
     | ContractPairsPlanned
+    | DesignPairsPlanned
     | ContractTested
     | IntegrationStateIssued
     | CompletionDeclared
@@ -1985,6 +2217,8 @@ Event = Annotated[
     | ArbitrationDecided
     | ContractRuled
     | ContractItemRaised
+    | SignOffsRaised
+    | SignOffRaisedAgain
     | ModuleCompleted
     | EnvironmentRecorded
     | InstallChecked

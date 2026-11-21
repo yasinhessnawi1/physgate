@@ -6,7 +6,8 @@ the allowlist, then handed to the package's own reader for that format:
 - the run configuration: ``load_run_config``, with its digest as the manifest id, and the
   harness's attempts per subtask (``REPAIR_BUDGET``), a constant of the code, not of the record;
   every field but the held-out tier's (``HELD_OUT_FIELDS``), which no answer carries;
-- the event log: ``read_events``;
+- the event log: ``read_events``, whole or from a line on (``events_from``), for a page that
+  follows a running run's log;
 - the task ledger: ``recorded_ledger``, read without writing and held to the log's projection,
   exactly what ``physgate ledger`` prints;
 - the gate events: ``recorded_gate_events``, exactly what ``physgate gate-events`` prints;
@@ -61,6 +62,7 @@ from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import render_jsonl, utc_now
 from physgate.orchestrator.completion import open_preconditions
+from physgate.orchestrator.design_wait import held_builders, misordered_words
 from physgate.orchestrator.events import (
     InfraRetryScheduled,
     SessionEnded,
@@ -158,6 +160,27 @@ def events(context: Context, params: Mapping[str, str]) -> Response:
     """The run's event log, one record per line, as the package reads it back."""
     run_dir = run_dir_of(context, params)
     return _lines(render_jsonl(read_events(_file(context, run_dir, EVENTS))))
+
+
+def events_from(context: Context, params: Mapping[str, str]) -> Response:
+    """The run's event log from line ``seq`` on, with how many whole lines it holds.
+
+    For a page that follows a running run's log: it asks again from the last line it holds, which
+    comes back too, so it can tell, byte for byte, that the log is the one it read before. The
+    log is read through the same reader as the whole-log route, which stops before a final line
+    the writer has not ended yet, and the lines are rendered as that route renders them, so the
+    answer's ``lines`` are always the end of what that route serves at the same moment: never a
+    half-written line, never anything it leaves out. A line past the log's end is no refusal:
+    the answer holds no line and the count, and a page holding more lines than the count knows
+    the log is not the one it read.
+
+    The whole log is read on every request: a reader that started at a byte offset would take
+    the lines after it without the checks that hold each line to the ones before it.
+    """
+    run_dir = run_dir_of(context, params)
+    held = read_events(_file(context, run_dir, EVENTS))
+    first = int(params["seq"])
+    return json_response({"count": len(held), "from": first, "lines": render_jsonl(held[first:])})
 
 
 def ledger(context: Context, params: Mapping[str, str]) -> Response:
@@ -299,7 +322,9 @@ def decisions(context: Context, params: Mapping[str, str]) -> Response:
 def _completion(state: RunState) -> dict[str, object]:
     """Each plan module's completion, and whether the run has a subtask that declares it.
 
-    A module is ``complete`` once its line is on the record; else ``withheld`` while the merged
+    A module is ``complete`` once its line is on the record; else ``sign_off_owed`` while its
+    sign-off is open (ARCH-130), whatever else is, since a person's signature is what it waits
+    for first and integration is told to leave it out; else ``withheld`` while the merged
     declaration names it and a registered precondition is open, ``owed`` while none is, and
     ``not_declared`` otherwise. Every module not complete carries the registry's open entries with
     their own reasons. Sizing's module is told by the role name the register gives sizing.
@@ -313,6 +338,8 @@ def _completion(state: RunState) -> dict[str, object]:
     for module in state.modules():
         still = () if module in state.completed else open_preconditions(state, module)
         word = "not_declared" if module not in declared else "withheld" if still else "owed"
+        if any(name == "sign_off" for name, _ in still):
+            word = "sign_off_owed"
         modules.append(
             {
                 "subtask_id": module,
@@ -322,6 +349,23 @@ def _completion(state: RunState) -> dict[str, object]:
             }
         )
     return {"owner": integration is not None, "modules": modules}
+
+
+def sign_offs_open_to_decide(state: RunState) -> list[str]:
+    """The modules whose sign-off is owed and whose latest item a person may still decide.
+
+    In plan order. Undecided, or held and not yet confirmed: a decision there can still sign the
+    module. One whose latest item was decided (a reject, recorded only or ordering the fix that
+    then ended unmerged) is owed with nothing left in the run that can sign it. None where the
+    run only records its decisions: no decision acts there, so none can sign a module.
+    """
+    if not state.acts:
+        return []
+    return [
+        module
+        for module in state.sign_offs_open()
+        if (items := state.sign_offs_of(module)) and state.undecided(items[-1].item_id)
+    ]
 
 
 def _silence_bound(last: object, bounds: RunBounds) -> float | None:
@@ -342,7 +386,8 @@ def _silence_bound(last: object, bounds: RunBounds) -> float | None:
 def status(context: Context, params: Mapping[str, str]) -> Response:
     """Where the run stands: the loop's next step, a halt owed or taken, and each completion.
 
-    Also each subtask that waits for sizing's closing pass, and each contract item a reopen
+    Also whether the run acts on a person's decisions, the modules whose sign-off is owed, in
+    plan order, each subtask that waits for sizing's closing pass, and each contract item a reopen
     superseded with the item whose decision reopened its module, as replay holds them; and when
     the log last wrote, this server's clock, and the longest a living run goes without a line
     after that one (:func:`_silence_bound`). A page tells from the three a run whose process
@@ -370,7 +415,22 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             if owed is None
             else {"cause": owed.cause, "subtask_id": owed.subtask_id, "detail": owed.detail},
             "completion": _completion(state),
+            # Whether a person's decision acts in this run: in one that records decisions only,
+            # an escalated end waits on no one, and the modules whose sign-off is owed are named.
+            "acts": state.acts,
+            "sign_offs_owed": state.sign_offs_open(),
+            # Of those, each whose latest item is still open to a person's decision: in a run that
+            # acts, one whose latest item was decided can be signed by nothing left in the run.
+            "sign_offs_open_to_decide": sign_offs_open_to_decide(state),
+            # Whether an escalated end is for those sign-offs alone: false where the integration
+            # call failed and its item is open to a person as well.
+            "ends_on_sign_offs_alone": state.ends_on_sign_offs_alone(),
             "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
+            # Each builder held while the module whose design it implements has not merged.
+            "held": held_builders(state).get("held", []),
+            # Each builder the plan lists before the designer whose design it may build, as a
+            # plain sentence: nothing is held for it, so a person is told to check the order.
+            "misordered": misordered_words(state),
             "superseded": dict(state.superseded),
             "last_line_at": None if last is None else last.ts,
             # This server's clock, in the log's own fixed-width form: a page measures the silence

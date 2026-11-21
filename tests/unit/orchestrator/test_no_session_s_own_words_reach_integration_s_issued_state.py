@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as runner
 from loop_fakes import FakeDispatcher, FakeGate, FakeReviewer, usage
+from sign_off_rig import declaring
 
 from physgate import roles
 from physgate.gate.runner import PhysicsGate
@@ -198,18 +199,26 @@ def walk(
         }
         graph.writes[FW].append(runner.node(long_id, "firmware", "iface.tilt", period=10))
     loop = rig.open()
-    runner.hooked(monkeypatch, loop, declared=(BUDGET, DRIVE, FW))
+    runner.hooked(monkeypatch, loop)
+    # Drive is a control module whose person's sign-off is owed (ARCH-130), and no decision is
+    # taken on its item: integration's first declaration names it and is refused by the change
+    # check, whose refusal is on the record too, and its next attempt declares the rest.
+    declaring(loop, (BUDGET, DRIVE, FW), then=(BUDGET, FW))
     runner.start(loop, sizing=True)
     loop.run()
     loop.close()
     events = read_events(rig.run_dir / "events.jsonl")
-    (request,) = [r for r in dispatcher.requests if r.subtask_id == INTEG]
+    # Each of integration's windows is handed one document, built again from the record; the
+    # reviewer reads the bytes of the attempt that reached it, the second.
+    requests = [r for r in dispatcher.requests if r.subtask_id == INTEG]
+    assert [r.attempt for r in requests] == [1, 2]
+    (state,) = {r.issued_state for r in requests}
     (artefact,) = [a for a in reviewer.seen if a.subtask_id == INTEG]
-    assert request.issued_state is not None and artefact.integration_state == request.issued_state
+    assert state is not None and artefact.integration_state == state
     return {
         "rig": rig,
         "events": events,
-        "state": request.issued_state.text.encode("utf-8"),
+        "state": state.text.encode("utf-8"),
         "session": frozenset(dispatcher.said),
         "review": frozenset(reviewer.said),
         "node": frozenset(words.values()),
@@ -233,7 +242,10 @@ def test_no_dispute_reason_or_trajectory_reaches_the_state(
     for words in seen["review"]:
         assert canary_seen(log, frozenset({words})) == words
     rejected = [e for e in seen["events"] if isinstance(e, AttemptRejected)]
-    assert [e.subtask_id for e in rejected] == [BUDGET]
+    assert [(e.subtask_id, e.finding.source) for e in rejected] == [
+        (BUDGET, "review"),
+        (INTEG, "declaration"),
+    ]
     for words in seen["node"]:
         assert canary_seen(seen["journal"], frozenset({words})) == words
     # And in no form in the issued state.
@@ -242,6 +254,7 @@ def test_no_dispute_reason_or_trajectory_reaches_the_state(
     # What it does hold: the record's state.
     text = seen["state"].decode()
     assert '### Pair 1: "drive" to "budget"' in text and "## System-scope result" in text
+    assert f'- Module "{DRIVE}" of the "control" role: its stability margin.' in text
 
 
 def test_the_real_gates_finding_carries_no_nodes_free_text_into_the_state(

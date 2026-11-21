@@ -1229,6 +1229,11 @@ def person_order_text(order: PersonOrder) -> bytes:
             "This attempt reopens a merged module, ordered by a person on queue item "
             f"{order.item_id} to conform to the interface's values."
         )
+    elif order.kind == "sign_off_fix":
+        head = (
+            "This attempt is the one fix a person ordered by not signing the values of this "
+            f"module, merged at attempt {order.of_attempt} (queue item {order.item_id})."
+        )
     elif order.kind == "fix_after_arbitration":
         head = (
             "This attempt is the single fix a person ordered by choosing sizing's value on the "

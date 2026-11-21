@@ -119,7 +119,8 @@ jobs:
         pin:
           - { rig: claude-code, version: "2.1.301" }
           - { rig: claude-code-2.1.322, version: "2.1.322" }
-    timeout-minutes: 45
+    # A leg takes up to about 40 minutes on a hosted runner; the limit leaves room for a slow one.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
@@ -204,7 +205,7 @@ jobs:
             tests/integration/hooks/test_no_role_session_writes_a_tier_register_inside_the_os_layer.py \
             --junitxml="$RUNNER_TEMP/tier-register-os-layer.xml" | tee "$RUNNER_TEMP/tier-register-os-layer.txt"
           grep -c '<skipped' "$RUNNER_TEMP/tier-register-os-layer.xml" && exit 1 || true
-          tail -n 1 "$RUNNER_TEMP/tier-register-os-layer.txt" | grep -Eq '^2 passed in [0-9.]+s'
+          tail -n 1 "$RUNNER_TEMP/tier-register-os-layer.txt" | grep -Eq '^2 passed(, [0-9]+ warnings?)? in [0-9.]+s'
 
       - name: A small volume of its own for the row that fills one
         # The row that puts a session's transcripts on a full volume needs a volume small
@@ -227,12 +228,46 @@ jobs:
         # suite measures the checkout once at its start, and a run a row resumes in a
         # process of its own measures it again, so a file written there between the two
         # reads as a different harness.
+        # The ablation arms' rows are left out here and run in the step below, which counts them.
         if: success() || failure()
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
           PHYSGATE_OSLAYER_REPORT: ${{ runner.temp }}/oslayer-report
           PHYSGATE_FULL_VOLUME: /mnt/pg-small
-        run: uv run pytest -q -rs -m integration tests --ignore=tests/integration/hooks
+        run: >
+          uv run pytest -q -rs -m integration tests --ignore=tests/integration/hooks
+          --ignore=tests/integration/orchestrator/test_a_pairwise_set_of_ablation_arms_runs_through_the_command_on_the_real_binary.py
+
+      - name: A pairwise set of ablation arms on the real binary, inside the OS layer
+        # The layer and the binary are both here: the variable turns a missing layer or a missing
+        # binary into a failure, no row may be skipped, and the summary line must read exactly
+        # "10 passed" (nine arms and the row that proves they hold every pair of values).
+        if: success() || failure()
+        env:
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_OSLAYER_REPORT: ${{ runner.temp }}/oslayer-report
+          PHYSGATE_REQUIRE_OS_LAYER: "1"
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q -rA -m integration \
+            tests/integration/orchestrator/test_a_pairwise_set_of_ablation_arms_runs_through_the_command_on_the_real_binary.py \
+            --junitxml="$RUNNER_TEMP/ablation-arms.xml" | tee "$RUNNER_TEMP/ablation-arms.txt"
+          grep -c '<skipped' "$RUNNER_TEMP/ablation-arms.xml" && exit 1 || true
+          tail -n 1 "$RUNNER_TEMP/ablation-arms.txt" | grep -Eq '^10 passed(, [0-9]+ warnings?)? in [0-9.]+s'
+
+      - name: A tool server in a root withheld whole, in real bubblewrap
+        # Its wrapper must be run here, not skipped: the summary line must read exactly
+        # "8 passed", so a skip, an error or a deselect fails the step.
+        if: success() || failure()
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q -rA -m integration \
+            tests/integration/toolenv/test_a_tool_server_in_a_root_withheld_whole_reads_its_worktree_alone_inside_its_wrapper.py \
+            --junitxml="$RUNNER_TEMP/withheld-root-server.xml" | tee "$RUNNER_TEMP/withheld-root-server.txt"
+          grep -c '<skipped' "$RUNNER_TEMP/withheld-root-server.xml" && exit 1 || true
+          tail -n 1 "$RUNNER_TEMP/withheld-root-server.txt" | grep -Eq '^8 passed(, [0-9]+ warnings?)? in [0-9.]+s'
 
       - name: The task author and the blind check on the real binary, in the evaluation environment
         # The runner holds every task to the control scorer, which only the evaluation group
@@ -251,7 +286,7 @@ jobs:
           uv run --frozen --group evaluation pytest -q -rs -m integration \
             tests/integration/orchestrator/test_the_task_author_and_the_blind_check_run_on_the_real_binary.py \
             | tee "$RUNNER_TEMP/author-and-check.txt"
-          tail -n 1 "$RUNNER_TEMP/author-and-check.txt" | grep -Eq '^3 passed in [0-9.]+s'
+          tail -n 1 "$RUNNER_TEMP/author-and-check.txt" | grep -Eq '^3 passed(, [0-9]+ warnings?)? in [0-9.]+s'
 
       - name: What the layer refused, and what it cost
         if: always()

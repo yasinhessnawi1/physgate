@@ -471,6 +471,31 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             step |= {"quantity": conflict["quantity"], "level": e["level"]}
         elif kind == "contract_item_raised":
             step = {"step": "contract_item", "item_id": e["item_id"]}
+        elif kind == "sign_offs_raised":
+            # Each item and its module; never the values' digest or the revisions it binds.
+            raised = [{"item_id": i["item_id"], "module": i["module"]} for i in e["raised"]]
+            step = {"step": "sign_offs_raised", **at, "raised": raised}
+        elif kind == "sign_off_raised_again":
+            item = e["raised"]
+            step = {"step": "sign_off_raised_again", **at, "found": e["found"]}
+            step |= {"item_id": item["item_id"], "module": item["module"]}
+        elif kind == "no_follow_up_owed":
+            step = {"step": "no_follow_up_owed"}
+        elif kind == "sign_off_fix_ended":
+            step = {"step": "sign_off_fix_ended", **at, "why": e["why"]}
+        elif kind == "design_pairs_planned":
+            # Which module builds what another designs, and each naming the other way round.
+            step = {"step": "design_pairs", "pairs": e["pairs"], "mutual": e.get("mutual", [])}
+            if e.get("misordered"):
+                step["misordered"] = e["misordered"]
+        elif kind == "builder_held":
+            # Why it is held, the item a person can act on and the chain, as the line says.
+            step = {"step": "builder_held", "subtask_id": e["subtask_id"]}
+            step |= {"designer": e["designer"], "nodes": e["nodes"], "why": e["why"]}
+            step |= {"item_id": e.get("item_id"), "chain": e.get("chain")}
+        elif kind == "builder_released":
+            step = {"step": "builder_released", "subtask_id": e["subtask_id"]}
+            step |= {"designer": e["designer"], "nodes": e["nodes"]}
         if step is not None:
             out.append({**step, "seq": e["seq"]})
     return out

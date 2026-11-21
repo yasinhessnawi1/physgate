@@ -2,7 +2,8 @@
 
 Run with ``python -u scripts/mutation/run_mutants.py <list.json> [name ...]`` from a clean
 checkout's root; names after the list run only those mutants, between the list's baselines.
-The list is a JSON array of ``{name, file, old, new, tests: [paths]}``; a mutant whose
+The list is a JSON array of ``{name, file, old, new, tests: [paths]}``, with an optional
+``data: [paths]`` of fixture files the rows read, copied but not run; a mutant whose
 name starts with ``baseline`` (``baseline_first``, ``baseline_last``) applies no change,
 and the list starts and ends with one, each named once. ``MUT_VENV`` names the
 environment whose Python runs the rows (default ``.venv``; ``.venv-evaluation`` for
@@ -91,7 +92,7 @@ def _run(m: dict[str, Any], python: Path, helpers: list[str]) -> tuple[str, list
     try:
         tree = work / "tree"
         tree.mkdir()
-        paths = [*helpers, *m.get("paths", []), *m["tests"]]
+        paths = [*helpers, *m.get("paths", []), *m["tests"], *m.get("data", [])]
         archive = subprocess.run(
             ["git", "archive", "HEAD", "src", "scripts", "pyproject.toml", *paths],
             capture_output=True,

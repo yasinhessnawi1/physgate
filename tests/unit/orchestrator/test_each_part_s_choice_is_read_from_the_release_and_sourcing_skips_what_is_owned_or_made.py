@@ -127,9 +127,7 @@ def test_the_fixture_replays_to_its_release_and_its_nodes_are_graph_nodes() -> N
 
 
 def test_the_fixture_s_bom_lines_are_its_electrical_components_and_no_sizing_node() -> None:
-    lines = tuple(
-        n["id"] for n in NODES if n["kind"] == "component" and n["domain"] == "electrical"
-    )
+    lines = named("bom_lines")(Node.model_validate(n) for n in NODES)
     assert lines == BOM_LINES
     sizing = [n for n in NODES if n["domain"] == "cross"]
     assert len(sizing) == 1

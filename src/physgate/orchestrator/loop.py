@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from physgate.contracts.clause import check_pair
 from physgate.contracts.graph import nodes_at
@@ -39,9 +39,10 @@ from physgate.orchestrator.arbitration import (
     arbitrate,
     dispute_standing,
 )
-from physgate.orchestrator.budget import infra_retry_delay
+from physgate.orchestrator.budget import ATTEMPT_LIMIT, infra_retry_delay
 from physgate.orchestrator.change_sets import change_history, integration_history
 from physgate.orchestrator.common import PLANNED_ID_MAX_LENGTH, SUBTASK_PATTERN, utc_now
+from physgate.orchestrator.completion import sign_off_open
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decisions import (
     SCANNED_SOURCES,
@@ -53,10 +54,13 @@ from physgate.orchestrator.decisions import (
     item_consequence,
     person_order,
     scan_hits_of,
+    sign_off_order,
+    sign_off_reject,
     source_of,
 )
-from physgate.orchestrator.declaration import DeclarationError
+from physgate.orchestrator.declaration import DECLARATION_PATH, DeclarationError
 from physgate.orchestrator.decompose import contracts_of
+from physgate.orchestrator.design_wait import wait_line
 from physgate.orchestrator.dispute import DISPUTES_DIR, UNRECORDABLE, disputer_problem
 from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
 from physgate.orchestrator.escalation_state import RUBRIC_ITEM, escalation_state
@@ -66,6 +70,7 @@ from physgate.orchestrator.events import (
     ArbitrationDecided,
     AttemptRejected,
     AttemptReturned,
+    BoundValue,
     CompletionDeclared,
     ContractItemRaised,
     ContractRuled,
@@ -99,6 +104,7 @@ from physgate.orchestrator.events import (
     Merged,
     ModuleCompleted,
     NodeFilesRepaired,
+    NoFollowUpOwed,
     OsLayerChecked,
     OwedEdge,
     PartsGateRan,
@@ -108,6 +114,7 @@ from physgate.orchestrator.events import (
     PartsWriteIntended,
     PlanRejected,
     ProposalsChecked,
+    RaisedItem,
     RaisedPart,
     ReleasedPart,
     Resumed,
@@ -117,6 +124,9 @@ from physgate.orchestrator.events import (
     SessionEnded,
     SessionFinding,
     SessionSpawned,
+    SignOffFixEnded,
+    SignOffRaisedAgain,
+    SignOffsRaised,
     Stage,
     StageEntered,
     StatedPart,
@@ -188,7 +198,6 @@ from physgate.orchestrator.ports import (
     SessionReport,
     SessionRequest,
 )
-from physgate.orchestrator.producer_wait import owed_line
 from physgate.orchestrator.protocols import (
     REJECTING_RESULTS,
     Artefact,
@@ -227,6 +236,9 @@ from physgate.orchestrator.queue import (
     raised_again_id,
     read_queue,
     round_stream,
+    sign_off_consequence,
+    sign_off_item,
+    sign_off_item_id,
     stream_parts,
     unavailable_item,
     whole_lines,
@@ -250,6 +262,15 @@ from physgate.orchestrator.replay import (
     why_not_merged,
 )
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
+from physgate.orchestrator.sign_off import (
+    Bound,
+    SignOffReject,
+    bound_set,
+    quantities_of,
+    shown,
+    values_sha256,
+    values_text,
+)
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.orchestrator.usage_limit import (
     UsageLimit,
@@ -476,10 +497,27 @@ def _account(told: list[str]) -> str:
     )
 
 
-def _follow_up_end(now: AttemptState | None) -> str:
-    """How a module's follow-up ended, in the record's structured fields; ``now`` is its attempt."""
+def _follow_up_end(now: AttemptState | None, sub: SubtaskState) -> str:
+    """How a module's follow-up ended, in the record's structured fields; ``now`` is its attempt.
+
+    With none written, why none was owed, as the closing pass's candidates rule it out: the module
+    merged on its fix; its one fix after a rejected sign-off ended unmerged, so its earlier merge
+    stands; it is at the last attempt number; or its order no read shows whole.
+    """
     if now is None:
-        return "none owed (merged on its fix, or its order no read shows whole)"
+        last = sub.attempts[-1] if sub.attempts else None
+        if any(attempt.fix for attempt in sub.attempts):
+            return "none owed: it merged on its fix"
+        if sub.sign_off_fixed is not None and last is not None and last.merged is None:
+            return (
+                "none owed: its one fix after a rejected sign-off ended without a merge, and its "
+                "earlier merge stands"
+            )
+        if last is not None and last.number >= ATTEMPT_LIMIT:
+            return (
+                "none owed: it is at the last attempt number, with no attempt left to reopen it at"
+            )
+        return "none owed: its order is longer than its reviewer can read whole"
     if now.merged is not None:
         return f"its follow-up merged at attempt {now.number}"
     said = [f"its follow-up ended {why_not_merged(now)}"]  # one of its enum's words, by code
@@ -709,6 +747,19 @@ class Loop:
                     subtask_id=sub.plan.subtask_id,
                     attempt=now.number,
                     point=self.state.resume_point(now),
+                    limit_reset_by=limit_word,
+                )
+            )
+        elif (merge := self.state.halted_at_a_sign_off_line()) is not None:
+            # A halt between a clean merge's diff and its sign-off line: no attempt is in
+            # progress to take over, so the resume names that merge at its diff, and the line
+            # it owes, or the graph's raise, is written next (:meth:`_raise_owed_at_start`).
+            self._emit(
+                Resumed(
+                    **self._env(),
+                    subtask_id=merge[0],
+                    attempt=merge[1],
+                    point="diff",
                     limit_reset_by=limit_word,
                 )
             )
@@ -1098,6 +1149,7 @@ class Loop:
         # A process whose first step is one of those may still spawn one, after a decision it
         # takes or the call it makes: that session's line is recorded before it, once
         # (:meth:`_session`).
+        self._raise_owed_at_start()
         first = self.state.next_step().kind
         if first not in (
             "done",
@@ -1111,8 +1163,10 @@ class Loop:
             "parts",
             "reopen",
             "follow_up_ended",
+            "sign_off_fix_ended",
             "hold",
             "release",
+            "sign_off",
         ):
             self._record_environment()
         while True:
@@ -1153,8 +1207,11 @@ class Loop:
             if step.kind == "reopen":
                 self._reopen()
                 continue
+            if step.kind == "sign_off":
+                self._raise_sign_offs()
+                continue
             if step.kind in ("hold", "release"):
-                self._emit(owed_line(self.state, step.subtask_id or "", self._env()))
+                self._emit(wait_line(self.state, step.subtask_id or "", self._env()))
                 continue
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"
@@ -1167,6 +1224,13 @@ class Loop:
                 why = why_not_merged(self.state.subtasks[step.subtask_id].attempts[-1])
                 self._emit(
                     FollowUpEnded(
+                        **self._env(), subtask_id=step.subtask_id, attempt=step.attempt, why=why
+                    )
+                )
+            elif step.kind == "sign_off_fix_ended":
+                why = why_not_merged(self.state.subtasks[step.subtask_id].attempts[-1])
+                self._emit(
+                    SignOffFixEnded(
                         **self._env(), subtask_id=step.subtask_id, attempt=step.attempt, why=why
                     )
                 )
@@ -1351,7 +1415,11 @@ class Loop:
         No attempt is in progress here, so an incident names no subtask; its detail does.
         """
         contract = item.source == "contract"
-        whole = item.subtask_id == INTEGRATION or item.source in ("plan_review", "parts")
+        whole = item.subtask_id == INTEGRATION or item.source in (
+            "plan_review",
+            "parts",
+            "sign_off",
+        )
         subtask_id = None if whole or contract else item.subtask_id
         digest = view.digests.get(item.item_id)
         if digest is None:
@@ -1379,7 +1447,13 @@ class Loop:
                 ).attempt_commit
         try:
             taken = decision_effect(
-                self.state, item, resolution, line_sha256=digest, scan_hits=scan, held=held
+                self.state,
+                item,
+                resolution,
+                line_sha256=digest,
+                scan_hits=scan,
+                held=held,
+                sign_off_fits=lambda note: self._sign_off_fix_fits(item.item_id, note),
             )
         except QueueItemMismatchError as exc:
             self._incident(None, "queue_item_mismatch", f"{exc}: {exc.context}")
@@ -1403,6 +1477,8 @@ class Loop:
             if item.source == "plan_review"
             else self.record.parts_item_of(item.item_id)
             if item.source == "parts"
+            else self._sign_off_item_of(item)
+            if item.source == "sign_off"
             else item
         )
         if resolution.verb is not None and rebuilt != item:
@@ -1419,6 +1495,14 @@ class Loop:
             sessions = [s for a in self.state.subtasks[subtask_id].attempts for s in a.ended]
             if not self._sealed_hold(sessions):
                 return False
+        # A signature binds the values its item shows over the streams it links: it is taken only
+        # while every one of them still holds its seal, as a merge is.
+        if (
+            taken.acts
+            and taken.effect == "sign"
+            and not self._sealed_hold(self._signed_sessions(item))
+        ):
+            return False
         # A release dispatches the plan the person approved on a view of the decomposition's
         # stream: it is taken only while that stream still holds the seal the review recorded,
         # as a merge is taken only over sealed streams.
@@ -1671,6 +1755,11 @@ class Loop:
         if previous.merged is not None and followed is not None and followed.attempt == attempt:
             told = self._follow_up_order(followed)  # the follow-up's one attempt
             return told.instruction, told
+        fixed = sub.sign_off_fixed
+        if previous.merged is not None and fixed is not None and fixed.attempt == attempt:
+            # The one fix a rejected sign-off ordered: told the values not signed and the note.
+            fix = self._sign_off_fix_order(fixed.item_id or "", previous.number)
+            return fix.instruction, fix
         reopened = sub.reopened
         if (
             previous.merged is not None
@@ -1728,6 +1817,7 @@ class Loop:
             "fix_after_arbitration",
             "contract_conform",
             "follow_up",
+            "sign_off_fix",
         ):
             return order.instruction
         attempts = self.state.subtasks[subtask_id].attempts
@@ -1883,7 +1973,7 @@ class Loop:
             kind="fix"
             if inner is not None
             and (
-                inner.kind in ("fix_after_block", "fix_after_arbitration")
+                inner.kind in ("fix_after_block", "fix_after_arbitration", "sign_off_fix")
                 or (inner.kind == "contract_conform" and sub.attempts[-1].fix)
             )
             else "attempt",
@@ -2711,12 +2801,14 @@ class Loop:
         self._stage(subtask_id, attempt, "implement")
         # Only the cross-nodes owner's opening pass follows its interfaces.
         follows = self.state.follows(subtask_id) if role in owners_of("cross_nodes") else None
-        check = self._recordable(
-            subtask_id,
-            attempt,
-            self._changes.check(
-                subtask_id, session.attempt_commit, role, series=session.series, follows=follows
-            ),
+        check = self._sign_off_refusal(
+            self._recordable(
+                subtask_id,
+                attempt,
+                self._changes.check(
+                    subtask_id, session.attempt_commit, role, series=session.series, follows=follows
+                ),
+            )
         )
         self._emit(
             ProposalsChecked(
@@ -3268,6 +3360,8 @@ class Loop:
             mode = self.config.gate_mode
             order = self.state.integrated()
             not_merged = tuple(s for s in order if self.state.subtasks[s].status != "done")
+            if (mode == "off" or not_merged or not order) and self._no_follow_up_owed():
+                return  # a skipped call is owed none; a sign-off's wait comes before the skip
             if mode == "off" or not_merged or not order:
                 reason: Literal["gate_mode=off", "not_all_merged", "nothing_planned"] = (
                     "gate_mode=off"
@@ -3287,7 +3381,7 @@ class Loop:
             if self._gate is None:
                 msg = f"the integration call cannot pass: gate mode is {mode!r} and no gate"
                 raise GateNotRegisteredError(msg, gate_mode=mode)
-            if not self._follow_ups(write=True):
+            if not self._follow_ups(write=True) or self._no_follow_up_owed():
                 return
             head = self._expected_run_head()
             if head is None:
@@ -3448,6 +3542,361 @@ class Loop:
             self.queue.add(self._contract_item_for(tested, item_id, ts=self.log.events[-1].ts))
         self._emit(ContractItemRaised(**self._env(), item_id=item_id))
 
+    # -- a person's standing sign-offs (ARCH-130) -----------------------------------------
+
+    def _latest_nodes(self) -> dict[str, tuple[int, dict[str, Any]]]:
+        """Each node's last journal line at the run's recorded head: its revision and payload."""
+        head = self.state.journal_head
+        latest: dict[str, tuple[int, dict[str, Any]]] = {}
+        for line in self._graph.records_after(0):
+            if line.rev <= head:
+                latest[line.node_id] = (line.rev, dict(line.payload))
+        return latest
+
+    def _raise_sign_offs(self) -> None:
+        """List each sign-off item the clean merge on the record owes, then write its line.
+
+        For each module, in plan order, whose role owes a person's sign-off and that merged
+        anything: an item when the merge was the module's own, or when what the module's sign-off
+        binds is not what its latest item bound (another node, another revision, other values).
+        Each item is listed before the line, once; a process killed between the two lists none
+        twice and writes the line it owed.
+        """
+        due = self.state.sign_off_due or self.state.sign_off_after
+        if due is None or self.state.sign_off_rules is None:
+            msg = "a sign-off step with no clean merge owing its line"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        merged, attempt = due
+        latest = self._latest_nodes()
+        cross = owners_of("cross_nodes")
+        wrote = set(self.state.subtasks[merged].attempts[-1].applied)
+        raised: list[RaisedItem] = []
+        again: list[RaisedItem] = []
+        for module in self.state.owing_sign_off():
+            bound = bound_set(self.state, module, latest, cross)
+            digest = values_sha256(bound)
+            line = tuple(BoundValue(node_id=b.node_id, revision=b.revision) for b in bound)
+            earlier = self.state.sign_offs_of(module)
+            same = bool(earlier) and (earlier[-1].bound, earlier[-1].values_sha256) == (
+                line,
+                digest,
+            )
+            own = self.state.sign_off_owed(module, merged)
+            if same and not own:
+                continue
+            # ``own`` holds where this merge wrote a node the latest item binds, a node that left
+            # the set through it included; otherwise a write explains it where it is bound now.
+            if not own and not wrote & {b.node_id for b in bound}:
+                # The values moved, and no write of this merge moved them: a raise lost before
+                # this merge, raised again on what the graph gives, or a rewritten journal.
+                where = f"at the merge of {merged} attempt {attempt}"
+                if not self._raisable_again(module, earlier, line, where):
+                    return
+                again.append(self._listed_sign_off(module, bound, digest, line, due, again=True))
+                continue
+            raised.append(self._listed_sign_off(module, bound, digest, line, due))
+        if raised:
+            self._emit(
+                SignOffsRaised(
+                    **self._env(), subtask_id=merged, attempt=attempt, raised=tuple(raised)
+                )
+            )
+        for item in again:
+            self._emit(
+                SignOffRaisedAgain(
+                    **self._env(), found="merge", subtask_id=merged, attempt=attempt, raised=item
+                )
+            )
+
+    def _listed_sign_off(
+        self,
+        module: str,
+        bound: tuple[Bound, ...],
+        digest: str,
+        line: tuple[BoundValue, ...],
+        merged: tuple[str, int],
+        *,
+        again: bool = False,
+    ) -> RaisedItem:
+        """The module's next sign-off item, listed once before its line; what its line holds.
+
+        A process killed between the listing and the line lists none twice.
+        """
+        round_ = len(self.state.sign_offs_of(module)) + 1
+        item_id = sign_off_item_id(self.config.run_id, module, round_)
+        if item_id not in {item.item_id for item in self.queue.items()}:
+            self.queue.add(
+                self._sign_off_item_for(
+                    module, item_id, bound, digest, round_=round_, merged=merged,
+                    ts=self.log.events[-1].ts, again=again,
+                )
+            )  # fmt: skip
+        return RaisedItem(item_id=item_id, module=module, values_sha256=digest, bound=line)
+
+    def _raisable_again(
+        self, module: str, earlier: list[RaisedItem], line: tuple[BoundValue, ...], where: str
+    ) -> bool:
+        """Whether values the graph moved for ``module``'s sign-off can be raised again; or halt.
+
+        They can where the graph binds other nodes or revisions than the module's latest item, each
+        at the revision the log gives: a write the record holds, whose raise was lost. The item's
+        own nodes at its own revisions with other values were rewritten in the journal, which no
+        merge did and no person is asked to sign: the run halts.
+        """
+        if earlier and earlier[-1].bound == line:
+            detail = (
+                f"the values module {module}'s sign-off binds changed {where}, with no write on "
+                f"the record: its latest item {earlier[-1].item_id}'s nodes, at the revisions it "
+                "bound, were rewritten in the journal"
+            )
+            self._incident(None, "foreign_journal_line", detail)
+            return False
+        if not self.state.revisions_given(line):
+            detail = (
+                f"what module {module}'s sign-off binds, as the graph gives it {where}, holds a "
+                "node at a revision the record does not give"
+            )
+            self._incident(None, "foreign_journal_line", detail)
+            return False
+        return True
+
+    def _raise_owed_at_start(self) -> None:
+        """The sign-off line a clean merge may owe, asked of the graph where the log ends at it.
+
+        The log alone owes the line where the merge was the module's own or wrote a node its
+        latest item binds (``sign_off_due``, the next step). A merge that bound a new node to a
+        module (a cross node it wrote that now constrains the module's) owes one only by the
+        graph: a process killed between that merge's clean diff and its line leaves the diff the
+        last line, and this process asks the graph before it writes any line of its own. Never
+        in a halted run, nor where a halt is owed: the halt comes first, and a resume after it.
+        """
+        state = self.state
+        unhalted = state.halted is None and not state.halt_owed()
+        if unhalted and state.sign_off_due is None and state.sign_off_after is not None:
+            self._raise_sign_offs()
+
+    def _sign_off_refusal(self, check: ChangeCheck) -> ChangeCheck:
+        """``check``, or the declaration's refusal where it names a module whose sign-off is owed.
+
+        In either mode: such a module is not complete in this run, and integration's next attempt
+        is told which module to leave out, by name (ARCH-130).
+        """
+        declared = check.declaration
+        if check.refused_by is not None or declared is None:
+            return check
+        owed = self.state.sign_offs_open()
+        named = [module for module in declared.modules if module in owed]
+        if not named:
+            return check
+        why = "; ".join(
+            f"it names module {module!r}, whose "
+            f"{(sign_off_open(self.state, module) or '').removeprefix('its ')}"
+            for module in named
+        )
+        reason = (
+            f"{DECLARATION_PATH}: {why}. A module whose sign-off is owed is not complete in this "
+            "run: declare the others, and leave it out."
+        )
+        return check.model_copy(
+            update={
+                "refused_by": "declaration",
+                "reason": reason,
+                "subject": DECLARATION_PATH,
+                "declaration": None,
+                "disputes": (),
+            }
+        )
+
+    def _sign_off_holds(self, module: str) -> bool:
+        """What a module's sign-off binds, read again from the graph, is what its latest item bound.
+
+        Before its completion line, for a module whose role owes a sign-off: the nodes, their
+        revisions and the values' digest, as the graph at the run's recorded head gives them. The
+        log alone cannot see a cross node newly constraining the module's, and a halt clears what
+        owes a merge's raise, so a raise lost there would leave an approve of older values
+        counting. Where they differ, no completion is written: the sign-off is raised again on what
+        the graph gives, the line saying it was found here, and the run goes on with the module's
+        sign-off owed; or, where the journal was rewritten (:meth:`_raisable_again`), it halts.
+        """
+        if module not in self.state.owing_sign_off():
+            return True
+        earlier = self.state.sign_offs_of(module)
+        bound = bound_set(self.state, module, self._latest_nodes(), owners_of("cross_nodes"))
+        digest = values_sha256(bound)
+        line = tuple(BoundValue(node_id=b.node_id, revision=b.revision) for b in bound)
+        if earlier and (earlier[-1].bound, earlier[-1].values_sha256) == (line, digest):
+            return True
+        if not self._raisable_again(module, earlier, line, "before its completion line"):
+            return False
+        integration = self.state.completion_subtask
+        if integration is None:
+            msg = "a completion step in a run with no subtask that declares one"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        merged = (integration, self.state.subtasks[integration].attempts[-1].number)
+        item = self._listed_sign_off(module, bound, digest, line, merged, again=True)
+        self._emit(
+            SignOffRaisedAgain(
+                **self._env(),
+                found="completion",
+                subtask_id=merged[0],
+                attempt=merged[1],
+                raised=item,
+            )
+        )
+        return False
+
+    def _module_sessions(self, module: str, before: int | None = None) -> list[SessionEnded]:
+        """The sessions of the attempts merged in ``module``'s directory, before line ``before``."""
+        directory = self.state.subtasks[module].plan.module_dir
+        return [
+            attempt.session
+            for subtask_id in self.state.order
+            if self.state.subtasks[subtask_id].plan.module_dir == directory
+            for attempt in self.state.subtasks[subtask_id].attempts
+            if attempt.merged is not None
+            and (before is None or attempt.merged.seq < before)
+            and attempt.session is not None
+        ]
+
+    def _sign_off_item_for(
+        self,
+        module: str,
+        item_id: str,
+        bound: tuple[Bound, ...],
+        digest: str,
+        *,
+        round_: int,
+        merged: tuple[str, int],
+        ts: str,
+        before: int | None = None,
+        reject: SignOffReject | None = None,
+        again: bool = False,
+    ) -> QueueItem:
+        """The item a module's sign-off is listed on, from the record and the graph.
+
+        The one builder, so the item a decision is taken on is held to it whole. Its links are the
+        streams of every attempt merged in the module's directory before its line. ``reject`` is
+        what its reject does as the record gave it at the raise; by default, as it gives it now.
+        ``again``: raised again on values no sign-off line raised (:class:`SignOffRaisedAgain`).
+        """
+        rules = self.state.sign_off_rules
+        sub = self.state.subtasks[module]
+        rule = rules.rule_of(sub.plan.assigned_role) if rules is not None else None
+        if rule is None:
+            msg = "a sign-off item for a module whose role owes none"
+            raise RunStateError(msg, run_dir=str(self.run_dir), module=module)
+        sessions = self._module_sessions(module, before)
+        said = reject if reject is not None else sign_off_reject(self.state, module)
+        return sign_off_item(
+            item_id=item_id,
+            run_id=self.config.run_id,
+            module=module,
+            role=sub.plan.assigned_role,
+            signs=rule.signs,
+            merged=merged,
+            own=self.state.subtasks[merged[0]].plan.module_dir == sub.plan.module_dir,
+            values=values_text(bound, digest),
+            checks=rule.checks,
+            quantities=shown(rule, bound),
+            # By the run's own names for each stream, never the path it had on the machine: a
+            # record of the run reads the same wherever the run directory is.
+            trajectories=tuple(
+                "/".join(stream_parts(s.session_id)) for s in sessions if s.trajectory is not None
+            ),
+            round_=round_,
+            ts=ts,
+            consequence=sign_off_consequence(said) if self._acts() else None,
+            reject=said,
+            again=again,
+        )
+
+    def _sign_off_bound(self, item_id: str) -> tuple[Bound, ...] | None:
+        """What the sign-off item ``item_id`` binds, read again from the journal.
+
+        At the revisions its line names; ``None`` where the run raised no such item or the journal
+        lacks a line.
+        """
+        held = self.state.sign_off_lines.get(item_id)
+        if held is None:
+            return None
+        wanted = {(value.node_id, value.revision) for value in held[1].bound}
+        found = {
+            (one.node_id, one.rev): dict(one.payload)
+            for one in self._graph.records_after(0)
+            if (one.node_id, one.rev) in wanted
+        }
+        if set(found) != wanted:
+            return None
+        return tuple(
+            Bound(node_id=node, revision=rev, quantities=quantities_of(found[(node, rev)]))
+            for node, rev in sorted(wanted)
+        )
+
+    def _sign_off_fix_order(self, item_id: str, merged_at: int) -> PersonOrder:
+        """The order the one fix a reject of ``item_id`` ordered is given: the values it showed.
+
+        Raises:
+            RunStateError: the journal no longer holds what the item bound, or the reject has no
+                note on the record.
+        """
+        bound = self._sign_off_bound(item_id)
+        taken = self.state.taken.get(item_id)
+        if bound is None or taken is None:
+            msg = "a sign-off fix whose item's values or reject the record does not give"
+            raise RunStateError(msg, run_dir=str(self.run_dir), item=item_id)
+        try:
+            return sign_off_order(
+                item_id, merged_at, values_text(bound, values_sha256(bound)), taken.note
+            )
+        except ValueError as exc:
+            raise RunStateError(str(exc), run_dir=str(self.run_dir), item=item_id) from None
+
+    def _sign_off_fix_fits(self, item_id: str, note: str | None) -> bool:
+        """Whether the fix a reject of ``item_id`` with ``note`` orders is read whole by review.
+
+        What the reviewer is told quotes the order, and the order quotes the values.
+        """
+        bound = self._sign_off_bound(item_id)
+        raised = self.state.sign_offs.get(item_id)
+        if bound is None or raised is None or note is None:
+            return False
+        merged_at = self.state.subtasks[raised.module].attempts[-1].number
+        values = values_text(bound, values_sha256(bound))
+        return fits_one_read(person_order_text(sign_off_order(item_id, merged_at, values, note)))
+
+    def _sign_off_item_of(self, item: QueueItem) -> QueueItem | None:
+        """The sign-off item the record and the graph build for ``item``'s id; ``None`` if none.
+
+        The values are read again from the journal at the revisions the item's line names, so a
+        line of the journal or the queue rewritten since the raise is no longer the item.
+        """
+        held = self.state.sign_off_lines.get(item.item_id)
+        bound = self._sign_off_bound(item.item_id)
+        if held is None or bound is None:
+            return None
+        line, raised = held
+        round_ = [i.item_id for i in self.state.sign_offs_of(raised.module)].index(item.item_id)
+        return self._sign_off_item_for(
+            raised.module,
+            item.item_id,
+            bound,
+            values_sha256(bound),
+            round_=round_ + 1,
+            merged=(line.subtask_id, line.attempt),
+            ts=item.ts,
+            before=line.seq,
+            reject=self.state.sign_offs[item.item_id].reject,
+            again=isinstance(line, SignOffRaisedAgain),
+        )
+
+    def _signed_sessions(self, item: QueueItem) -> list[SessionEnded]:
+        """The sessions whose streams a sign-off item links, which a signature binds too."""
+        held = self.state.sign_off_lines.get(item.item_id)
+        if held is None:
+            return []
+        line, raised = held
+        return self._module_sessions(raised.module, line.seq)
+
     def _contract_item_for(self, tested: ContractTested, item_id: str, *, ts: str) -> QueueItem:
         """The item a failed contract lists, from the record as it stood at the result.
 
@@ -3519,7 +3968,7 @@ class Loop:
         if why is not None:
             self._incident(None, "duty_breach", f"subtask {integration}: {why}")
             return
-        if not self._record_holds(integration):
+        if not self._record_holds(integration) or not self._sign_off_holds(step.subtask_id):
             return
         attempt = self.state.subtasks[integration].attempts[-1].number
         self._emit(
@@ -3545,7 +3994,8 @@ class Loop:
         """What sizing's closing pass owed the domain modules on the record up to ``events``.
 
         Candidates are the domain modules that merged with an attempt left to reopen at: one
-        that merged on its fix has none, and the propagation check judges its nodes as written.
+        that merged on its fix, or at the last attempt number, has none, and the propagation check
+        judges its nodes as written.
         A module whose order its reviewer could not read whole is owed none either: the check
         judges its edges as they stand. With ``every``, each done domain module's edges, owed or
         not: what the integration item names.
@@ -3562,6 +4012,8 @@ class Loop:
             and sub.plan.module_dir != directory
             and (every or sub.attempts[-1].merged is not None)
             and (every or not any(a.fix for a in sub.attempts))
+            # A module at the last attempt number has none to reopen at: after a sign-off's fix.
+            and (every or sub.attempts[-1].number < ATTEMPT_LIMIT)
         }
         _, change_sets = change_history(events)
         head = max((r for c in change_sets for r in c.revisions), default=0)
@@ -3603,7 +4055,7 @@ class Loop:
             who = render.held(
                 subtask_id, SUBTASK_PATTERN, PLANNED_ID_MAX_LENGTH, render.REFUSED_SUBTASK
             )
-            told.append(f"{who} (owed {named}): {_follow_up_end(now)}")
+            told.append(f"{who} (owed {named}): {_follow_up_end(now, sub)}")
         return _account(told)
 
     def _follow_up_order(self, followed: SubtaskReopened) -> PersonOrder:
@@ -3614,6 +4066,18 @@ class Loop:
         edges = followed.owed or ()
         return follow_up_order(lines, change_sets, closing, edges, followed.attempt - 1)
 
+    def _no_follow_up_owed(self) -> bool:
+        """Write the line that no follow-up is owed where it is due; whether it was written.
+
+        At the integration step, once it found none owed, in a run that acts while a sign-off
+        item is undecided and the record says nothing of the follow-ups: the person is then
+        asked after them, on the values the call is made on (ARCH-130).
+        """
+        if not self.state.no_follow_up_due():
+            return False
+        self._emit(NoFollowUpOwed(**self._env()))
+        return True
+
     def _follow_ups(self, *, write: bool) -> bool:
         """The follow-ups on the record are what the journal owed where the first was written.
 
@@ -3621,10 +4085,24 @@ class Loop:
         plan order, each reopening its domain module at its next attempt, by code (ARCH-051), and
         whether the call may run now is returned. A process killed between two of them left a
         plan-order prefix, and the rest follows; once any of their attempts began, none does.
-        Otherwise, whether what is recorded holds. A difference halts the run.
+        Otherwise, whether what is recorded holds. A difference halts the run. The line that no
+        follow-up is owed is held the same way, to what the journal owed where it was written:
+        after it, none is written.
         """
         self._follow_ups_checked = True
         events = self.log.events
+        none = self.state.no_follow_up
+        if none is not None:
+            # Under gate off the call is never made, so the line came before the skip and the
+            # journal is not asked what that call would have been owed. A call skipped for any
+            # other reason has no such release: the line is held to what the journal owed.
+            call = self.state.integration
+            off = isinstance(call, IntegrationGateSkipped) and call.reason == "gate_mode=off"
+            if not off and self._owed(events[: none.seq]):
+                detail = "the journal owed a follow-up where the record says no follow-up is owed"
+                self._incident(None, "foreign_journal_line", detail)
+                return False
+            return True
         taken = [e for e in events if isinstance(e, SubtaskReopened) and e.cause is not None]
         if not taken and not write:
             return True
@@ -3798,6 +4276,10 @@ class Loop:
                     **self._env(), subtask_id=subtask_id, attempt=attempt, divergences=named
                 )
             )
+            if not named and self.state.sign_off_after is not None:
+                # The merge's sign-off items, straight after its clean diff: where the log alone
+                # owes one, a process killed before it writes it at its next step.
+                self._raise_sign_offs()
         else:
             # The graph still holds those writes, so it gives the cause; the check's own line,
             # the detail.

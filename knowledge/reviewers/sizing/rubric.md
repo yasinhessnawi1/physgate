@@ -558,8 +558,12 @@ follow-ups" are judged by reading like the rest.
      1.02e-8 kg·m² [maxon, product 256099, retrieved 16.11.2026], and Faulhaber 1224 N 006 SR,
      0.18 g·cm² = 1.8e-8 kg·m² [Faulhaber, *DC-Micromotors Series 1224 … SR*, datasheet]. A
      coreless rotor carries no iron, so it is a comparison, not the value.
-  4. The range contains every basis the work itself states. A range that leaves out one of its own
-     bases (a nominal shaded towards the end that suits a criterion) fails (§5, §9; cat. 1).
+  4. The range contains every physically possible basis the work itself states. A range that leaves
+     out one of its own bases (a nominal shaded towards the end that suits a criterion) fails (§5, §9;
+     cat. 1). A solid-cylinder bound is a basis only with the bore it fits sourced, or with the mass
+     it implies leaving room in the motor's published mass for the stator, magnets, case and gearbox,
+     each accounted for with its basis; a bound that leaves them no mass, or a diameter larger than
+     the bore, is not a basis.
   5. `τ_m = R·J_m/(K_t·K_e)` is stated at the nominal value with `R`, `K_t` and `K_e` at the motor
      shaft (SS-11's fit, before any gear stage); redo it by reading (§5; the arithmetic cat. 1).
   6. The measurement that would resolve the TBR is named (§2, §5; cat. 2).
@@ -739,4 +743,4 @@ source, is the work's, even when its number equals a given value.
   choice was made to escape or satisfy a check and the work fails the corresponding rule when judged
   by reading; without that reasoning, at most `noted`.
 
-<!-- 83479aefe92fad071e3f0b6d5cba30d4 -->
+<!-- 8a0f15cd95971e6e003943ab2aca9cfb -->

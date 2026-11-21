@@ -19,6 +19,7 @@ import pytest
 from loop_fakes import KilledError
 from parts_rig import body, decide, log_of, started
 from plan_hold_rig import again, kinds
+from sign_off_rig import signing
 
 from physgate.state.schema import DECLARED_SOURCE
 
@@ -126,6 +127,6 @@ def test_killed_after_the_writes_landed_the_next_process_finds_the_change_and_ha
 
 def test_writes_that_stand_as_they_landed_release_the_run(tmp_path: Path) -> None:
     run_dir, the_rig = _decided(tmp_path)
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     assert "incident" not in kinds(run_dir)
     assert len(_of(run_dir, "parts_released")) == 1

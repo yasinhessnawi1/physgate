@@ -205,9 +205,19 @@ class MakeCall(Protocol):
     """One decomposition call, as :func:`physgate.orchestrator.decompose.call` makes it."""
 
     def __call__(
-        self, brief: str, *, workdir: Path, prompt: str | None, session_id: str
+        self,
+        brief: str,
+        *,
+        workdir: Path,
+        prompt: str | None,
+        session_id: str,
+        accept_misorder: bool = False,
     ) -> Outcome:
-        """Make the call in ``workdir`` as ``session_id``, sent ``prompt`` or the brief's."""
+        """Make the call in ``workdir`` as ``session_id``, sent ``prompt`` or the brief's.
+
+        ``accept_misorder`` is set only for the call made once more after a refusal: a plan the
+        order check would refuse is then accepted, and the run records the suspected misorder.
+        """
         ...
 
 
@@ -497,7 +507,9 @@ def _one_round(
             refused,
             parts=loop.config.parts_on_hand == "on",
         )
-        outcome = loop.make_call(brief, workdir=workdir, prompt=told, session_id=again)
+        outcome = loop.make_call(
+            brief, workdir=workdir, prompt=told, session_id=again, accept_misorder=True
+        )
         refused_ended, call_ended = call_ended[0], loop.now()
     cause: PlanCause | None = outcome.cause
     detail = outcome.detail
@@ -640,6 +652,7 @@ def decompose_in_rounds(
                     parts=config.parts_on_hand == "on",
                 ),
                 session_id=str(uuid.uuid4()),
+                accept_misorder=True,
             )
         found = start_run(
             outcome,

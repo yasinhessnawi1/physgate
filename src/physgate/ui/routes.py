@@ -59,6 +59,8 @@ PARAMETERS: Mapping[str, re.Pattern[str]] = {
     "round": re.compile(rf"^[2-{LAST_ROUND}]$"),
     "date": re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"),
     "revision": re.compile(r"^(0|[1-9][0-9]{0,8})$"),
+    # A line of a run's log, by its sequence number: the line a page follows the log from.
+    "seq": re.compile(r"^(0|[1-9][0-9]{0,8})$"),
     # The node identifier rule itself: lowercase dotted parts, so no separator, no
     # leading dot and no parent reference can pass.
     "node": NODE_ID_PATTERN,

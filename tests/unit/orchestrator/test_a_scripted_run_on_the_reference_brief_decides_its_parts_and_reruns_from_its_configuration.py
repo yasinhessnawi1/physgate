@@ -22,15 +22,21 @@ from typing import Any
 
 import pytest
 import reference_parts_run as ref
+from sign_off_rig import before_the_sign_off_rule  # noqa: F401 - the fixture, by name
 
 from physgate.evaluation.observe.rerun import Comparison, RerunPlan, compare_runs, rerun
 from physgate.evaluation.observe.sequence import RECORDS
+from physgate.orchestrator import record
 from physgate.orchestrator.events import read_events
 from physgate.orchestrator.parts import choice_of, parts_choices, sourcing_lines
 from physgate.orchestrator.queue import DECISIONS_NAME, PartsBody, parts_sha256
 from physgate.orchestrator.replay import replay
 from physgate.state.schema import DECLARED_SOURCE
 from physgate.state.store import journal_records_after
+
+#: These runs plan a control module, and what they test is the parts and a rerun of the run, not
+#: the signing of a module: each starts as one recorded before the sign-off rule table, owing none.
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
 
 HAVE, MAKE = ref.GEARMOTORS, ref.BUMPER
 
@@ -49,6 +55,7 @@ FOUND = (ref.DRIVER, ref.IMU, ref.CELLS, ref.ENCODERS)
 @pytest.fixture(scope="module")
 def recorded(tmp_path_factory: pytest.TempPathFactory) -> ref.Made:
     with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(record, "SIGN_OFF_RULES", None)
         return ref.recorded_run(patch, tmp_path_factory.mktemp("recorded"))
 
 
@@ -262,6 +269,7 @@ def test_the_system_scope_result_is_what_the_gate_gives_again_over_the_store(
 @pytest.fixture(scope="module")
 def again(recorded: ref.Made, tmp_path_factory: pytest.TempPathFactory) -> ref.Made:
     with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(record, "SIGN_OFF_RULES", None)
         return ref.rerun_from_config(patch, recorded, tmp_path_factory.mktemp("again"))
 
 
@@ -309,6 +317,7 @@ def test_a_rerun_under_a_new_run_id_parts_only_where_a_record_names_the_run_s_ow
     def driver(plan: RerunPlan) -> None:
         cfg = plan.recorded.model_copy(update={"run_id": plan.run_id})
         with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(record, "SIGN_OFF_RULES", None)
             ref.made(
                 patch,
                 plan.run_dir.parent,

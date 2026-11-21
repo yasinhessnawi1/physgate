@@ -57,6 +57,13 @@ _REJECT: dict[OnReject, str] = {
     ),
     "end_subtask": "Rejecting ends the subtask as rejected. Nothing of it is merged.",
     "end_run": "Rejecting ends the run with no module dispatched.",
+    "reopen_fix": (
+        "Rejecting orders the module's one fix after a rejected sign-off by a fresh session of "
+        "its role, told your note and the values shown, and gated and reviewed as any attempt. "
+        "If it merges, you are asked to sign its values again; if not, the module stays not "
+        "complete. If your note makes the order too long to review, nothing is reopened and the "
+        "decision is only recorded."
+    ),
     "record_only": "",
 }
 
@@ -151,6 +158,11 @@ def decision_sentences(
         return None
     if consequence.on_approve == "release":
         approve = "Approving releases the hold, and the plan runs as it stands."
+    elif consequence.on_approve == "sign":
+        approve = (
+            "Approving signs the values this item shows, as shown: the module may then be "
+            "declared complete while they stand, and a later change to them is a new item."
+        )
     elif consequence.on_approve == "merge_attempt":
         sha = consequence.attempt_commit
         commit = "" if sha is None else f" (commit {sha[:12]})"

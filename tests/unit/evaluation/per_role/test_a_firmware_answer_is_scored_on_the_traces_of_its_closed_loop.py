@@ -231,6 +231,9 @@ def test_the_serial_line_is_a_socket_read_line_by_line_with_arrival_times() -> N
     server.bind(("127.0.0.1", 0))
     server.listen(1)
     port = server.getsockname()[1]
+    # The line stays open until the row has read what it reads: a line the device closes is a
+    # fault, and a close racing the reads would make the row's outcome a matter of timing.
+    read = threading.Event()
 
     def firmware() -> None:
         conn, _ = server.accept()
@@ -240,6 +243,7 @@ def test_the_serial_line_is_a_socket_read_line_by_line_with_arrival_times() -> N
                 buffer += conn.recv(1024)
             conn.sendall(b"ACT PUMP ON\r\nACT PU")  # a line, and half of another
             conn.sendall(b"MP OFF\n")
+            read.wait(timeout=30)
 
     thread = threading.Thread(target=firmware)
     thread.start()
@@ -257,6 +261,7 @@ def test_the_serial_line_is_a_socket_read_line_by_line_with_arrival_times() -> N
         while len(received) < 2 and clock.now_ms() < deadline:
             received += [text for _, text in device.receive(clock.now_ms())]
     finally:
+        read.set()
         device.close()
         thread.join()
         server.close()

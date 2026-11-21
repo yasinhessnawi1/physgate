@@ -24,6 +24,7 @@ import plan_hold_rig  # noqa: E402
 from parts_rig import log_of, parts_items, rig, started  # noqa: E402
 from plan_hold_rig import again  # noqa: E402
 
+from physgate.orchestrator import record  # noqa: E402
 from physgate.orchestrator.events import Event  # noqa: E402
 from physgate.orchestrator.loop import Loop  # noqa: E402
 
@@ -62,6 +63,9 @@ def _drive_and_die(run_dir: Path, after: str = "decision_taken") -> None:
 
 def main() -> None:
     run_dir, mode = Path(sys.argv[1]), sys.argv[2]
+    # The run is about holding on a part and resuming, not about signing a module: every process
+    # of it starts as one recorded before the sign-off rule table, owing no signature.
+    record.SIGN_OFF_RULES = None
     if mode == "open":
         started(run_dir)
         os.kill(os.getpid(), signal.SIGKILL)
