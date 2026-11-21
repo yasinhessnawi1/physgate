@@ -1,0 +1,34 @@
+#!/bin/sh
+# avrsim: the run environment's AVR simulator rig (the ATmega32U4 on the balboa32u4 board model).
+#
+# Finds Node and its own sources from where this file really lies, following the links a
+# session's search path names it by, and never from PATH, so the same environment at another
+# root stays the same environment. <root>/avrsim/bin/avrsim runs <root>/node/bin/node on
+# <root>/avrsim/src/cli.js. Node's own start-up variables are dropped: they would load code
+# from outside the environment into the process whose results are the evidence.
+set -eu
+self=$0
+hops=0
+while [ -L "$self" ]; do
+  hops=$((hops + 1))
+  if [ "$hops" -gt 40 ]; then
+    echo "avrsim: too many links on the way to the launcher" >&2
+    exit 1
+  fi
+  if [ -x /usr/bin/readlink ]; then target=$(/usr/bin/readlink "$self"); else target=$(/bin/readlink "$self"); fi
+  case $target in
+    /*) self=$target ;;
+    *) self=${self%/*}/$target ;;
+  esac
+done
+case $self in
+  */*) bin=${self%/*} ;;
+  *) bin=. ;;
+esac
+bin=$(cd -P "$bin" && pwd -P)
+rig=${bin%/*}
+root=${rig%/*}
+unset NODE_OPTIONS NODE_PATH NODE_REPL_EXTERNAL_MODULE NODE_EXTRA_CA_CERTS NODE_V8_COVERAGE \
+  NODE_REDIRECT_WARNINGS NODE_PENDING_DEPRECATION NODE_ICU_DATA NODE_DEBUG NODE_DEBUG_NATIVE \
+  NODE_COMPILE_CACHE UV_THREADPOOL_SIZE
+exec "$root/node/bin/node" "$rig/src/cli.js" "$@"

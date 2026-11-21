@@ -206,13 +206,16 @@ def test_a_value_is_held_as_chosen_only_exactly_and_in_the_same_unit(
 # --- what the closing pass waits for -------------------------------------------------------------
 
 
-def test_the_closing_pass_does_not_wait_for_an_item_that_is_no_dispute_s(tmp_path: Path) -> None:
-    # No dispute: s1's review blocks, its item is open in a run that acts, and the closing pass
-    # still runs.
+def test_the_closing_pass_waits_for_a_module_with_a_person_whose_item_is_no_dispute_s(
+    tmp_path: Path,
+) -> None:
+    # No dispute: s1's review blocks and its item is open in a run that acts. The closing pass is
+    # not dispatched while s1 is with a person: the run waits on the item, as for any module.
     reviewer = FakeReviewer(verdicts=["pass", "blocked"], results={2: blocked_review()})
     rig = rig_of(tmp_path / "run", reviewer=reviewer, script=[()])
     driven(rig, lambda r: run(r, plan=CLOSING))
-    assert [s[:2] for s in _sessions(rig)] == [("z0", 1), ("s1", 1), ("zc", 1)]
+    assert [s[:2] for s in _sessions(rig)] == [("z0", 1), ("s1", 1)]
     state = replay(events_of(rig))
     assert state.subtasks["s1"].status == "escalated"
-    assert state.next_step().kind != "wait"
+    step = state.next_step()
+    assert (step.kind, step.subtask_id) == ("wait", "zc")

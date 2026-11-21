@@ -60,6 +60,7 @@ from physgate.gate.graph import GraphView
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.change_sets import change_history
+from physgate.orchestrator.closing_wait import closing_waits
 from physgate.orchestrator.common import render_jsonl, utc_now
 from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.design_wait import held_builders, misordered_words
@@ -428,6 +429,9 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
             # Each builder held while the module whose design it implements has not merged.
             "held": held_builders(state).get("held", []),
+            # Each closing pass held while a domain module has neither merged nor ended without
+            # a merge, with the modules it waits for.
+            "closing_waits": closing_waits(state).get("closing_waits", []),
             # Each builder the plan lists before the designer whose design it may build, as a
             # plain sentence: nothing is held for it, so a person is told to check the order.
             "misordered": misordered_words(state),

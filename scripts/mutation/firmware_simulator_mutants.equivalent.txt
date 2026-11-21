@@ -1,0 +1,18 @@
+Mutants of firmware_simulator_mutants.json judged equivalent and removed from it.
+
+A mutant stays in the list only if some row can tell it from the source. The entries below
+change no behaviour a run can reach; each says why, from the code, and what would make it
+reachable. A change to the source named here means the argument is to be read again.
+
+pll_lock_without_plle
+  file: toolenv/avrsim/src/mcu.js, Usb constructor, the lock event
+  old:  `      if (!(cpu.data[REG.PLLCSR] & 0x02)) return;\n      if (this.fitsTheCrystal)`
+  new:  `      if (this.fitsTheCrystal)`
+  The change drops the guard "PLLE is clear: do not lock" at the top of the lock event. The event
+  is added only by the write hook of PLLCSR, when PLLE goes from clear to set, and the same hook
+  clears it (clearClockEvent) on any write that leaves PLLE clear. Nothing else writes PLLCSR
+  between a start and a lock except the rig's bootloader preset, which sets PLLE (0x13) and adds
+  no event, and a reset builds a new chip with no event. So whenever the event runs, PLLE is
+  set, and the guard never returns. The mutated lock is the same function on every reachable
+  path. It would stop being equivalent if the event were scheduled anywhere else or the
+  clearClockEvent in the hook were dropped (a mutant for that line is a different one).

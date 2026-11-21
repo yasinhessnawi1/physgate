@@ -282,12 +282,10 @@ def test_a_module_merged_on_its_fix_is_owed_no_follow_up(tmp_path: Path, blocked
     rig.reviewer = FakeReviewer(
         verdicts=["pass", *(["fail"] * (blocked_at - 1))], results={s1[-1]: blocked_review()}
     )
-    killed = ended(
-        rig,
-        plan=CLOSING,
-        kill=lambda e: e.kind == "stage_entered" and e.model_dump()["subtask_id"] == "zc",
-    )
-    assert killed == "killed"
+    # The closing pass is not dispatched while s1 is with a person: the run waits on its item.
+    waited = ended(rig, plan=CLOSING)
+    assert waited == "wait"
+    assert not at(events_of(rig), "stage_entered", "zc", 1)
     decide(rig.run_dir, "reject", "the pole is the one the linearisation gives")
     outcome = ended(rig, how=resume)
     events = events_of(rig)
@@ -377,8 +375,7 @@ def test_a_follow_up_of_a_module_with_no_attempt_left_is_refused(tmp_path: Path)
     (line,) = [e for e in events_of(owed_run) if e.kind == "subtask_reopened"]
     rig = slice_rig(tmp_path / "fixed")
     rig.reviewer = FakeReviewer(verdicts=["pass"], results={2: blocked_review()})
-    starts_zc = lambda e: e.kind == "stage_entered" and e.model_dump()["subtask_id"] == "zc"  # noqa: E731
-    assert ended(rig, plan=CLOSING, kill=starts_zc) == "killed"
+    assert ended(rig, plan=CLOSING) == "wait"  # the closing pass waits while s1 is with a person
     decide(rig.run_dir, "reject", "the pole is the one the linearisation gives")
     assert ended(rig, how=resume) == "done"
     events = events_of(rig)
