@@ -222,3 +222,78 @@ its specification, and the system-level requirements that only integration can v
 allocated to it as §6 says.
 
 **Judgement-only** — no check reads a plan's integration content.
+
+## 12. A behaviour of the built system is allocated to every link that produces it
+
+A requirement that names what the built system does (it drives at a speed, recovers from a push,
+stops when it falls) is produced by a chain, and each link is a place where it can be missing: the
+source of the command or input (who commands the speed, from what input, in what value and unit);
+the law that follows it (the designing module); the code that applies it, reading the same value
+(the implementing module); the plant that responds (sizing's quantities); and a check of the built
+chain, not of each link alone. Functions are to be arranged "so that any specified operational usage
+of the system can be traced in an end-to-end path" [NASA SE Handbook, §4.3.1.2.2]. A requirement
+allocated to the module that analyses it and to no module that produces it is shown in an analysis
+only: the system built never does it. So for each such requirement the plan (a) names the module
+that produces the command or input and the implementing module that applies it (the one whose built
+program reads the value), where the value comes from (a constant of the brief, a sensor, a person)
+and its value and unit (the brief's value, or a stated command above it for margin), on the node
+both modules read (§3); (b) gives the implementing module a criterion that its built program applies
+the value read from that node, verified by a means the run environment provides (§6); (c) lists the
+requirement in the plan's list for integration with the criteria of every link (§6); and (d) in the
+specification of the module that closes the chain, under a heading "System checks", names each
+quantity integration compares across the links (the value applied against the value analysed) and
+the check it runs, or says the check is not shown in this run, with the reason (§1). A requirement
+of the brief with a link no module owns is recorded in the plan as not allocated, with the reason,
+only where the brief itself leaves that link to a person; where a module of the plan could produce
+it, that module is given it.
+
+**Judgement-only** — no check follows a requirement through the modules that produce it.
+
+## 13. A module that drives a motor is given the values of its safety checks, each with its source
+
+Five checks need a value the implementing module cannot derive from its own work, and a module
+given none can only choose one or leave the check out. The plan states each in the module's
+specification with a value (the planner's rule for limits, timeouts and fault behaviour), a source
+and, where it is the plan's own choice, the derivation:
+
+1. *A stale command.* A loop that hangs holds its last motor command. The value, the stale-command
+   timeout, is the longest time between refreshes before the motors go off, in ms, or the
+   requirement of a watchdog that bounds it. A plant that falls by itself leaves its recoverable
+   range in a time set by its fall time constant, which a stale command does not oppose, so the
+   timeout is a few update periods and well under that constant (*derived* from the plant, stated as
+   the plan's choice). The ATmega32U4's watchdog timer takes a time-out from 16 ms to 8 s, and in
+   System Reset mode "is typically used to prevent system hang-up in case of runaway code"
+   [Microchip, *ATmega16U4/ATmega32U4 datasheet*, Atmel-7766J, 2016, §8.9, Table 8-5]: a bound under
+   16 ms needs another mechanism, named.
+2. *A sensor fault during operation.* The count N of consecutive failed or implausible reads, or the
+   time T without a valid read, that turns the motors off. The fault at power-up is another check.
+   N update periods are within the stale-command timeout of check 1 (*derived*).
+3. *The motor driver while the processor is in reset.* The state the board leaves the driver's
+   inputs in, with its source. The ATmega32U4's port pins are tri-stated while a reset is active
+   [ibid., §10.2.1]; each input of the DRV8838 has "a weak pulldown resistor" to ground, RPD 100 kΩ
+   on PH and EN and 55 kΩ on nSLEEP [Texas Instruments, *DRV8837, DRV8838*, SLVSBA4F, revised April
+   2021, §7.3.4 and the electrical characteristics], and its Table 7-2 reads enable low as Brake
+   with nSLEEP high and nSLEEP low as Coast (§7.4: outputs Hi-Z). Whatever the board adds to those
+   inputs decides, so the source is the board maker's schematic; where the plan has none, it records
+   the state as not shown.
+4. *A wait on the bus that never ends.* The bus's time-out value. I²C sets none, and a loop on a
+   status bit needs "a fixed upper-bound" [G. J. Holzmann, "The Power of 10", *IEEE Computer*
+   39(6), 2006, rule 2]. The value is a stated multiple of the bytes of the longest transfer at the
+   configured rate, nine bit times a byte (eight data bits and an acknowledge, *derived*), and no
+   longer than the stale-command timeout leaves.
+5. *The sensor's own filter.* Its bandwidth and the delay it adds, against the rate at which the
+   samples are used and the plant's unstable pole. For the LSM6DS33 gyroscope the digital low-pass
+   cutoff follows the output data rate and the power mode (60.2 Hz at 208 Hz in normal mode, 66.7 Hz
+   in high-performance mode, which the reset state of the mode bit G_HM_MODE selects; the output
+   data rate itself resets to power-down and must be set, register CTRL2_G of the datasheet) and the
+   maker gives no other setting of the digital filter [STMicroelectronics, *AN4682*, DocID027736 Rev
+   1, §2.7, Tables 13 and 14]: the plan states "not settable", the mode the program selects and the
+   delay with its document or measurement. The plan owns this value: control uses it, and firmware
+   checks the configured setting against it. Content above half the rate of use aliases (the
+   antialiasing filter is chosen below it), and a bandwidth under ten times the unstable pole costs
+   the loop its margin, so the plan compares the figure with both.
+
+A value the plan cannot source is written as an estimate to be resolved, with its derivation and who
+resolves it (§8), never left out.
+
+**Judgement-only** — no check reads whether a plan gives a module its safety values.

@@ -75,8 +75,10 @@ claim.
   human queue should receive only work that is otherwise clean. This applies in particular to
   DS-4 (`p`, a rate or filter value the specification fixes, or the control-design analysis that
   must include a measured and handed-over delay), DS-10(a)–(d) (the recoverable tilt range, the
-  command timeout, the sensor-fault definition, the hardware off-state at reset), DS-12 (trip
-  limits) and DS-16 (bus timeouts). For a missing input, these are the safety-critical checks: a
+  stale-command timeout, the sensor-fault definition, the hardware off-state at reset), DS-12 (trip
+  limits) and DS-16 (bus timeouts); DS-10, DS-12 and DS-16 record no such defect for a value the
+  work chose and named as its own, nor DS-10(d) for a board state the specification does not give
+  and the work records as not given. For a missing input, these are the safety-critical checks: a
   missing input blocks only for a *not evaluable* criterion and for a sub-check of DS-4, DS-10,
   DS-12 or DS-16; any other missing-input defect is non-blocking (*Missing evidence* below). For a
   proposed revision, an input the account lists as absent blocks nothing, in DS-4 or anywhere
@@ -458,7 +460,11 @@ balances and follow-ups by reading, like every other item.
   input-to-output delay and its variation measured on target (DS-29), with what it returned,
   and that the figures were compared with what the control design tolerates or passed to the
   control role. A budget that treats the loop as running at exactly its period with no delay is a
-  finding.
+  finding. So is a delay budget that leaves out the sensor's own digital filter: its configured
+  bandwidth and the delay it adds are checked against the value the plan and control used, from the
+  maker's document or measured, and any difference is recorded with its source; or the work says
+  that the maker gives the digital filter no setting apart from the output data rate and the power
+  mode (standards §13).
 
 ### Interrupts and concurrency
 
@@ -500,34 +506,50 @@ balances and follow-ups by reading, like every other item.
   reading* that the code puts the motor outputs in their off state when:
   (a) the tilt is beyond the range the specification or design state says the controller can
   recover from;
-  (b) the motor command has not been refreshed by the control loop within the stated timeout;
+  (b) the motor command has not been refreshed by the control loop within the stated timeout. The
+  detection does not run only inside the loop it watches (DS-11): a loop that hangs holds its last
+  command, so a module with no watchdog or independent timer that turns the outputs off has no
+  path here, a finding whatever the specification gives, and "the loop refreshes the command every
+  update" is not a path (standards §13);
   (c) a sensor fault occurs as the specification defines it (e.g. N consecutive failed or
-  implausible reads, or no valid read within T), with N or T sourced;
+  implausible reads, or no valid read within T), with N or T the specification's or the work's own,
+  named as such (below);
   (d) the processor starts or restarts. *By reading:* the init sequence writes the motor outputs to
   off before the PWM timer or the driver enable is started, and nothing enables the motors before
-  the loop has run once. *By evidence:* the specification names the hardware off-state at reset
-  (pin default, driver pull-down), and a reset or watchdog-reset trip appears in the DS-12
-  evidence.
+  the loop has run once. *By evidence:* the work cites the specification's statement of the hardware off-state at reset
+  (pin default, driver pull-down), or records it as not given (the board's state is not firmware's
+  to source), and a reset or watchdog-reset trip appears in the DS-12 evidence.
   Each of (a)–(d) has two sub-checks. *Path:* the code has a motor-off path for the condition (and,
   for (d), the by-reading part above); a condition with no path is a finding, judged whatever the
   specification gives. *Value:* the path uses the range, timeout, fault definition or off-state
   the issued specification or the design state it gives provides, or lets the reviewer derive by
   reading (see the verdict policy); a departure is a finding. Where that input is missing (see the
-  verdict policy), record a blocking specification defect for that value sub-check only. The
-  range, timeout, fault definition and off-state are each a *Specification value*.
+  verdict policy), record a blocking specification defect for that value sub-check only, except
+  as the next sentences say. The range, timeout, fault definition and off-state are each a
+  *Specification value*. Where the specification gives none of (b)'s timeout or (c)'s N or T (the
+  tilt range of (a) stays a specification value) and the work built the path with a value of its
+  own, named as its own choice in its record under the inputs the specification did not give, no
+  blocking defect is recorded for that value: the path is `met`, the value is the work's, and the
+  record of it goes to integration as an open item (standards §13). Where the specification names
+  no off-state for (d), the work's record says it is not given and carries it to integration: no
+  blocking defect, and no finding unless the work presents a state as the specification's. A value
+  presented as the specification's is a finding. The path is never counted missing for want of a
+  value.
 - **DS-11. The off state latches and cannot be switched off.** Once a condition trips (after any
   debounce the specification defines), the motors stay off until an explicit re-arm or reset,
   rather than resuming when the condition clears. The check that detects a stalled loop does not run
   only inside that loop (compare DS-9). No runtime flag, command or build switch disables a trip
   condition, unless a specific allowance in the issued specification names that switch.
 - **DS-12. Trip limits are sourced and trip paths were exercised.** *Applies when* the diff changes
-  a trip path or anything that feeds it. The tilt limit, the command timeout and the sensor-fault
+  a trip path or anything that feeds it. The tilt limit, the stale-command timeout and the sensor-fault
   N or T come from the specification or the control design, with a source. Two sub-checks:
   *Limits*, judged per limit: a value chosen in the trajectory where the issued specification or
   the design state it gives provides one, or lets the reviewer derive one by reading (see the
   verdict policy), is a finding (see RH-2); where that limit is missing (see the verdict policy),
   record a blocking specification defect for that limit only. Each limit is a *Specification
-  value*. *Exercise*, judged whatever the specification gives: the trajectory shows each changed
+  value*, except that a stale-command timeout or a sensor-fault N or T the specification does not give
+  and the work chose, named as its own choice in its record, is no blocking defect and no finding
+  (DS-10). *Exercise*, judged whatever the specification gives: the trajectory shows each changed
   trip condition exercised on target, on the rig DS-29 accepts, or, where DS-29 names none, by the
   host-side test or the model of the code DS-29 accepts for the trip's logic (e.g. tilting past the
   limit, stopping the loop, disconnecting or faulting the sensor, forcing a reset), and
@@ -565,8 +587,9 @@ balances and follow-ups by reading, like every other item.
   value from the specification or a datasheet the specification gives. Sub-checks: *timeout
   present*, judged always (a wait with no timeout is a finding); *timeout value* (a value that
   departs from the given one is a finding; where the value is missing, see the verdict policy,
-  record a blocking specification defect for this sub-check only; the value is a *Specification
-  value*); *recovery*, judged always, *Normative rule (category 2)* (UM10204 §3.1.16), as
+  record a blocking specification defect for this sub-check only, except that a time-out the
+  specification does not give and the work chose, named as its own choice in its record, is no
+  blocking defect and no finding (DS-10); the value is a *Specification value*); *recovery*, judged always, *Normative rule (category 2)* (UM10204 §3.1.16), as
   follows. A stuck bus is detected and cleared: with SCL stuck LOW, the devices are reset by their
   hardware reset input or by cycling their power; with SDA stuck LOW, the controller sends nine
   clock pulses, and if SDA is still not released, uses the hardware reset or a power cycle. After
@@ -761,6 +784,12 @@ design* and *Inputs the parts sheet does not give*) apply to these items too.
   symbol or direct register access in an application file is a finding, and comments or reasoning
   such as "temporary", "for now", "just this once" or "TODO: move to HAL" make it more serious, not
   less.
+- **AP-8. A hung loop that holds the last command.** Read how a stalled loop is detected. A module
+  whose only refresh of the command is the loop itself, with no watchdog or independent timer that
+  turns the outputs off, is a finding (DS-10(b), DS-11).
+- **AP-9. A safety path left out for want of a value, or a value of the work's own called
+  sourced.** A condition of DS-10 with no path because the specification gave no value is a
+  finding; so is a value the work chose, shown as the specification's (DS-10, DS-12, DS-16).
 
 ---
 
@@ -845,4 +874,4 @@ policy).
   rather than the specification. *Confirmed when* that choice is in the delivered work; otherwise
   `noted`.
 
-<!-- d3b2a2a12be86702e45c65dce6c1c63d -->
+<!-- 001a911d74e1ef26f3540c23deaf338d -->
