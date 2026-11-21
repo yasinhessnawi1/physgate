@@ -32,7 +32,7 @@ export const REG = Object.freeze({
   PLLCSR: 0x49,
   SPCR: 0x4c, SPSR: 0x4d, SPDR: 0x4e,
   ACSR: 0x50, PLLFRQ: 0x52, SMCR: 0x53, MCUSR: 0x54, MCUCR: 0x55, SPMCSR: 0x57,
-  SPL: 0x5d, SPH: 0x5e, SREG: 0x5f,
+  RAMPZ: 0x5b, SPL: 0x5d, SPH: 0x5e, SREG: 0x5f,
   WDTCSR: 0x60, CLKPR: 0x61, PRR0: 0x64, PRR1: 0x65,
   PCICR: 0x68, EICRA: 0x69, EICRB: 0x6a, PCMSK0: 0x6b,
   TIMSK0: 0x6e, TIMSK1: 0x6f, TIMSK3: 0x71, TIMSK4: 0x72,
@@ -87,6 +87,8 @@ export const FEATURE_EFFECTS = Object.freeze({
   adc_clock: ['behaviour'],
   on_chip_debug: [],
   pll_frequency: [],
+  pll_configuration: ['timing', 'behaviour'],
+  unmapped_memory: ['timing', 'behaviour'],
   rc_oscillator: [],
 }); // prettier-ignore
 
@@ -101,13 +103,19 @@ export const UNMODELLED_FEATURES = Object.freeze(
   Object.keys(FEATURE_EFFECTS).filter((name) => FEATURE_EFFECTS[name].includes('timing')),
 );
 
-/** Timer4 clocked (TCCR4B CS4) with an interrupt enabled (TIMSK4) or a compare output connected
- * (COM4A/B in TCCR4A, COM4D or the COM4A/B shadow bits in TCCR4C): a use of it. */
+/** Timer4 clocked (TCCR4B CS4) with an interrupt enabled (TIMSK4), a compare output connected
+ * (COM4A/B in TCCR4A, COM4D or the COM4A/B shadow bits in TCCR4C) or its fault protection
+ * enabled or interrupting (FPEN4, FPIE4 in TCCR4D): a use of it. */
 const timer4Used = (chip) => {
   const { data } = chip.cpu;
   return (
     !!(data[REG.TCCR4B] & 0x0f) &&
-    !!(data[REG.TIMSK4] & 0xe4 || data[REG.TCCR4A] & 0xf0 || data[REG.TCCR4C] & 0xfc)
+    !!(
+      data[REG.TIMSK4] & 0xe4 ||
+      data[REG.TCCR4A] & 0xf0 ||
+      data[REG.TCCR4C] & 0xfc ||
+      data[REG.TCCR4D] & 0xc0
+    )
   );
 };
 
@@ -240,14 +248,15 @@ put(0xbb, 'TWDR', modelled('the chip\'s TWI'));
 put(0xbc, 'TWCR', modelled('the chip\'s TWI as a master'));
 // A slave: its address (TWAR, or its general-call bit) or its mask (TWAMR) is set. The rig has no
 // master on the bus and raises no slave interrupt, so a firmware that listens would be shown a quiet
-// bus. A master's own start-up clears TWAR (Arduino's Wire.begin() writes 0, address 0 without the
-// general-call bit): that is not a use.
-const slave = (name) => ({
-  uses: (value) => (value ? ['twi_slave'] : []),
+// bus. A master leaves TWAR as it is: 0xFE at reset (address 0x7F, general call off, which nothing
+// addresses), and the Wire library's timeout recovery reads it and writes it back; a write of 0xFE
+// or of 0 is not a use.
+const slave = (name, resting) => ({
+  uses: (value) => (resting.includes(value) ? [] : ['twi_slave']),
   detail: (value) => ({ register: name, value }),
 });
-put(0xba, 'TWAR', ends('twi_slave', slave('TWAR')));
-put(0xbd, 'TWAMR', ends('twi_slave', slave('TWAMR')));
+put(0xba, 'TWAR', ends('twi_slave', slave('TWAR', [0, 0xfe])));
+put(0xbd, 'TWAMR', ends('twi_slave', slave('TWAMR', [0])));
 each([[0xc5, 'CLKSEL0'], [0xc6, 'CLKSEL1']], reported('clock_source'));
 put(0xc7, 'CLKSTA', reported('clock_source', { on: 'read', uses: always('clock_source') }));
 each(
@@ -257,11 +266,12 @@ each(
 ); // prettier-ignore
 put(0xcb, 'UCSR1D', reported('usart1_flow_control', { uses: writes(0x03, 'usart1_flow_control') }));
 
-// USB, detached with no host (class Usb in mcu.js). UHWCON's bits (pad regulator, ID and VBUS
-// pin control) matter only to a host connection; the endpoint registers matter only once a host
-// has enumerated the device, which this rig does not have: their use is reported, not modelled.
+// USB, detached with no host (class Usb in mcu.js). On this chip UHWCON holds UVREGE (bit 0, the
+// USB pad regulator's enable; bits 7:6 are to be left alone), which changes nothing a firmware
+// can see with no host; the endpoint registers matter only once a host has enumerated the device,
+// which this rig does not have: their use is reported, not modelled.
 put(0xd7, 'UHWCON', modelled('storage', {
-  why: 'USB pad regulator, ID and VBUS pin control: observable only with a host',
+  why: 'the USB pad regulator enable (UVREGE): observable only with a host',
 })); // prettier-ignore
 each(
   [[0xd8, 'USBCON'], [0xd9, 'USBSTA'], [0xda, 'USBINT'], [0xe0, 'UDCON'], [0xe1, 'UDINT'],

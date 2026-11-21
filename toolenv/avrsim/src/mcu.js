@@ -240,6 +240,11 @@ export const MCUSR_WDRF = 0x08;
  * takes 10 ms, the long end of that reading, so a start-up that waits on PLOCK is not shortened. */
 export const PLL_LOCK_CYCLES = FREQUENCY_HZ / 100;
 
+/** The PLL's frequency settings the datasheet allows (PLLFRQ's PDIV3:0, "PLL Frequency Control
+ * Register"): 40, 48, 56, 72, 80, 88 and 96 MHz. 0000 to 0010, 0110 and 1011 to 1111 are "Not
+ * allowed". */
+const PLL_ALLOWED_PDIV = new Set([0b0011, 0b0100, 0b0101, 0b0111, 0b1000, 0b1001, 0b1010]);
+
 /** The four-cycle interrupt response for a part with a two-byte program counter, of which avr8js
  * counts two (datasheet "Interrupt Response Time"). */
 const RESPONSE_CYCLES_MISSING = 2;
@@ -504,7 +509,10 @@ class Watchdog {
  * The USB controller with no host (datasheet "USB Controller").
  *
  * Its registers store what is written, with these behaviours: the PLL sets PLOCK PLL_LOCK_CYCLES
- * after PLLE is set and clears it with PLLE; UDINT's
+ * after PLLE is set when its input and output settings fit this board's 16 MHz crystal (PINDIV
+ * set, PINMUX clear, a PDIV the datasheet allows; any other setting never locks and is reported
+ * as `pll_configuration`) and clears it with PLLE; USBSTA reads ID set and VBUS clear whatever
+ * is written; UDINT's
  * flags can only be cleared by software, by writing a zero; USB_GEN is a level, pending while
  * any flag in UDINT has its enable in UDIEN. No host means no bus reset, no enumeration and no
  * data: VBUS reads 0, so USBINT's flag never sets. Start-of-frame interrupts at 1 kHz can be switched on as a load (`sof`),
@@ -512,7 +520,7 @@ class Watchdog {
  * while the controller is enabled, its clock running, the PLL locked and the device attached.
  */
 class Usb {
-  constructor(chip, { sof }) {
+  constructor(chip, { sof, report }) {
     const { cpu } = chip;
     this.cpu = cpu;
     this.interrupt = {
@@ -525,8 +533,12 @@ class Usb {
     };
     cpu.data[REG.USBCON] = 0x20; // FRZCLK set at reset
     cpu.data[REG.UDCON] = 0x01; // DETACH set at reset
+    cpu.data[REG.PLLFRQ] = 0x04; // PDIV = 0100, 48 MHz, at reset
+    cpu.data[REG.USBSTA] = 0x02; // ID reads 1, VBUS 0
     this.lock = () => {
-      if (cpu.data[REG.PLLCSR] & 0x02) cpu.data[REG.PLLCSR] |= 0x01;
+      if (!(cpu.data[REG.PLLCSR] & 0x02)) return;
+      if (this.fitsTheCrystal) cpu.data[REG.PLLCSR] |= 0x01;
+      else report('pll_configuration');
     };
     cpu.writeHooks[REG.PLLCSR] = (value, old) => {
       const locked = old & 0x01;
@@ -549,10 +561,7 @@ class Usb {
       cpu.data[REG.USBINT] = old & value; // VBUSTI is cleared by writing a zero, never set by a write
       return true;
     };
-    cpu.writeHooks[REG.USBSTA] = (value, old) => {
-      cpu.data[REG.USBSTA] = (old & 0x01) | (value & ~0x01); // VBUS is read-only
-      return true;
-    };
+    cpu.writeHooks[REG.USBSTA] = () => true; // every bit is read-only
     if (sof) {
       this.frame = () => {
         this.startOfFrame();
@@ -560,6 +569,15 @@ class Usb {
       };
       cpu.addClockEvent(this.frame, FREQUENCY_HZ / 1000);
     }
+  }
+
+  /** Whether the PLL's input is this board's 16 MHz crystal halved to the 8 MHz it takes (PINDIV
+   * set, PINMUX clear: not the internal RC oscillator) and its output setting is an allowed one. */
+  get fitsTheCrystal() {
+    const { data } = this.cpu;
+    return (
+      !!(data[REG.PLLCSR] & 0x10) && !(data[REG.PLLFRQ] & 0x80) && PLL_ALLOWED_PDIV.has(data[REG.PLLFRQ] & 0x0f)
+    );
   }
 
   get attached() {
@@ -639,7 +657,14 @@ export class ATmega32U4 {
    *   onEvidenceEnd?: Function, watchdogHz?: number}} options
    */
   constructor(program, options) {
-    const cpu = new CPU(program, SRAM_BYTES);
+    // avr8js wraps its program counter modulo the length of the program it is given, so a flash
+    // image of 0x4000 words would start over at 0 where the part has nothing to run. The image is
+    // padded with blank words to 0x10000 (every address a two-byte program counter reaches, and
+    // not more: a longer image would make avr8js take a three-byte counter), and the rig stops at
+    // the first word past the flash.
+    const image = new Uint16Array(0x10000);
+    image.set(program);
+    const cpu = new CPU(image, SRAM_BYTES);
     this.cpu = cpu;
     this.watchdogHz = options.watchdogHz ?? 128_000;
     cpu.cycles = options.cycles ?? 0;
@@ -656,15 +681,40 @@ export class ATmega32U4 {
     for (const timer of [this.timer0, this.timer1, this.timer3]) completeTimer(cpu, timer);
     this.usart1 = new AVRUSART(cpu, USART1, FREQUENCY_HZ);
     this.twi = new TimedTWI(cpu, options.bus, options.onTransfer ?? (() => {}));
+    cpu.data[REG.TWAR] = 0xfe; // address 0x7F, general call off, at reset
     this.adc = new AVRADC(cpu, ADC);
     if ('now' in options.eeprom) options.eeprom.now = () => cpu.cycles;
     this.eeprom = new AVREEPROM(cpu, options.eeprom, EEPROM);
     this.watchdog = new Watchdog(this);
-    this.usb = new Usb(this, { sof: !!options.sof });
     const unmodelled = options.onUnmodelled ?? (() => {});
     const end = options.onEvidenceEnd ?? (() => {});
+    this.usb = new Usb(this, { sof: !!options.sof, report: unmodelled });
     this.guardAdc(unmodelled, end);
     this.watchRegisters(unmodelled, end);
+    this.watchMemory(unmodelled, end);
+  }
+
+  /**
+   * The data space above RAMEND, which the part does not implement (datasheet "SRAM Data Memory"):
+   * avr8js reads it as nothing and drops a write to it, and a firmware shown that would carry on
+   * from a value the part does not give. An access ends the evidence and names the address.
+   */
+  watchMemory(report, end) {
+    const { cpu } = this;
+    const read = (address) => {
+      report('unmapped_memory');
+      end('unmapped_memory', { space: 'data', access: 'read', address });
+      return 0;
+    };
+    const write = (value, old, address) => {
+      report('unmapped_memory');
+      end('unmapped_memory', { space: 'data', access: 'write', address });
+      return true;
+    };
+    for (let address = RAMEND + 1; address <= 0xffff; address += 1) {
+      cpu.readHooks[address] = read;
+      cpu.writeHooks[address] = write;
+    }
   }
 
   /**

@@ -65,12 +65,16 @@ const F_SLEEP = 8;
 const F_SPM = 16;
 const F_SEI = 32;
 const F_USB_WRITE = 64;
+const F_LPM = 128;
 const OP_RET = 0x9508;
 const OP_SEI = 0x9478;
 const OP_RETI = 0x9518;
 const OP_SLEEP = 0x9588;
 const OP_SPM = 0x95e8;
 const OP_SPM_Z = 0x95f8;
+/** LPM and ELPM, in every form: the byte they read at Z (with RAMPZ) must lie in flash. */
+const isProgramRead = (word) => word === 0x95c8 || word === 0x95d8 || (word & 0xfe0c) === 0x9004;
+const isExtendedProgramRead = (word) => word === 0x95d8 || (word & 0xfe0e) === 0x9006;
 const MAX_USART_TEXT = 64 << 10;
 /** How late a timer-driven edge can be stamped: the longest instruction, four cycles. */
 export const EDGE_RESOLUTION_CYCLES = 4;
@@ -211,8 +215,9 @@ const ZERO_LEVEL_STATEMENT = {
     'should run at both signs',
   accel:
     "the accelerometer's zero-g level is the datasheet's typical figure (LA_TyOff, +-40 mg), not a bound: a " +
-    'scenario may state up to four times it, of either sign; an angle from atan2 of two axes moves by up to ' +
-    'about 2.3 degrees at the typical figure',
+    'scenario may state up to four times it, of either sign; with +40 mg on both axes an angle from atan2 of ' +
+    'two axes reads about 2.3 degrees too far at upright, nothing at 45 degrees and the other way beyond it, ' +
+    'so a criterion with an asymmetric band should run at both signs',
 };
 
 /** What the input-to-output figures are, as the summary names them. */
@@ -336,6 +341,7 @@ export class Rig {
       else if (word === OP_SLEEP) this.flags[pc] |= F_SLEEP;
       else if (word === OP_SPM || word === OP_SPM_Z) this.flags[pc] |= F_SPM;
       else if (word === OP_SEI) this.flags[pc] |= F_SEI;
+      else if (isProgramRead(word)) this.flags[pc] |= F_LPM;
     });
     this.probes = new Map();
     for (const probe of scenario.probes) {
@@ -370,10 +376,11 @@ export class Rig {
     this.heapEndMax = null;
     this.eeprom = new CountingEEPROM(EEPROM_BYTES);
     if (elf.eeprom) this.eeprom.memory.set(elf.eeprom);
-    // Arduino's USB serial port: its calls of `Serial.write` are counted (the cost of a write to a
-    // host is not shown).
+    // Arduino's USB serial port and its other classes: the calls of `Serial.write` and of
+    // `USB_Send`, which a HID or any other class sends through, are counted (the cost of a write to
+    // a host is not shown).
     this.usbSerialWrites = 0;
-    for (const name of ['_ZN7Serial_5writeEh', '_ZN7Serial_5writeEPKhj']) {
+    for (const name of ['_ZN7Serial_5writeEh', '_ZN7Serial_5writeEPKhj', '_Z8USB_SendhPKvi']) {
       const symbol = elf.symbols.get(name);
       if (symbol && symbol.type === 'function' && !(symbol.value & 1) && symbol.value >> 1 < this.program.length) {
         this.flags[symbol.value >> 1] |= F_USB_WRITE;
@@ -769,6 +776,11 @@ export class Rig {
     let minSp = this.minSp;
     while (cpu.cycles < limit && !chip.resetRequest && !this.evidenceEnd) {
       const pc = cpu.pc;
+      // The program counter past the last word of flash: there is nothing the part would run.
+      if (pc >= this.program.length || pc < 0) {
+        this.unmapped('execute', pc * 2);
+        break;
+      }
       // The main program is stuck in place. Stuck with interrupts on, it stops at its first
       // instruction with them enabled (not inside a section that holds them off) and an
       // interrupt still runs; stuck with them off, nothing runs.
@@ -800,6 +812,7 @@ export class Rig {
         if (flag & F_SLEEP && data[REG.SMCR] & 0x01) sleeps = true;
         if (flag & F_SPM) this.noteUnmodelled('spm_instruction');
         if (flag & F_USB_WRITE) this.usbSerialWrites += 1;
+        if (flag & F_LPM && !this.programReadInFlash(cpu, this.program[pc])) break;
         if (flag & (F_RET | F_RETI)) {
           const sp = data[93] | (data[94] << 8);
           avrInstruction(cpu);
@@ -828,6 +841,21 @@ export class Rig {
       if (cpu.pc !== after && !chip.resetRequest) this.entered(after);
     }
     this.minSp = Math.min(this.minSp, minSp);
+  }
+
+  /** An access to memory the part does not have ends the run's evidence at its address. */
+  unmapped(access, address) {
+    this.noteUnmodelled('unmapped_memory');
+    this.endEvidence('unmapped_memory', { space: 'program', access, address });
+  }
+
+  /** An LPM or ELPM is about to read the byte at Z (and RAMPZ): whether it lies in flash. */
+  programReadInFlash(cpu, opcode) {
+    const z = cpu.data[30] | (cpu.data[31] << 8);
+    const address = isExtendedProgramRead(opcode) ? (cpu.data[REG.RAMPZ] << 16) | z : z;
+    if (address < this.program.length * 2) return true;
+    this.unmapped('read', address);
+    return false;
   }
 
   /** A SLEEP with SE set has run: idle with interrupts on sleeps; anything else ends the evidence
@@ -922,9 +950,7 @@ export class Rig {
     const { cpu, timer1 } = this.chip;
     // What the unmodelled uses make not evaluable: the times, the values read, or (a use with no
     // effect on a board that runs from its crystal) neither (FEATURE_EFFECTS).
-    const named = Object.keys(this.unmodelled).sort();
-    const untimed = named.filter((what) => effectsOf(what).includes('timing'));
-    const unvalued = named.filter((what) => effectsOf(what).includes('behaviour'));
+    const { untimed, unvalued } = this.unevaluable();
     const timed = untimed.length === 0;
     // With timing not evaluable, every figure of time is withheld (`withheld` names them).
     const untimedWhy = `timing not evaluable: ${untimed.join(', ')}`;
@@ -1038,6 +1064,7 @@ export class Rig {
       },
       resets: this.resets.map((reset) => ({
         ...reset,
+        at_oscillator_hz: this.scenario.watchdog_oscillator_hz,
         cycle: timing(reset.cycle),
         sketch_start_cycle: timing(reset.sketch_start_cycle),
         ...('bootloader_session_cycles' in reset
@@ -1047,7 +1074,7 @@ export class Rig {
           ? { watchdog_period_cycles: timing(reset.watchdog_period_cycles) }
           : {}),
       })),
-      watchdog: this.watchdogEnds(timed ? null : untimedWhy),
+      watchdog: this.watchdogEnds(),
       interrupt_response_cycles: 4,
       sleep: {
         ...this.sleep,
@@ -1106,7 +1133,7 @@ export class Rig {
           'no USB host is present: the controller is detached and silent (usb_sof adds only the 1 kHz ' +
           'start-of-frame load of a host that has enumerated); a blocking write to a connected ' +
           "Serial, the USB interrupts' load and the CDC session are not shown, and the calls of " +
-          'Serial.write are counted here',
+          'Serial.write and USB_Send (which a HID or any other USB class sends through) are counted here',
       },
       input_to_output: {
         definition: INPUT_TO_OUTPUT_DEFINITION,
@@ -1153,30 +1180,63 @@ export class Rig {
     };
   }
 
+  /** The features reported so far that make time not evaluable and those that make values not. */
+  unevaluable() {
+    const named = Object.keys(this.unmodelled).sort();
+    return {
+      untimed: named.filter((what) => effectsOf(what).includes('timing')),
+      unvalued: named.filter((what) => effectsOf(what).includes('behaviour')),
+    };
+  }
+
   /**
    * The watchdog's figures at both ends of its oscillator (`watchdog_oscillator_hz`'s range): the
    * datasheet gives the oscillator no bound, so a figure of "does not reset early" must read the
    * fast end and one of "resets within" the slow end. When the firmware used the watchdog (or a
    * watchdog reset came) each end is a run of its own; otherwise only what the oscillator changes
-   * without it, the start-up time, differs.
+   * without it, the start-up time, differs. Each end carries what its own run ended or reported
+   * (`evidence_end`, `timing_evaluable`, `behaviour_evaluable`): a figure of time of an end
+   * that cannot stand behind time is withheld, and a first reset that never came because the
+   * evidence ended first is not shown as a watchdog that was fed in time.
    */
-  watchdogEnds(notEvaluable) {
+  watchdogEnds() {
     if (this.nested) return null;
     const used = this.watchdogUsed || this.resets.some((reset) => reset.cause === 'watchdog');
+    const own = this.scenario.watchdog_oscillator_hz;
     const end = (hz) => {
-      const figures = { oscillator_hz: hz, start_up_cycles: startUpCycles(hz) };
+      const run =
+        !used || hz === own
+          ? this
+          : new Rig(this.elf, { ...this.scenario, watchdog_oscillator_hz: hz }, new Trace(() => {}, 0), {
+              nested: true,
+            });
+      if (run !== this) run.run();
+      const { untimed, unvalued } = run.unevaluable();
+      const figures = {
+        oscillator_hz: hz,
+        start_up_cycles: startUpCycles(hz),
+        evidence_end: run.evidenceEnd,
+        timing_evaluable: untimed.length === 0,
+        timing_not_evaluable_because: untimed,
+        behaviour_evaluable: unvalued.length === 0,
+        behaviour_not_evaluable_because: unvalued,
+      };
       if (!used) return figures;
-      if (notEvaluable) return withheld(notEvaluable);
-      const own = hz === this.scenario.watchdog_oscillator_hz;
-      const run = own ? this : new Rig(this.elf, { ...this.scenario, watchdog_oscillator_hz: hz },
-        new Trace(() => {}, 0), { nested: true }); // prettier-ignore
-      if (!own) run.run();
-      const resets = run.resets.map(({ cycle, cause, sketch_start_cycle: start }) => ({ cycle, cause, sketch_start_cycle: start }));
+      const timing = (value) =>
+        untimed.length === 0 ? value : withheld(`timing not evaluable: ${untimed.join(', ')}`);
       const first = run.resets.find((reset) => reset.cause === 'watchdog');
+      const unreached = run.evidenceEnd
+        ? withheld(`the evidence ended at cycle ${run.evidenceEnd.cycle} before a watchdog reset`)
+        : null;
+      const resets = run.resets.map(({ cycle, cause, sketch_start_cycle: start }) => ({
+        cycle: timing(cycle),
+        cause,
+        sketch_start_cycle: timing(start),
+      }));
       return {
         ...figures,
-        period_cycles: first ? first.watchdog_period_cycles : null,
-        first_watchdog_reset_cycle: first ? first.cycle : null,
+        period_cycles: timing(first ? first.watchdog_period_cycles : unreached),
+        first_watchdog_reset_cycle: timing(first ? first.cycle : unreached),
         watchdog_resets: run.resets.filter((reset) => reset.cause === 'watchdog').length,
         resets,
       };
@@ -1187,7 +1247,14 @@ export class Rig {
         "the watchdog's oscillator is a typical figure with no bound in the datasheet (128 kHz nominal; the " +
         'typical curves at 5 V lie between about 112.5 and 121.5 kHz): each figure is given at both ends of ' +
         'scenario_range_hz. Read the fast end for a criterion that the watchdog does not reset early and ' +
-        'the slow end for one that it resets within a time; the run\'s own figures are the scenario\'s oscillator\'s',
+        'the slow end for one that it resets within a time; the run\'s own figures (resets, probes, vectors) ' +
+        "are the scenario's oscillator's, which each reset's at_oscillator_hz and `own` say, and each end " +
+        'says whether its own run ended its evidence or left time or values not evaluable',
+      own: {
+        oscillator_hz: own,
+        end:
+          own >= WATCHDOG_OSCILLATOR_HZ.max ? 'fast' : own <= WATCHDOG_OSCILLATOR_HZ.min ? 'slow' : 'between',
+      },
       ends: { fast: end(WATCHDOG_OSCILLATOR_HZ.max), slow: end(WATCHDOG_OSCILLATOR_HZ.min) },
       read: { does_not_reset_early: 'fast', resets_within: 'slow' },
     };
