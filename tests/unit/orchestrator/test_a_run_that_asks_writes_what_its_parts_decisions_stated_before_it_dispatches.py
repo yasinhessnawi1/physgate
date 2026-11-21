@@ -27,6 +27,7 @@ from parts_rig import (
     started,
 )
 from plan_hold_rig import again, dispatched, kinds
+from sign_off_rig import signing
 
 from physgate.orchestrator.queue import QueueResolution
 
@@ -54,7 +55,7 @@ def _decided_with(tmp_path: Path) -> tuple[Path, Any]:
 
 def _run(tmp_path: Path) -> tuple[Path, Any]:
     run_dir, the_rig = _decided_with(tmp_path)
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     return run_dir, the_rig
 
 
@@ -130,7 +131,8 @@ def test_a_part_to_find_is_written_nowhere_and_a_text_only_body_writes_nothing(
     tmp_path: Path,
 ) -> None:
     run_dir = _decided_only(tmp_path, "make", body(texts=("printed in PETG",)))
-    assert again(rig(run_dir)) == "done"
+    the_rig = rig(run_dir)
+    assert signing(lambda: again(the_rig), run_dir) == "done"
     log = log_of(run_dir)
     assert _of(log, "parts_write_intended") == []
     released = _first(log, "parts_released")
@@ -139,7 +141,7 @@ def test_a_part_to_find_is_written_nowhere_and_a_text_only_body_writes_nothing(
 
 def test_an_empty_plan_says_that_it_asked_with_one_release(tmp_path: Path) -> None:
     the_rig = started(tmp_path / "run", components=())
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     log = log_of(the_rig.run_dir)
     released = _of(log, "parts_released")
     assert len(released) == 1
@@ -164,7 +166,7 @@ def test_the_run_is_released_once_and_a_resume_writes_nothing_again(tmp_path: Pa
     run_dir, the_rig = _run(tmp_path)
     before = log_of(run_dir)
     # The next process reads the same journal: the store outlives the process that wrote it.
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     after = log_of(run_dir)
     for kind in ("parts_write_intended", "parts_write_done", "parts_released"):
         assert len(_of(after, kind)) == len(_of(before, kind))
@@ -178,7 +180,7 @@ def test_a_process_killed_between_an_intent_and_its_write_intends_the_same_write
     first = _of(log_of(run_dir), "parts_write_intended")
     assert len(first) == 1
     assert the_rig.diff.declared == []
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     log = log_of(run_dir)
     # The first process wrote nothing; the next intends the same node again and the run goes on.
     assert [one["node_id"] for one in _of(log, "parts_write_intended")][0:2] == [
@@ -195,7 +197,7 @@ def test_a_process_killed_after_a_write_and_before_its_release_writes_nothing_tw
 ) -> None:
     run_dir, the_rig = _decided_with(tmp_path)
     assert again(the_rig, kill_after="parts_write_done") == "killed"
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     log = log_of(run_dir)
     nodes = [one["node_id"] for one in _of(log, "parts_write_intended")]
     assert len(nodes) == len(set(nodes)) == 3
@@ -344,7 +346,7 @@ def test_a_write_before_every_part_is_decided_is_refused(tmp_path: Path) -> None
 
 def test_a_plan_with_no_part_is_released_by_a_line_that_names_none(tmp_path: Path) -> None:
     the_rig = started(tmp_path / "run", components=())
-    assert again(the_rig) == "done"
+    assert signing(lambda: again(the_rig), the_rig.run_dir) == "done"
     log = log_of(the_rig.run_dir)
     cut = _index(log, "stage_entered")
     assert refusal(tmp_path, log[:cut]) == ""

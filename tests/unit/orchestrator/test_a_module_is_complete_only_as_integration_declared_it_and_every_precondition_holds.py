@@ -307,6 +307,7 @@ def test_the_registry_asks_merged_then_the_system_scope_and_each_reads_the_log(
         "system_scope",
         "contract",
         "open_item",
+        "sign_off",
     ]
     events = finished(tmp_path / "closing", monkeypatch, extra=(CLOSING,))
     # A module is merged once every subtask planned in its directory is: a pass over it too.

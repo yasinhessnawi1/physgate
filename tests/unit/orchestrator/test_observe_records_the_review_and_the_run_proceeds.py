@@ -144,7 +144,8 @@ def test_no_second_decomposition_call_and_one_review_session_on_the_account(
 def test_a_run_that_does_not_review_its_plan_writes_its_opening_as_before(tmp_path: Path) -> None:
     run_dir = _started(tmp_path, "off", review=None)
     assert kinds(run_dir) == ["run_started", "tokens_used", "decomposed", *["subtask_planned"] * 2]
-    # The first line's fields are the ones a run before the flag wrote, and no other.
+    # The first line's fields are the ones a run before the flag wrote, and no other but the
+    # digest of the sign-off rule table, which every run started since the table writes.
     assert set(lines(run_dir)[0]) == {
         "seq",
         "ts",
@@ -153,6 +154,7 @@ def test_a_run_that_does_not_review_its_plan_writes_its_opening_as_before(tmp_pa
         "kind",
         "config_sha256",
         "escalation_backend",
+        "sign_offs",
     }
     recorded = (run_dir / "run.json").read_bytes()
     assert b"design_review" not in recorded

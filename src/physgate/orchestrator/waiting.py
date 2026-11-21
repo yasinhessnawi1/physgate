@@ -6,8 +6,9 @@ stream named that is not known here; ``null`` where it named none), the reset as
 it, its instant where it was read, and ``resume_after``: the instant after which a resume goes
 on. It exits :data:`EXIT_WAITING_FOR_LIMIT`. A resume asked before then is refused before
 anything is stopped, written or started, with the same step and instant on standard error and
-the same exit status, so a script can wait and try again. Every other step prints and exits as
-before.
+the same exit status, so a script can wait and try again. A run that ends escalated with a
+person's sign-off owed (ARCH-130) names each such module and its latest item under
+``sign_offs_owed``. Every other step prints and exits as before.
 """
 
 from __future__ import annotations
@@ -40,7 +41,17 @@ def printed_step(kind: str, state: RunState) -> tuple[dict[str, str | None], int
             "resume_after": resume_after(halted.ts, limit),
         }
         return printed, EXIT_WAITING_FOR_LIMIT
-    return {"step": kind}, 0 if kind == "done" else 1
+    printed = {"step": kind}
+    owed = state.sign_offs_open() if kind == "escalated" else []
+    if owed:
+        # Each module not complete for a person's sign-off, and the item that asks for it.
+        printed["sign_offs_owed"] = ", ".join(
+            f"{module} (item {state.sign_offs_of(module)[-1].item_id})"
+            if state.sign_offs_of(module)
+            else module
+            for module in owed
+        )
+    return printed, 0 if kind == "done" else 1
 
 
 def limit_wait(run_dir: Path, now: datetime, *, limit_reset: bool) -> dict[str, str] | None:

@@ -174,7 +174,8 @@ class SessionTrajectory(_Frozen):
 #: after a person's reject; or, on an arbitration item, the next attempt or the one fix a person
 #: ordered by choosing sizing's value; or sizing's closing pass, ordered to write the values a
 #: person chose by choosing the domain's. Or no person's: the follow-up code orders once sizing's
-#: closing pass changed values a domain module's nodes depend on, which names no item.
+#: closing pass changed values a domain module's nodes depend on, which names no item. Or the one
+#: fix a person ordered by rejecting a module's sign-off item (ARCH-130), once per module per run.
 PersonOrderKind = Literal[
     "fix_after_block",
     "retry_after_reject",
@@ -183,6 +184,7 @@ PersonOrderKind = Literal[
     "arbitration_value",
     "contract_conform",
     "follow_up",
+    "sign_off_fix",
 ]
 
 

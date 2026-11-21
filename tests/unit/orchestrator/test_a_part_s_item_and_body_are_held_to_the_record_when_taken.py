@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 from parts_rig import decide, decisions_bytes, log_of, rig, started
 from plan_hold_rig import again, dispatched
+from sign_off_rig import signing
 
 from physgate.orchestrator.queue import QueueItem, QueueResolution, read_queue
 from physgate.orchestrator.record import RunRecord
@@ -54,8 +55,12 @@ def test_where_the_record_builds_the_item_it_is_taken(tmp_path: Path) -> None:
     assert again(the_rig) == "wait"
     for one in IDS:
         assert isinstance(decide(the_rig.run_dir, one, "find"), QueueResolution)
-    assert again(rig(the_rig.run_dir)) == "done"
-    assert _taken(the_rig.run_dir) == IDS
+    signed_rig = rig(the_rig.run_dir)
+    assert signing(lambda: again(signed_rig), the_rig.run_dir) == "done"
+    # The three parts, then the person's signature on each control module's values.
+    taken = _taken(the_rig.run_dir)
+    assert taken[:3] == IDS
+    assert all("SIGNOFF" in one for one in taken[3:])
 
 
 def test_a_choice_taken_on_another_view_than_the_item_s_line_halts_the_run(tmp_path: Path) -> None:

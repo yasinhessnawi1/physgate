@@ -110,7 +110,7 @@ export function Decide({
   const stated = consequence === null ? [] : effectWords(consequence).filter((e) => live(e.key));
   const shown: readonly { readonly key: string; readonly text: string }[] =
     supersededBy !== undefined
-      ? [{ key: "superseded", text: supersededOutcome(supersededBy) }]
+      ? [{ key: "superseded", text: supersededOutcome(supersededBy, view.item.source) }]
       : stated.length > 1
         ? stated
         : [];
@@ -139,7 +139,7 @@ export function Decide({
       // on an item a reopen superseded, a decision is recorded only, whatever it says.
       outcome:
         supersededBy !== undefined
-          ? supersededOutcome(supersededBy)
+          ? supersededOutcome(supersededBy, view.item.source)
           : position !== undefined
             ? chosen === undefined || consequence === null
               ? DECISION_COPY.then

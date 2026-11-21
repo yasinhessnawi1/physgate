@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 from accounted import forged_account_before_each_open, reaccount  # noqa: F401 - the forger
 from loop_fakes import FakeChanges, FakeDispatcher, FakeGraph, KilledError, Rig
+from sign_off_rig import declaring
 
 from physgate import roles
 from physgate.contracts.clause import check_pair
@@ -48,6 +49,7 @@ from physgate.orchestrator.events import (
     Merged,
     ModuleCompleted,
     Resumed,
+    SignOffsRaised,
     StageEntered,
     read_events,
 )
@@ -247,12 +249,19 @@ def hooked(
     *,
     declared: Sequence[str] | None = None,
     kill: Callable[[Event, list[Event]], bool] | None = None,
+    then: Sequence[str] | None = None,
 ) -> None:
-    """Have integration's checker read ``declared``; die before the line ``kill`` picks."""
+    """Have integration's checker read ``declared``; die before the line ``kill`` picks.
+
+    With ``then``, every attempt of integration after its first declares ``then`` instead, as
+    an integration told by the change check that a module's sign-off is owed leaves it out.
+    """
     changes = loop._changes  # noqa: SLF001 - the rig's checker
     assert isinstance(changes, FakeChanges)
     if declared:
         changes.declares[INTEG] = Declaration(modules=tuple(declared), sha256="d" * 64)
+        if then is not None:
+            declaring(loop, declared, then)
     emit = loop._emit  # noqa: SLF001 - the loop's own writer
     written: list[Event] = []
 
@@ -263,6 +272,15 @@ def hooked(
         emit(event)
 
     monkeypatch.setattr(loop, "_emit", emitting)
+
+
+def unsigned(declared: Sequence[str] | None) -> tuple[str, ...] | None:
+    """``declared`` without drive, as an integration told that drive's sign-off is owed declares.
+
+    Drive is a control module, and a run that records decisions takes none on its sign-off item,
+    so drive is never complete there (ARCH-130).
+    """
+    return None if declared is None else tuple(m for m in declared if m != DRIVE)
 
 
 def finished(
@@ -276,7 +294,7 @@ def finished(
 ) -> tuple[Rig, list[Event]]:
     rig = rig_for(tmp_path, **fields)
     loop = rig.open()
-    hooked(monkeypatch, loop, declared=declared)
+    hooked(monkeypatch, loop, declared=declared, then=unsigned(declared))
     start(loop, sizing=sizing, pairs=pairs)
     loop.run()
     loop.close()
@@ -321,10 +339,13 @@ def test_a_pairs_contract_runs_when_its_second_module_merges_and_is_marked_first
     assert [e.result.clauses_checked for e in tested] == [1, 1]
     merge = events[at(events, Merged, FW)]
     assert {(e.commit, e.revision) for e in tested} == {(merge.merge_commit, 4)}  # type: ignore[union-attr]
-    # The run goes on to the integration call, and both modules complete.
+    # The run goes on to the integration call, and fw completes. No contract holds drive: its
+    # sign-off alone does, which no decision gives in a run that records them, so it ends escalated.
     assert not isinstance(events[fw_diff + 3], ContractTested | StageEntered)
-    assert [e.subtask_id for e in events if isinstance(e, ModuleCompleted)] == [DRIVE, FW]
-    assert replay(events).next_step().kind == "done"
+    assert [e.subtask_id for e in events if isinstance(e, ModuleCompleted)] == [FW]
+    state = replay(events)
+    assert [name for name, _ in open_preconditions(state, DRIVE)] == ["sign_off"]
+    assert state.next_step().kind == "escalated"
 
 
 def test_a_failed_contract_never_blocks_the_merge_that_triggered_it(
@@ -339,7 +360,10 @@ def test_a_failed_contract_never_blocks_the_merge_that_triggered_it(
     # The merge stands, the run went on, and integration's attempt merged after it.
     assert {state.subtasks[s].status for s in (DRIVE, FW, INTEG)} == {"done"}
     assert isinstance(state.integration, IntegrationGateRan)
-    assert state.next_step().kind == "done"
+    # It ends escalated, naming drive's sign-off as owed: no decision gives one in a run that
+    # records them.
+    assert state.next_step().kind == "escalated"
+    assert state.sign_offs_open() == [DRIVE]
     # Completion alone is withheld, from both modules of the failed pair.
     assert not [e for e in events if isinstance(e, ModuleCompleted)]
     for module in (DRIVE, FW):
@@ -354,8 +378,10 @@ def test_the_closing_pass_owes_sizings_pair_a_retest_never_marked_first(
         tmp_path, monkeypatch, sizing=True, closing_volts=11, declared=(BUDGET, DRIVE, FW)
     )
     drive, fw, closing = (at(events, DiffChecked, s) for s in (DRIVE, FW, CLOSING))
+    # Drive's clean merge raises its sign-off item first; the result it owes follows that line.
+    assert events[drive + 1].seq == at(events, SignOffsRaised, DRIVE)
     assert [(e.seq, e.result.pair, e.first, e.result.outcome) for e in contracts(events)] == [
-        (drive + 1, P_BUDGET, True, "pass"),
+        (drive + 2, P_BUDGET, True, "pass"),
         (fw + 1, P_FW, True, "pass"),
         (fw + 2, P_BACK, True, "pass"),
         (closing + 1, P_BUDGET, False, "fail"),
@@ -406,7 +432,9 @@ def test_completion_waits_on_every_pair_of_the_module_and_holds_in_a_run_without
         tmp_path / "plain", monkeypatch, pairs=False, declared=(DRIVE, FW), interfaces=()
     )
     assert not contracts(plain)
-    assert [e.subtask_id for e in plain if isinstance(e, ModuleCompleted)] == [DRIVE, FW]
+    # Without pairs no contract holds a module: fw completes, and drive owes its sign-off alone.
+    assert [e.subtask_id for e in plain if isinstance(e, ModuleCompleted)] == [FW]
+    assert [name for name, _ in open_preconditions(replay(plain), DRIVE)] == ["sign_off"]
 
 
 # --- what replay refuses ------------------------------------------------------------------------
@@ -423,7 +451,8 @@ def test_replay_refuses_a_contract_result_the_record_does_not_owe(
     refused(owed, first.model_copy(update={"commit": "0" * 40}), "the run's recorded head")
     refused(owed, first.model_copy(update={"revision": 3}), "the run's recorded head")
     # None is owed before both modules merged, or after the integration call: a forged line.
-    refused(events[: at(events, DiffChecked, DRIVE) + 1], first, "where none is owed")
+    # Drive's clean merge is followed by its sign-off line, so the forged line comes after that.
+    refused(events[: at(events, SignOffsRaised, DRIVE) + 1], first, "where none is owed")
     call = next(i for i, e in enumerate(events) if isinstance(e, IntegrationGateRan))
     refused(events[: call + 1], second, "where none is owed")
     refused(events, second, "where none is owed")
@@ -522,12 +551,19 @@ CUTS: dict[str, Callable[[Event, list[Event]], bool]] = {
 
 
 def comparable(events: Sequence[Event]) -> list[dict[str, Any]]:
-    """The lines a run writes, without what a process taking over adds or a clock gives."""
-    return [
+    """The lines a run writes, without what a process taking over adds or a clock gives.
+
+    An escalation decision's clock is its call's latency.
+    """
+    lines = [
         e.model_dump(exclude={"seq", "ts"})
         for e in events
         if not isinstance(e, EnvironmentRecorded | Resumed)
     ]
+    for line in lines:
+        if isinstance(line.get("decision"), dict):
+            line["decision"].pop("latency_ms", None)
+    return lines
 
 
 @pytest.mark.parametrize("cut", CUTS)
@@ -537,17 +573,22 @@ def test_a_kill_at_each_cut_resumes_to_the_lines_of_the_uninterrupted_run(
     kw: dict[str, Any] = {"sizing": True, "closing_volts": 11, "declared": (BUDGET, DRIVE, FW)}
     _, reference = finished(tmp_path / "reference", monkeypatch, **kw)
     assert [e.first for e in contracts(reference)] == [True, True, True, False]
+    # Uninterrupted, the run ends escalated: drive's sign-off is owed, and a run that records
+    # decisions takes none on its item.
+    assert replay(reference).next_step().kind == "escalated"
     rig = rig_for(tmp_path / "cut", closing_volts=11, dispatcher=Installed())
     loop = rig.open()
-    hooked(monkeypatch, loop, declared=kw["declared"], kill=CUTS[cut])
+    hooked(
+        monkeypatch, loop, declared=kw["declared"], then=unsigned(kw["declared"]), kill=CUTS[cut]
+    )
     start(loop, sizing=True)
     with pytest.raises(KilledError):
         loop.run()
     loop.close()
     cut_at = len(read_events(rig.run_dir / "events.jsonl"))
     fresh = rig.open()
-    hooked(monkeypatch, fresh, declared=kw["declared"])
-    assert fresh.resume().kind == "done"
+    hooked(monkeypatch, fresh, declared=kw["declared"], then=unsigned(kw["declared"]))
+    assert fresh.resume().kind == "escalated"
     fresh.close()
     events = read_events(rig.run_dir / "events.jsonl")
     assert comparable(events) == comparable(reference)
@@ -637,8 +678,9 @@ def test_a_ready_pair_behind_one_not_yet_ready_is_owed_at_its_own_merge(
     events = read_events(rig.run_dir / "events.jsonl")
     drive = at(events, DiffChecked, DRIVE)
     # Drive to fw is first in the recorded order and not ready at drive's merge; drive to zbudget
-    # is ready there, and is owed there.
-    assert (contracts(events)[0].seq, contracts(events)[0].result.pair) == (drive + 1, sized)
+    # is ready there, and is owed there, straight after the sign-off line drive's merge raised.
+    assert events[drive + 1].seq == at(events, SignOffsRaised, DRIVE)
+    assert (contracts(events)[0].seq, contracts(events)[0].result.pair) == (drive + 2, sized)
 
 
 #: An interface sizing produces, which drive reads.
@@ -662,7 +704,7 @@ def test_a_later_merge_in_the_producers_directory_owes_a_retest(
         }
     )
     loop = rig.open()
-    hooked(monkeypatch, loop, declared=(BUDGET, DRIVE))
+    hooked(monkeypatch, loop, declared=(BUDGET, DRIVE), then=(BUDGET,))
     plan = [
         entry(BUDGET, "sizing", "budget"),
         entry(DRIVE, "control", "drive"),
@@ -676,8 +718,10 @@ def test_a_later_merge_in_the_producers_directory_owes_a_retest(
     events = read_events(rig.run_dir / "events.jsonl")
     drive, closing = (at(events, DiffChecked, s) for s in (DRIVE, CLOSING))
     # The closing pass merges in the producer's directory, and owes the pair its retest there.
+    # Drive's first result follows the sign-off line its clean merge raised.
+    assert events[drive + 1].seq == at(events, SignOffsRaised, DRIVE)
     assert [(e.seq, e.result.pair, e.first, e.result.outcome) for e in contracts(events)] == [
-        (drive + 1, P_SIZED, True, "pass"),
+        (drive + 2, P_SIZED, True, "pass"),
         (closing + 1, P_SIZED, False, "fail"),
     ]
     assert [e for e in events if isinstance(e, ModuleCompleted)] == []
@@ -735,7 +779,13 @@ def test_a_failed_result_rewritten_as_its_pairs_pass_halts_the_run_before_any_co
     rig = rig_for(tmp_path / "fail", fw_volts=11)
     loop = rig.open()
     # Killed before the failed result's ruling, so the result is the log's last line.
-    hooked(monkeypatch, loop, declared=(DRIVE, FW), kill=lambda e, _: e.kind == "contract_ruled")
+    hooked(
+        monkeypatch,
+        loop,
+        declared=(DRIVE, FW),
+        then=(FW,),
+        kill=lambda e, _: e.kind == "contract_ruled",
+    )
     start(loop)
     with pytest.raises(KilledError):
         loop.run()
@@ -752,7 +802,7 @@ def test_a_failed_result_rewritten_as_its_pairs_pass_halts_the_run_before_any_co
     # Its pair, interfaces, counts, digest, commit and revision are consistent: replay takes it.
     assert replay(read_events(log)).contracts[0].result.outcome == "pass"
     fresh = rig.open()
-    hooked(monkeypatch, fresh, declared=(DRIVE, FW))
+    hooked(monkeypatch, fresh, declared=(DRIVE, FW), then=(FW,))
     assert fresh.resume().kind == "halted"
     fresh.close()
     events = read_events(log)
@@ -776,6 +826,7 @@ def test_a_result_rewritten_in_its_detail_with_its_outcome_kept_halts_the_run_to
         monkeypatch,
         loop,
         declared=(BUDGET, DRIVE, FW),
+        then=(BUDGET, FW),
         kill=lambda e, _: isinstance(e, ModuleCompleted),
     )
     start(loop, sizing=True)
@@ -813,7 +864,8 @@ def test_a_result_rewritten_between_two_completions_halts_before_the_second(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str
 ) -> None:
     # Every completion line follows the check, not the first alone: one completion on the record
-    # is no reason to take the results as they stand.
+    # is no reason to take the results as they stand. Drive's sign-off is owed, so the two
+    # completions are sizing's and fw's.
     rig = rig_for(tmp_path)
     loop = rig.open()
 
@@ -822,8 +874,8 @@ def test_a_result_rewritten_between_two_completions_halts_before_the_second(
             isinstance(e, ModuleCompleted) for e in written
         )
 
-    hooked(monkeypatch, loop, declared=(DRIVE, FW), kill=at_the_second)
-    start(loop)
+    hooked(monkeypatch, loop, declared=(BUDGET, DRIVE, FW), then=(BUDGET, FW), kill=at_the_second)
+    start(loop, sizing=True)
     with pytest.raises(KilledError):
         loop.run()
     loop.close()
@@ -839,11 +891,11 @@ def test_a_result_rewritten_between_two_completions_halts_before_the_second(
 
     rewritten(log, edit)
     fresh = rig.open()
-    hooked(monkeypatch, fresh, declared=(DRIVE, FW))
+    hooked(monkeypatch, fresh, declared=(BUDGET, DRIVE, FW), then=(BUDGET, FW))
     assert fresh.run().kind == "halted"
     fresh.close()
     events = read_events(log)
-    assert [e.subtask_id for e in events if isinstance(e, ModuleCompleted)] == [DRIVE]
+    assert [e.subtask_id for e in events if isinstance(e, ModuleCompleted)] == [BUDGET]
     _, incident, _ = halt_of(events)
     assert incident.cause == "foreign_journal_line"
 
@@ -855,7 +907,11 @@ def test_a_journal_that_can_no_longer_give_a_recorded_result_halts_at_completion
     rig = rig_for(tmp_path)
     loop = rig.open()
     hooked(
-        monkeypatch, loop, declared=(DRIVE, FW), kill=lambda e, _: isinstance(e, ModuleCompleted)
+        monkeypatch,
+        loop,
+        declared=(DRIVE, FW),
+        then=(FW,),
+        kill=lambda e, _: isinstance(e, ModuleCompleted),
     )
     start(loop)
     with pytest.raises(KilledError):
@@ -864,7 +920,7 @@ def test_a_journal_that_can_no_longer_give_a_recorded_result_halts_at_completion
     journal = rig.diff.root / JOURNAL_NAME
     journal.write_bytes(b"".join(journal.read_bytes().splitlines(keepends=True)[:-1]))
     fresh = rig.open()
-    hooked(monkeypatch, fresh, declared=(DRIVE, FW))
+    hooked(monkeypatch, fresh, declared=(DRIVE, FW), then=(FW,))
     assert fresh.run().kind == "halted"
     fresh.close()
     events = read_events(rig.run_dir / "events.jsonl")
@@ -881,7 +937,13 @@ def test_a_first_result_rewritten_behind_its_pairs_retest_halts_the_run_too(
     rig = rig_for(tmp_path)
     loop = rig.open()
     declared = (BUDGET, DRIVE, FW)
-    hooked(monkeypatch, loop, declared=declared, kill=lambda e, _: isinstance(e, ModuleCompleted))
+    hooked(
+        monkeypatch,
+        loop,
+        declared=declared,
+        then=unsigned(declared),
+        kill=lambda e, _: isinstance(e, ModuleCompleted),
+    )
     start(loop, sizing=True)
     with pytest.raises(KilledError):
         loop.run()
@@ -898,7 +960,7 @@ def test_a_first_result_rewritten_behind_its_pairs_retest_halts_the_run_too(
 
     rewritten(log, behind_its_retest)
     fresh = rig.open()
-    hooked(monkeypatch, fresh, declared=declared)
+    hooked(monkeypatch, fresh, declared=declared, then=unsigned(declared))
     assert fresh.run().kind == "halted"
     fresh.close()
     events = read_events(log)

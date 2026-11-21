@@ -108,7 +108,7 @@ export function QueueItem({
             {decided.taken !== null && (
               <>
                 <dt>What the run did</dt>
-                <dd className="pg-queue-taken">{takenWords(decided.taken)}</dd>
+                <dd className="pg-queue-taken">{takenWords(decided.taken, item.source)}</dd>
               </>
             )}
             {decided.parts !== undefined && decided.parts !== null && (
@@ -130,7 +130,7 @@ export function QueueItem({
         <>
           {supersededBy !== undefined && (
             <p className="pg-queue-superseded" role="note">
-              {supersededWords(supersededBy)}
+              {supersededWords(supersededBy, item.source)}
             </p>
           )}
           {pending !== null && (

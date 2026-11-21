@@ -67,6 +67,7 @@ from physgate.orchestrator.queue import (
 )
 from physgate.orchestrator.replay import RunState, project_ledger
 from physgate.orchestrator.run_config import RunConfig, require_recorded, write_run_config
+from physgate.orchestrator.sign_off import CURRENT_SHA256
 from physgate.orchestrator.trajectory import Seal
 from physgate.roles import owners_of
 from physgate.state.exceptions import CorruptRecordError
@@ -253,6 +254,9 @@ _UNWRITTEN_TS = utc_stamp(datetime(1970, 1, 1, tzinfo=UTC))
 #: The mark a run that acts on decisions writes on its first line: it started under the rule that
 #: every dispatch of a subtask waits while a subtask it reads from waits on a person.
 PRODUCER_WAIT: Literal["hold"] | None = "hold"
+
+#: The digest of the sign-off rule table's version every run started now writes on its first line.
+SIGN_OFF_RULES: str | None = CURRENT_SHA256
 
 
 def _fields(line: BaseModel, names: Sequence[str]) -> tuple[object, ...]:
@@ -570,6 +574,9 @@ class RunRecord:
             hooks=None if self.config.hooks == "on" else self.config.hooks,
             ablation=True if self.config.ablation else None,
             producer_wait=PRODUCER_WAIT if self._said()[0] == "act" else None,
+            # Never a parameter of the run: which modules owe a person's sign-off is the rule
+            # this code holds, and the run names its version so replay reads the same rows.
+            sign_offs=SIGN_OFF_RULES,
         )
         calls = [*(one.call for one in earlier), *((call,) if call is not None else ())]
         if calls:

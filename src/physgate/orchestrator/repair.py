@@ -577,3 +577,30 @@ def contract_conform_instruction(
         lines += ["The person's note:", *quoted(note)]
     lines.append("The specification as issued otherwise still governs.")
     return "\n".join(lines)
+
+
+def sign_off_fix_instruction(item_id: str, attempt: int, values: str, note: str) -> str:
+    """The instruction the one fix a person ordered by rejecting a sign-off item starts from.
+
+    A fixed template: the values the person did not sign, as the item showed them, and the
+    person's note, each quoted as data, then the lines that the issued specification still
+    governs and that this is the module's one such fix. ``attempt`` is the one the module merged
+    at; ``values`` is the item's rendering of every value its sign-off binds, with their digest.
+    No model phrases any of it, and nothing of an earlier session's trajectory is in it.
+    """
+    from physgate.orchestrator import integration_state as render
+
+    item = render.held(item_id, ITEM_PATTERN, 2 * 128 + 8, REFUSED_ITEM)
+    lines = [
+        f"A person did not sign this module's values on queue item {item}, and ordered one fix "
+        f"of the module, merged at attempt {attempt}. The values the person did not sign:",
+        *quoted(values),
+        "",
+        "The person wrote:",
+        *quoted(note),
+        "",
+        f"{STILL_GOVERNS} {NO_INPUT_SUPPLIED}",
+        "This is the module's one fix after a rejected sign-off. If it merges, a person is asked "
+        "to sign its values again.",
+    ]
+    return "\n".join(lines)

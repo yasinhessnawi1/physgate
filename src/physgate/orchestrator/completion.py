@@ -104,6 +104,35 @@ def _open_item(state: RunState, module: str) -> str | None:
     return "; ".join(found) or None
 
 
+def _sign_off(state: RunState, module: str) -> str | None:
+    """A person signed the module's values as they stand, where its role owes a sign-off.
+
+    ARCH-130's standing sign-offs: a control module's stability margin, a mechanical module's
+    sizing. Owed by the module's role, as its planning line names it, under the rule table the
+    run's first line names, once the module merged anything. It holds where the latest approve
+    that acts on one of the module's sign-off items was given on the values the module's latest
+    item shows: an approve of other values no longer counts, and a decision that records only, a
+    held one not yet confirmed, or one on an item a later raise superseded, is no approve. A run
+    that names no rule table, as every run recorded before it, owes none.
+    """
+    rules = state.sign_off_rules
+    sub = state.subtasks[module]
+    rule = rules.rule_of(sub.plan.assigned_role) if rules is not None else None
+    if rule is None or sub.plan.module_dir not in state.merged_at:
+        return None
+    raised = [line for line in state.sign_offs.values() if line.module == module]
+    if not raised:
+        return f"its {rule.signs} owes a person's sign-off, and no item for it is on the record"
+    latest = raised[-1]
+    signed = [item for item in state.signed if state.sign_offs[item].module == module]
+    if signed and state.sign_offs[signed[-1]].values_sha256 == latest.values_sha256:
+        return None
+    return (
+        f"its {rule.signs} owes a person's sign-off: no approve that acts was given on the values "
+        f"queue item {latest.item_id} shows"
+    )
+
+
 #: Asked in this order, and every open entry is named. A later precondition is one more entry
 #: here, and holds on every run recorded before it.
 PRECONDITIONS: tuple[Precondition, ...] = (
@@ -111,7 +140,17 @@ PRECONDITIONS: tuple[Precondition, ...] = (
     Precondition("system_scope", _system_scope),
     Precondition("contract", _contract),
     Precondition("open_item", _open_item),
+    Precondition("sign_off", _sign_off),
 )
+
+
+def sign_off_open(state: RunState, module: str) -> str | None:
+    """Why ``module``'s sign-off is owed, or ``None``: the ``sign_off`` entry, asked alone.
+
+    Where the integration call waits, a declaration is checked, the issued state is written and
+    the run's end is named, as before a completion line.
+    """
+    return _sign_off(state, module)
 
 
 def open_preconditions(state: RunState, module: str) -> tuple[tuple[str, str], ...]:

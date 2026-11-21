@@ -161,7 +161,8 @@ export interface ModuleCompletion {
   readonly subtask: string;
   /** Sizing's module, as the server tells it by the register's name for sizing. */
   readonly sizing: boolean;
-  readonly state: "complete" | "withheld" | "owed" | "not_declared";
+  /** ``sign_off_owed``: a person's sign-off is open, whatever else is (ARCH-130). */
+  readonly state: "complete" | "sign_off_owed" | "withheld" | "owed" | "not_declared";
   /** The precondition registry's open entries, each with its own reason. */
   readonly open: readonly { readonly name: string; readonly reason: string }[];
 }
@@ -194,6 +195,24 @@ export interface RunStatus {
    * line, where a stage with no bound of its own (the physics gate) may be running.
    */
   readonly silenceBoundS?: number | null;
+  /**
+   * Whether a person's decision acts in this run; ``false`` in one that records decisions only,
+   * where an escalated end waits on no one. Absent where the server did not say.
+   */
+  readonly acts?: boolean;
+  /** The modules whose sign-off is owed, in plan order. */
+  readonly signaturesOwed?: readonly string[];
+  /**
+   * Of those, each whose latest item a person may still decide; one not here was decided and
+   * nothing left in the run can sign it. Absent where the server did not say.
+   */
+  readonly signaturesOpenToDecide?: readonly string[];
+  /**
+   * Whether an escalated end is for the sign-offs owed alone; ``false`` where another item is open
+   * to a person as well (integration's call refused), which a decision there still answers.
+   * Absent where the server did not say.
+   */
+  readonly endsOnSignaturesAlone?: boolean;
 }
 
 function moduleCompletion(value: unknown): ModuleCompletion {
@@ -203,7 +222,7 @@ function moduleCompletion(value: unknown): ModuleCompletion {
     sizing: flag(m.sizing, "whether it is sizing's"),
     state: oneOf(
       m.state,
-      ["complete", "withheld", "owed", "not_declared"] as const,
+      ["complete", "sign_off_owed", "withheld", "owed", "not_declared"] as const,
       "a completion state",
     ),
     open: list(m.open, "open preconditions").map((raw) => {
@@ -262,6 +281,22 @@ export function runStatus(value: unknown): RunStatus {
         : text(s.last_line_at, "a time"),
     silentS: silenceOf(s.last_line_at, s.server_now),
     silenceBoundS: secondsSent(s.silence_bound_s),
+    ...(s.acts === undefined ? {} : { acts: flag(s.acts, "whether decisions act") }),
+    signaturesOwed: list(s.sign_offs_owed ?? [], "the sign-offs owed").map((m) =>
+      text(m, "a module"),
+    ),
+    ...(s.sign_offs_open_to_decide === undefined
+      ? {}
+      : {
+          signaturesOpenToDecide: list(s.sign_offs_open_to_decide, "the sign-offs open").map((m) =>
+            text(m, "a module"),
+          ),
+        }),
+    ...(s.ends_on_sign_offs_alone === undefined
+      ? {}
+      : {
+          endsOnSignaturesAlone: flag(s.ends_on_sign_offs_alone, "whether only sign-offs are owed"),
+        }),
   };
 }
 
