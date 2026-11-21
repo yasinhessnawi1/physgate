@@ -178,7 +178,9 @@ def test_the_sensor_is_read_at_its_full_scale_and_the_motors_driven_from_it(
     bench: tuple[Path, Path], tmp_path: Path
 ) -> None:
     env, elf = bench
-    summary, trace = simulate(env, elf, scenario(), tmp_path)
+    said: list[str] = []
+    summary, trace = simulate(env, elf, scenario(), tmp_path, stderr=said)
+    assert "not clean evidence" not in said[0]
     lines = _lines(summary)
     # Power-on: the bootloader clears PORF (and BORF) before the sketch (Caterina.c main()).
     assert lines[0] == "RESET:0"
@@ -242,7 +244,13 @@ def test_the_sensor_is_read_at_its_full_scale_and_the_motors_driven_from_it(
     assert 0 < summary["stack"]["max_depth_bytes"] < 2560
     assert summary["stack"]["headroom_bytes"] > 0
     assert summary["resets"] == [
-        {"cycle": 0, "cause": "power_on", "sketch_start_cycle": START, "mcusr_at_sketch_start": 0}
+        {
+            "cycle": 0,
+            "cause": "power_on",
+            "sketch_start_cycle": START,
+            "mcusr_at_sketch_start": 0,
+            "at_oscillator_hz": 128_000,
+        }
     ]
     # Ordinary Arduino firmware touches nothing the rig does not model: its core's start-up
     # (the timers, the ADC, USB's attach) and the Wire master's TWEA are not uses of it.
@@ -591,7 +599,13 @@ def test_a_firmware_that_reads_the_magnetometer_is_not_shown_a_zero_field(tmp_pa
     # a byte, are counted.
     env = environment()
     elf = build(env, tmp_path / "mag", MAG)
-    summary, _ = simulate(env, elf, {"avrsim_scenario": 1, "duration_s": 0.3}, tmp_path)
+    said: list[str] = []
+    summary, _ = simulate(
+        env, elf, {"avrsim_scenario": 1, "duration_s": 0.3}, tmp_path, stderr=said
+    )
+    # The status is 0 whatever the evidence: the launcher's own line says it did not stand.
+    assert "not clean evidence" in said[0] and "(lis3mdl_data)" in said[0]
+    assert "timing is not evaluable" in said[0] and "values are not evaluable" in said[0]
     assert summary["usart1"]["text"].startswith("WHO:61")
     end = summary["evidence_end"]
     assert end is not None and end["cause"] == "lis3mdl_data" and end["register"] == 0x28

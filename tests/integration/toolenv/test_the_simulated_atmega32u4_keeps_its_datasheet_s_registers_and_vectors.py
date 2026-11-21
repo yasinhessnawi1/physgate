@@ -787,7 +787,13 @@ def test_the_sketch_starts_after_the_fuses_start_up_time_and_the_bootloader() ->
     # StartSketch(): the LEDs off, RX (PB0) and TX (PD5) high, L (PC7) low.
     found = _program("", seconds=0.001)
     assert found["resets"] == [
-        {"cycle": 0, "cause": "power_on", "sketch_start_cycle": START, "mcusr_at_sketch_start": 0}
+        {
+            "cycle": 0,
+            "cause": "power_on",
+            "sketch_start_cycle": START,
+            "mcusr_at_sketch_start": 0,
+            "at_oscillator_hz": 128_000,
+        }
     ]
     assert (found["ports"]["PORTB"], found["ports"]["PORTD"], found["ports"]["PORTC"]) == (
         1,
@@ -1600,7 +1606,7 @@ def test_a_twi_slave_ends_the_evidence_and_a_master_that_acknowledges_a_read_doe
     found = _registers(
         """
         cpu.writeData(0xbc, 0xc5);                 // TWINT | TWEA | TWEN
-        cpu.writeData(0xba, 0x00);                 // Wire.begin() clears TWAR: a master
+        cpu.writeData(0xba, 0x00);                 // a master leaves TWAR clear
         const master = ends.length;
         cpu.writeData(0xba, 0x08);                 // TWAR: address 4
         const afterAddress = ends.map((e) => e.cause);
@@ -1609,6 +1615,33 @@ def test_a_twi_slave_ends_the_evidence_and_a_master_that_acknowledges_a_read_doe
     )
     assert found["master"] == 0 and found["afterAddress"] == ["twi_slave"]
     assert "twi_slave" in found["reports"]
+
+
+def test_a_master_that_writes_the_twi_address_register_back_as_it_found_it_is_not_a_slave() -> None:
+    # The Wire library's timeout recovery reads TWAR (0xFE after reset: address 0x7F, general call
+    # off) and writes it back after re-initialising the interface; that is a master. Any other
+    # address, the general-call bit with it included, is a slave, and so is any mask.
+    found = _registers(
+        """
+        const seen = (value, address = 0xba) => {
+          const before = ends.length;
+          cpu.writeData(address, value);
+          return ends.length - before;
+        };
+        const back = seen(cpu.readData(0xba));
+        console.log(JSON.stringify({ back, zero: seen(0), reset: seen(0xfe), general: seen(0xff),
+          other: seen(0xfc), mask: seen(0xfe, 0xbd), noMask: seen(0, 0xbd) }));
+        """
+    )
+    assert found == {
+        "back": 0,
+        "zero": 0,
+        "reset": 0,
+        "general": 1,
+        "other": 1,
+        "mask": 1,
+        "noMask": 0,
+    }
 
 
 def test_an_edge_on_a_masked_external_interrupt_does_not_set_its_flag_here() -> None:
@@ -1774,7 +1807,15 @@ def test_a_watchdog_figure_is_reported_at_both_ends_of_the_oscillator_s_range() 
 def test_a_watchdog_the_firmware_never_uses_shows_only_the_start_up_time_at_both_ends() -> None:
     found = _program("store(0x24, 0x01);", seconds=0.001)["watchdog"]
     assert found["used"] is False
-    assert found["ends"]["fast"] == {"oscillator_hz": 128_000, "start_up_cycles": START}
+    assert found["ends"]["fast"] == {
+        "oscillator_hz": 128_000,
+        "start_up_cycles": START,
+        "evidence_end": None,
+        "timing_evaluable": True,
+        "timing_not_evaluable_because": [],
+        "behaviour_evaluable": True,
+        "behaviour_not_evaluable_because": [],
+    }
     assert found["ends"]["slow"]["oscillator_hz"] == 112_000
     # A scenario's own oscillator in between still gets both ends, and its figures are its own.
     mid = _program("store(0x60, 0x08);", seconds=0.1, watchdog_oscillator_hz=120_000)["watchdog"]
@@ -1925,7 +1966,7 @@ def test_a_data_access_above_the_end_of_ram_ends_the_evidence_and_names_the_addr
         cpu.readData(0xffff); const top = log();
         cpu.writeData(0xffff, 1); const topWrite = log();
         console.log(JSON.stringify({ inside, first, write, top, topWrite,
-          seen: Object.keys(reports) }));
+          seen: reports.unmapped_memory, others: Object.keys(reports) }));
         """
     )
 
@@ -1937,7 +1978,7 @@ def test_a_data_access_above_the_end_of_ram_ends_the_evidence_and_names_the_addr
     assert found["write"] == [end("write", 0x0B10)]
     assert found["top"] == [end("read", 0xFFFF)]
     assert found["topWrite"] == [end("write", 0xFFFF)]
-    assert found["seen"] == ["unmapped_memory"]
+    assert found["seen"] == 4 and found["others"] == ["unmapped_memory"]
 
 
 def test_a_firmware_that_reads_past_the_end_of_ram_has_its_evidence_ended_at_that_address() -> None:
@@ -1969,6 +2010,7 @@ def test_execution_past_the_end_of_flash_ends_the_evidence_and_names_the_address
         )
         assert end["address"] == 0x8000, hex(target)
         assert end["cycle"] < START + 100, hex(target)
+        assert found["timing_not_evaluable_because"] == ["unmapped_memory"], hex(target)
 
 
 LPM_PAST = """
@@ -1997,6 +2039,7 @@ def test_a_program_memory_read_past_the_end_of_flash_ends_the_evidence_at_that_a
         assert end is not None, name
         assert (end["cause"], end["space"], end["access"]) == ("unmapped_memory", "program", "read")
         assert end["address"] == (0x10000 if name.startswith("elpm") else 0x8000), name
+        assert found["behaviour_not_evaluable_because"] == ["unmapped_memory"], name
     for name in ("lpm", "lpm_z", "lpm_z_plus"):
         found = _program(LPM_PAST + f"load(0x7fff, {forms[name]});")
         assert found["evidence_end"] is None, name
@@ -2029,7 +2072,7 @@ def test_the_pll_locks_only_for_a_setting_that_fits_the_16_mhz_crystal() -> None
     found = _registers(
         PLL_TRIAL
         + """
-        const byPdiv = [...Array(16).keys()].map((p) => trial(0x60 | p, 0x12));
+        const byPdiv = [...Array(16).keys()].map((p) => trial(0x70 | p, 0x12));
         console.log(JSON.stringify({
           byPdiv,
           halfInput: trial(0x04, 0x02),
@@ -2157,3 +2200,72 @@ def test_a_write_symbol_that_is_no_function_start_or_lies_outside_flash_is_not_c
     assert _counted({byte: 0x201})["serial_write_calls"] == 0
     assert _counted({byte: 0x8000})["serial_write_calls"] == 0
     assert _counted({byte: 0xFFFE})["serial_write_calls"] == 0
+
+
+def test_a_jump_before_the_first_word_of_flash_ends_the_evidence() -> None:
+    # An RJMP back from word 0 lands before the flash: no word to run, not the end of it.
+    found = _program("words[0] = 0xcffe;")
+    end = found["evidence_end"]
+    assert end is not None
+    assert (end["cause"], end["space"], end["access"]) == ("unmapped_memory", "program", "execute")
+    assert end["address"] < 0
+
+
+def test_a_read_modify_write_of_adcsra_during_a_conversion_does_not_start_another() -> None:
+    # ADSC stays set while a conversion runs and a write of it is ignored: the next channel
+    # already selected in ADMUX is not what this conversion reads, and the rig does not end the
+    # evidence for an input that is not converted.
+    found = _registers(
+        """
+        cpu.data[0x7c] = 0x5e; cpu.writeData(0x7a, 0xc7); step(8000);
+        const reference = cpu.data[0x78] | (cpu.data[0x79] << 8);
+        cpu.data[0x7a] = 0;
+        cpu.data[0x7c] = 0x5e; cpu.writeData(0x7a, 0xc7); step(100);
+        cpu.data[0x7c] = 0x40;                       // the next channel (ADC0, nothing attached)
+        cpu.writeData(0x7a, cpu.data[0x7a] | 0x10);  // a read-modify-write while converting
+        const during = ends.length;
+        step(8000);
+        console.log(JSON.stringify({ reference, during, ends: ends.length,
+          result: cpu.data[0x78] | (cpu.data[0x79] << 8) }));
+        """
+    )
+    assert found["reference"] == 225  # the band gap, 1.1 V of the 5 V reference
+    assert (found["during"], found["ends"]) == (0, 0)
+    assert found["result"] == found["reference"]
+
+
+def test_the_accelerometer_s_zero_level_statement_says_both_signs_and_the_angle_it_moves() -> None:
+    statement = _program("store(0x24, 0x01);")["imu"]["accel_zero_g_statement"]
+    assert "both signs" in statement and "2.3 degrees" in statement
+    assert "both signs" in _program("store(0x24, 0x01);")["imu"]["gyro_zero_rate_statement"]
+
+
+def test_the_watchdog_statement_says_which_figures_are_the_scenario_s_oscillator_s() -> None:
+    statement = _program("store(0x24, 0x01);")["watchdog"]["statement"]
+    assert "at_oscillator_hz" in statement and "own" in statement
+    assert "no bound" in statement
+
+
+def test_a_feature_changes_only_what_it_is_listed_to_change() -> None:
+    # The ADC clock outside its range changes what is read and not when; a bootloader session
+    # changes when and not what; a digital input disabled reads as the part would not.
+    expected = {
+        "adc_clock": (True, False),
+        "digital_input_disable": (True, False),
+        "bootloader_session": (False, True),
+        "pll_configuration": (False, False),
+        "unmapped_memory": (False, False),
+    }
+    for feature, (timing, behaviour) in expected.items():
+        found = _summary(f"rig.noteUnmodelled('{feature}');")
+        assert (found["timing"], found["behaviour"]) == (timing, behaviour), feature
+    for feature in ("on_chip_debug", "pll_frequency", "rc_oscillator"):
+        found = _summary(f"rig.noteUnmodelled('{feature}');")
+        assert (found["timing"], found["behaviour"]) == (True, True), feature
+
+
+def test_a_stopped_module_ends_the_evidence_without_a_reported_feature_of_its_own() -> None:
+    found = _program("store(0x64, 0x01);")
+    assert found["evidence_end"]["cause"] == "power_reduction"
+    assert "power_reduction" not in found["unmodelled"]
+    assert (found["timing_evaluable"], found["behaviour_evaluable"]) == (True, True)

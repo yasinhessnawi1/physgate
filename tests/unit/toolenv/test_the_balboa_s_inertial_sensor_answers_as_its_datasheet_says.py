@@ -678,6 +678,23 @@ def test_a_read_of_the_magnetometer_s_data_ends_the_evidence_and_names_the_regis
     assert [e[1]["register"] for e in found["ends"]] == [0x28, 0x29, 0x2A]
 
 
+def test_the_magnetometer_s_sub_address_stays_put_unless_its_top_bit_is_set() -> None:
+    # "In order to read multiple bytes, it is necessary to assert the most significant bit of the
+    # sub-address field": without it each read is of the same register.
+    found = _run(
+        """
+        const ends = [];
+        const mag = new imu.LIS3MDL({ faults, onEvidenceEnd: (cause, d) => ends.push(d.register) });
+        mag.begin(true); mag.write(0x28); mag.begin(false);
+        mag.read(); mag.read(); mag.read();
+        mag.begin(true); mag.write(0x28 | 0x80); mag.begin(false);
+        mag.read(); mag.read();
+        out(ends);
+        """
+    )
+    assert found == [0x28, 0x28, 0x28, 0x28, 0x29]
+
+
 def test_an_odr_change_of_the_other_sensor_does_not_shorten_what_is_left_to_discard() -> None:
     # The accelerometer at 208 Hz in high-performance mode has two samples to discard (Table 12);
     # its mode is then changed to normal, which has none; the gyroscope's rate is set before its

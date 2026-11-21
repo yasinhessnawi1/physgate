@@ -74,9 +74,17 @@ def build(env: Path, where: Path, main: str) -> Path:
 
 
 def simulate(
-    env: Path, elf: Path, scenario: dict[str, Any], where: Path, name: str = "run"
+    env: Path,
+    elf: Path,
+    scenario: dict[str, Any],
+    where: Path,
+    name: str = "run",
+    stderr: list[str] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Run ``elf`` under ``scenario`` from an empty environment at the root; summary and trace."""
+    """Run ``elf`` under ``scenario`` from an empty environment at the root; summary and trace.
+
+    The launcher's standard error is appended to ``stderr`` when a list is given.
+    """
     where.mkdir(parents=True, exist_ok=True)
     path = where / f"{name}.json"
     path.write_text(json.dumps(scenario), encoding="utf-8")
@@ -86,6 +94,8 @@ def simulate(
         cwd="/", env=EMPTY, capture_output=True, text=True, timeout=600, check=False,
     )  # fmt: skip
     assert done.returncode == 0, done.stderr[-3000:]
+    if stderr is not None:
+        stderr.append(done.stderr)
     summary = json.loads(done.stdout)
     assert summary == json.loads((where / f"{name}.summary.json").read_text(encoding="utf-8"))
     header, *events = (json.loads(line) for line in out.read_text(encoding="utf-8").splitlines())
