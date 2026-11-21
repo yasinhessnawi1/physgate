@@ -139,13 +139,13 @@
 
 The `control` server (`margins`, `step_response`, `frequency_response`, `poles_zeros`, on a system
 given inline) and the `mujoco` server (`load_model` from a worktree file or text, `step`, `state`,
-`reset`, `model_info`) answer quickly while exploring. **Nothing they return is evidence:** it has
+`reset`, `model_info`) return quickly while exploring. **Nothing they return is evidence:** it has
 no record behind it and cannot be re-checked. A number in the module's spec or the graph comes
 from a module script that ran the library and recorded its output (the next procedure).
 
 ## Antipatterns: the tool environment
 
-- **A margin copied from a tool server's answer.** Recompute it in a module script and report
+- **A margin copied from a tool server's output.** Recompute it in a module script and report
   what the record shows.
 - **A library reimplemented by hand** (a margin search, an integrator): the numbers then rest on
   code nobody reviewed instead of the pinned library.
