@@ -338,8 +338,12 @@ are judged by reading like the rest.
     brief says one is. Then a criterion verified by a measurement on the board fails, and one on
     the board's own behaviour names a simulator the run environment provides (§6 says what it
     provides); a criterion written against a simulator it does not provide fails. Where none is
-    provided, such a criterion is written against what the run can measure (the build with the
-    target's compiler, its size, static checks, host-side tests). A requirement the run cannot
+    provided, such a criterion is written against what the run can measure, with the target's
+    compiler (that the code compiles without a warning in the module's own files, its size, and a
+    check of its logic with the tools the environment provides); one naming a host-side test where
+    the run environment records no host compiler, or a static analyser's run where it provides no
+    analyser, fails. A requirement the
+    run cannot
     show (on-target behaviour where no simulator is provided, or what the simulator cannot show) is
     recorded as not shown in this run, with the reason, and is not a module criterion (§6, §1;
     cat. 2).
@@ -499,4 +503,4 @@ of the brief is not an indicator against the plan.
   and the plan fails the corresponding rule when judged by reading; without that reasoning, at most
   `noted`.
 
-<!-- 0c5b41d0d6e215ee5b80fdda13cc8e54 -->
+<!-- 5e187a25826b912dff8323a610df30a1 -->

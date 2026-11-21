@@ -130,9 +130,13 @@ peripheral's setting, a trip path) is written against a simulator of the board's
 only where the run environment provides one, named in the criterion, running the program built
 for the board; none is presumed (on 20.11.2026 the run environment gives firmware the target's
 compiler, PlatformIO's avr-gcc, and no simulator). Where it provides none, the criterion is
-written against what the run can measure: the program builds with that compiler, its size, static
-checks, and host-side tests of the logic and of the control law against the designer's
-coefficients. A requirement the run cannot show (on-target behaviour, such as a loop's or a
+written against what the run can measure, with that compiler (that the code compiles without a
+warning in the module's own files, its size, and a check of its logic with the tools the
+environment provides); on 20.11.2026 the check is a model of the code in the environment's
+interpreter, labelled as a model of the code, run against the designer's coefficients. A
+host-side test is named only where the run environment records a host compiler, and a static
+analyser's run only where it provides an analyser. A requirement
+the run cannot show (on-target behaviour, such as a loop's or a
 fault's timing, where no simulator is provided; a sensor's physical noise; the motor driver's
 electrical behaviour) is not made a module's criterion: the plan records it as not shown in this
 run, with the reason (§1).

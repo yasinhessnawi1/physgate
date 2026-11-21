@@ -104,7 +104,8 @@ From day one of development, not as a pre-release cleanup: compile with every wa
 offers enabled, at its most pedantic setting, and treat any warning as something to fix rather than
 suppress — including a warning believed to be the compiler's own mistake, which should still be
 addressed by rewriting the code so the confusion cannot recur. Run at least one static analyzer
-daily and treat a non-zero warning count from it the same way [Holzmann, 2006, rule 10].
+daily and treat a non-zero warning count from it the same way [Holzmann, 2006, rule 10] (§12 says
+what is owed where the run environment provides none).
 
 **Judgement-only** for this project's own gate (it runs no compiler and no static analyzer over
 firmware code); this rule is enforceable directly and mechanically by the firmware toolchain itself,
@@ -186,12 +187,18 @@ cycle counts, register states and pin timings are the measurements of timing, pe
 and trip paths. A device the simulator lacks (a sensor's registers, a motor driver) is modelled by
 the work from its datasheet, each behaviour citing the section it follows; the model is part of
 the work. Where the run environment provides no simulator, the evidence is what the run can
-measure: the program builds with the target's compiler, its size, static checks, and host-side
-tests of the logic and of the control law against the designer's coefficients; on-target
-behaviour (a loop's timing, a fault's timing) is then stated as not shown in this run. What the
+measure: the program builds with the target's compiler at the strict warning flags with no
+warning in the module's own files (§7), its size, a static analyser's run where the run
+environment provides one, and host-side tests of the logic and of the control law against the
+designer's coefficients where it provides a host compiler it records. Where it records none, the
+control law's arithmetic is shown by a model of the code in the environment's own interpreter
+(the same integer widths, scaling, saturation and order of operations), run against the
+designer's coefficients and labelled as a model of the code, not the compiled code; that the
+compiled logic ran is then stated as not shown. On-target behaviour (a loop's timing, a fault's
+timing) is then stated as not shown in this run. What the
 run cannot show (that, or with a simulator a sensor's physical noise, the driver's electrical
 behaviour, an off state set by the board's wiring) is stated as not shown, with the reason: never
-as met, and never as failed. A "not shown" for what a provided simulator or a host-side test does
-measure is not a reason: that evidence is owed.
+as met, and never as failed. A "not shown" for what a provided simulator, analyser or recorded
+host compiler does measure is not a reason: that evidence is owed.
 
 **Judgement-only** — no check reads where evidence came from; the reviewer does.
