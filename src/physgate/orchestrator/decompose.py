@@ -32,12 +32,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from physgate.contracts.pairs import ContractError, ContractPair, pairing_problems, plan_pairs
+from physgate.flags import Skills
 from physgate.gate.bounds_table import load_bounds
 from physgate.gate.catalogue import KINDS, QUALIFIERS, QUANTITIES, RELATIONS, shadowing_names
 from physgate.gate.units import UnitRefusedError
 from physgate.gate.units import parse as read_by_registry
 from physgate.hooks.settings import WEB_TOOLS, protected_in_a_worktree
 from physgate.knowledge import loader
+from physgate.knowledge.ceiling import breach_reason
 from physgate.knowledge.library import LibraryError, put_into, read_library, skill_files
 from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
@@ -57,7 +59,7 @@ from physgate.orchestrator.design_pairs import (
     plan_design_pairs,
     plan_mutual_namings,
 )
-from physgate.orchestrator.events import Followable
+from physgate.orchestrator.events import Followable, PlannerFile
 from physgate.orchestrator.exceptions import (
     DecompositionError,
     GitError,
@@ -134,6 +136,7 @@ from physgate.orchestrator.repair import quoted
 from physgate.orchestrator.run_config import RunConfig
 from physgate.orchestrator.trajectory import Seal, seal
 from physgate.reviewers.contract import criterion_words, issued_criteria
+from physgate.reviewers.rubric import evaluation_words
 from physgate.roles import CrossCuttingDuty, owners_of
 from physgate.series.collect import series_library
 from physgate.state.exceptions import MalformedNodeIdError
@@ -888,7 +891,117 @@ def parts_sentence(roles: Sequence[str]) -> str:
     )
 
 
-def prompt_for(brief: str, roles: Sequence[str], *, parts: bool = False) -> str:
+#: The role whose always-loaded set the planner reads before it plans.
+PLANNER_ROLE = "design"
+#: The fixed lines that open and close the library's section of the decomposition prompt.
+PLANNER_LIBRARY_BEGIN = "<<<PLANNER LIBRARY BEGIN>>>"
+PLANNER_LIBRARY_END = "<<<PLANNER LIBRARY END>>>"
+
+
+def planner_library(
+    library: Path | None, *, skills: Skills, token_ceiling: int | None
+) -> dict[Path, bytes] | None:
+    """What the planner reads before it plans, or ``None`` where the run has no library.
+
+    Which case is which: a run gives its role sessions a library when it has one, the checkout
+    it runs from (``library``); the planner follows the same condition. With a library, the
+    design role's always-loaded set (cross standards, design standards, design skill) is read
+    here, once, by :func:`physgate.knowledge.library.read_library`, the reader role sessions' copy
+    uses, and a file that is missing, a link or empty is refused; the set is held to
+    ``token_ceiling`` by the hook layer's own measure (not held where ``None``, for a check that
+    has no configuration); and each file must be text, say nothing that tells a reader it is
+    being evaluated, and hold neither of the section's markers. Under ``skills: off`` the skill
+    file is left out, as for a role session. With no library at all there is no section, and the
+    prompt is the template as it was.
+
+    Raises:
+        LibraryRefusedError: any of those, before a call is made.
+    """
+    if library is None:
+        return None
+    try:
+        files = read_library(library, (PLANNER_ROLE,))
+    except LibraryError as exc:
+        raise LibraryRefusedError(str(exc), **exc.context) from None
+    if skills == "off":
+        left_out = skill_files(files)
+        files = {path: data for path, data in files.items() if path not in left_out}
+    if token_ceiling is not None:
+        breach = breach_reason(
+            [(library / path).absolute() for path in files], token_ceiling, role=PLANNER_ROLE
+        )
+        if breach is not None:
+            msg = "the planner's library is over the always-loaded ceiling"
+            raise LibraryRefusedError(msg, breach=breach)
+    for path, data in sorted(files.items()):
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            msg = "a file of the planner's library is not text"
+            raise LibraryRefusedError(msg, path=path.as_posix()) from None
+        if PLANNER_LIBRARY_BEGIN in text or PLANNER_LIBRARY_END in text:
+            msg = "a file of the planner's library holds a marker of its own section"
+            raise LibraryRefusedError(msg, path=path.as_posix())
+        words = evaluation_words(text)
+        if words:
+            msg = "a file of the planner's library says what is measured"
+            raise LibraryRefusedError(msg, path=path.as_posix(), words=", ".join(words))
+    return files
+
+
+def library_files(files: Mapping[Path, bytes]) -> tuple[PlannerFile, ...]:
+    """What the record holds of the planner's library: each file's path, size and sha256."""
+    return tuple(
+        PlannerFile(path=path.as_posix(), size=len(data), sha256=hashlib.sha256(data).hexdigest())
+        for path, data in files.items()
+    )
+
+
+def library_section(files: Mapping[Path, bytes]) -> str:
+    """The prompt's section: the markers, and between them each file under a header, verbatim.
+
+    The files are in the order given, which is the always-loaded set's. A file's own text is
+    unchanged; a newline follows it only where it ends without one.
+    """
+    body = ""
+    for path, data in files.items():
+        text = data.decode("utf-8")
+        body += f"File: {path.as_posix()}\n{text}" + ("" if text.endswith("\n") else "\n")
+    return f"{PLANNER_LIBRARY_BEGIN}\n{body}{PLANNER_LIBRARY_END}\n\n"
+
+
+def prompt_a_run_sends(
+    brief: str,
+    roles: Sequence[str],
+    *,
+    parts: bool = False,
+    skills: Skills = "on",
+    library: Path | None,
+    token_ceiling: int | None = None,
+) -> str:
+    """The prompt a run's first call is sent, built with no model call and no credential.
+
+    The same bytes as the call a run makes: ``roles`` as the run's configuration names them,
+    ``parts`` as its parts flag, ``skills`` as its switch, and ``library`` the checkout the run
+    copies its library from (``None`` for a run with none, which is sent the template without
+    the section). It reads and refuses as the run does before its call (:func:`planner_library`);
+    ``token_ceiling`` is the run's own, and the ceiling is not held where it is ``None``. A launch
+    check measures and pins this, never :func:`prompt_for`, which is the template alone.
+
+    Raises:
+        LibraryRefusedError: as :func:`planner_library` raises it.
+    """
+    files = planner_library(library, skills=skills, token_ceiling=token_ceiling)
+    return prompt_for(brief, sorted(roles), parts=parts, library=files)
+
+
+def prompt_for(
+    brief: str,
+    roles: Sequence[str],
+    *,
+    parts: bool = False,
+    library: Mapping[Path, bytes] | None = None,
+) -> str:
     """The decomposition prompt: a fixed template around the brief.
 
     Every prompt says how an interface's unit is spelt (:data:`UNIT_SPELLING_SENTENCE`), that
@@ -903,7 +1016,10 @@ def prompt_for(brief: str, roles: Sequence[str], *, parts: bool = False) -> str:
     module's role, since the harness writes its specification. A run with
     neither is sent the template as it was before either was planned for. With ``parts`` the
     run asks which parts a person has or can make, and the prompt gains the one sentence that
-    asks for the components (:func:`parts_sentence`); without, it gains nothing.
+    asks for the components (:func:`parts_sentence`); without, it gains nothing. With ``library``,
+    the files the planner reads (:func:`planner_library`), the prompt gains one section of them
+    between fixed markers (:func:`library_section`), last before the closing instruction; without,
+    it is the template as it was.
     """
     completion = _in_run("completion", roles)
     offered = sorted(role for role in roles if role not in completion)
@@ -918,6 +1034,8 @@ def prompt_for(brief: str, roles: Sequence[str], *, parts: bool = False) -> str:
         added += f"{asked}\n\n{NUMBERING_SENTENCE}\n\n"
     if parts:
         added += f"{parts_sentence(roles)}\n\n"
+    if library is not None:
+        added += library_section(library)
     return (
         "Decompose the design brief below into modules, one per role that has work to do, "
         "and the interface nodes between them.\n\n"
@@ -1008,10 +1126,12 @@ def replan_prompt(
     findings: ReplanFindings,
     *,
     parts: bool = False,
+    library: Mapping[Path, bytes] | None = None,
 ) -> str:
     """A re-plan's prompt: the decomposition prompt, the plan the review did not pass, its findings.
 
-    A fixed template, a function of these alone; ``parts`` as the first call's prompt took it.
+    A fixed template, a function of these alone; ``parts`` and ``library`` as the first call's
+    prompt took them, so a re-plan reads the same section.
     The plan is quoted as the canonical bytes its digest is taken over, and the findings as
     the review gave them, each between fences the text cannot close (the repair
     instructions' quotation), so both are data.
@@ -1019,7 +1139,7 @@ def replan_prompt(
     canonical = plan_bytes(plan).decode()
     lacking = f"{NO_INPUT_SUPPLIED_LINE}\n\n" if findings.lacks_input else ""
     return (
-        f"{prompt_for(brief, sorted(roles), parts=parts)}\n{REPLAN_SENTENCE}\n\n"
+        f"{prompt_for(brief, sorted(roles), parts=parts, library=library)}\n{REPLAN_SENTENCE}\n\n"
         "The plan the reviewer did not pass:\n"
         + "\n".join(quoted(canonical))
         + "\n\nWhat the review found:\n"
@@ -1043,6 +1163,7 @@ def retry_prompt(
     refused: Outcome,
     *,
     parts: bool = False,
+    library: Mapping[Path, bytes] | None = None,
 ) -> str | None:
     """What the one retry of a call is sent: ``prompt`` as it was, or with why a unit was refused.
 
@@ -1055,12 +1176,14 @@ def retry_prompt(
     designer's own names, never another session's words. Any other refusal by the schema is made
     again with ``prompt`` as it was.
     ``parts`` is as the refused call's own prompt took it, so the brief's prompt rebuilt here
-    asks for the components exactly when the first did.
+    asks for the components, and carries the library's section, exactly when the first did.
     """
     told = (UNIT_REFUSAL_HEAD, ORDER_REFUSAL_HEAD)
     if refused.cause != "schema_refused" or not refused.detail.startswith(told):
         return prompt
-    first = prompt_for(brief, sorted(roles), parts=parts) if prompt is None else prompt
+    first = (
+        prompt_for(brief, sorted(roles), parts=parts, library=library) if prompt is None else prompt
+    )
     return (
         f"{first}\n{RETRY_SENTENCE}\n\n"
         "Why the plan was refused:\n"
@@ -1110,6 +1233,10 @@ class Outcome(_Frozen):
     #: The seal of the stream as the call wrote it, taken over exactly those bytes; ``None`` for
     #: an outcome no call wrote a stream for.
     stream_seal: Seal | None = None
+    #: The sha256 and byte length of the prompt as the call sent it; ``None`` for an outcome no
+    #: call made.
+    prompt_sha256: str | None = None
+    prompt_bytes: int | None = None
 
 
 def read_stream(
@@ -1482,6 +1609,7 @@ def call(
     roles = sorted(config.models.roles)
     parts = config.parts_on_hand == "on"
     sent = prompt_for(brief, roles, parts=parts) if prompt is None else prompt
+    sent_bytes = sent.encode("utf-8")
     argv = decomposition_argv(
         binary,
         schema=plan_schema(roles, brief, parts=parts),
@@ -1584,6 +1712,8 @@ def call(
             flag_cache(workdir / "config") if reported in TRAFFIC_ALLOWED_VERSIONS else None
         ),
         stream_seal=stream_seal,
+        prompt_sha256=hashlib.sha256(sent_bytes).hexdigest(),
+        prompt_bytes=len(sent_bytes),
     )
 
 
@@ -2345,11 +2475,16 @@ def start_run(
     refused: str | None = None,
     proposals: Sequence[Proposal] = (),
     retried: Sequence[RetriedCall] = (),
+    planner_files: Mapping[Path, bytes] | None = None,
 ) -> RunRecord:
     """Start the run from the last call's outcome: record a failure, or write the plan.
 
     ``retried`` are the rounds' first calls whose output their schema refused, each made once
     more: their tokens, and why, go in the opening before the call that followed them.
+
+    ``planner_files`` are the files the planner was sent (:func:`planner_library`); the
+    decomposition's record names each by path, size and sha256, and the last call's prompt by
+    its digest and length. A run with none records neither.
 
     ``reviewed`` is what the plan's review came to, in a run that reviews its plan; it ends the
     opening (:meth:`RunRecord.start`), after ``earlier``, the rounds re-planned before it;
@@ -2465,6 +2600,9 @@ def start_run(
             brief_words=words or None,
             followable=followable,
             components=plan.components if isinstance(plan, PartsPlan) else None,
+            planner_library=library_files(planner_files) if planner_files else None,
+            prompt_sha256=outcome.prompt_sha256,
+            prompt_bytes=outcome.prompt_bytes,
         ),
         reviewed=reviewed,
         earlier=earlier,

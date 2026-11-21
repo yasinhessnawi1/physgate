@@ -34,6 +34,7 @@ from physgate.orchestrator.events import (
     Halted,
     Incident,
     InstallChecked,
+    PlannerFile,
     PlanProposed,
     RunStarted,
     SubtaskPlanned,
@@ -141,6 +142,11 @@ class DecompositionSummary(BaseModel):
     #: asks which parts they have lists them, none included; ``None`` in a run that does not ask,
     #: and then left out of the line.
     components: tuple[Component, ...] | None = None
+    #: The planner's library as it was sent, and the prompt's digest and length; ``None`` where
+    #: the run had none, or the call recorded none.
+    planner_library: tuple[PlannerFile, ...] | None = None
+    prompt_sha256: str | None = None
+    prompt_bytes: int | None = None
 
 
 class ReviewInstall(BaseModel):
@@ -225,6 +231,9 @@ class Proposal(BaseModel):
     review_ended: Timestamp | None
     #: The round's first call, or the second made after the first's output was refused.
     call: Literal[1, 2] = 1
+    #: The prompt the call was sent, by its digest and byte length; ``None`` where not recorded.
+    prompt_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
+    prompt_bytes: Annotated[int, Field(ge=1)] | None = None
 
 
 class EarlierRound(BaseModel):
@@ -788,6 +797,9 @@ class RunRecord:
                 brief_words=decomposed.brief_words or None,
                 followable=decomposed.followable,
                 components=decomposed.components,
+                planner_library=decomposed.planner_library,
+                prompt_sha256=decomposed.prompt_sha256,
+                prompt_bytes=decomposed.prompt_bytes,
             )
         for entry in plan:
             # The mark is written only where it is set: every other line keeps the bytes it

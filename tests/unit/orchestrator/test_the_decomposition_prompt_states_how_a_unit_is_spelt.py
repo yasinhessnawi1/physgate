@@ -192,13 +192,14 @@ def _tokens(run_dir: Path) -> list[str]:
 
 
 def test_a_run_that_does_not_review_its_plan_tells_its_one_retry_the_refusal(
-    tmp_path: Path, unit_refused: str
+    tmp_path: Path, unit_refused: str, fixture_library: Path
 ) -> None:
     ran = replan_rig.decompose(tmp_path, "off", [replan_rig.Step(call=REFUSED), replan_rig.Step()])
     assert len(ran.script.calls) == 2 and ran.code == 0, ran.err
     first, second = ran.script.calls
-    assert first["prompt"] is None
-    _told(second["prompt"], decompose.prompt_for(replan_rig.BRIEF, RIG_ROLES), unit_refused)
+    sent = decompose.prompt_a_run_sends(replan_rig.BRIEF, RIG_ROLES, library=fixture_library)
+    assert first["prompt"] == sent
+    _told(second["prompt"], sent, unit_refused)
     # Still one retry, on the record with the refusal, each call with its own tokens.
     (retried,) = [e for e in replan_rig.events(ran.run_dir) if e["kind"] == "decomposition_retried"]
     assert retried["detail"] == unit_refused
@@ -206,13 +207,14 @@ def test_a_run_that_does_not_review_its_plan_tells_its_one_retry_the_refusal(
 
 
 def test_a_reviewed_round_tells_its_one_retry_the_refusal(
-    tmp_path: Path, unit_refused: str
+    tmp_path: Path, unit_refused: str, fixture_library: Path
 ) -> None:
     steps = [replan_rig.Step(call=REFUSED), replan_rig.Step(review="pass")]
     ran = replan_rig.decompose(tmp_path, "on", steps)
     assert len(ran.script.calls) == 2 and ran.code == 0, ran.err
     first, second = ran.script.calls
-    _told(second["prompt"], decompose.prompt_for(replan_rig.BRIEF, RIG_ROLES), unit_refused)
+    sent = decompose.prompt_a_run_sends(replan_rig.BRIEF, RIG_ROLES, library=fixture_library)
+    _told(second["prompt"], sent, unit_refused)
     (refused,) = [one for one in replan_rig.journal(ran.run_dir) if one["kind"] == "call_refused"]
     assert refused["detail"] == unit_refused
     assert _tokens(ran.run_dir)[:2] == [first["session_id"], second["session_id"]]
@@ -244,8 +246,9 @@ def test_a_unit_refused_twice_ends_the_run_and_no_third_call_is_made(
 
 
 def test_a_refusal_that_is_not_a_unit_s_is_retried_with_the_prompt_as_it_was(
-    tmp_path: Path,
+    tmp_path: Path, fixture_library: Path
 ) -> None:
     ran = replan_rig.decompose(tmp_path, "off", [replan_rig.Step(call=REFUSED), replan_rig.Step()])
     assert len(ran.script.calls) == 2 and ran.code == 0, ran.err
-    assert [call["prompt"] for call in ran.script.calls] == [None, None]
+    sent = decompose.prompt_a_run_sends(replan_rig.BRIEF, RIG_ROLES, library=fixture_library)
+    assert [call["prompt"] for call in ran.script.calls] == [sent, sent]

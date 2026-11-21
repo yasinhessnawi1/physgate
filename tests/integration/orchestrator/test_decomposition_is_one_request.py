@@ -588,3 +588,21 @@ def test_a_unit_refused_again_by_the_retry_fails_the_run_with_nothing_stored(
     assert TokenAccount.from_events(events).decomposition_invocations() == 2
     assert TaskLedger(run_dir / "ledger.jsonl").read_all() == []
     assert not (run_dir / "store").exists()
+
+
+def test_the_prompt_a_call_was_sent_is_recorded_by_its_digest_and_length(tmp_path: Path) -> None:
+    import hashlib
+
+    from physgate.orchestrator.decompose import PLANNER_LIBRARY_BEGIN
+
+    api, made, run_dir = _through_the_rounds(tmp_path, ["V"])
+    assert made.ok, made.detail
+    (request,) = api.requests
+    assert request.last_user.count(PLANNER_LIBRARY_BEGIN) == 1
+    (decomposed,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Decomposed)]
+    # The request's last user turn is the prompt, up to the newline the binary may trim or add.
+    text = request.last_user.rstrip("\n")
+    made_of = {text.encode(), (text + "\n").encode(), (text + "\n\n").encode()}
+    assert decomposed.prompt_sha256 in {hashlib.sha256(one).hexdigest() for one in made_of}
+    assert decomposed.prompt_bytes in {len(one) for one in made_of}
+    assert decomposed.planner_library is not None
