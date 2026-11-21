@@ -382,7 +382,25 @@ for (const entry of Object.values(mcu.REGISTER_OUTCOMES)) {
   if (entry.feature) features.add(entry.feature);
   if (entry.cause === 'twi_slave') features.add('twi_slave');
 }
-console.log(JSON.stringify({ features: [...features].sort(), effects: mcu.FEATURE_EFFECTS }));
+// Every name a register's `uses` can give, for each value and for a read and a write, with the
+// chip's data space all clear and all set (the registers' uses read the chip's other registers).
+const used = new Set();
+for (const entry of Object.values(mcu.REGISTER_OUTCOMES)) {
+  if (!entry.uses || entry.silent) continue; // a silent end names no feature
+  for (const fill of [0x00, 0xff]) {
+    const chip = { cpu: { data: new Uint8Array(0x10000).fill(fill) } };
+    for (const access of ['read', 'write']) {
+      for (let value = 0; value < 256; value += 1) {
+        for (const name of entry.uses(value, access, chip)) used.add(name);
+      }
+    }
+  }
+}
+console.log(JSON.stringify({
+  features: [...features].sort(), used: [...used].sort(), effects: mcu.FEATURE_EFFECTS,
+  unlisted: mcu.effectsOf('a_feature_nobody_listed'),
+  sensor: [mcu.effectsOf('lsm6ds33:CTRL7_G'), mcu.effectsOf('lis3mdl:CTRL_REG1')],
+}));
 """
 
 OUTCOME_TABLE = """
@@ -543,6 +561,24 @@ def test_the_rig_s_table_gives_every_reported_feature_its_effect_on_what_is_eval
     found = _node(FEATURES % {"src": _src()})
     missing = [f for f in found["features"] if f not in found["effects"]]
     assert not missing, missing
+    # Nor does a name the table's `uses` gives, or one the model reports in code (the guards of
+    # the ADC, the PLL and memory, the rig's own notes, the sensors), rest on the default
+    # `effectsOf` falls back to: each has its own entry. Sensor settings (`lsm6ds33:CTRL7_G`)
+    # are named by register and change the values only.
+    rig = environment() / "avrsim" / "src"
+    code = "\n".join(
+        (rig / name).read_text(encoding="utf-8")
+        for name in ("mcu.js", "rig.js", "board.js", "imu.js")
+    )
+    named = set(re.findall(r"\b(?:report|noteUnmodelled|onUnmodelled)\('(\w+)'\)", code))
+    assert {"adc_input", "adc_clock", "pll_configuration", "unmapped_memory"} <= named
+    assert {"bootloader_session", "spm_instruction", "lsm6ds33_data", "lis3mdl_data"} <= named
+    assert {"timer4", "twi_slave", "spm_interrupt", "vector_relocation"} <= set(found["used"])
+    unlisted = sorted((named | set(found["used"])) - set(found["effects"]))
+    assert not unlisted, unlisted
+    # What no table lists is taken to change both, and a sensor setting only the values.
+    assert found["unlisted"] == ["timing", "behaviour"]
+    assert found["sensor"] == [["behaviour"], ["behaviour"]]
     # No effect is only for a use whose register the board's crystal clock makes inert.
     inert = sorted(f for f, effect in found["effects"].items() if not effect)
     assert inert == ["on_chip_debug", "pll_frequency", "rc_oscillator"]

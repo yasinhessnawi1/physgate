@@ -29,6 +29,15 @@ def _read(scenario: object) -> dict[str, Any]:
     return result
 
 
+def _accepted(scenario: object) -> dict[str, Any]:
+    """The scenario as read; a refusal fails the row on its assertion, naming what was refused."""
+    result = _read(scenario)
+    assert "ok" in result, result
+    read = result["ok"]
+    assert isinstance(read, dict)
+    return read
+
+
 def _base(**more: object) -> dict[str, object]:
     return {"avrsim_scenario": 1, "duration_s": 1.0, **more}
 
@@ -104,7 +113,7 @@ def test_every_part_a_scenario_can_hold_is_read_as_given() -> None:
         watchdog_oscillator_hz=112_000,
         sram_seed=0xFFFFFFFF,
     )
-    read = _read(scenario)["ok"]
+    read = _accepted(scenario)
     assert read["imu"]["gyro_zero_rate_dps"] == [-40, 0, 2.5]
     assert read["imu"]["accel_zero_g_mg"] == [-160, 0, 40.5]
     assert (read["watchdog_oscillator_hz"], read["sram_seed"]) == (112_000, 0xFFFFFFFF)
@@ -457,7 +466,7 @@ def test_a_profile_is_held_before_its_first_point_and_after_its_last_and_linear_
 def test_the_ends_of_the_battery_range_and_of_both_zero_levels_are_read() -> None:
     # The model's battery range is a six-cell pack's own, 6.0 V to the drivers' 10.8 V. A zero
     # level may be stated up to four times the datasheet's typical figure, of either sign.
-    low = _read(_base(battery_v=6.0, imu={"gyro_zero_rate_dps": [40, -40, 0]}))["ok"]
-    high = _read(_base(battery_v=10.8, imu={"accel_zero_g_mg": [160, -160, 0]}))["ok"]
+    low = _accepted(_base(battery_v=6.0, imu={"gyro_zero_rate_dps": [40, -40, 0]}))
+    high = _accepted(_base(battery_v=10.8, imu={"accel_zero_g_mg": [160, -160, 0]}))
     assert (low["battery_v"], low["imu"]["gyro_zero_rate_dps"]) == (6.0, [40, -40, 0])
     assert (high["battery_v"], high["imu"]["accel_zero_g_mg"]) == (10.8, [160, -160, 0])

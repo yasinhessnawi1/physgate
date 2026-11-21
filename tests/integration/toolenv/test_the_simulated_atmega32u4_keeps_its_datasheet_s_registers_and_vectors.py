@@ -940,6 +940,12 @@ def test_the_arduino_core_s_timer4_set_up_is_not_unmodelled_but_each_use_of_what
         assert found["timing_evaluable"] is False and found["timing_not_evaluable_because"] == [
             what
         ]
+    # ADCSRB's ACME (bit 6) connects the analog comparator's negative input to the ADC
+    # multiplexer: a write of it is a use of the comparator, and a write without it is not.
+    acme = _program("store(0x7b, 0x40);")
+    assert {k: v["count"] for k, v in acme["unmodelled"].items()} == {"analog_comparator": 1}
+    assert acme["timing_not_evaluable_because"] == ["analog_comparator"]
+    assert _program("store(0x7b, 0x80);")["unmodelled"] == {}
     # TCCR4C's bits 7:4 are "shadow bits of the COM4A1 and COM4A0 bits" (and COM4B's): a compare
     # output connected through them is a use.
     shadow = _program(core + "store(0xc2, 0x41);")
@@ -1208,6 +1214,9 @@ def test_idle_sleep_halts_the_cpu_until_an_interrupt_which_then_responds_five_cy
     # following SLEEP"; "Interrupt Response Time": from sleep the response "is increased by five
     # clock cycles" (the sleep section says four: the rig takes the longer).
     found = _program(IDLE, seconds=0.001)
+    # The ADC is not enabled here: a SLEEP starts no conversion, so nothing ends the evidence.
+    assert found["evidence_end"] is None, found["evidence_end"]
+    assert "TIMER0_OVF" in found["vectors"] and "adc_input" not in found["unmodelled"]
     isr = found["vectors"]["TIMER0_OVF"]
     sleep = found["sleep"]
     assert isr["count"] == sleep["wakes"] > 50
@@ -1827,6 +1836,20 @@ def test_a_watchdog_the_firmware_never_uses_shows_only_the_start_up_time_at_both
     assert first[0] < first[1]
 
 
+def test_a_watchdog_with_only_its_interrupt_enabled_is_used_and_run_at_both_ends() -> None:
+    # WDTCSR's WDIE (bit 6) alone, with WDE clear, starts the watchdog in interrupt mode: the
+    # firmware uses it, so each end is a run of its own (and carries its resets), where a write
+    # that sets neither WDIE nor WDE leaves the watchdog unused.
+    found = _program("store(0x60, 0x40);", seconds=0.02)["watchdog"]
+    assert found["used"] is True
+    for name in ("fast", "slow"):
+        assert "first_watchdog_reset_cycle" in found["ends"][name], name
+        assert [reset["cause"] for reset in found["ends"][name]["resets"]] == ["power_on"], name
+    # WDE alone, WDIE alone and neither.
+    for value, used in ((0x08, True), (0x40, True), (0x10, False), (0x00, False)):
+        assert _program(f"store(0x60, {value});", seconds=0.02)["watchdog"]["used"] is used, value
+
+
 def test_every_figure_of_time_is_withheld_when_timing_is_not_evaluable() -> None:
     # CLKPR written (the prescaler is not modelled): timing_evaluable is false. The cycle of a
     # reset, of a probe's first entry, of a sleep and of a bootloader session are figures of time
@@ -1891,6 +1914,7 @@ def test_each_end_of_the_watchdog_carries_its_own_evidence_end_and_flags() -> No
     assert found["evidence_end"] is None and found["timing_evaluable"] is True
     ends = found["watchdog"]["ends"]
     fast, slow = ends["fast"], ends["slow"]
+    assert fast["evidence_end"] is not None, "the fast end carries no evidence end"
     assert fast["evidence_end"]["cause"] == "reserved_register"
     assert fast["evidence_end"]["address"] == 0x22
     assert (fast["timing_evaluable"], fast["behaviour_evaluable"]) == (False, False)
@@ -1899,6 +1923,14 @@ def test_each_end_of_the_watchdog_carries_its_own_evidence_end_and_flags() -> No
     # What the fast end measured is withheld, as in the run's own summary.
     why = {"withheld": "timing not evaluable: reserved_register"}
     assert fast["first_watchdog_reset_cycle"] == fast["period_cycles"] == why
+    # Each reset the end lists has its time withheld too (its cycle and its sketch's start), not
+    # a bare number; at the slow end, which stands behind time, they are numbers.
+    assert len(fast["resets"]) >= 2
+    for reset in fast["resets"]:
+        assert reset["cycle"] == why and reset["sketch_start_cycle"] == why, reset
+    assert len(slow["resets"]) >= 2
+    assert all(isinstance(reset["cycle"], int) for reset in slow["resets"])
+    assert any(isinstance(reset["sketch_start_cycle"], int) for reset in slow["resets"])
     assert slow["evidence_end"] is None
     assert (slow["timing_evaluable"], slow["behaviour_evaluable"]) == (True, True)
     assert slow["timing_not_evaluable_because"] == slow["behaviour_not_evaluable_because"] == []
@@ -1926,9 +1958,10 @@ def test_an_end_whose_evidence_ended_before_a_watchdog_reset_is_not_shown_as_nev
     # A power-down sleep right after the watchdog is started ends the evidence in every run
     # before its first reset: a missing first reset is then "not reached", not "fed in time".
     found = _program("store(0x60, 0x08); store(0x53, 0x05); words[at++] = 0x9588;", seconds=0.3)
-    assert found["evidence_end"]["cause"] == "sleep"
+    assert found["evidence_end"] is not None and found["evidence_end"]["cause"] == "sleep"
     for name in ("fast", "slow"):
         end = found["watchdog"]["ends"][name]
+        assert end["evidence_end"] is not None, name
         assert end["evidence_end"]["cause"] == "sleep", name
         assert (end["timing_evaluable"], end["behaviour_evaluable"]) == (True, True), name
         cycle = end["evidence_end"]["cycle"]
@@ -2045,6 +2078,13 @@ def test_a_program_memory_read_past_the_end_of_flash_ends_the_evidence_at_that_a
         assert found["evidence_end"] is None, name
     reads = "[...asm.ldi(16, 0), ...asm.sts(0x5b, 16), 0x9106]"
     assert _program(LPM_PAST + f"load(0x7fff, {reads});")["evidence_end"] is None
+    # Only ELPM takes RAMPZ: the plain forms read at Z alone, whatever RAMPZ holds (a write to
+    # RAMPZ itself is storage and ends nothing).
+    for name in ("lpm", "lpm_z", "lpm_z_plus"):
+        extra = forms[name].replace("[", f"[{ldi_rampz}, ", 1)
+        found = _program(LPM_PAST + f"load(0x7fff, {extra});")
+        assert found["evidence_end"] is None, name
+        assert found["unmodelled"] == {}, name
 
 
 def test_the_pll_starts_from_the_chip_s_reset_frequency_setting() -> None:

@@ -604,11 +604,13 @@ def test_a_firmware_that_reads_the_magnetometer_is_not_shown_a_zero_field(tmp_pa
         env, elf, {"avrsim_scenario": 1, "duration_s": 0.3}, tmp_path, stderr=said
     )
     # The status is 0 whatever the evidence: the launcher's own line says it did not stand.
-    assert "not clean evidence" in said[0] and "(lis3mdl_data)" in said[0]
-    assert "timing is not evaluable" in said[0] and "values are not evaluable" in said[0]
-    assert summary["usart1"]["text"].startswith("WHO:61")
     end = summary["evidence_end"]
     assert end is not None and end["cause"] == "lis3mdl_data" and end["register"] == 0x28
+    assert "not clean evidence" in said[0] and "(lis3mdl_data)" in said[0]
+    # The line says where the evidence ended and why, before the two figures it withholds.
+    assert f"the evidence ended at cycle {end['cycle']} (lis3mdl_data); timing" in said[0]
+    assert "timing is not evaluable" in said[0] and "values are not evaluable" in said[0]
+    assert summary["usart1"]["text"].startswith("WHO:61")
     assert "X:" not in summary["usart1"]["text"]
     assert "lis3mdl_data" in summary["unmodelled"]
     assert summary["simulated_cycles"] < 0.3 * F
