@@ -46,6 +46,7 @@ from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.catches import catches, parse_time
+from physgate.orchestrator.closing_wait import closing_waits
 from physgate.orchestrator.common import first_problem, render_jsonl, utc_now
 from physgate.orchestrator.credentials import (
     SECRET_VARIABLE,
@@ -1144,6 +1145,9 @@ def _drive_run(
             # Each builder held while the module whose design it implements has not merged, and
             # why; left out where none is, so every other run prints as it always has.
             **held_builders(loop.state),
+            # Sizing's closing pass held while a domain module has neither merged nor ended
+            # without a merge, with the modules it waits for; left out where none is held.
+            **closing_waits(loop.state),
             "open_queue_items": [item.item_id for item in loop.queue.open_items()],
             "tokens": {k: v.total() for k, v in account.by_kind().items()},
         }

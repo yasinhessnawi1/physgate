@@ -255,6 +255,11 @@ _UNWRITTEN_TS = utc_stamp(datetime(1970, 1, 1, tzinfo=UTC))
 #: every dispatch of a subtask waits while a subtask it reads from waits on a person.
 PRODUCER_WAIT: Literal["hold"] | None = "hold"
 
+#: The mark a run that acts on decisions writes on its first line: it started under the rule that
+#: sizing's closing pass is not dispatched while a domain module before it has neither merged nor
+#: ended without a merge.
+CLOSING_WAIT: Literal["hold"] | None = "hold"
+
 #: The digest of the sign-off rule table's version every run started now writes on its first line.
 SIGN_OFF_RULES: str | None = CURRENT_SHA256
 
@@ -574,6 +579,7 @@ class RunRecord:
             hooks=None if self.config.hooks == "on" else self.config.hooks,
             ablation=True if self.config.ablation else None,
             producer_wait=PRODUCER_WAIT if self._said()[0] == "act" else None,
+            closing_wait=CLOSING_WAIT if self._said()[0] == "act" else None,
             # Never a parameter of the run: which modules owe a person's sign-off is the rule
             # this code holds, and the run names its version so replay reads the same rows.
             sign_offs=SIGN_OFF_RULES,
