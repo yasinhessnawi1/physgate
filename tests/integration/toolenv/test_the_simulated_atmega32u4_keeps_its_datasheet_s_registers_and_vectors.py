@@ -1,0 +1,2311 @@
+"""The simulated ATmega32U4 has the 32U4's vectors and registers, not the 328P's it was built from.
+
+avr8js models the ATmega328P; the rig sets the 32U4 up from its parts, so every vector address
+and register behaviour is the rig's own claim. Each is held here on the provisioned rig itself:
+small programs written in machine code raise each interrupt the board model relies on and the
+summary names the vector the CPU took; register rows write a register as firmware would and
+read what the datasheet says follows (a zero written to a flag leaves it, the watchdog's timed
+sequence, USB's level interrupt, the PLL's lock, the TWI's held flag and its abort). The
+board's reset path (the fuses' start-up time, then the A-Star 32U4 bootloader) and the rig's own
+measurements (the motors' state from the DRV8838 enable pins, interrupt times, the input-to-output
+bound, what the rig does not model) are held here too, each against the document it follows.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+from typing import Any
+
+import pytest
+from avrsim_rig import environment
+
+pytestmark = pytest.mark.integration
+
+#: A program in words, run on the rig for some cycles; the summary's vectors back. `asm` holds
+#: encoders for the few instructions the programs need.
+PROGRAM = """
+const src = %(src)s;
+const { Rig, Trace } = await import(`${src}/rig.js`);
+const { readScenario } = await import(`${src}/scenario.js`);
+const asm = {
+  ldi: (d, k) => [0xe000 | ((k & 0xf0) << 4) | ((d - 16) << 4) | (k & 0x0f)],
+  sts: (k, r) => [0x9200 | (r << 4), k],
+  jmp: (k) => [0x940c, k],
+  inc: (d) => [0x9403 | (d << 4)],
+  sei: () => [0x9478],
+  reti: () => [0x9518],
+  self: () => [0xcfff],
+  lds: (d, k) => [0x9000 | (d << 4), k],
+  sleep: () => [0x9588],
+  // A delay: ldi r17, n; dec r17; brne .-2 (1 + 3n - 1 cycles).
+  delay: (n) => [0xe010 | ((n & 0xf0) << 4) | (n & 0x0f), 0x951a, 0xf7f1],
+};
+const words = new Uint16Array(0x4000);
+let at = 0x56;                         // after the 43 two-word vectors
+const handler = at;
+for (const w of [...asm.inc(20), ...asm.reti()]) words[at++] = w;
+for (let v = 2; v < 0x56; v += 2) words.set(asm.jmp(handler), v);
+const main = at;
+words.set(asm.jmp(main), 0);
+const store = (address, value) => {
+  for (const w of [...asm.ldi(16, value), ...asm.sts(address, 16)]) words[at++] = w;
+};
+%(setup)s
+for (const w of [...asm.sei(), ...asm.self()]) words[at++] = w;
+const flash = new Uint8Array(words.buffer);
+const scenario = readScenario(JSON.stringify({
+  avrsim_scenario: 1, duration_s: %(seconds)s, ...%(more)s }));
+const elf = { flash, eeprom: null, symbols: new Map() };
+const rig = new Rig(elf, scenario, new Trace(() => {}, 1000));
+const s = rig.run();
+const d = rig.chip.cpu.data;
+console.log(JSON.stringify({ vectors: s.vectors, resets: s.resets, pwm: s.pwm, motors: s.motors,
+  events: s.events, unmodelled: s.unmodelled, timing_evaluable: s.timing_evaluable,
+  timing_not_evaluable_because: s.timing_not_evaluable_because, reset_path: s.reset_path,
+  unwound: s.vectors_left_without_reti, r: Array.from(d.slice(0, 32)),
+  ports: { PORTB: d[0x25], PORTC: d[0x28], PORTD: d[0x2b], PINB: d[0x23], DDRB: d[0x24],
+    DDRC: d[0x27], DDRD: d[0x2a] },
+  sleep: s.sleep, evidence_end: s.evidence_end, simulated_cycles: s.simulated_cycles,
+  withheld: s.withheld, not_shown: s.not_shown, typical: s.typical_figures,
+  input_to_output: s.input_to_output, power_on_sram_seed: s.power_on_sram_seed,
+  ocr1a: rig.chip.timer1.ocrA, sram: Array.from(d.slice(0x900, 0x910)),
+  raw_resets: rig.resets, behaviour_evaluable: s.behaviour_evaluable,
+  behaviour_not_evaluable_because: s.behaviour_not_evaluable_because,
+  eeprom: s.eeprom, usb: s.usb, watchdog: s.watchdog, imu: s.imu }));
+"""
+
+#: The sketch's first instruction: the start-up time after power-on (16K CK + 14CK + 65 ms).
+START = round(0.065 * 16e6) + 14 + 16_384
+
+#: A program of calls, its own words given in `%(body)s` from the word address `at` on, probed
+#: as the ELF's functions `%(symbols)s` names; the summary's probes and stack back.
+CALLS = """
+const src = %(src)s;
+const { Rig, Trace } = await import(`${src}/rig.js`);
+const { readScenario } = await import(`${src}/scenario.js`);
+const asm = {
+  call: (k) => [0x940e, k], jmp: (k) => [0x940c, k], ret: () => [0x9508], nop: () => [0x0000],
+  ldi: (d, k) => [0xe000 | ((k & 0xf0) << 4) | ((d - 16) << 4) | (k & 0x0f)],
+  sts: (k, r) => [0x9200 | (r << 4), k],
+};
+const words = new Uint16Array(0x4000);
+const at = 0x56;
+%(body)s
+const flash = new Uint8Array(words.buffer);
+const symbols = new Map(Object.entries(%(symbols)s).map(
+  ([name, word]) => [name, { type: 'function', value: word * 2 }]));
+const scenario = readScenario(JSON.stringify(%(scenario)s));
+const rig = new Rig({ flash, eeprom: null, symbols }, scenario, new Trace(() => {}, 1000));
+const s = rig.run();
+console.log(JSON.stringify({ probes: s.probes, stack: s.stack, resets: s.resets }));
+"""
+
+#: A register row: `chip` is a fresh ATmega32U4, `REG` its addresses; `step(n)` runs n cycles of
+#: clock events with no program.
+REGISTERS = """
+const src = %(src)s;
+const mcu = await import(`${src}/mcu.js`);
+const { REG } = mcu;
+const bus = { start: () => true, stop() {}, connect: () => true, write: () => true, read: () => 0 };
+const eeprom = new mcu.EEPROMMemoryBackend(1024);
+const reports = {};
+const ends = [];
+const chip = new mcu.ATmega32U4(new Uint16Array(0x4000), {
+  eeprom, bus,
+  onUnmodelled: (what) => { reports[what] = (reports[what] ?? 0) + 1; },
+  onEvidenceEnd: (cause, detail) => ends.push({ cause, ...detail }),
+});
+const { cpu } = chip;
+const step = (n) => {
+  const end = cpu.cycles + n;
+  while (cpu.cycles < end) { cpu.cycles += 1; cpu.tick(); }
+};
+// Whether the CPU, interrupts on, takes the vector at `address` now (and is put back).
+const pending = (address) => {
+  cpu.data[95] = 0x80; const pc = cpu.pc; cpu.tick();
+  const taken = cpu.pc !== pc ? cpu.pc : null; cpu.pc = pc;
+  return taken === address;
+};
+%(body)s
+"""
+
+
+def _node(script: str) -> Any:
+    env = environment()
+    done = subprocess.run(
+        [str(env / "node" / "bin" / "node"), "--input-type=module", "-"],
+        input=script,
+        cwd="/",
+        env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent"},
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr[-3000:]
+    return json.loads(done.stdout.strip().splitlines()[-1])
+
+
+def _src() -> str:
+    return json.dumps((environment() / "avrsim" / "src").as_uri())
+
+
+#: The handler every vector of PROGRAM jumps to, unless a row gives its own words.
+HANDLER = "[...asm.inc(20), ...asm.reti()]"
+
+
+def _program(
+    setup: str, seconds: float = 0.001, handler: str = HANDLER, **more: Any
+) -> dict[str, Any]:
+    """Run ``setup`` as the sketch for ``seconds`` after its start (the start-up time added)."""
+    program = PROGRAM.replace(HANDLER, handler)
+    found = _node(
+        program
+        % {
+            "src": _src(),
+            "setup": setup,
+            "seconds": START / 16e6 + seconds,
+            "more": json.dumps(more),
+        }
+    )
+    assert isinstance(found, dict)
+    return found
+
+
+def _vectors(setup: str, seconds: float = 0.001) -> dict[str, int]:
+    return {name: v["count"] for name, v in _program(setup, seconds)["vectors"].items()}
+
+
+def _registers(body: str) -> Any:
+    return _node(REGISTERS % {"src": _src(), "body": body})
+
+
+def test_each_external_interrupt_takes_its_own_vector() -> None:
+    # Rising edges on INT0..INT3 (EICRA) and INT6 (EICRB's ISC61:60), driven as outputs.
+    setup = """
+    store(0x69, 0xff); store(0x6a, 0x30); store(0x3d, 0x4f);
+    store(0x2a, 0x0f); store(0x2d, 0x40);
+    store(0x2b, 0x0f); store(0x2e, 0x40);
+    """
+    found = _vectors(setup)
+    assert {name: found.get(name) for name in ("INT0", "INT1", "INT2", "INT3", "INT6")} == {
+        "INT0": 1,
+        "INT1": 1,
+        "INT2": 1,
+        "INT3": 1,
+        "INT6": 1,
+    }
+
+
+def test_a_pin_change_on_port_b_takes_pcint0() -> None:
+    # PB1 (PB0 is left set by the bootloader, its RX LED off, and the board holds it high).
+    setup = "store(0x68, 0x01); store(0x6b, 0x02); store(0x24, 0x02); store(0x25, 0x03);"
+    assert _vectors(setup).get("PCINT0") == 1
+
+
+def test_timer1_s_third_compare_unit_and_timer3_s_overflow_take_their_vectors() -> None:
+    # Normal mode from clk/1: OCR1C at 0x100 matches once and TCNT3 overflows once per 65536
+    # cycles: matches at 256, 65792, 131328 and 196864, overflows at 65536, 131072, 196608.
+    setup = """
+    store(0x8d, 0x01); store(0x8c, 0x00); store(0x6f, 0x08); store(0x81, 0x01);
+    store(0x71, 0x01); store(0x91, 0x01);
+    """
+    found = _vectors(setup, seconds=0.0125)  # 200,000 cycles
+    assert found.get("TIMER1_COMPC") == 4
+    assert found.get("TIMER3_OVF") == 3
+    assert "TIMER1_COMPA" not in found and "TIMER1_OVF" not in found
+
+
+def test_a_zero_written_to_a_flag_register_leaves_its_flags_and_a_one_clears_one() -> None:
+    found = _registers(
+        """
+        cpu.data[REG.TIFR1] = 0x0f;
+        cpu.writeData(REG.TIFR1, 0x00); const kept = cpu.data[REG.TIFR1];
+        cpu.writeData(REG.TIFR1, 0x08); const one = cpu.data[REG.TIFR1];
+        cpu.data[REG.MCUSR] = 0x0f;
+        cpu.writeData(REG.MCUSR, 0x0f); const mcusrKept = cpu.data[REG.MCUSR];
+        cpu.writeData(REG.MCUSR, 0x07); const mcusrCleared = cpu.data[REG.MCUSR];
+        console.log(JSON.stringify({ kept, one, mcusrKept, mcusrCleared }));
+        """
+    )
+    assert found == {"kept": 0x0F, "one": 0x07, "mcusrKept": 0x0F, "mcusrCleared": 0x07}
+
+
+def test_the_watchdog_changes_only_through_its_timed_sequence_and_resets_on_time_out() -> None:
+    found = _registers(
+        """
+        cpu.writeData(REG.WDTCSR, 0x08);                    // WDE may be set at any time
+        const set = cpu.data[REG.WDTCSR];
+        cpu.writeData(REG.WDTCSR, 0x00);                    // but not cleared outside the sequence
+        const stillSet = cpu.data[REG.WDTCSR];
+        cpu.writeData(REG.WDTCSR, 0x18); step(2); cpu.writeData(REG.WDTCSR, 0x00);
+        const cleared = cpu.data[REG.WDTCSR];
+        cpu.writeData(REG.WDTCSR, 0x18); step(6); cpu.writeData(REG.WDTCSR, 0x01);
+        const late = cpu.data[REG.WDTCSR] & 0x27;           // too late to change the prescaler
+        cpu.writeData(REG.WDTCSR, 0x18); cpu.writeData(REG.WDTCSR, 0x48);  // interrupt and reset
+        step(256_000 - 10); const early = [chip.resetRequest, cpu.data[REG.WDTCSR] & 0x80];
+        step(20);
+        const flagged = !!(cpu.data[REG.WDTCSR] & 0x80);
+        const first = [chip.resetRequest, flagged, pending(mcu.VECTORS.WDT)];
+        chip.watchdog.vectored(); cpu.data[REG.WDTCSR] &= ~0x80;
+        const wdie = cpu.data[REG.WDTCSR] & 0x40;
+        step(256_000); const second = chip.resetRequest;
+        console.log(JSON.stringify({ set, stillSet, cleared, late, early, first, wdie, second }));
+        """
+    )
+    assert found == {
+        "set": 0x08,
+        "stillSet": 0x08,
+        "cleared": 0x00,
+        "late": 0x00,
+        "early": [None, 0],
+        "first": [None, True, True],
+        "wdie": 0,
+        "second": "watchdog",
+    }
+
+
+def test_after_a_watchdog_reset_its_flag_holds_the_watchdog_on_at_its_shortest_period() -> None:
+    found = _registers(
+        """
+        const next = new mcu.ATmega32U4(new Uint16Array(0x4000), {
+          eeprom: new mcu.EEPROMMemoryBackend(1024), bus, mcusr: mcu.MCUSR_WDRF, cycles: 1000 });
+        const n = next.cpu;
+        const at = [n.data[REG.MCUSR], n.data[REG.WDTCSR], n.cycles, n.pc];
+        n.writeData(REG.WDTCSR, 0x18); n.writeData(REG.WDTCSR, 0x00);
+        const whileFlagged = n.data[REG.WDTCSR];
+        n.writeData(REG.MCUSR, 0x00);
+        n.writeData(REG.WDTCSR, 0x18); n.writeData(REG.WDTCSR, 0x00);
+        console.log(JSON.stringify({ at, whileFlagged, after: n.data[REG.WDTCSR] }));
+        """
+    )
+    assert found == {"at": [0x08, 0x08, 1000, 0], "whileFlagged": 0x08, "after": 0x00}
+
+
+def test_usb_with_no_host_locks_its_pll_and_raises_a_level_interrupt_from_udint_and_udien() -> None:
+    found = _registers(
+        """
+        const reset = [cpu.data[REG.USBCON], cpu.data[REG.UDCON], cpu.data[REG.USBSTA]];
+        cpu.writeData(REG.PLLCSR, 0x12);
+        // PLOCK "about several ms" after PLLE (datasheet "PLLCSR"): the rig's 10 ms.
+        step(160_000 - 10); const early = cpu.data[REG.PLLCSR] & 0x01;
+        step(20); const locked = cpu.data[REG.PLLCSR] & 0x01;
+        cpu.writeData(REG.PLLCSR, 0x01); const unlocked = cpu.data[REG.PLLCSR] & 0x01;
+        cpu.data[REG.UDINT] = 0x04;
+        cpu.writeData(REG.UDIEN, 0x04); const raised = pending(mcu.VECTORS.USB_GEN);
+        const again = pending(mcu.VECTORS.USB_GEN);          // a level: still pending
+        cpu.writeData(REG.UDINT, 0xff); const kept = cpu.data[REG.UDINT];
+        cpu.writeData(REG.UDINT, 0xfb);
+        const cleared = [cpu.data[REG.UDINT], pending(mcu.VECTORS.USB_GEN)];
+        const found = { reset, early, locked, unlocked, raised, again, kept, cleared };
+        console.log(JSON.stringify(found));
+        """
+    )
+    assert found == {
+        "reset": [0x20, 0x01, 0x02],
+        "early": 0,
+        "locked": 1,
+        "unlocked": 0,
+        "raised": True,
+        "again": True,
+        "kept": 0x04,
+        "cleared": [0x00, False],
+    }
+
+
+def test_the_twi_flag_is_cleared_only_by_a_one_and_disabling_the_interface_ends_a_start() -> None:
+    found = _registers(
+        """
+        chip.twi.bus = { ...bus, start: () => false };       // SDA held: no START completes
+        cpu.writeData(REG.TWBR, 72);                          // 100 kHz
+        cpu.writeData(REG.TWCR, 0xa4);                        // TWINT | TWSTA | TWEN
+        step(200 * 160);
+        const stuck = [chip.twi.busy, cpu.data[REG.TWCR] & 0x80, cpu.data[REG.TWSR] & 0xf8];
+        cpu.writeData(REG.TWCR, 0x00); const freed = [chip.twi.busy, cpu.data[REG.TWSR] & 0xf8];
+        chip.twi.bus = bus;
+        cpu.writeData(REG.TWCR, 0xa4); step(159); const before = cpu.data[REG.TWCR] & 0x80;
+        step(1); const started = [cpu.data[REG.TWCR] & 0x80, cpu.data[REG.TWSR] & 0xf8];
+        cpu.writeData(REG.TWCR, 0x04); const kept = cpu.data[REG.TWCR] & 0x80;
+        cpu.writeData(REG.TWCR, 0x94); step(160);   // STOP: TWSTO clears, TWINT stays clear
+        const stopped = [cpu.data[REG.TWCR] & 0x90, cpu.data[REG.TWSR] & 0xf8];
+        console.log(JSON.stringify({ stuck, freed, before, started, kept, stopped }));
+        """
+    )
+    assert found == {
+        "stuck": [True, 0, 0xF8],
+        "freed": [False, 0xF8],
+        "before": 0,
+        "started": [0x80, 0x08],
+        "kept": 0x80,
+        "stopped": [0x00, 0xF8],
+    }
+
+
+def test_the_watchdog_in_interrupt_mode_interrupts_every_period_and_never_resets() -> None:
+    # WDIE alone, WDP = 0: every 2K cycles of the 128 kHz oscillator, 256,000 CPU cycles.
+    setup = "store(0x60, 0x40);"
+    found = _vectors(setup, seconds=0.1)  # 1,600,000 cycles: six time-outs
+    assert found.get("WDT") == 6
+
+
+def _header() -> tuple[dict[str, int], dict[str, int], int]:
+    """The device headers the provisioned avr-gcc builds against: registers, vectors, table size.
+
+    iom32u4.h names the part's registers (a 16-bit one by its low byte's address); common.h the
+    stack pointer and SREG, at their I/O addresses for a part like this one.
+    """
+    include = environment() / "platformio" / "packages" / "toolchain-atmelavr" / "avr" / "include"
+    text = (include / "avr" / "iom32u4.h").read_text(encoding="utf-8")
+    common = (include / "avr" / "common.h").read_text(encoding="utf-8")
+    registers = {
+        name: int(address, 16) + (0x20 if kind == "IO" else 0)
+        for name, kind, address in re.findall(
+            r"^#define (\w+)\s+_SFR_(IO|MEM)(?:8|16)\((0x[0-9A-Fa-f]+)\)", text, re.MULTILINE
+        )
+    }
+    for name in ("SPL", "SPH", "SREG"):
+        address = re.search(
+            rf"^#\s*define {name} _SFR_IO8\((0x[0-9A-Fa-f]+)\)", common, re.MULTILINE
+        )
+        assert address is not None, name
+        registers[name] = int(address.group(1), 16) + 0x20
+    vectors = {
+        name: int(number)
+        for name, number in re.findall(r"^#define (\w+)_vect_num\s+(\d+)", text, re.MULTILINE)
+    }
+    size = re.search(r"^#define _VECTORS_SIZE \((\d+) \* 4\)", text, re.MULTILINE)
+    assert size is not None
+    return registers, vectors, int(size.group(1))
+
+
+def test_every_vector_and_register_the_chip_names_is_the_toolchain_header_s() -> None:
+    registers, vectors, entries = _header()
+    found = _registers(
+        """
+        console.log(JSON.stringify({ VECTORS: mcu.VECTORS, REG, words: mcu.VECTOR_TABLE_WORDS }));
+        """
+    )
+    # A vector's word address is twice its number: each entry of the table is a two-word JMP.
+    assert {name: address for name, address in found["VECTORS"].items() if name != "RESET"} == {
+        name: 2 * number for name, number in vectors.items()
+    }
+    assert found["VECTORS"]["RESET"] == 0
+    assert {name: registers.get(name) for name in found["REG"]} == found["REG"]
+    assert found["words"] == 2 * entries
+
+
+def test_the_watchdog_s_timed_sequence_opens_only_with_wde_for_four_cycles_and_once() -> None:
+    found = _registers(
+        """
+        const W = REG.WDTCSR;
+        cpu.writeData(W, 0x08);
+        cpu.writeData(W, 0x18); step(4); cpu.writeData(W, 0x00); const atFour = cpu.data[W];
+        cpu.writeData(W, 0x08);
+        cpu.writeData(W, 0x18); step(5); cpu.writeData(W, 0x00); const atFive = cpu.data[W];
+        cpu.writeData(W, 0x10); cpu.writeData(W, 0x00); const wdceAlone = cpu.data[W];
+        cpu.writeData(W, 0x18); cpu.writeData(W, 0x0f); cpu.writeData(W, 0x00);
+        const once = cpu.data[W];
+        console.log(JSON.stringify({ atFour, atFive, wdceAlone, once }));
+        """
+    )
+    # WDCE without WDE opens nothing, and a sequence is spent by the write it lets through.
+    assert found == {"atFour": 0x00, "atFive": 0x08, "wdceAlone": 0x08, "once": 0x0F}
+
+
+def test_the_watchdog_s_period_is_2k_oscillator_cycles_doubled_by_each_prescaler_step() -> None:
+    found = _registers(
+        """
+        const periods = [];
+        for (const wdp of [0x00, 0x01, 0x07, 0x20, 0x21]) {
+          cpu.writeData(REG.WDTCSR, 0x18); cpu.writeData(REG.WDTCSR, 0x08 | wdp);
+          periods.push(chip.watchdog.period);
+        }
+        console.log(JSON.stringify(periods));
+        """
+    )
+    # WDP3..0 = 0, 1, 7, 8, 9: 16 ms, 32 ms, 2 s, 4 s and 8 s at 128 kHz, in 16 MHz cycles.
+    assert found == [125 * (2048 << wdp) for wdp in (0, 1, 7, 8, 9)]
+
+
+def test_the_watchdog_counts_again_from_its_enabling_and_its_flags_are_cleared_by_a_one() -> None:
+    found = _registers(
+        """
+        const W = REG.WDTCSR;
+        const flag = () => cpu.data[W] & 0x80;
+        cpu.writeData(W, 0x40); step(100_000);              // interrupt mode, due at 256,000
+        cpu.writeData(W, 0x00); step(50_000);               // off
+        cpu.writeData(W, 0x40);                             // on again: due 256,000 from now
+        step(256_000 - 10); const reEnabled = [flag()]; step(20); reEnabled.push(flag());
+        cpu.writeData(W, 0xc0);                             // WDIF cleared by a one, WDIE kept
+        const cleared = cpu.data[W];
+        step(256_000); const again = flag();
+        cpu.writeData(W, 0xc0); const off = [cpu.data[W], pending(mcu.VECTORS.WDT)];
+        cpu.writeData(W, 0x00);                             // WDIE cleared: the watchdog stops
+        const stopped = cpu.data[W]; step(600_000);
+        console.log(JSON.stringify({ reEnabled, cleared, again, off, stopped,
+          after: [cpu.data[W], chip.resetRequest] }));
+        """
+    )
+    assert found == {
+        "reEnabled": [0, 0x80],
+        "cleared": 0x40,
+        "again": 0x80,
+        "off": [0x40, False],
+        "stopped": 0x00,
+        "after": [0x00, None],
+    }
+
+
+def test_a_time_out_while_the_watchdog_s_interrupt_is_still_pending_resets_the_chip() -> None:
+    found = _registers(
+        """
+        cpu.writeData(REG.WDTCSR, 0x48);                    // interrupt and reset; no vector taken
+        step(256_000 + 10); const first = [chip.resetRequest, cpu.data[REG.WDTCSR] & 0xc0];
+        step(256_000); const second = chip.resetRequest;
+        console.log(JSON.stringify({ first, second }));
+        """
+    )
+    assert found == {"first": [None, 0xC0], "second": "watchdog"}
+
+
+def test_a_one_written_to_a_reset_flag_leaves_it_as_it_is() -> None:
+    found = _registers(
+        """
+        cpu.data[REG.MCUSR] = 0x05; cpu.writeData(REG.MCUSR, 0x0f);
+        console.log(JSON.stringify(cpu.data[REG.MCUSR]));
+        """
+    )
+    assert found == 0x05
+
+
+def test_the_watchdog_s_vector_puts_it_in_reset_mode_so_its_next_time_out_resets() -> None:
+    # WDE and WDIE: the first time-out (256,000 cycles) takes the vector, which clears WDIE, so
+    # the second (512,000) resets the chip.
+    found = _program("store(0x60, 0x48);", seconds=0.04)
+    assert found["vectors"]["WDT"]["count"] == 1
+    power_on, watchdog = found["resets"]
+    assert (power_on["cycle"], power_on["cause"], power_on["sketch_start_cycle"]) == (
+        0,
+        "power_on",
+        START,
+    )
+    assert watchdog["cause"] == "watchdog" and 512_000 <= watchdog["cycle"] - START <= 512_100
+
+
+def test_the_twi_takes_its_bit_rate_from_twbr_and_the_prescaler_and_nine_bits_a_byte() -> None:
+    found = _registers(
+        """
+        const sr = () => cpu.data[REG.TWSR] & 0xf8;
+        // Cycles until TWINT is set (or, with `bit`, until that TWCR bit clears).
+        const until = (bit = 0) => {
+          for (let n = 1; n <= 100_000; n += 1) {
+            cpu.cycles += 1; cpu.tick();
+            const v = cpu.data[REG.TWCR];
+            if (bit ? !(v & bit) : v & 0x80) return n;
+          }
+          return null;
+        };
+        chip.twi.bus = { start: () => true, stop() {}, connect: (a) => a === 0x6b,
+          write: () => true, read: () => 0x5a };
+        // TWPS = 1, written as firmware does, keeping the status bits: 16 + 2 * 18 * 4 = 160.
+        cpu.writeData(REG.TWSR, cpu.data[REG.TWSR] | 0x01); cpu.writeData(REG.TWBR, 18);
+        const step1 = (twcr, twdr) => {
+          if (twdr !== undefined) cpu.writeData(REG.TWDR, twdr);
+          cpu.writeData(REG.TWCR, twcr); return [until(), sr()];
+        };
+        const start = step1(0xa4);
+        const slaW = step1(0x84, 0x6b << 1);
+        const data = step1(0x84, 0x22);
+        const repeated = step1(0xa4);
+        const slaR = step1(0x84, (0x6b << 1) | 1);
+        const acked = [...step1(0xc4), cpu.data[REG.TWDR]];
+        const last = step1(0x84);
+        cpu.writeData(REG.TWCR, 0x94);
+        const stop = [until(0x10), cpu.data[REG.TWCR] & 0x80, sr()];
+        step1(0xa4);
+        const nack = step1(0x84, 0x50 << 1);
+        cpu.writeData(REG.TWCR, 0x94); until(0x10);
+        step1(0xa4); cpu.writeData(REG.TWDR, 0x6b << 1); cpu.writeData(REG.TWCR, 0x84); step(100);
+        cpu.writeData(REG.TWCR, 0x00);                      // disabled with the address on the bus
+        const aborted = [chip.twi.busy, sr()]; step(3000);
+        aborted.push(cpu.data[REG.TWCR] & 0x80, sr());
+        console.log(JSON.stringify({ start, slaW, data, repeated, slaR, acked, last, stop, nack,
+          aborted }));
+        """
+    )
+    # One SCL period a START or STOP, nine a byte, from the TWCR write that began the step.
+    timed = {key: value[0] for key, value in found.items() if key != "aborted"}
+    assert timed == {k: 160 if k in ("start", "repeated", "stop") else 9 * 160 for k in timed}
+    assert {key: value[1:] for key, value in found.items() if key != "aborted"} == {
+        "start": [0x08],
+        "slaW": [0x18],
+        "data": [0x28],
+        "repeated": [0x10],
+        "slaR": [0x40],
+        "acked": [0x50, 0x5A],
+        "last": [0x58],
+        "stop": [0, 0xF8],
+        "nack": [0x20],
+    }
+    assert found["aborted"] == [False, 0xF8, 0, 0xF8]
+
+
+def test_the_twi_interrupt_is_a_level_taken_again_until_twint_is_cleared() -> None:
+    # TWINT | TWSTA | TWEN | TWIE at 100 kHz: the START completes after 160 cycles and the
+    # handler, which never writes TWCR, is entered again after every RETI.
+    assert _vectors("store(0xb8, 72); store(0xbc, 0xa5);").get("TWI", 0) > 100
+
+
+def test_an_interrupt_s_time_counts_its_four_response_cycles_and_its_vector_s_jump() -> None:
+    # Timer0's overflow at clk/1: a four-cycle response, the vector's JMP (3), the handler's INC
+    # (1) and RETI (4): 12 cycles, counted from the CPU's acceptance to the end of the RETI.
+    found = _program("store(0x6e, 0x01); store(0x45, 0x01);")
+    isr = found["vectors"]["TIMER0_OVF"]
+    for kind in ("inclusive_cycles", "exclusive_cycles"):  # nothing nests in it
+        assert (isr[kind]["min"], isr[kind]["max"]) == (12, 12)
+
+
+def test_of_two_interrupts_pending_at_once_the_lower_vector_is_taken_first() -> None:
+    found = _registers(
+        """
+        cpu.writeData(REG.EICRA, 0x0f); cpu.writeData(REG.EIMSK, 0x03);   // INT0, INT1 rising
+        chip.ports.D.setPin(1, true); chip.ports.D.setPin(0, true);
+        // The vector taken clears its own flag; the other is still pending, and is taken next.
+        console.log(JSON.stringify([pending(mcu.VECTORS.INT0), pending(mcu.VECTORS.INT1)]));
+        """
+    )
+    assert found == [True, True]
+
+
+def test_each_timer_counts_at_its_prescaler_and_raises_each_compare_at_its_own_vector() -> None:
+    # 1,600,000 cycles. Timer0 at clk/1024: an overflow every 262,144 cycles and OCR0A = 0x80
+    # once per overflow; Timer3 at clk/8: an overflow every 524,288 and OCR3A = 0x8000 once per
+    # overflow; Timer1 in CTC mode to OCR1A = 999 at clk/256: a match every 256,000.
+    setup = """
+    store(0x47, 0x80); store(0x6e, 0x03); store(0x45, 0x05);
+    store(0x99, 0x80); store(0x98, 0x00); store(0x71, 0x03); store(0x91, 0x02);
+    store(0x89, 0x03); store(0x88, 0xe7); store(0x6f, 0x02); store(0x81, 0x0c);
+    """
+    found = _program(setup, seconds=0.1)
+    counts = {name: v["count"] for name, v in found["vectors"].items()}
+    assert counts == {
+        "TIMER0_OVF": 6,
+        "TIMER0_COMPA": 6,
+        "TIMER3_OVF": 3,
+        "TIMER3_COMPA": 3,
+        "TIMER1_COMPA": 6,
+    }
+
+
+def test_each_compare_output_drives_its_own_pin_and_each_motor_is_its_own_compare() -> None:
+    # Timer1 phase- and frequency-correct to ICR1 = 400, OC1A (PB5) at 100 and OC1B (PB6) at
+    # 300, non-inverting: a period of 800 cycles, high for twice the compare value. Timer3 in CTC
+    # mode to OCR3A = 99 toggling OC3A (PC6): a period of 200 cycles, high for 100.
+    setup = """
+    store(0x24, 0x60); store(0x27, 0x40);
+    store(0x87, 0x01); store(0x86, 0x90); store(0x89, 0x00); store(0x88, 100);
+    store(0x8b, 0x01); store(0x8a, 0x2c); store(0x80, 0xa0); store(0x81, 0x11);
+    store(0x99, 0x00); store(0x98, 99); store(0x90, 0x40); store(0x91, 0x09);
+    """
+    found = _program(setup, seconds=0.002)
+    pwm = {
+        pin: (round(v["period_cycles"]["mean"]), round(v["high_cycles"]["mean"]))
+        for pin, v in found["pwm"].items()
+    }
+    assert pwm.keys() == {"PB5", "PB6", "PC6"}
+    assert pwm["PC6"] == (200, 100)
+    for pin, high in (("PB5", 200), ("PB6", 600)):
+        assert pwm[pin][0] == 800 and abs(pwm[pin][1] - high) <= 4, pwm
+    assert (found["motors"]["right"]["last"], found["motors"]["left"]["last"]) == (100, 300)
+
+
+def test_a_probe_is_timed_from_its_entry_to_its_own_return_and_the_stack_s_deepest_point() -> None:
+    # main: CALL f, JMP main; f: CALL g, RET; g: RET. f lasts CALL g (4) + RET (4) + RET (4) =
+    # 12 cycles and comes round every 19; inside g the stack holds two return addresses.
+    body = """
+    const main = at, f = at + 4, g = at + 7;
+    words.set(asm.jmp(main), 0);
+    words.set([...asm.call(f), ...asm.jmp(main)], main);
+    words.set([...asm.call(g), ...asm.ret()], f);
+    words.set(asm.ret(), g);
+    """
+    scenario = {
+        "avrsim_scenario": 1,
+        "duration_s": (START + 2000) / 16e6,
+        "probes": [{"symbol": "f", "period_s": 19 / 16e6}],
+    }
+    found = _node(
+        CALLS
+        % {
+            "src": _src(),
+            "body": body,
+            "symbols": json.dumps({"f": 0x56 + 4}),
+            "scenario": json.dumps(scenario),
+        }
+    )
+    f = found["probes"]["f"]
+    assert f["entries"] > 1 and f["period_cycles"]["count"] == f["entries"] - 1
+    assert (f["duration_cycles"]["min"], f["duration_cycles"]["max"]) == (12, 12)
+    assert (f["period_cycles"]["min"], f["period_cycles"]["max"]) == (19, 19)
+    assert (f["lateness_cycles"]["min"], f["lateness_cycles"]["max"]) == (0, 0)
+    assert found["stack"]["max_depth_bytes"] == 4
+
+
+def test_usb_frames_count_only_while_the_controller_is_attached_clocked_and_locked() -> None:
+    found = _registers(
+        """
+        const u = new mcu.ATmega32U4(new Uint16Array(0x4000), {
+          eeprom: new mcu.EEPROMMemoryBackend(1024), bus, sof: true });
+        const c = u.cpu;
+        const run = (n) => {
+          const end = c.cycles + n; while (c.cycles < end) { c.cycles += 1; c.tick(); } };
+        const sofi = () => c.data[REG.UDINT] & 0x04;
+        const frames = () => c.data[REG.UDFNUML] | (c.data[REG.UDFNUMH] << 8);
+        c.writeData(REG.PLLCSR, 0x12); run(160_010);
+        c.writeData(REG.UDCON, 0x00); c.writeData(REG.USBCON, 0xa0); run(40_000);
+        const frozen = [sofi(), frames()];
+        c.writeData(REG.USBCON, 0x80); run(40_000);
+        const attached = [sofi(), frames()];
+        c.writeData(REG.UDINT, 0x00); c.writeData(REG.UDCON, 0x01); run(40_000);
+        const detached = [sofi(), frames()];
+        c.writeData(REG.UDCON, 0x00); c.writeData(REG.PLLCSR, 0x00); run(40_000);
+        const unlocked = [sofi(), frames()];
+        c.writeData(REG.USBSTA, 0x01);
+        console.log(JSON.stringify({ frozen, attached, detached, unlocked,
+          vbus: c.data[REG.USBSTA] & 0x01 }));
+        """
+    )
+    frames = found["attached"][1]
+    assert frames >= 2
+    assert found == {
+        "frozen": [0, 0],
+        "attached": [0x04, frames],
+        "detached": [0, frames],
+        "unlocked": [0, frames],
+        "vbus": 0,
+    }
+
+
+def test_a_compare_flag_already_set_is_taken_once_its_enable_is_written() -> None:
+    # Timer1 in normal mode at clk/1 with OCR1C = 0x10: the match sets OCF1C with OCIE1C clear,
+    # and writing OCIE1C then makes the interrupt pending at once (datasheet "Interrupts").
+    found = _registers(
+        """
+        cpu.writeData(REG.OCR1CL + 1, 0x00); cpu.writeData(REG.OCR1CL, 0x10);
+        cpu.writeData(REG.TCCR1B, 0x01); step(100);
+        const flagged = [cpu.data[REG.TIFR1] & 0x08, pending(mcu.VECTORS.TIMER1_COMPC)];
+        cpu.writeData(REG.TIMSK1, 0x08);
+        console.log(JSON.stringify({ flagged, enabled: pending(mcu.VECTORS.TIMER1_COMPC) }));
+        """
+    )
+    assert found == {"flagged": [0x08, False], "enabled": True}
+
+
+def test_an_interrupt_under_way_when_the_main_program_stalls_runs_to_its_reti() -> None:
+    # Timer0's overflow at clk/1024 (every 262,144 cycles) runs a handler of some 760 cycles.
+    # The main program stalls with interrupts off from cycle 262,400, inside the first handler:
+    # that handler still finishes in its usual time, and the later ones run as before.
+    handler = "[0xe010 | ((250 & 0xf0) << 4) | (250 & 0x0f), 0x951a, 0xf7f1, ...asm.reti()]"
+    found = _program(
+        "store(0x6e, 0x01); store(0x45, 0x05);",
+        seconds=0.05,
+        handler=handler,
+        stalls=[
+            {"start_s": (START + 262_400) / 16e6, "end_s": START / 16e6 + 0.02, "interrupts": False}
+        ],
+    )
+    isr = found["vectors"]["TIMER0_OVF"]["inclusive_cycles"]
+    assert isr["count"] == 3 and isr["min"] == isr["max"] < 1000, isr
+
+
+MARK = 0.002  # a marker this long after the sketch's start, its set-up done
+
+
+def _motors(setup: str, **more: Any) -> dict[str, Any]:
+    """The marker's event: whether and when the motors are off from it."""
+    found = _program(
+        setup, seconds=0.04, markers=[{"name": "m", "t_s": START / 16e6 + MARK}], **more
+    )
+    (event,) = found["events"]
+    return {**event, "pinb": found["ports"]["PINB"]}
+
+
+#: Timer1 as the Balboa library sets it: phase- and frequency-correct PWM to ICR1 = 400, clk/1,
+#: OC1A (PB5) and OC1B (PB6) non-inverting, both outputs.
+BALBOA_PWM = """
+store(0x87, 0x01); store(0x86, 0x90); store(0x80, 0xa0); store(0x81, 0x11); store(0x24, 0x60);
+"""
+
+
+def _ocr(value: int) -> str:
+    return (
+        f"store(0x89, {value >> 8}); store(0x88, {value & 0xFF}); "
+        f"store(0x8b, {value >> 8}); store(0x8a, {value & 0xFF});"
+    )
+
+
+def test_the_motors_are_off_only_while_both_drv8838_enable_pins_are_low() -> None:
+    # TI DRV8838 Table 7-2: nSLEEP 1 and EN 0 is "Brake" whatever PH is; EN 1 drives. EN is the
+    # PWM pin (PB5 right, PB6 left), so off is read from those pins' levels, not from OCR1A/B:
+    # datasheet "Phase and Frequency Correct PWM Mode" (OCR at BOTTOM gives a low output only
+    # non-inverted with the compare unit connected and the timer running).
+    mark = START + round(MARK * 16e6)
+    driven_high = _motors("store(0x24, 0x60); store(0x25, 0x61);")  # compare unit disconnected
+    assert driven_high["motors_off_cycle"] is None and driven_high["ocr_zero_cycle"] == mark
+    inverting = _motors(BALBOA_PWM + "store(0x80, 0xf0);" + _ocr(0))  # COM1x = 11, OCR = BOTTOM
+    assert inverting["motors_off_cycle"] is None and inverting["pinb"] & 0x60 == 0x60
+    # A fault handler that stops Timer1 while its outputs are high, then writes OCR = 0: the
+    # compare registers are double-buffered and never reloaded, so the pins stay high.
+    stopped = _motors(
+        BALBOA_PWM + _ocr(200) + "for (const w of [...asm.delay(255), ...asm.delay(255)]) "
+        "words[at++] = w; store(0x81, 0x10);" + _ocr(0)
+    )
+    assert stopped["pinb"] & 0x60 == 0x60
+    assert stopped["motors_off_cycle"] is None and stopped["ocr_zero_cycle"] is not None
+    # A handler that disconnects the compare units and drives the pins low, OCR left non-zero.
+    handled = _motors(BALBOA_PWM + _ocr(200) + "store(0x80, 0x00); store(0x25, 0x01);")
+    assert handled["motors_off_cycle"] == mark and handled["ocr_zero_cycle"] is None
+    assert handled["stayed_off_to_end"] is True and handled["motors_off_until_cycle"] is None
+    # EN has a 100 kOhm pull-down: an input pin without its pull-up is low, with it high.
+    assert _motors("store(0x24, 0x00); store(0x25, 0x01);")["motors_off_cycle"] == mark
+    assert _motors("store(0x24, 0x00); store(0x25, 0x61);")["motors_off_cycle"] is None
+    # One motor driven is not the motors off.
+    assert _motors("store(0x24, 0x60); store(0x25, 0x41);")["motors_off_cycle"] is None
+    # A PWM wave's low part is not off: off must hold for motors_off_hold_s.
+    running = _motors(BALBOA_PWM + _ocr(200))
+    assert running["motors_off_cycle"] is None and running["ocr_zero_cycle"] is None
+
+
+def test_the_sketch_starts_after_the_fuses_start_up_time_and_the_bootloader() -> None:
+    # Low fuse 0xFF (Pololu a-star boards.txt): CKSEL0 = 1, SUT = 11, start-up time "16K CK" and
+    # additional delay from reset "14CK + 65ms" (datasheet Table 6-4), both from reset: "the
+    # start-up sequence for the clock includes both the time-out delay and the start-up time
+    # when the device starts up from reset" ("Clock Startup Sequence"). Caterina.c main():
+    # MCUSR &= ~(PORF | EXTRF | WDRF), after a power-on BORF too;
+    # StartSketch(): the LEDs off, RX (PB0) and TX (PD5) high, L (PC7) low.
+    found = _program("", seconds=0.001)
+    assert found["resets"] == [
+        {
+            "cycle": 0,
+            "cause": "power_on",
+            "sketch_start_cycle": START,
+            "mcusr_at_sketch_start": 0,
+            "at_oscillator_hz": 128_000,
+        }
+    ]
+    assert (found["ports"]["PORTB"], found["ports"]["PORTD"], found["ports"]["PORTC"]) == (
+        1,
+        0x20,
+        0,
+    )
+    assert found["reset_path"]["bootloader"] == "a-star" and found["reset_path"]["readings"]
+    plain = _program("", seconds=0.001, bootloader="none")
+    assert plain["resets"][0]["mcusr_at_sketch_start"] == 0x01  # PORF, no bootloader
+    assert plain["ports"]["PORTB"] == 0
+
+
+def test_after_a_watchdog_reset_the_bootloader_clears_wdrf_and_the_watchdog() -> None:
+    # The sketch turns the watchdog on in reset mode at 16 ms and never resets it. Datasheet
+    # "Watchdog Reset": the delay timer counts tTOUT after the reset; Caterina.c clears WDRF and
+    # runs wdt_disable() before StartSketch(), so the sketch reads MCUSR as 0 and finds the
+    # watchdog off until it turns it on again.
+    found = _program("store(0x60, 0x08);", seconds=0.17)
+    resets = found["resets"]
+    assert [r["cause"] for r in resets] == ["power_on", "watchdog", "watchdog"]
+    for before, after in zip(resets, resets[1:], strict=False):
+        assert 256_000 <= after["cycle"] - before["sketch_start_cycle"] <= 256_010
+        assert after["sketch_start_cycle"] - after["cycle"] == START
+        assert after["mcusr_at_sketch_start"] == 0
+    # Without the bootloader the flags accumulate (a flag is cleared only by writing a zero) and
+    # WDRF holds the watchdog on at 16 ms from the sketch's start.
+    plain = _program("store(0x60, 0x08);", seconds=0.17, bootloader="none")
+    assert [r["mcusr_at_sketch_start"] for r in plain["resets"]] == [0x01, 0x09, 0x09]
+
+
+def test_a_watchdog_reset_with_the_boot_key_keeps_the_bootloader_running_its_timeout() -> None:
+    # Caterina.c: WDRF with *bootKeyPtr == 0x7777 falls through to the bootloader, which runs
+    # until Timeout passes TIMEOUT_PERIOD (8000 counts of its 1 ms Timer1 compare) and then
+    # starts the sketch with MCUSR = 0.
+    found = _program("store(0x800, 0x77); store(0x801, 0x77); store(0x60, 0x08);", seconds=8.15)
+    # The session makes timing not evaluable (below), so the summary withholds the reset's cycles;
+    # the row reads the rig's own record of them.
+    reset = found["raw_resets"][1]
+    assert reset["cause"] == "watchdog"
+    assert reset["sketch_start_cycle"] - reset["cycle"] == START + 8001 * 251 * 64
+    assert reset["bootloader_session_cycles"] == 8001 * 251 * 64
+    assert found["resets"][1]["bootloader_session_cycles"] == {
+        "withheld": "timing not evaluable: bootloader_session"
+    }
+    assert reset["mcusr_at_sketch_start"] == 0
+    assert found["unmodelled"]["bootloader_session"]["count"] == 1
+    # Its length is a lower bound and its USB state is not modelled: the timing is not evaluable.
+    assert found["timing_evaluable"] is False
+    assert found["timing_not_evaluable_because"] == ["bootloader_session"]
+
+
+def test_the_bootloader_s_session_leaves_ocr1a_its_led_pins_and_its_usb_on_for_the_sketch() -> None:
+    # Caterina.c SetupHardware(): LED_SETUP() (Caterina.h: DDRC7, DDRB0, DDRD5 outputs), OCR1A =
+    # 250, USB_Init(); at the timeout USB_Detach(), then StartSketch() clears TIMSK1, TCCR1B and
+    # TCNT1 only. The sketch finds OCR1A at 250, the LED pins outputs, USBE and PLLE set, the USB
+    # detached; a plain watchdog reset leaves none of that.
+    script = """
+        const src = %(src)s;
+        const { Rig, Trace } = await import(`${src}/rig.js`);
+        const { readScenario } = await import(`${src}/scenario.js`);
+        const mcu = await import(`${src}/mcu.js`);
+        const scenario = readScenario(JSON.stringify({ avrsim_scenario: 1, duration_s: 10 }));
+        const rig = new Rig({ flash: new Uint8Array(0x8000), eeprom: null, symbols: new Map() },
+          scenario, new Trace(() => {}, 100));
+        const sram = new Uint8Array(0xa00);
+        sram[0x700] = 0x77; sram[0x701] = 0x77;
+        const leaves = (key) => {
+          sram[0x700] = key; sram[0x701] = key;
+          rig.build(mcu.MCUSR_WDRF, { cycles: 0, sram }, 'watchdog');
+          const { cpu } = rig.chip; const d = cpu.data;
+          while (rig.releaseAt >= 0) { cpu.cycles = rig.releaseAt; rig.release(); }
+          return { ocr1a: [rig.chip.timer1.ocrA, d[0x88], d[0x89]],
+            ddr: [d[0x27], d[0x24], d[0x2a]],
+            usb: [d[0xd8] & 0xa0, d[0x49], d[0xe0] & 0x01], tifr1: d[0x36] & 0x02 };
+        };
+        console.log(JSON.stringify({ session: leaves(0x77), plain: leaves(0) }));
+        """.replace("%(src)s", _src())
+    found = _node(script)
+    assert found["session"] == {
+        "ocr1a": [250, 250, 0],
+        "ddr": [0x80, 0x01, 0x20],
+        "usb": [0x80, 0x13, 0x01],
+        "tifr1": 0,
+    }
+    assert found["plain"]["ocr1a"] == [0, 0, 0] and found["plain"]["ddr"] == [0, 0, 0]
+
+
+def test_the_bootloader_overwrites_its_own_data_and_the_boot_key_and_leaves_the_rest_of_sram() -> (
+    None
+):
+    # Caterina-A-Star.map: .data at 0x0100..0x01CD (its first bytes "CATERINA"), .bss to 0x01E3;
+    # Caterina.c zeroes the word at 0x0800. The rest of SRAM is kept, as a reset keeps it.
+    found = _node(
+        """
+        const src = %(src)s;
+        const { Rig, Trace } = await import(`${src}/rig.js`);
+        const { readScenario } = await import(`${src}/scenario.js`);
+        const mcu = await import(`${src}/mcu.js`);
+        const scenario = readScenario(JSON.stringify({ avrsim_scenario: 1, duration_s: 1 }));
+        const rig = new Rig({ flash: new Uint8Array(0x8000), eeprom: null, symbols: new Map() },
+          scenario, new Trace(() => {}, 100));
+        const sram = new Uint8Array(0xa00).fill(0x5a);
+        rig.build(mcu.MCUSR_WDRF, { cycles: 0, sram }, 'watchdog');
+        const d = rig.chip.cpu.data;
+        rig.chip.cpu.cycles = rig.releaseAt; rig.release();
+        console.log(JSON.stringify({ id: String.fromCharCode(...d.slice(0x100, 0x108)),
+          bss: Array.from(d.slice(0x1ce, 0x1e4)), after: [d[0x1e4], d[0x7ff], d[0xaff]],
+          key: [d[0x800], d[0x801]], mcusr: d[0x54], wdtcsr: d[0x60] }));
+        """.replace("%(src)s", _src())
+    )
+    assert found == {
+        "id": "CATERINA",
+        "bss": [0] * 22,
+        "after": [0x5A, 0x5A, 0x5A],
+        "key": [0, 0],
+        "mcusr": 0,
+        "wdtcsr": 0,
+    }
+
+
+def test_the_arduino_core_s_timer4_set_up_is_not_unmodelled_but_each_use_of_what_is_not_is() -> (
+    None
+):
+    # wiring.c init(): TCCR4B = CS42..40, TCCR4D = WGM40, TCCR4A = PWM4A, TCCR4C = PWM4D, in
+    # every sketch, with no compare output and no interrupt: not a use.
+    core = "store(0xc1, 0x07); store(0xc3, 0x01); store(0xc0, 0x02); store(0xc2, 0x01);"
+    found = _program(core)
+    assert found["unmodelled"] == {} and found["timing_evaluable"] is True
+    uses = {
+        "timer4": core + "store(0x72, 0x04);",  # TOIE4 with Timer4 clocked
+        "vector_relocation": "store(0x55, 0x01); store(0x55, 0x02);",  # IVCE, then IVSEL
+        "pull_up_disable": "store(0x55, 0x10);",
+        "adc_auto_trigger": "store(0x7a, 0xa0);",  # ADEN | ADATE
+        "input_capture": "store(0x6f, 0x20);",  # ICIE1
+        "spi": "store(0x4c, 0x40);",
+        "analog_comparator": "store(0x50, 0x08);",
+        "clock_prescaler": "store(0x61, 0x80); store(0x61, 0x01);",
+        "spm_interrupt": "store(0x57, 0x80);",  # SPMIE: the SPM_READY vector is never raised
+        "clock_source": "store(0xc5, 0x04);",  # CLKSEL0: the rig runs from the crystal
+    }
+    for what, setup in uses.items():
+        found = _program(setup)
+        assert {k: v["count"] for k, v in found["unmodelled"].items()} == {what: 1}, what
+        assert found["timing_evaluable"] is False and found["timing_not_evaluable_because"] == [
+            what
+        ]
+    # ADCSRB's ACME (bit 6) connects the analog comparator's negative input to the ADC
+    # multiplexer: a write of it is a use of the comparator, and a write without it is not.
+    acme = _program("store(0x7b, 0x40);")
+    assert {k: v["count"] for k, v in acme["unmodelled"].items()} == {"analog_comparator": 1}
+    assert acme["timing_not_evaluable_because"] == ["analog_comparator"]
+    assert _program("store(0x7b, 0x80);")["unmodelled"] == {}
+    # TCCR4C's bits 7:4 are "shadow bits of the COM4A1 and COM4A0 bits" (and COM4B's): a compare
+    # output connected through them is a use.
+    shadow = _program(core + "store(0xc2, 0x41);")
+    assert {k: v["count"] for k, v in shadow["unmodelled"].items()} == {"timer4": 1}
+    # A read of a Timer4 count, and a SLEEP with SE clear (a no-op on the part).
+    read = _program("for (const w of asm.lds(16, 0xbe)) words[at++] = w;")
+    assert {k: v["count"] for k, v in read["unmodelled"].items()} == {"timer4": 1}
+    idle = _program("for (const w of asm.sleep()) words[at++] = w;")
+    assert idle["unmodelled"] == {}
+
+
+def test_the_instruction_after_sei_and_one_after_reti_run_before_a_pending_interrupt() -> None:
+    # Datasheet "Interrupt Response Time" and the SEI example: "the instruction following SEI
+    # will be executed before any pending interrupts"; after RETI the AVR "will always return to
+    # the main program and execute one more instruction before any pending interrupt is served".
+    # INT0 and INT1 are both pending at SEI; INT0's handler copies r20 to r21, INT1's to r23.
+    setup = """
+    words.set(asm.jmp(at), 0x02); for (const w of [0x2f54, 0x9518]) words[at++] = w;
+    words.set(asm.jmp(at), 0x04); for (const w of [0x2f74, 0x9518]) words[at++] = w;
+    const begin = at; words.set(asm.jmp(begin), 0);
+    store(0x69, 0x0f); store(0x3d, 0x03); store(0x2a, 0x03); store(0x2b, 0x03);
+    for (const w of [0x9478, ...asm.inc(20), ...asm.inc(20), ...asm.inc(20)]) words[at++] = w;
+    """
+    found = _program(setup)
+    assert (found["r"][21], found["r"][23]) == (1, 2)
+
+
+def test_an_interrupt_s_time_is_given_with_and_without_the_interrupts_nested_in_it() -> None:
+    # Timer0's overflow every 2048 cycles (clk/8) runs a handler that re-enables interrupts
+    # (datasheet "Reset and Interrupt Handling": nested only when the handler sets I) and takes
+    # some 310 cycles; Timer1's compare A every 100 cycles (CTC, clk/1) nests in it.
+    setup = """
+    words.set(asm.jmp(at), 0x2e);
+    for (const w of [...asm.sei(), ...asm.delay(100), ...asm.reti()]) words[at++] = w;
+    words.set(asm.jmp(at), 0x22); for (const w of [...asm.inc(20), ...asm.reti()]) words[at++] = w;
+    const begin = at; words.set(asm.jmp(begin), 0);
+    store(0x89, 0x00); store(0x88, 99); store(0x6f, 0x02); store(0x81, 0x09);
+    store(0x6e, 0x01); store(0x45, 0x02);
+    """
+    found = _program(setup, seconds=0.002)
+    outer = found["vectors"]["TIMER0_OVF"]
+    inner = found["vectors"]["TIMER1_COMPA"]
+    # Response 4, JMP 3, SEI 1, the delay 1 + 3 * 100 - 1, RETI 4: 312 of its own.
+    assert outer["exclusive_cycles"]["min"] == outer["exclusive_cycles"]["max"] == 312
+    assert outer["inclusive_cycles"]["min"] >= 312 + 2 * inner["inclusive_cycles"]["min"]
+    assert inner["inclusive_cycles"] == inner["exclusive_cycles"]
+
+
+def test_an_interrupt_left_without_reti_is_counted_and_no_longer_holds_the_stall_off() -> None:
+    # INT0's handler returns with RET: its frame is gone from the stack without a RETI.
+    setup = """
+    words.set(asm.jmp(at), 0x02); for (const w of [0x9508]) words[at++] = w;
+    const begin = at; words.set(asm.jmp(begin), 0);
+    store(0x69, 0x03); store(0x3d, 0x01); store(0x2a, 0x01); store(0x2b, 0x01);
+    """
+    found = _program(setup)
+    assert found["unwound"] == {"INT0": 1}
+    assert "INT0" not in found["vectors"]
+
+
+def _rig_body(body: str) -> Any:
+    return _node(
+        """
+        const src = %(src)s;
+        const { Rig, Trace } = await import(`${src}/rig.js`);
+        const { readScenario } = await import(`${src}/scenario.js`);
+        const mcu = await import(`${src}/mcu.js`);
+        const { REG } = mcu;
+        const scenario = readScenario(JSON.stringify({ avrsim_scenario: 1, duration_s: 1 }));
+        const rig = new Rig({ flash: new Uint8Array(0x8000), eeprom: null, symbols: new Map() },
+          scenario, new Trace(() => {}, 1000));
+        rig.build(mcu.MCUSR_PORF, { cycles: 0 }, 'power_on');
+        const { cpu } = rig.chip;
+        cpu.cycles = rig.releaseAt; rig.release();
+        const c0 = cpu.cycles;
+        const at = (n) => { cpu.cycles = c0 + n; };
+        const sample = (sensor, n) => rig.board.lsm6.onOutputRead(sensor, (c0 + n) / 16e6);
+        %(body)s
+        """.replace("%(src)s", _src()).replace("%(body)s", body)
+    )
+
+
+def test_the_input_to_output_bound_runs_from_the_oldest_sample_read_since_the_last_write() -> None:
+    # A command computed from sample k and written after a later read of sample k + 1 is
+    # measured from k: the bound is the age of the oldest sample read since that compare
+    # register was last written, gyroscope or accelerometer; a write with no read since the last
+    # one is measured from the reads before it.
+    found = _rig_body(
+        """
+        at(1500); sample('gyro', 1000);
+        at(5200); sample('gyro', 5000);
+        at(6000); cpu.writeData(REG.OCR1AL, 10); cpu.writeData(REG.OCR1BL, 10);
+        at(7000); cpu.writeData(REG.OCR1AL, 11);
+        at(8000); sample('accel', 7500);
+        at(9000); cpu.writeData(REG.OCR1AL, 12);
+        const s = rig.summary(c0 + 10_000).input_to_output;
+        console.log(JSON.stringify({ upper: s.upper_bound_cycles,
+          newest: s.newest_sample_cycles }));
+        """
+    )
+    assert found["upper"] == {"count": 4, "min": 1500, "max": 6000, "mean": 17500 / 4}
+    assert found["newest"] == {"count": 4, "min": 1000, "max": 2000, "mean": 5500 / 4}
+
+
+def test_a_probe_s_periods_and_lateness_start_again_at_each_reset() -> None:
+    # main: WDTCSR = WDE (16 ms), then CALL f, eight NOPs, JMP back, every 19 cycles; each reset
+    # brings the start-up time and the bootloader between two entries, which is no period of f.
+    body = """
+    let w = at;
+    words.set(asm.jmp(at), 0);
+    for (const x of [...asm.ldi(16, 0x08), ...asm.sts(0x60, 16)]) words[w++] = x;
+    const loop = w;
+    words.set([...asm.call(at + 20), ...Array(8).fill(0), ...asm.jmp(loop)], loop);
+    words.set(asm.ret(), at + 20);
+    """
+    scenario = {
+        "avrsim_scenario": 1,
+        "duration_s": 0.25,
+        "probes": [{"symbol": "f", "period_s": 19 / 16e6}],
+    }
+    found = _node(
+        CALLS
+        % {
+            "src": _src(),
+            "body": body,
+            "symbols": json.dumps({"f": 0x56 + 20}),
+            "scenario": json.dumps(scenario),
+        }
+    )
+    f = found["probes"]["f"]
+    assert [epoch["reset_index"] for epoch in f["by_reset"]] == [0, 1, 2]
+    assert (f["period_cycles"]["min"], f["period_cycles"]["max"]) == (19, 19)
+    assert (f["lateness_cycles"]["min"], f["lateness_cycles"]["max"]) == (0, 0)
+    starts = [r["sketch_start_cycle"] for r in found["resets"][:3]]
+    # Each epoch's first entry: the reset vector's JMP (3), LDI (1), STS (2), CALL (4).
+    assert [e["first_entry_cycle"] - at for e, at in zip(f["by_reset"], starts, strict=True)] == [
+        10
+    ] * 3
+
+
+def test_a_probe_s_lateness_accumulates_against_its_period_s_grid() -> None:
+    # f comes round every 19 cycles against a nominal 18: the n-th entry is n cycles late, not 1.
+    body = """
+    const main = at, f = at + 12;
+    words.set(asm.jmp(main), 0);
+    words.set([...asm.call(f), ...Array(8).fill(0), ...asm.jmp(main)], main);
+    words.set(asm.ret(), f);
+    """
+    scenario = {
+        "avrsim_scenario": 1,
+        "duration_s": (START + 1900) / 16e6,
+        "probes": [{"symbol": "f", "period_s": 18 / 16e6}],
+    }
+    found = _node(
+        CALLS
+        % {
+            "src": _src(),
+            "body": body,
+            "symbols": json.dumps({"f": 0x56 + 12}),
+            "scenario": json.dumps(scenario),
+        }
+    )
+    f = found["probes"]["f"]
+    assert (f["lateness_cycles"]["min"], f["lateness_cycles"]["max"]) == (0, f["entries"] - 1)
+
+
+def test_with_sda_held_low_a_one_sent_loses_arbitration_and_no_stop_can_be_sent() -> None:
+    # Datasheet "Two-wire Serial Interface", status codes: 0x38 "Arbitration lost in SLA+W or
+    # data bytes" and "Arbitration lost in SLA+R or NOT ACK bit". A low SDA reads as a 0 and as an
+    # ACK; a master sending a 1 (or a NOT ACK) loses. A STOP needs SDA to rise: TWSTO stays set.
+    found = _registers(
+        """
+        let held = false;
+        chip.twi.bus = { ...bus, held: () => held, stop: () => !held, connect: () => true };
+        cpu.writeData(REG.TWBR, 72);
+        const sr = () => cpu.data[REG.TWSR] & 0xf8;
+        const go = (twcr, twdr) => {
+          if (twdr !== undefined) cpu.writeData(REG.TWDR, twdr);
+          cpu.writeData(REG.TWCR, twcr); step(9 * 160); return sr();
+        };
+        const start = go(0xa4);
+        held = true;
+        const address = go(0x84, 0x6b << 1);                      // SLA+W: its first bit is 1
+        held = false; go(0xa4); go(0x84, 0x6b << 1); held = true;
+        const zero = go(0x84, 0x00), one = go(0x84, 0x01);        // data bytes
+        held = false; go(0xa4); go(0x84, (0x6b << 1) | 1); held = true;
+        const acked = [go(0xc4), cpu.data[REG.TWDR]];             // an ACK reads back as itself
+        const nack = go(0x84);                                    // a NOT ACK is a 1
+        cpu.writeData(REG.TWCR, 0x94); step(2000);
+        const stopHeld = cpu.data[REG.TWCR] & 0x10;
+        held = false; step(400);
+        console.log(JSON.stringify({ start, address, zero, one, acked, nack, stopHeld,
+          stopped: cpu.data[REG.TWCR] & 0x10 }));
+        """
+    )
+    assert found == {
+        "start": 0x08,
+        "address": 0x38,
+        "zero": 0x28,
+        "one": 0x38,
+        "acked": [0x50, 0x00],
+        "nack": 0x38,
+        "stopHeld": 0x10,
+        "stopped": 0,
+    }
+
+
+def test_twsr_s_status_bits_are_read_only_and_twcr_is_zero_at_reset() -> None:
+    # Datasheet "TWSR": TWS7:3 read-only, TWPS1:0 read/write; "TWCR": initial value 0x00, so a
+    # START written without TWINT = 1 never begins and polling for TWINT waits.
+    found = _registers(
+        """
+        const reset = [cpu.data[REG.TWCR], cpu.data[REG.TWSR]];
+        cpu.writeData(REG.TWBR, 72);
+        cpu.writeData(REG.TWCR, 0x24); step(1000);              // TWSTA | TWEN, no TWINT
+        const unstarted = cpu.data[REG.TWCR] & 0x80;
+        cpu.writeData(REG.TWCR, 0xa4); step(200);
+        cpu.writeData(REG.TWSR, 0x00); const zeroed = cpu.data[REG.TWSR];
+        cpu.writeData(REG.TWSR, 0x03); const prescaled = cpu.data[REG.TWSR];
+        console.log(JSON.stringify({ reset, unstarted, zeroed, prescaled }));
+        """
+    )
+    assert found == {"reset": [0x00, 0xF8], "unstarted": 0, "zeroed": 0x08, "prescaled": 0x0B}
+
+
+def test_a_prescaler_change_keeps_the_watchdog_s_count_so_a_passed_period_times_out() -> None:
+    # Datasheet "WDTCSR", WDP note: "a change in the WDP bits can result in a time-out when
+    # switching to a shorter time-out period"; the count runs on from its last restart.
+    found = _registers(
+        """
+        const W = REG.WDTCSR;
+        cpu.writeData(W, 0x18); cpu.writeData(W, 0x0f);         // reset mode, 2 s
+        step(400_000);                                          // 25 ms counted
+        cpu.writeData(W, 0x18); cpu.writeData(W, 0x08);         // to 16 ms, no WDR
+        step(2); const shortened = chip.resetRequest;
+        const next = new mcu.ATmega32U4(new Uint16Array(0x4000), { eeprom, bus });
+        const n = next.cpu;
+        const run = (k) => { const end = n.cycles + k;
+          while (n.cycles < end && !next.resetRequest) { n.cycles += 1; n.tick(); }
+          return n.cycles; };
+        n.writeData(W, 0x08); run(200_000);                     // 16 ms, 12.5 ms counted
+        n.writeData(W, 0x18); n.writeData(W, 0x09);             // to 32 ms
+        const at = run(1_000_000);
+        console.log(JSON.stringify({ shortened, at, lengthened: next.resetRequest }));
+        """
+    )
+    assert found["shortened"] == "watchdog"
+    assert found["lengthened"] == "watchdog" and 512_000 <= found["at"] <= 512_002
+
+
+#: Timer0's overflow at clk/1 (every 256 cycles) with its interrupt on, SE with SM2..0 = 000
+#: (idle), and a main loop of SEI, SLEEP, INC r21, JMP back.
+IDLE = """
+store(0x6e, 0x01); store(0x45, 0x01); store(0x53, 0x01);
+const loop = at;
+for (const w of [...asm.sei(), ...asm.sleep(), ...asm.inc(21), ...asm.jmp(loop)]) words[at++] = w;
+"""
+
+
+def test_idle_sleep_halts_the_cpu_until_an_interrupt_which_then_responds_five_cycles_later() -> (
+    None
+):
+    # Datasheet "Idle Mode": SM2..0 = 000 stops the CPU while the timers, the ADC and the
+    # interrupt system run; "Power Management and Sleep Modes": an enabled interrupt wakes the
+    # MCU, which "executes the interrupt routine, and resumes execution from the instruction
+    # following SLEEP"; "Interrupt Response Time": from sleep the response "is increased by five
+    # clock cycles" (the sleep section says four: the rig takes the longer).
+    found = _program(IDLE, seconds=0.001)
+    # The ADC is not enabled here: a SLEEP starts no conversion, so nothing ends the evidence.
+    assert found["evidence_end"] is None, found["evidence_end"]
+    assert "TIMER0_OVF" in found["vectors"] and "adc_input" not in found["unmodelled"]
+    isr = found["vectors"]["TIMER0_OVF"]
+    sleep = found["sleep"]
+    assert isr["count"] == sleep["wakes"] > 50
+    assert sleep["wakes"] <= sleep["idle_entries"] <= sleep["wakes"] + 1
+    assert found["r"][20] == isr["count"] and sleep["wakes"] - 1 <= found["r"][21] <= sleep["wakes"]
+    # Response 4 + 5, JMP 3, INC 1, RETI 4; the CPU asleep for all but some 25 cycles a period.
+    assert isr["inclusive_cycles"]["min"] == isr["inclusive_cycles"]["max"] == 17
+    assert sleep["cycles_asleep"] >= isr["count"] * (256 - 30)
+    assert found["evidence_end"] is None and found["timing_evaluable"] is True
+    # SE clear: SLEEP is a no-op and the interrupt responds in its usual four cycles.
+    awake = _program(IDLE.replace("store(0x53, 0x01);", ""), seconds=0.001)
+    assert awake["sleep"]["idle_entries"] == 0
+    assert awake["vectors"]["TIMER0_OVF"]["inclusive_cycles"]["max"] == 12
+    # "If the ADC is enabled, a conversion starts automatically when this mode is entered": with
+    # only the ADC's interrupt on (ADEN, ADIE), each idle sleep ends at its conversion's end.
+    adc = _program(
+        "store(0x7c, 0x5e); store(0x7a, 0x88); store(0x53, 0x01); const loop = at; for (const w of "
+        "[...asm.sei(), ...asm.sleep(), ...asm.inc(21), ...asm.jmp(loop)]) words[at++] = w;",
+        seconds=0.001,
+    )
+    assert "ADC" in adc["vectors"], adc["vectors"]
+    # Each wake is an ADC interrupt; the run's end may fall inside the last one's handler.
+    done = adc["vectors"]["ADC"]["count"]
+    assert done > 10 and done <= adc["sleep"]["wakes"] <= done + 1
+    assert set(adc["vectors"]) == {"ADC"}
+
+
+def test_a_sleep_other_than_idle_or_with_interrupts_off_ends_the_run_s_evidence() -> None:
+    # Datasheet "Power-down Mode": "the external Oscillator is stopped" and only external
+    # interrupts, a TWI address match, the watchdog, a pin change or USB can wake the MCU, so
+    # Timer0's interrupt never comes. The rig models no mode but idle: the run's evidence ends at
+    # the SLEEP, the run stops there, and nothing after it is shown. Whether an interrupt wakes
+    # the part with interrupts off is not documented: such a sleep ends the evidence too.
+    marker = [{"name": "m", "t_s": START / 16e6 + 0.005}]
+    found = _program(IDLE.replace("0x53, 0x01", "0x53, 0x05"), seconds=0.01, markers=marker)
+    end = found["evidence_end"]
+    assert end is not None, "a power-down sleep ran on"
+    assert (end["cause"], end["mode"], end["interrupts_enabled"]) == ("sleep", "power_down", True)
+    # The run stops at the end of the instruction that ended the evidence.
+    assert (
+        end["cycle"] <= found["simulated_cycles"] <= end["cycle"] + 4 and end["cycle"] < START + 100
+    )
+    assert "TIMER0_OVF" not in found["vectors"] and found["sleep"]["idle_entries"] == 0
+    (event,) = found["events"]
+    after = {"withheld": f"after the evidence ends at cycle {end['cycle']}"}
+    assert [event[key] for key in ("motors_off_cycle", "motors_off_delay_s")] == [after, after]
+    for smcr, mode in ((0x03, "adc_noise_reduction"), (0x07, "power_save"), (0x0D, "standby")):
+        other = _program(IDLE.replace("0x53, 0x01", f"0x53, {smcr}"), seconds=0.01)
+        assert other["evidence_end"] is not None and other["evidence_end"]["mode"] == mode
+    off = _program(IDLE.replace("...asm.sei(), ", ""), seconds=0.01)
+    assert off["evidence_end"] is not None, "an idle sleep with interrupts off ran on"
+    assert (off["evidence_end"]["mode"], off["evidence_end"]["interrupts_enabled"]) == (
+        "idle",
+        False,
+    )
+
+
+def test_a_peripheral_stopped_through_the_power_reduction_registers_ends_the_evidence() -> None:
+    # Datasheet "PRR0", "PRR1": a one "shuts down" the module "by stopping the clock to the
+    # module"; "Power Reduction Register": "the current state of the peripheral is frozen and
+    # the I/O registers can not be read or written". What a read then gives is not documented:
+    # the rig does not go on past the write. Here the Balboa's Timer1 PWM, then PRTIM1 | PRTWI.
+    marker = [{"name": "m", "t_s": START / 16e6 + 0.005}]
+    found = _program(BALBOA_PWM + _ocr(200) + "store(0x64, 0x88);", seconds=0.01, markers=marker)
+    end = found["evidence_end"]
+    assert end is not None, "Timer1 and the TWI stopped and the run went on"
+    assert {key: end[key] for key in ("cause", "register", "value", "modules")} == {
+        "cause": "power_reduction",
+        "register": "PRR0",
+        "value": 0x88,
+        "modules": ["timer1", "twi"],
+    }
+    # The run stops at the end of the instruction that ended the evidence.
+    assert (
+        end["cycle"] <= found["simulated_cycles"] <= end["cycle"] + 4 and end["cycle"] < START + 100
+    )
+    (event,) = found["events"]
+    assert event["motors_off_cycle"] == {
+        "withheld": f"after the evidence ends at cycle {end['cycle']}"
+    }
+    for setup, register, modules in (
+        ("store(0x65, 0x81);", "PRR1", ["usart1", "usb"]),
+        ("store(0x65, 0x18);", "PRR1", ["timer3", "timer4"]),
+        ("store(0x64, 0x25);", "PRR0", ["adc", "spi", "timer0"]),
+    ):
+        other = _program(setup)["evidence_end"]
+        assert other is not None, setup
+        assert (other["register"], other["modules"]) == (register, modules)
+    # A zero written stops nothing.
+    assert _program("store(0x64, 0x00); store(0x65, 0x00);")["evidence_end"] is None
+
+
+def test_a_probe_s_lateness_is_against_the_earliest_phase_so_a_late_first_entry_hides_nothing() -> (
+    None
+):
+    # The grid of the probe's period through the earliest phase any entry kept: f's first entry
+    # comes 14 cycles before its second and every later one 19 after the last, against a period
+    # of 19, so on its grid the first entry is 5 cycles late and the others on time. Against the
+    # first entry (lateness_from_first_entry_cycles) every later one reads 5 early and nothing
+    # late.
+    body = """
+    const main = at, loop = at + 4, mid = at + 14, f = at + 20;
+    words.set(asm.jmp(main), 0);
+    words.set([...asm.call(f), ...asm.jmp(mid)], main);
+    words.set([...asm.call(f), ...Array(8).fill(0), ...asm.jmp(loop)], loop);
+    words.set(asm.ret(), f);
+    """
+    scenario = {
+        "avrsim_scenario": 1,
+        "duration_s": (START + 1900) / 16e6,
+        "probes": [{"symbol": "f", "period_s": 19 / 16e6}],
+    }
+    found = _node(
+        CALLS
+        % {
+            "src": _src(),
+            "body": body,
+            "symbols": json.dumps({"f": 0x56 + 20}),
+            "scenario": json.dumps(scenario),
+        }
+    )
+    f = found["probes"]["f"]
+    n = f["entries"]
+    assert n > 50
+    assert f["lateness_cycles"] == {"count": n, "min": 0, "max": 5, "mean": 5 / n}
+    assert f["by_reset"][0]["lateness_cycles"] == f["lateness_cycles"]
+    old = f["lateness_from_first_entry_cycles"]
+    assert (old["min"], old["max"]) == (-5, 0)
+
+
+#: A program that writes avr-libc's heap break (`__brkval`, at 0x0300) and the stack pointer as
+#: `%(body)s` says, with static data ending at 0x0302 (`__heap_start`); the summary's stack.
+HEAP = """
+const src = %(src)s;
+const { Rig, Trace } = await import(`${src}/rig.js`);
+const { readScenario } = await import(`${src}/scenario.js`);
+const words = new Uint16Array(0x4000);
+let at = 0x56;
+words.set([0x940c, at], 0);
+const store = (address, value) => {
+  words[at++] = 0xe000 | ((value & 0xf0) << 4) | (value & 0x0f);
+  words[at++] = 0x9300; words[at++] = address;              // LDI r16, value; STS address, r16
+};
+%(body)s
+words[at++] = 0xcfff;
+const symbols = new Map([['__heap_start', { type: 'untyped', value: 0x800302 }],
+  ['__brkval', { type: 'object', value: 0x800300 }]]);
+const scenario = readScenario(JSON.stringify({ avrsim_scenario: 1, duration_s: 0.07 }));
+const rig = new Rig({ flash: new Uint8Array(words.buffer), eeprom: null, symbols }, scenario,
+  new Trace(() => {}, 1000));
+console.log(JSON.stringify(rig.run().stack));
+"""
+
+
+def test_stack_headroom_runs_to_the_highest_heap_end_and_a_negative_one_is_a_collision() -> None:
+    # avr-libc ("Memory Areas and Using malloc()"): the heap grows up from __heap_start, its end
+    # kept in __brkval; the stack grows down from RAMEND (datasheet "Stack Pointer"). The heap's
+    # end is taken once both bytes of __brkval are written: here 0x0910, then 0x08F0 written low
+    # byte first (0x09F0 for one instruction, which is no heap end), and the stack pointer set to
+    # 0x0900, 16 bytes into the heap.
+    def stack(body: str) -> Any:
+        return _node(HEAP % {"src": _src(), "body": body})
+
+    grown = "store(0x300, 0x10); store(0x301, 0x09); store(0x300, 0xf0); store(0x301, 0x08);"
+    collided = stack(grown + "store(0x5e, 0x09); store(0x5d, 0x00);")
+    assert {k: collided[k] for k in ("min_sp", "static_end", "heap_end_max")} == {
+        "min_sp": 0x0900,
+        "static_end": 0x0302,
+        "heap_end_max": 0x0910,
+    }
+    assert (collided["headroom_bytes"], collided["collision"]) == (-16, True)
+    clear = stack(grown)
+    assert (clear["headroom_bytes"], clear["collision"]) == (0x0AFF - 0x0910, False)
+    static = stack("")
+    assert static["heap_end_max"] is None and static["headroom_bytes"] == 0x0AFF - 0x0302
+    # A zero written to the break is no heap end: avr-libc keeps it 0 until the first malloc().
+    zero = stack("store(0x300, 0x00); store(0x301, 0x00);")
+    assert zero["heap_end_max"] is None and zero["headroom_bytes"] == 0x0AFF - 0x0302
+
+
+def test_the_watchdog_and_the_start_up_time_out_run_at_either_end_of_the_oscillator_s_range() -> (
+    None
+):
+    # Both are typical figures. Table 8-5's 16 ms is 2K cycles at the nominal 128 kHz, and Table
+    # 6-2's 65 ms is 8K; Figure 30-34's typical curves at 5 V reach down to about 112.5 kHz. At
+    # 112 kHz the time-out and the start-up's 65 ms both lengthen by 128 / 112.
+    slow = _program("store(0x60, 0x08);", seconds=0.2, watchdog_oscillator_hz=112_000)
+    start = round(0.065 * 128_000 / 112_000 * 16e6) + 14 + 16_384
+    resets = slow["resets"]
+    assert resets[0]["sketch_start_cycle"] == start
+    period = round(16e6 / 112_000 * 2048)
+    assert period <= resets[1]["cycle"] - resets[0]["sketch_start_cycle"] <= period + 10
+    assert resets[1]["sketch_start_cycle"] - resets[1]["cycle"] == start
+    assert (slow["typical"]["watchdog_oscillator_hz"], slow["typical"]["start_up_cycles"]) == (
+        112_000,
+        start,
+    )
+    assert slow["typical"]["scenario_range_hz"] == [112_000, 128_000]
+    assert slow["reset_path"]["start_up_cycles"] == start
+
+
+def test_with_timing_not_evaluable_every_figure_of_time_is_withheld() -> None:
+    # A clock prescaler the rig does not follow voids every time it measures: the interrupt
+    # times, the motors-off figures and the input-to-output bound are withheld, not printed.
+    marker = [{"name": "m", "t_s": START / 16e6 + 0.001}]
+    timer0 = "store(0x6e, 0x01); store(0x45, 0x01);"
+    found = _program(
+        timer0 + "store(0x61, 0x80); store(0x61, 0x01);", seconds=0.002, markers=marker
+    )
+    why = {"withheld": "timing not evaluable: clock_prescaler"}
+    isr = found["vectors"]["TIMER0_OVF"]
+    assert isr["count"] > 0 and isr["inclusive_cycles"] == isr["exclusive_cycles"] == why
+    (event,) = found["events"]
+    for key in ("motors_off_cycle", "motors_off_delay_s", "motors_off_until_cycle"):
+        assert event[key] == why, key
+    assert event["stayed_off_to_end"] == event["ocr_zero_cycle"] == why
+    assert found["input_to_output"]["upper_bound_cycles"] == why
+    assert found["input_to_output"]["newest_sample_cycles"] == why
+    assert "vectors.*.inclusive_cycles" in found["withheld"]
+    timed = _program(timer0, seconds=0.002, markers=marker, motors_off_hold_s=0.0001)
+    assert (
+        timed["withheld"] == [] and timed["vectors"]["TIMER0_OVF"]["inclusive_cycles"]["max"] == 12
+    )
+    assert timed["events"][0]["stayed_off_to_end"] is True
+
+
+#: What every summary says it does not show, word for word.
+NOT_SHOWN = [
+    "brown-out beyond its reset: the chip resets below VBOT (4.0 to 4.5 V, typically 4.3 V; "
+    "datasheet Table 8-1); the battery range is the model's own, 6.0 V (1.0 V a cell of six) to "
+    "the motor drivers' 10.8 V, and says nothing of the board below it",
+    "the 5 V rail near its drop-out: VCC and the ADC's reference AVCC stay at exactly 5.000 V "
+    "whatever the battery, and the battery does not sag under motor load",
+    "an external reset (the RESET pin or button) and the bootloader path it takes",
+    "the inertial sensor's noise (rate noise density 7 mdps/sqrt(Hz)) and its filters' delay; "
+    "start-up settling beyond AN4682's discard tables; its temperature output, constant at 25 degC",
+    "the inertial sensor's zero levels are typical figures, not bounds (G_TyOff +-10 dps, "
+    "LA_TyOff +-40 mg: a scenario may state up to four times either, of either sign), and its "
+    "drift with temperature (sensitivity +-1 % and +-1.5 %; zero level 0.5 mg/degC and "
+    "0.05 dps/degC) is not shown",
+    "the magnetometer answers its address and its identity only: a read of its data ends the "
+    "evidence, and a setting written to it is reported",
+    "clock tolerance: the crystal is exactly 16 MHz; the watchdog oscillator and the start-up "
+    "time-out are typical figures (typical_figures), with no bound in the datasheet",
+    "stack headroom on paths the run did not execute: stack.headroom_bytes covers only the "
+    "paths taken",
+    '"off" means the DRV8838 brake (EN low, Table 7-2), not the motors free; a motors-off figure '
+    "is evidence only with its hold time (motors_off_rule.hold_cycles) and "
+    "motors_off_until_cycle or stayed_off_to_end",
+    "I2C transfers at their fastest (no clock stretching by the sensor, no level-shifter delay) "
+    "and the bootloader's session without its interrupts' latency: both are lower bounds",
+    "the I2C bus has the chip as its only master: the Raspberry Pi the board can be connected to "
+    "is not shown, and a firmware that listens as a slave ends the evidence",
+    "the scenario is open loop: the inertial sensor, the encoders and the battery follow the "
+    "script and the motor outputs change nothing, so anything that needs the loop closed is not "
+    "shown",
+    "USB: detached, no host; blocking Serial writes, USB interrupts and the CDC session are not "
+    "shown unless usb_sof is set, and the calls of Serial's write are counted "
+    "(usb.serial_write_calls) with their cost not shown",
+    "USART1 receive: nothing sends, as on an unconnected pin, so a receive interrupt's load "
+    "never appears",
+    "ADC accuracy: conversions are exact (the datasheet gives an absolute accuracy of +-2 LSB at "
+    "200 kHz), the 2.56 V and 1.1 V references and the band gap are exact, and its input noise "
+    "and offset are not shown; a clock outside 50 to 200 kHz is reported (adc_clock)",
+    "the encoders are perfect quadrature: no bounce, glitch, missed count or skew between "
+    "their channels",
+    "inputs nothing is wired to: a pin with no pull-up reads low and one with its pull-up reads "
+    "high; a floating or unattached input is neither",
+    "uninitialised SRAM is one seed's pattern (power_on_sram_seed): a criterion that depends on "
+    "it must run several seeds",
+    "an edge on INT0 to INT3 or INT6 while its mask bit is clear does not set its flag here, as "
+    "in avr8js; the datasheet does not settle whether the part sets it",
+]
+
+
+def test_the_summary_says_what_it_does_not_show_and_what_its_figures_exclude() -> None:
+    found = _program("")
+    assert found["not_shown"] == NOT_SHOWN
+    assert found["input_to_output"]["definition"].endswith(
+        "The sensor's own filter delay (AN4682 Fig. 4: its anti-aliasing and digital low-pass "
+        "filters) is not included."
+    )
+    assert "typical figures" in found["typical"]["statement"]
+
+
+def test_sram_holds_its_seed_s_pattern_at_power_on_and_not_zeros() -> None:
+    # The datasheet gives SRAM no initial value: a firmware that trusts what it finds there at
+    # power-on is not shown zeros. The same seed gives the same bytes; the summary names it.
+    first, again, other = _program(""), _program(""), _program("", sram_seed=7)
+    assert first["sram"] == again["sram"] != other["sram"]
+    assert sum(1 for byte in first["sram"] if byte) >= 12
+    assert (first["power_on_sram_seed"], other["power_on_sram_seed"]) == (1, 7)
+
+
+def test_motors_off_says_whether_they_stayed_off_to_the_run_s_end() -> None:
+    # Both enables low from the sketch's start (inputs without pull-ups, then outputs driven
+    # low), then driven high after some 2300 cycles: off, with a hold of 1600 cycles, until then.
+    setup = (
+        "store(0x24, 0x60); store(0x25, 0x01);"
+        "for (const w of [...asm.delay(255), ...asm.delay(255), ...asm.delay(255)])"
+        " words[at++] = w;"
+        "store(0x25, 0x61);"
+    )
+    marker = [{"name": "m", "t_s": START / 16e6}]
+    found = _program(setup, seconds=0.01, markers=marker, motors_off_hold_s=0.0001)
+    (event,) = found["events"]
+    assert event["motors_off_cycle"] == START and event["stayed_off_to_end"] is False
+    assert START + 2000 < event["motors_off_until_cycle"] < START + 2500
+    # Both enables driven high from the start: never off, and not "stayed off" either.
+    never = _program(
+        "store(0x24, 0x60); store(0x25, 0x60);",
+        seconds=0.01,
+        markers=marker,
+        motors_off_hold_s=0.0001,
+    )
+    (event,) = never["events"]
+    assert event["motors_off_cycle"] is None and event["motors_off_until_cycle"] is None
+    assert event["stayed_off_to_end"] is False
+
+
+#: A conversion started as firmware does: ADMUX and ADCSRB set, then ADCSRA = ADEN | ADSC with
+#: the prescaler's 128 (125 kHz at 16 MHz), run on for 25 ADC clocks and more.
+CONVERT = """
+const results = [];
+for (const [admux, adcsrb, adcsra] of %(cases)s) {
+  const before = ends.length;
+  cpu.data[0x7c] = admux; cpu.data[0x7b] = adcsrb;
+  cpu.writeData(0x7a, adcsra);
+  step(8000);
+  const adc = cpu.data[0x78] | (cpu.data[0x79] << 8);
+  results.push({ admux, adcsrb, ends: ends.slice(before), adc, reports: { ...reports } });
+  cpu.data[0x7a] = 0;
+  for (const key of Object.keys(reports)) delete reports[key];
+}
+console.log(JSON.stringify(results));
+"""
+
+
+def _convert(*cases: tuple[int, int, int]) -> list[dict[str, Any]]:
+    found = _registers(CONVERT % {"cases": json.dumps(cases)})
+    assert isinstance(found, list)
+    return found
+
+
+def test_an_adc_conversion_of_an_input_the_model_has_a_value_for_runs() -> None:
+    # The band gap at 1.1 V against AVCC = 5 V is 225 (1.1 / 5 * 1024); against the internal
+    # 2.56 V it is 440; ground is 0. ADEN | ADSC | ADPS = 128.
+    modelled = _convert((0x5E, 0, 0xC7), (0xDE, 0, 0xC7), (0x5F, 0, 0xC7), (0x46, 0, 0xC7))
+    assert [item["ends"] for item in modelled] == [[], [], [], []]
+    assert [item["adc"] for item in modelled] == [225, 440, 0, 0]
+
+
+def test_an_adc_conversion_of_an_input_the_model_has_no_entry_for_ends_the_evidence() -> None:
+    # DS-32U4 Table 24-4: with MUX5 clear 0x09 is ADC1-ADC0 at 10x, 0x0B at 200x, 0x10 ADC0-ADC1
+    # at 1x, 0x14 to 0x17 the 1x pairs; avr8js gives every code it has no entry for a constant 0 V.
+    # The rig has a value for the battery's channel 6, the band gap and ground only: the other
+    # single-ended channels have nothing attached, and the rest is not modelled.
+    differential = [0x49, 0x4B, 0x50, 0x54, 0x55, 0x56, 0x57]
+    single = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x47]
+    cases = [(code, 0, 0xC7) for code in differential + single]
+    # MUX5 set: ADC8 to ADC13, the temperature sensor, the high-gain pairs.
+    cases += [(0x40 | n, 0x20, 0xC7) for n in (0, 1, 2, 3, 4, 5, 6, 7, 0x1E, 0x1F)]
+    found = _convert(*cases)
+    for item in found:
+        causes = [e["cause"] for e in item["ends"]]
+        assert causes == ["adc_input"], item
+        assert item["ends"][0]["mux"] == (item["admux"] & 0x1F) | (0x20 if item["adcsrb"] else 0)
+        assert item["adc"] == 0 and "adc_input" in item["reports"], item
+
+
+def test_an_adc_reference_the_model_has_no_value_for_ends_the_evidence() -> None:
+    # REFS = 00 is the AREF pin, which nothing drives here; REFS = 10 is reserved, which avr8js
+    # takes for AVCC. Both read a value the part would not give.
+    found = _convert((0x06, 0, 0xC7), (0x86, 0, 0xC7), (0x1E, 0, 0xC7), (0x9E, 0, 0xC7))
+    for item in found:
+        assert [e["cause"] for e in item["ends"]] == ["adc_input"], item
+        assert item["ends"][0]["refs"] == item["admux"] >> 6
+    # A start with the ADC disabled does nothing on the part (ADSC stays clear, no flag): the
+    # rig's library would set ADIF.
+    (disabled,) = _convert((0x46, 0, 0x40))
+    assert [e["cause"] for e in disabled["ends"]] == ["adc_input"]
+
+
+def test_an_adc_clock_outside_50_to_200_khz_is_reported_as_a_reading_not_shown() -> None:
+    # "By default, the successive approximation circuitry requires an input clock frequency
+    # between 50 kHz and 200 kHz to get maximum resolution": 16 MHz / 128 is 125 kHz; any
+    # smaller division is above it.
+    found = _convert(*[(0x5E, 0, 0xC0 | divisor) for divisor in range(8)])
+    assert ["adc_clock" in item["reports"] for item in found] == [True] * 7 + [False]
+    assert all(item["ends"] == [] for item in found)
+
+
+def test_a_twi_slave_ends_the_evidence_and_a_master_that_acknowledges_a_read_does_not() -> None:
+    # Wire's master sets TWEA in TWCR for every transfer; a slave sets its own address (TWAR),
+    # whose interrupt the rig never raises, and an address mask (TWAMR).
+    found = _registers(
+        """
+        cpu.writeData(0xbc, 0xc5);                 // TWINT | TWEA | TWEN
+        cpu.writeData(0xba, 0x00);                 // a master leaves TWAR clear
+        const master = ends.length;
+        cpu.writeData(0xba, 0x08);                 // TWAR: address 4
+        const afterAddress = ends.map((e) => e.cause);
+        console.log(JSON.stringify({ master, afterAddress, reports: { ...reports } }));
+        """
+    )
+    assert found["master"] == 0 and found["afterAddress"] == ["twi_slave"]
+    assert "twi_slave" in found["reports"]
+
+
+def test_a_master_that_writes_the_twi_address_register_back_as_it_found_it_is_not_a_slave() -> None:
+    # The Wire library's timeout recovery reads TWAR (0xFE after reset: address 0x7F, general call
+    # off) and writes it back after re-initialising the interface; that is a master. Any other
+    # address, the general-call bit with it included, is a slave, and so is any mask.
+    found = _registers(
+        """
+        const seen = (value, address = 0xba) => {
+          const before = ends.length;
+          cpu.writeData(address, value);
+          return ends.length - before;
+        };
+        const back = seen(cpu.readData(0xba));
+        console.log(JSON.stringify({ back, zero: seen(0), reset: seen(0xfe), general: seen(0xff),
+          other: seen(0xfc), mask: seen(0xfe, 0xbd), noMask: seen(0, 0xbd) }));
+        """
+    )
+    assert found == {
+        "back": 0,
+        "zero": 0,
+        "reset": 0,
+        "general": 1,
+        "other": 1,
+        "mask": 1,
+        "noMask": 0,
+    }
+
+
+def test_an_edge_on_a_masked_external_interrupt_does_not_set_its_flag_here() -> None:
+    # avr8js sets INTF6 only while INT6 is enabled in EIMSK (gpio.js). Whether the part sets it
+    # while masked is not settled by the datasheet (it advises clearing the flag before
+    # enabling): the summary names the gap, and this row holds the model's reading, so that a
+    # change of avr8js or of the model's is noticed.
+    found = _registers(
+        """
+        cpu.writeData(0x6a, 0x30);                 // EICRB: INT6 on a rising edge
+        cpu.writeData(0x2d, 0x40); cpu.writeData(0x2e, 0x00);   // PE6 an output, low
+        cpu.writeData(0x2e, 0x40);                 // the edge, EIMSK clear
+        step(10);
+        const masked = cpu.data[0x3c];
+        cpu.writeData(0x3d, 0x40);                 // EIMSK: INT6 enabled afterwards
+        step(10);
+        console.log(JSON.stringify({ masked, after: cpu.data[0x3c], taken: pending(0x0e) }));
+        """
+    )
+    assert found == {"masked": 0, "after": 0, "taken": False}
+
+
+#: Writes to EEPROM cells as firmware does (EEMPE, then EEPE within four cycles), waiting for
+#: each to finish (3.6 ms atomic, 1.8 ms erase only or write only).
+EEPROM = """
+const src = %(src)s;
+const mcu = await import(`${src}/mcu.js`);
+const bus = { start: () => true, stop() {}, connect: () => true, write: () => true, read: () => 0 };
+const eeprom = new mcu.CountingEEPROM(1024);
+const chip = new mcu.ATmega32U4(new Uint16Array(0x4000), { eeprom, bus });
+const { cpu } = chip;
+const step = (n) => {
+  const end = cpu.cycles + n;
+  while (cpu.cycles < end) { cpu.cycles += 1; cpu.tick(); }
+};
+const program = (address, value, mode) => {
+  cpu.writeData(0x41, address & 0xff); cpu.writeData(0x42, address >> 8);
+  cpu.writeData(0x40, value); cpu.writeData(0x3f, 0x04); cpu.writeData(0x3f, 0x02 | mode);
+  step(60000);
+};
+program(3, 0x5a, 0); program(3, 0x5b, 0); program(3, 0x5c, 0); program(5, 1, 0);
+const atomic = eeprom.counts();
+program(7, 0x00, 0x10);   // EEPM0: erase only
+program(7, 0x01, 0x20);   // EEPM1: write only: a second operation on the same cell
+console.log(JSON.stringify({ atomic, all: eeprom.counts() }));
+"""
+
+
+def test_each_eeprom_programming_operation_is_counted_per_cell() -> None:
+    # DS-32U4 "EEPROM Data Memory": an endurance of at least 100,000 write/erase cycles. An
+    # atomic erase-and-write is one operation on the cell, an erase only and a write only two.
+    found = _node(EEPROM % {"src": _src()})
+    assert found["atomic"] == {"writes": 4, "per_address_max": 3}
+    assert found["all"] == {"writes": 6, "per_address_max": 3}
+
+
+#: A rig with nothing to run, its sensors told of a use the model does not act on before it runs.
+SUMMARY = """
+const src = %(src)s;
+const { Rig, Trace } = await import(`${src}/rig.js`);
+const { readScenario } = await import(`${src}/scenario.js`);
+const words = new Uint16Array(0x4000);
+words[0] = 0xcfff;
+const scenario = readScenario(JSON.stringify({ avrsim_scenario: 1, duration_s: 0.08 }));
+const rig = new Rig({ flash: new Uint8Array(words.buffer), eeprom: null, symbols: new Map() },
+  scenario, new Trace(() => {}, 100));
+%(before)s
+const s = rig.run();
+console.log(JSON.stringify({ timing: s.timing_evaluable, because: s.timing_not_evaluable_because,
+  behaviour: s.behaviour_evaluable, behaviour_because: s.behaviour_not_evaluable_because,
+  unmodelled: Object.keys(s.unmodelled), eeprom: s.eeprom, usb: s.usb, withheld: s.withheld }));
+"""
+
+
+def _summary(before: str = "") -> dict[str, Any]:
+    found = _node(SUMMARY % {"src": _src(), "before": before})
+    assert isinstance(found, dict)
+    return found
+
+
+def test_a_sensor_setting_the_model_lacks_makes_values_not_evaluable_and_leaves_the_time() -> None:
+    # A gyroscope high-pass filter or an accelerometer's second low-pass changes the values
+    # firmware reads and not when anything happens: behaviour_evaluable says so and
+    # timing_evaluable stays about timing. A chip feature the model lacks changes both.
+    clean = _summary()
+    assert (clean["timing"], clean["behaviour"]) == (True, True)
+    assert clean["because"] == clean["behaviour_because"] == []
+    gyro = _summary("rig.board.lsm6.onUnmodelled('lsm6ds33:CTRL7_G');")
+    assert (gyro["timing"], gyro["behaviour"]) == (True, False)
+    assert gyro["behaviour_because"] == ["lsm6ds33:CTRL7_G"]
+    mag = _summary("rig.board.lis3mdl.onUnmodelled('lis3mdl:CTRL_REG1');")
+    assert (mag["timing"], mag["behaviour"]) == (True, False)
+    both = _summary("rig.noteUnmodelled('spi');")
+    assert (both["timing"], both["behaviour"]) == (False, False)
+    assert both["because"] == both["behaviour_because"] == ["spi"]
+    # A feature that touches nothing the board runs from is named and gates nothing.
+    inert = _summary("rig.noteUnmodelled('rc_oscillator');")
+    assert (inert["timing"], inert["behaviour"], inert["unmodelled"]) == (
+        True,
+        True,
+        ["rc_oscillator"],
+    )
+
+
+def test_the_summary_counts_eeprom_programming_with_the_datasheet_s_endurance() -> None:
+    found = _summary(
+        "for (let i = 0; i < 3; i += 1) { rig.eeprom.eraseMemory(9);"
+        " rig.eeprom.writeMemory(9, 1); }"
+        "rig.eeprom.eraseMemory(2); rig.eeprom.writeMemory(2, 1);"
+    )["eeprom"]
+    assert found["write_cycles"] == 4 and found["per_address_max"] == 3
+    assert found["endurance_cycles"] == 100_000 and found["cells_over_endurance"] == []
+    assert "100,000" in found["statement"] or "100 000" in found["statement"]
+    again = _summary("for (let i = 0; i < 100_001; i += 1) { rig.eeprom.writeMemory(1, 0); }")[
+        "eeprom"
+    ]
+    assert again["cells_over_endurance"] == [1]
+    # "At least 100,000 cycles": a cell programmed exactly that often is not over it.
+    exact = _summary("for (let i = 0; i < 100_000; i += 1) { rig.eeprom.writeMemory(1, 0); }")
+    assert exact["eeprom"]["cells_over_endurance"] == []
+
+
+def test_the_summary_says_no_usb_host_is_present_and_counts_serial_writes_it_does_not_cost() -> (
+    None
+):
+    usb = _summary()["usb"]
+    assert usb["host"] == "none" and usb["serial_write_calls"] == 0
+    assert "not shown" in usb["statement"]
+
+
+def test_a_watchdog_figure_is_reported_at_both_ends_of_the_oscillator_s_range() -> None:
+    # The watchdog oscillator has no bound in the datasheet: 128 kHz is its nominal and the
+    # fast end ("does not reset early" must read it), 112 kHz the slow end of its typical curves
+    # ("resets within" must read it). The summary runs both. WDE with WDP = 0 is 16 ms at
+    # 128 kHz; after each reset the start-up time (16K CK, 14 CK and the 65 ms scaled with the
+    # oscillator) comes before the sketch, which enables the watchdog again.
+    found = _program("store(0x60, 0x08);", seconds=0.3)
+    watchdog = found["watchdog"]
+    assert watchdog["used"] is True
+    assert watchdog["read"] == {"does_not_reset_early": "fast", "resets_within": "slow"}
+    fast, slow = watchdog["ends"]["fast"], watchdog["ends"]["slow"]
+    assert (fast["oscillator_hz"], slow["oscillator_hz"]) == (128_000, 112_000)
+    assert fast["start_up_cycles"] == START
+    assert slow["start_up_cycles"] == round(0.065 * 128_000 / 112_000 * 16e6) + 14 + 16_384
+    assert fast["period_cycles"] == 256_000 and slow["period_cycles"] == round(
+        2048 * 16e6 / 112_000
+    )
+    # Each end's first watchdog reset comes one start-up time and one period after power-on, give
+    # or take the few cycles of the sketch's own first instructions and the reset's own.
+    extra = [
+        end["first_watchdog_reset_cycle"] - end["start_up_cycles"] - end["period_cycles"]
+        for end in (fast, slow)
+    ]
+    # (a reset is taken at an instruction's end: up to four cycles' difference between the ends)
+    assert abs(extra[0] - extra[1]) <= 4 and min(extra) >= 0 and max(extra) < 20
+    assert fast["watchdog_resets"] >= 2 and slow["watchdog_resets"] >= 2
+    assert [r["cause"] for r in fast["resets"]][:2] == ["power_on", "watchdog"]
+    # The run's own figures are the scenario's oscillator's: here the fast end's.
+    assert found["resets"][1]["cycle"] == fast["first_watchdog_reset_cycle"]
+    assert found["resets"][1]["watchdog_period_cycles"] == 256_000
+
+
+def test_a_watchdog_the_firmware_never_uses_shows_only_the_start_up_time_at_both_ends() -> None:
+    found = _program("store(0x24, 0x01);", seconds=0.001)["watchdog"]
+    assert found["used"] is False
+    assert found["ends"]["fast"] == {
+        "oscillator_hz": 128_000,
+        "start_up_cycles": START,
+        "evidence_end": None,
+        "timing_evaluable": True,
+        "timing_not_evaluable_because": [],
+        "behaviour_evaluable": True,
+        "behaviour_not_evaluable_because": [],
+    }
+    assert found["ends"]["slow"]["oscillator_hz"] == 112_000
+    # A scenario's own oscillator in between still gets both ends, and its figures are its own.
+    mid = _program("store(0x60, 0x08);", seconds=0.1, watchdog_oscillator_hz=120_000)["watchdog"]
+    assert mid["ends"]["fast"]["oscillator_hz"] == 128_000
+    assert mid["ends"]["slow"]["oscillator_hz"] == 112_000
+    # Each end is a run of its own at that oscillator: the fast one's reset comes first.
+    assert mid["ends"]["fast"]["start_up_cycles"] == START
+    first = [mid["ends"][end]["first_watchdog_reset_cycle"] for end in ("fast", "slow")]
+    assert first[0] < first[1]
+
+
+def test_a_watchdog_with_only_its_interrupt_enabled_is_used_and_run_at_both_ends() -> None:
+    # WDTCSR's WDIE (bit 6) alone, with WDE clear, starts the watchdog in interrupt mode: the
+    # firmware uses it, so each end is a run of its own (and carries its resets), where a write
+    # that sets neither WDIE nor WDE leaves the watchdog unused.
+    found = _program("store(0x60, 0x40);", seconds=0.02)["watchdog"]
+    assert found["used"] is True
+    for name in ("fast", "slow"):
+        assert "first_watchdog_reset_cycle" in found["ends"][name], name
+        assert [reset["cause"] for reset in found["ends"][name]["resets"]] == ["power_on"], name
+    # WDE alone, WDIE alone and neither.
+    for value, used in ((0x08, True), (0x40, True), (0x10, False), (0x00, False)):
+        assert _program(f"store(0x60, {value});", seconds=0.02)["watchdog"]["used"] is used, value
+
+
+def test_every_figure_of_time_is_withheld_when_timing_is_not_evaluable() -> None:
+    # CLKPR written (the prescaler is not modelled): timing_evaluable is false. The cycle of a
+    # reset, of a probe's first entry, of a sleep and of a bootloader session are figures of time
+    # as well.
+    setup = "store(0x61, 0x80); store(0x61, 0x01);"
+    found = _program(setup)
+    why = {"withheld": "timing not evaluable: clock_prescaler"}
+    assert found["resets"][0]["cycle"] == why
+    assert found["sleep"]["cycles_asleep"] == why
+    assert found["resets"][0]["sketch_start_cycle"] == why
+    reset = _program(setup + "store(0x60, 0x08);", seconds=0.1)["resets"][1]
+    assert reset["cause"] == "watchdog" and reset["watchdog_period_cycles"] == why
+    assert "resets.*.cycle" in found["withheld"] and "sleep.cycles_asleep" in found["withheld"]
+    body = """
+    const main = at, loop = at + 6, f = at + 20;
+    words.set(asm.jmp(main), 0);
+    words.set([...asm.ldi(16, 0x80), ...asm.sts(0x61, 16), ...asm.ldi(16, 1), ...asm.sts(0x61, 16),
+      ...asm.call(f), ...asm.jmp(loop)], main);
+    words.set(asm.ret(), f);
+    """
+    scenario = {
+        "avrsim_scenario": 1,
+        "duration_s": (START + 4000) / 16e6,
+        "probes": [{"symbol": "f"}],
+    }
+    probe = _node(
+        CALLS
+        % {
+            "src": _src(),
+            "body": body,
+            "symbols": json.dumps({"f": 0x56 + 20}),
+            "scenario": json.dumps(scenario),
+        }
+    )["probes"]["f"]
+    assert probe["first_entry_cycle"] == why and probe["by_reset"][0]["first_entry_cycle"] == why
+    # The bootloader's session, whose length is a figure of time as well, is on the list.
+    listed = _summary("rig.noteUnmodelled('clock_prescaler');")["withheld"]
+    assert "resets.*.bootloader_session_cycles" in listed
+
+
+#: A sketch that marks SRAM on its first start and starts the watchdog; on its second start (after
+#: the watchdog's reset, which the bootloader hides from MCUSR) it runs `%(second)s`.
+WATCHDOG_TWICE = """
+const put = (...parts) => { for (const w of parts.flat()) words[at++] = w; };
+put(asm.lds(16, 0x300), [0x3a05, 0xf039]);        // lds r16, 0x300; cpi r16, 0xa5; breq second
+put(asm.ldi(16, 0xa5), asm.sts(0x300, 16));       // the first start leaves its mark
+put(asm.ldi(16, 0x08), asm.sts(0x60, 16), asm.self());  // and starts the watchdog, WDP = 0
+%(second)s
+put(asm.self());
+"""
+
+
+def _twice(second: str, seconds: float, **more: Any) -> dict[str, Any]:
+    return _program(WATCHDOG_TWICE % {"second": second}, seconds=seconds, **more)
+
+
+def test_each_end_of_the_watchdog_carries_its_own_evidence_end_and_flags() -> None:
+    # The sketch reads a register the part has none at on its second start. At the fast end the
+    # second start comes about 148 ms in, at the slow end (a longer start-up and period) about 169
+    # ms: a scenario of 161 ms at the slow oscillator reaches it only in the fast end's own run.
+    found = _twice("put(asm.lds(17, 0x22));", 0.095, watchdog_oscillator_hz=112_000)
+    assert found["evidence_end"] is None and found["timing_evaluable"] is True
+    ends = found["watchdog"]["ends"]
+    fast, slow = ends["fast"], ends["slow"]
+    assert fast["evidence_end"] is not None, "the fast end carries no evidence end"
+    assert fast["evidence_end"]["cause"] == "reserved_register"
+    assert fast["evidence_end"]["address"] == 0x22
+    assert (fast["timing_evaluable"], fast["behaviour_evaluable"]) == (False, False)
+    assert fast["timing_not_evaluable_because"] == ["reserved_register"]
+    assert fast["behaviour_not_evaluable_because"] == ["reserved_register"]
+    # What the fast end measured is withheld, as in the run's own summary.
+    why = {"withheld": "timing not evaluable: reserved_register"}
+    assert fast["first_watchdog_reset_cycle"] == fast["period_cycles"] == why
+    # Each reset the end lists has its time withheld too (its cycle and its sketch's start), not
+    # a bare number; at the slow end, which stands behind time, they are numbers.
+    assert len(fast["resets"]) >= 2
+    for reset in fast["resets"]:
+        assert reset["cycle"] == why and reset["sketch_start_cycle"] == why, reset
+    assert len(slow["resets"]) >= 2
+    assert all(isinstance(reset["cycle"], int) for reset in slow["resets"])
+    assert any(isinstance(reset["sketch_start_cycle"], int) for reset in slow["resets"])
+    assert slow["evidence_end"] is None
+    assert (slow["timing_evaluable"], slow["behaviour_evaluable"]) == (True, True)
+    assert slow["timing_not_evaluable_because"] == slow["behaviour_not_evaluable_because"] == []
+    assert slow["watchdog_resets"] == 1 and isinstance(slow["first_watchdog_reset_cycle"], int)
+
+
+def test_an_end_that_reports_a_feature_withholds_its_own_figures_and_the_other_end_does_not() -> (
+    None
+):
+    # The second start uses the SPI, which the rig does not model: only the end that got there
+    # has timing and values not evaluable.
+    found = _twice(
+        "put(asm.ldi(17, 0x40), asm.sts(0x4c, 17));", 0.095, watchdog_oscillator_hz=112_000
+    )
+    fast, slow = found["watchdog"]["ends"]["fast"], found["watchdog"]["ends"]["slow"]
+    assert fast["evidence_end"] is None and slow["evidence_end"] is None
+    assert (fast["timing_evaluable"], fast["behaviour_evaluable"]) == (False, False)
+    assert fast["timing_not_evaluable_because"] == ["spi"]
+    assert fast["first_watchdog_reset_cycle"] == {"withheld": "timing not evaluable: spi"}
+    assert (slow["timing_evaluable"], slow["behaviour_evaluable"]) == (True, True)
+    assert isinstance(slow["first_watchdog_reset_cycle"], int)
+
+
+def test_an_end_whose_evidence_ended_before_a_watchdog_reset_is_not_shown_as_never_reset() -> None:
+    # A power-down sleep right after the watchdog is started ends the evidence in every run
+    # before its first reset: a missing first reset is then "not reached", not "fed in time".
+    found = _program("store(0x60, 0x08); store(0x53, 0x05); words[at++] = 0x9588;", seconds=0.3)
+    assert found["evidence_end"] is not None and found["evidence_end"]["cause"] == "sleep"
+    for name in ("fast", "slow"):
+        end = found["watchdog"]["ends"][name]
+        assert end["evidence_end"] is not None, name
+        assert end["evidence_end"]["cause"] == "sleep", name
+        assert (end["timing_evaluable"], end["behaviour_evaluable"]) == (True, True), name
+        cycle = end["evidence_end"]["cycle"]
+        not_reached = {"withheld": f"the evidence ended at cycle {cycle} before a watchdog reset"}
+        assert end["first_watchdog_reset_cycle"] == end["period_cycles"] == not_reached, name
+        assert end["watchdog_resets"] == 0, name
+
+
+def test_the_run_s_own_watchdog_figures_say_at_which_oscillator_they_are() -> None:
+    # resets[].cycle and watchdog_period_cycles are at the scenario's oscillator (128 kHz by
+    # default: the fast end); the summary labels them, in each reset and for the run.
+    found = _program("store(0x60, 0x08);", seconds=0.2)
+    assert [reset["at_oscillator_hz"] for reset in found["resets"]] == [128_000] * len(
+        found["resets"]
+    )
+    assert found["watchdog"]["own"] == {"oscillator_hz": 128_000, "end": "fast"}
+    slow = _program("store(0x60, 0x08);", seconds=0.2, watchdog_oscillator_hz=112_000)
+    assert slow["resets"][1]["at_oscillator_hz"] == 112_000
+    assert slow["watchdog"]["own"] == {"oscillator_hz": 112_000, "end": "slow"}
+    mid = _program("store(0x60, 0x08);", seconds=0.2, watchdog_oscillator_hz=120_000)
+    assert mid["watchdog"]["own"] == {"oscillator_hz": 120_000, "end": "between"}
+    assert "oscillator_hz" in found["watchdog"]["statement"]
+
+
+def test_a_data_access_above_the_end_of_ram_ends_the_evidence_and_names_the_address() -> None:
+    # RAMEND is 0x0AFF (2560 bytes at 0x0100); the data space above it is not implemented, and
+    # the part reads and writes nothing there.
+    found = _registers(
+        """
+        const log = () => ends.splice(0).map((e) => ({ ...e }));
+        cpu.readData(0x0aff); cpu.writeData(0x0aff, 7); cpu.readData(0x0100);
+        const inside = log();
+        const first = [cpu.readData(0x0b00), log()];
+        cpu.writeData(0x0b10, 5); const write = log();
+        cpu.readData(0xffff); const top = log();
+        cpu.writeData(0xffff, 1); const topWrite = log();
+        console.log(JSON.stringify({ inside, first, write, top, topWrite,
+          seen: reports.unmapped_memory, others: Object.keys(reports) }));
+        """
+    )
+
+    def end(access: str, address: int) -> dict[str, Any]:
+        return {"cause": "unmapped_memory", "space": "data", "access": access, "address": address}
+
+    assert found["inside"] == []
+    assert found["first"] == [0, [end("read", 0x0B00)]]
+    assert found["write"] == [end("write", 0x0B10)]
+    assert found["top"] == [end("read", 0xFFFF)]
+    assert found["topWrite"] == [end("write", 0xFFFF)]
+    assert found["seen"] == 4 and found["others"] == ["unmapped_memory"]
+
+
+def test_a_firmware_that_reads_past_the_end_of_ram_has_its_evidence_ended_at_that_address() -> None:
+    # lds r16, 0x0b00: a read the part does not answer.
+    found = _program("words[at++] = 0x9100; words[at++] = 0x0b00;")
+    end = found["evidence_end"]
+    assert (end["cause"], end["space"], end["access"], end["address"]) == (
+        "unmapped_memory",
+        "data",
+        "read",
+        0x0B00,
+    )
+    assert found["timing_evaluable"] is False and found["behaviour_evaluable"] is False
+    assert found["timing_not_evaluable_because"] == ["unmapped_memory"]
+    assert _program("words[at++] = 0x9100; words[at++] = 0x0aff;")["evidence_end"] is None
+
+
+def test_execution_past_the_end_of_flash_ends_the_evidence_and_names_the_address() -> None:
+    # Flash is 0x4000 words. A jump to the last word runs it (a no-op here) and the next
+    # instruction is past the end; a jump past the end is not run at all.
+    for target in (0x3FFF, 0x4000):
+        found = _program(f"for (const w of asm.jmp({target})) words[at++] = w;")
+        end = found["evidence_end"]
+        assert end is not None, hex(target)
+        assert (end["cause"], end["space"], end["access"]) == (
+            "unmapped_memory",
+            "program",
+            "execute",
+        )
+        assert end["address"] == 0x8000, hex(target)
+        assert end["cycle"] < START + 100, hex(target)
+        assert found["timing_not_evaluable_because"] == ["unmapped_memory"], hex(target)
+
+
+LPM_PAST = """
+const load = (z, extra) => {
+  for (const w of [...asm.ldi(30, z & 0xff), ...asm.ldi(31, z >> 8), ...extra]) words[at++] = w;
+};
+"""
+
+
+def test_a_program_memory_read_past_the_end_of_flash_ends_the_evidence_at_that_address() -> None:
+    # LPM, LPM Rd,Z, LPM Rd,Z+ and ELPM read the byte at Z (with RAMPZ for ELPM); flash is
+    # 0x8000 bytes. The last byte reads, the next ends the evidence.
+    ldi_rampz = "...asm.ldi(16, 1), ...asm.sts(0x5b, 16)"
+    forms = {
+        "lpm": "[0x95c8]",
+        "lpm_z": "[0x9104]",
+        "lpm_z_plus": "[0x9105]",
+        "elpm": f"[{ldi_rampz}, 0x95d8]",
+        "elpm_z": f"[{ldi_rampz}, 0x9106]",
+        "elpm_z_plus": f"[{ldi_rampz}, 0x9107]",
+    }
+    for name, extra in forms.items():
+        z = 0x0000 if name.startswith("elpm") else 0x8000
+        found = _program(LPM_PAST + f"load({z:#x}, {extra});")
+        end = found["evidence_end"]
+        assert end is not None, name
+        assert (end["cause"], end["space"], end["access"]) == ("unmapped_memory", "program", "read")
+        assert end["address"] == (0x10000 if name.startswith("elpm") else 0x8000), name
+        assert found["behaviour_not_evaluable_because"] == ["unmapped_memory"], name
+    for name in ("lpm", "lpm_z", "lpm_z_plus"):
+        found = _program(LPM_PAST + f"load(0x7fff, {forms[name]});")
+        assert found["evidence_end"] is None, name
+    reads = "[...asm.ldi(16, 0), ...asm.sts(0x5b, 16), 0x9106]"
+    assert _program(LPM_PAST + f"load(0x7fff, {reads});")["evidence_end"] is None
+    # Only ELPM takes RAMPZ: the plain forms read at Z alone, whatever RAMPZ holds (a write to
+    # RAMPZ itself is storage and ends nothing).
+    for name in ("lpm", "lpm_z", "lpm_z_plus"):
+        extra = forms[name].replace("[", f"[{ldi_rampz}, ", 1)
+        found = _program(LPM_PAST + f"load(0x7fff, {extra});")
+        assert found["evidence_end"] is None, name
+        assert found["unmodelled"] == {}, name
+
+
+def test_the_pll_starts_from_the_chip_s_reset_frequency_setting() -> None:
+    # PLLFRQ's initial value is 0x04: PDIV = 0100, 48 MHz (datasheet "PLLFRQ").
+    found = _registers("console.log(JSON.stringify(cpu.data[REG.PLLFRQ]));")
+    assert found == 0x04
+
+
+PLL_TRIAL = """
+const trial = (frq, csr) => {
+  const before = reports.pll_configuration ?? 0;
+  cpu.writeData(REG.PLLFRQ, frq); cpu.writeData(REG.PLLCSR, csr);
+  step(160_020);
+  const locked = cpu.data[REG.PLLCSR] & 0x01;
+  cpu.writeData(REG.PLLCSR, 0x00);
+  return [locked, (reports.pll_configuration ?? 0) - before];
+};
+"""
+
+
+def test_the_pll_locks_only_for_a_setting_that_fits_the_16_mhz_crystal() -> None:
+    # PINDIV = 1 (16 MHz input halved to the PLL's 8 MHz) with the crystal as the input
+    # (PINMUX = 0), and a PDIV the datasheet allows: 40, 48, 56, 72, 80, 88 or 96 MHz. Any other
+    # setting never locks and is reported.
+    found = _registers(
+        PLL_TRIAL
+        + """
+        const byPdiv = [...Array(16).keys()].map((p) => trial(0x70 | p, 0x12));
+        console.log(JSON.stringify({
+          byPdiv,
+          halfInput: trial(0x04, 0x02),
+          rcInput: trial(0x84, 0x12),
+          rcInputUndivided: trial(0x84, 0x02),
+          again: trial(0x04, 0x12),
+        }));
+        """
+    )
+    allowed = {3, 4, 5, 7, 8, 9, 10}
+    assert [pair[0] for pair in found["byPdiv"]] == [int(p in allowed) for p in range(16)]
+    assert [pair[1] for pair in found["byPdiv"]] == [int(p not in allowed) for p in range(16)]
+    # 16 MHz into the PLL undivided is 16 MHz, not its 8 MHz input.
+    assert found["halfInput"] == [0, 1]
+    # The 8 MHz RC oscillator is not this board's clock.
+    assert found["rcInput"] == [0, 1] and found["rcInputUndivided"] == [0, 1]
+    assert found["again"] == [1, 0]
+
+
+def test_a_pll_that_never_locks_is_a_reading_the_summary_does_not_show() -> None:
+    found = _program("store(0x49, 0x02);", seconds=0.05)
+    assert "pll_configuration" in found["unmodelled"]
+    assert found["timing_evaluable"] is False and found["behaviour_evaluable"] is False
+    assert "pll_configuration" in found["timing_not_evaluable_because"]
+    fits = _program("store(0x49, 0x12);", seconds=0.05)
+    assert "pll_configuration" not in fits["unmodelled"]
+    assert fits["timing_evaluable"] is True
+
+
+def test_usbsta_reads_id_set_and_every_bit_of_it_is_read_only() -> None:
+    # Datasheet "USBSTA": ID always reads 1, VBUS reads the pin (low here), bits 7:2 read 0.
+    found = _registers(
+        """
+        const reset = cpu.data[REG.USBSTA];
+        cpu.writeData(REG.USBSTA, 0xff);
+        console.log(JSON.stringify({ reset, written: cpu.data[REG.USBSTA] }));
+        """
+    )
+    assert found == {"reset": 0x02, "written": 0x02}
+
+
+def test_usbint_s_flag_is_cleared_by_a_zero_and_never_set_by_a_write() -> None:
+    found = _registers(
+        """
+        cpu.writeData(REG.USBINT, 0xff); const written = cpu.data[REG.USBINT];
+        cpu.data[REG.USBINT] = 0x01; cpu.writeData(REG.USBINT, 0x01);
+        const kept = cpu.data[REG.USBINT];
+        cpu.writeData(REG.USBINT, 0x00); const cleared = cpu.data[REG.USBINT];
+        console.log(JSON.stringify({ written, kept, cleared }));
+        """
+    )
+    assert found == {"written": 0, "kept": 1, "cleared": 0}
+
+
+def test_timer4_s_fault_protection_interrupt_and_enable_are_a_use_of_it() -> None:
+    # TCCR4D's FPIE4 (bit 7) and FPEN4 (bit 6) with Timer4 clocked: a fault input that stops
+    # the outputs and may interrupt. WGM40 alone (bit 0) is the Arduino core's set-up.
+    found = _registers(
+        """
+        const out = {};
+        cpu.writeData(0xc1, 0x01);                    // TCCR4B: clocked
+        cpu.writeData(0xc3, 0x01); out.wgm = reports.timer4 ?? 0;
+        cpu.writeData(0xc3, 0x80); out.interrupt = reports.timer4 ?? 0;
+        cpu.writeData(0xc3, 0x40); out.enable = reports.timer4 ?? 0;
+        console.log(JSON.stringify(out));
+        """
+    )
+    assert found == {"wgm": 0, "interrupt": 1, "enable": 2}
+
+
+def test_the_twi_address_register_resets_to_the_datasheet_s_value() -> None:
+    # TWAR's initial value is 0xFE (address 0x7F, general call off): the part answers to
+    # nobody on a bus with no master but the board's own, and a read of it ends nothing.
+    found = _registers(
+        "const value = cpu.readData(0xba); console.log(JSON.stringify({ value, ends }));"
+    )
+    assert found == {"value": 0xFE, "ends": []}
+
+
+COUNTED = """
+const src = %(src)s;
+const { Rig, Trace } = await import(`${src}/rig.js`);
+const { readScenario } = await import(`${src}/scenario.js`);
+const asm = { call: (k) => [0x940e, k], jmp: (k) => [0x940c, k], ret: () => [0x9508],
+  self: () => [0xcfff] };
+const words = new Uint16Array(0x4000);
+const at = 0x56;
+words.set(asm.jmp(at), 0);
+words.set([...asm.call(0x100), ...asm.call(0x100), ...asm.call(0x110), ...asm.call(0x120),
+  ...asm.self()], at);
+words.set(asm.ret(), 0x100); words.set(asm.ret(), 0x110); words.set(asm.ret(), 0x120);
+const symbols = new Map(Object.entries(%(symbols)s).map(
+  ([name, value]) => [name, { type: 'function', value }]));
+const scenario = readScenario(JSON.stringify({ avrsim_scenario: 1, duration_s: %(seconds)s }));
+const rig = new Rig({ flash: new Uint8Array(words.buffer), eeprom: null, symbols }, scenario,
+  new Trace(() => {}, 100));
+const s = rig.run();
+console.log(JSON.stringify({ usb: s.usb }));
+"""
+
+
+def _counted(symbols: dict[str, int]) -> dict[str, Any]:
+    found = _node(
+        COUNTED % {"src": _src(), "symbols": json.dumps(symbols), "seconds": START / 16e6 + 0.001}
+    )
+    assert isinstance(found, dict)
+    usb = found["usb"]
+    assert isinstance(usb, dict)
+    return usb
+
+
+def test_every_call_that_sends_to_the_usb_host_is_counted_with_the_serial_writes() -> None:
+    # Serial.write (byte and buffer) and USB_Send, which a HID or other class sends through.
+    byte, buffer, send = "_ZN7Serial_5writeEh", "_ZN7Serial_5writeEPKhj", "_Z8USB_SendhPKvi"
+    assert _counted({byte: 0x200})["serial_write_calls"] == 2
+    assert _counted({buffer: 0x220})["serial_write_calls"] == 1
+    assert _counted({send: 0x240})["serial_write_calls"] == 1
+    assert _counted({byte: 0x200, buffer: 0x220, send: 0x240})["serial_write_calls"] == 4
+    assert "USB_Send" in _counted({})["statement"]
+
+
+def test_a_write_symbol_that_is_no_function_start_or_lies_outside_flash_is_not_counted() -> None:
+    # An odd address is no word's start; one past the flash has no word to flag.
+    byte = "_ZN7Serial_5writeEh"
+    assert _counted({byte: 0x201})["serial_write_calls"] == 0
+    assert _counted({byte: 0x8000})["serial_write_calls"] == 0
+    assert _counted({byte: 0xFFFE})["serial_write_calls"] == 0
+
+
+def test_a_jump_before_the_first_word_of_flash_ends_the_evidence() -> None:
+    # An RJMP back from word 0 lands before the flash: no word to run, not the end of it.
+    found = _program("words[0] = 0xcffe;")
+    end = found["evidence_end"]
+    assert end is not None
+    assert (end["cause"], end["space"], end["access"]) == ("unmapped_memory", "program", "execute")
+    assert end["address"] < 0
+
+
+def test_a_read_modify_write_of_adcsra_during_a_conversion_does_not_start_another() -> None:
+    # ADSC stays set while a conversion runs and a write of it is ignored: the next channel
+    # already selected in ADMUX is not what this conversion reads, and the rig does not end the
+    # evidence for an input that is not converted.
+    found = _registers(
+        """
+        cpu.data[0x7c] = 0x5e; cpu.writeData(0x7a, 0xc7); step(8000);
+        const reference = cpu.data[0x78] | (cpu.data[0x79] << 8);
+        cpu.data[0x7a] = 0;
+        cpu.data[0x7c] = 0x5e; cpu.writeData(0x7a, 0xc7); step(100);
+        cpu.data[0x7c] = 0x40;                       // the next channel (ADC0, nothing attached)
+        cpu.writeData(0x7a, cpu.data[0x7a] | 0x10);  // a read-modify-write while converting
+        const during = ends.length;
+        step(8000);
+        console.log(JSON.stringify({ reference, during, ends: ends.length,
+          result: cpu.data[0x78] | (cpu.data[0x79] << 8) }));
+        """
+    )
+    assert found["reference"] == 225  # the band gap, 1.1 V of the 5 V reference
+    assert (found["during"], found["ends"]) == (0, 0)
+    assert found["result"] == found["reference"]
+
+
+def test_the_accelerometer_s_zero_level_statement_says_both_signs_and_the_angle_it_moves() -> None:
+    statement = _program("store(0x24, 0x01);")["imu"]["accel_zero_g_statement"]
+    assert "both signs" in statement and "2.3 degrees" in statement
+    assert "both signs" in _program("store(0x24, 0x01);")["imu"]["gyro_zero_rate_statement"]
+
+
+def test_the_watchdog_statement_says_which_figures_are_the_scenario_s_oscillator_s() -> None:
+    statement = _program("store(0x24, 0x01);")["watchdog"]["statement"]
+    assert "at_oscillator_hz" in statement and "own" in statement
+    assert "no bound" in statement
+
+
+def test_a_feature_changes_only_what_it_is_listed_to_change() -> None:
+    # The ADC clock outside its range changes what is read and not when; a bootloader session
+    # changes when and not what; a digital input disabled reads as the part would not.
+    expected = {
+        "adc_clock": (True, False),
+        "digital_input_disable": (True, False),
+        "bootloader_session": (False, True),
+        "pll_configuration": (False, False),
+        "unmapped_memory": (False, False),
+    }
+    for feature, (timing, behaviour) in expected.items():
+        found = _summary(f"rig.noteUnmodelled('{feature}');")
+        assert (found["timing"], found["behaviour"]) == (timing, behaviour), feature
+    for feature in ("on_chip_debug", "pll_frequency", "rc_oscillator"):
+        found = _summary(f"rig.noteUnmodelled('{feature}');")
+        assert (found["timing"], found["behaviour"]) == (True, True), feature
+
+
+def test_a_stopped_module_ends_the_evidence_without_a_reported_feature_of_its_own() -> None:
+    found = _program("store(0x64, 0x01);")
+    assert found["evidence_end"]["cause"] == "power_reduction"
+    assert "power_reduction" not in found["unmodelled"]
+    assert (found["timing_evaluable"], found["behaviour_evaluable"]) == (True, True)

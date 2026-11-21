@@ -3,13 +3,14 @@
 The rule names the programs that only ever reach a board, and holds the ones that both build
 and reach one to their build-only uses; a program it names in neither is not judged at all. For
 the world that list cannot be complete. For the environment the harness provisions it can be
-checked: every program in its ``venv/bin`` is in one of the rule's two sets, or in the list
-below of programs that reach no board, so a program a new lock adds fails this row until a
-person classes it.
+checked: every program in its ``venv/bin``, and every program its session file names, is in
+one of the rule's two sets, or in the list below of programs that reach no board, so a program a
+new lock or a new entry adds fails this row until a person classes it.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -33,6 +34,8 @@ REACHES_NO_BOARD = frozenset(
         "f2py", "numpy-config", "fonttools", "pyftmerge", "pyftsubset", "ttx", "idna",
         "normalizer", "tabulate", "readelf.py", "pyserial-ports",
         "bottle", "bottle.py", "uvicorn", "websockets", "async-json-rpc-server",
+        # The simulator runs a firmware file it is given, on a model of the board.
+        "avrsim",
     }
 )  # fmt: skip
 
@@ -58,3 +61,16 @@ def test_the_environment_s_debugger_and_serial_terminal_are_refused_as_flashers(
         assert name in programs, f"{name} is not in the environment: {programs}"
         assert name in FLASHERS
     assert not REACHES_NO_BOARD & (FLASHERS | frozenset(GUARDED))
+
+
+def test_every_program_the_session_file_names_is_classed() -> None:
+    named = os.environ.get("PHYSGATE_TOOL_ENVIRONMENT")
+    if not named:
+        pytest.skip("no provisioned tool environment named (PHYSGATE_TOOL_ENVIRONMENT)")
+    wiring = json.loads((Path(named) / "session.json").read_text(encoding="utf-8"))
+    programs = sorted(wiring["programs"])
+    judged = FLASHERS | frozenset(GUARDED)
+    unclassed = [name for name in programs if command_key(name) not in judged | REACHES_NO_BOARD]
+    assert "avrsim" in programs
+    assert not unclassed, f"classed by no list: {unclassed}"
+    assert "avrsim" not in judged

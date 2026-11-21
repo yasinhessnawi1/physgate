@@ -1,7 +1,8 @@
 {
   "programs": {
     "pio": "venv/bin/pio",
-    "platformio": "venv/bin/platformio"
+    "platformio": "venv/bin/platformio",
+    "avrsim": "avrsim/bin/avrsim"
   },
   "directories": ["pio-core", "matplotlib"],
   "links": {
