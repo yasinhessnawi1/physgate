@@ -37,7 +37,23 @@ matter*: scope is decided on what the law computes, so a term of weight 0 or in 
 the command reaches reads is taken out, and the law judged as it is (:func:`scoped`). A law
 refused for scope has every other check run on it first (every name declared, the units of every
 line that can be checked, the settings, the timing), and any other fault is the ordinary fail:
-a scope refusal never covers an invalid or failing answer.
+a scope refusal never covers an invalid answer. It does cover an answer that is valid and would
+fail: a law with a live term the scorer cannot take is not judged, whatever else it would have
+scored, and a dead term is never such a ground.
+
+**What a stable verdict says, and what it does not.** Stable means stable with the wheels
+returning. A memory state that integrates the wheel angle, the wheel speed or the command scores
+unstable even if nothing reads it (a diagnostic counter, an odometer, an anti-windup memory fed by
+the command): such memory belongs outside the control law. A state fed by the tilt, its rate or
+the reference and read by the command is set aside (the loop analysis holds it bounded) and the
+answer is flagged (:data:`HELD_STATE_FLAG`), for in the firmware a bias or a reference grows it
+without bound. The rule is a radius below 1 by :data:`~physgate.evaluation.whole.loop
+.STABILITY_EPSILON` (1e-12): a position gain of the right sign at 1e-9 scores stable, while none
+and the wrong sign do not. Every number of a law is a number a float holds as it is written (one
+that underflows, written as a nonzero that reads as zero, or overflows is refused by name), and
+is written with at most 15 significant digits: a held state is decided on the decimals as
+written, and two spellings of one float past 15 digits can be decided differently, always
+towards unstable.
 
 **The coefficients** are named by the design, each ``{value, unit}`` as the graph holds it. The
 reserved name ``period`` is the loop's own period, in s. Units are checked line by line: every
@@ -55,8 +71,8 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from decimal import Decimal
 from fractions import Fraction
 from typing import Annotated, Any, Literal
@@ -114,7 +130,8 @@ class LawRefused(Exception):  # noqa: N818 - a refusal by name, not an error of 
     ``code`` is one of ``malformed``, ``nonlinear``, ``out_of_scope``, ``units_do_not_balance``,
     ``zero_divisor``, ``coefficient_not_held``, ``vector_not_reproduced``, ``vectors_too_few``,
     ``vectors_do_not_exercise``, ``vectors_do_not_pin``, ``answer_not_valid``,
-    ``delay_or_limit_not_stated_by_the_interface`` and ``period_is_not_the_interface_s``;
+    ``delay_or_limit_not_stated_by_the_interface``, ``period_is_not_the_interface_s`` and
+    ``written_numbers_do_not_match``;
     ``detail`` says what, in words.
     """
 
@@ -289,6 +306,20 @@ class Scoped:
     body: dict[str, Any]
     live: tuple[Outside, ...]
     dead: tuple[Outside, ...]
+    #: For each line of ``body``, the place in the document as written of each term it keeps, in
+    #: order: a term's identity, which survives a term taken out before it.
+    origin: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
+
+
+def _identity(raw: Mapping[str, Any]) -> dict[str, tuple[int, ...]]:
+    """Each line of ``raw`` with every term at its own place: nothing was taken out."""
+    return {
+        x["name"]: tuple(range(len(x["terms"])))
+        for x in raw.get("lines") or ()
+        if isinstance(x, dict)
+        and isinstance(x.get("name"), str)
+        and isinstance(x.get("terms"), list)
+    }
 
 
 def scoped(raw: object, values: Mapping[str, object] | None = None) -> Scoped:
@@ -310,7 +341,7 @@ def scoped(raw: object, values: Mapping[str, object] | None = None) -> Scoped:
     product, or a signal outside the list is named for what it is. Nothing here raises.
     """
     if not isinstance(raw, dict) or not isinstance(raw.get("lines"), list):
-        return Scoped(raw if isinstance(raw, dict) else {}, (), ())
+        return Scoped(raw if isinstance(raw, dict) else {}, (), (), {})
     lines = [x for x in raw["lines"] if isinstance(x, dict) and isinstance(x.get("name"), str)]
     named: dict[str, list[Any]] = {
         x["name"]: x["terms"] for x in lines if isinstance(x.get("terms"), list)
@@ -322,7 +353,7 @@ def scoped(raw: object, values: Mapping[str, object] | None = None) -> Scoped:
             if outside is not None:
                 found[(name, at)] = outside
     if not found:
-        return Scoped(raw, (), ())
+        return Scoped(raw, (), (), _identity(raw))
     states = raw.get("memory")
     memory: dict[str, Any] = {
         m["name"]: m.get("next")
@@ -336,10 +367,11 @@ def scoped(raw: object, values: Mapping[str, object] | None = None) -> Scoped:
         if key[0] not in live_lines
         or (isinstance(named[key[0]][key[1]], dict) and _zero_weight(named[key[0]][key[1]], values))
     }
-    gone, gone_states = _unmeant(named, memory, live_lines, {n for n, _ in dead} - live_lines)
+    gone, gone_states = _unmeant(named, memory, live_lines, {n for n, _ in dead} - live_lines, dead)
     out_lines: list[Any] = []
     set_aside: list[Outside] = []
     live: list[Outside] = []
+    origin: dict[str, tuple[int, ...]] = {}
     for item in raw["lines"]:
         label = item.get("name") if isinstance(item, dict) else None
         if not isinstance(label, str) or label not in named:
@@ -351,22 +383,26 @@ def scoped(raw: object, values: Mapping[str, object] | None = None) -> Scoped:
             )
             continue
         kept: list[Any] = []
+        places: list[int] = []
         others = sum(1 for at in range(len(named[label])) if (label, at) not in dead)
         for at, term in enumerate(named[label]):
             if (label, at) in dead and others:
                 set_aside.append(found[(label, at)])
-            elif (
+                continue
+            if (
                 (label, at) not in found
                 and others > 1
                 and _reads_what_went(term, gone, gone_states)
             ):
                 # a term of weight 0 that read a line or a state taken out: it has nothing to read
                 continue
-            elif (label, at) in found:
+            if (label, at) in found:
                 live.append(found[(label, at)])
                 kept.append(_marked(term))
             else:
                 kept.append(term)
+            places.append(at)
+        origin[label] = tuple(places)
         out_lines.append({**item, "terms": kept})
     body = {**raw, "lines": out_lines}
     if "memory" in raw and isinstance(raw["memory"], list):
@@ -377,7 +413,7 @@ def scoped(raw: object, values: Mapping[str, object] | None = None) -> Scoped:
                 isinstance(m, dict) and isinstance(m.get("name"), str) and m["name"] in gone_states
             )
         ]
-    return Scoped(body, tuple(live), tuple(set_aside))
+    return Scoped(body, tuple(live), tuple(set_aside), origin)
 
 
 def _reads_what_went(term: object, lines: set[str], states: set[str]) -> bool:
@@ -392,12 +428,19 @@ def _unmeant(
     memory: Mapping[str, Any],
     live_lines: set[str],
     start: set[str],
+    dead: set[tuple[str, int]],
 ) -> tuple[set[str], set[str]]:
     """The lines and memory states that go with the lines ``start``, which are taken out whole.
 
     A memory state goes when it takes its next value from a line that goes; a line nothing live
     reads goes when it reads a line or a state that goes, for its terms would name what is no
-    more. Only what the command cannot reach is ever taken: a live line never goes.
+    more. A line the command reaches goes only when nothing of it is left: every term of it is one
+    that cannot affect the command (``dead``) or reads what went, and one of them reads what went.
+    Such a line is 0 at every update (its terms were weightless, the one that read what went
+    being a term of weight 0), the term of any line that reads it reads nothing and goes too, and
+    a state that takes it as its next value is 0 after one update and sets no pole: judged as the
+    law it is without them. A live line with a dead term alone in it is not such a line: it is a
+    term that can matter.
     """
     lines, states = set(start), set()
     changed = True
@@ -408,9 +451,15 @@ def _unmeant(
                 states.add(state)
                 changed = True
         for name, terms in named.items():
-            if name in live_lines or name in lines:
+            if name in lines:
                 continue
-            if any(_reads_what_went(term, lines, states) for term in terms):
+            if name in live_lines:
+                reads = [_reads_what_went(term, lines, states) for term in terms]
+                left = [(name, at) not in dead and not read for at, read in enumerate(reads)]
+                if any(reads) and not any(left):
+                    lines.add(name)
+                    changed = True
+            elif any(_reads_what_went(term, lines, states) for term in terms):
                 lines.add(name)
                 changed = True
     return lines, states
@@ -734,19 +783,37 @@ class Written:
 
     Exact rationals of the decimals in the text the law was read from (:func:`written_from`),
     so that a decision on the law's structure is made on ``0.1`` and ``0.9`` and not on the bits
-    of their binary forms. ``numbers`` is keyed by ``(line index, term index)``. A number not
-    here is taken as :func:`exact` takes a float.
+    of their binary forms.
+
+    A term's number is found by its identity, not by its position in the law that is scored: the
+    line's name and the term's own place in the text as written (the place does not move when a
+    term before it is taken out, :func:`scoped`). ``numbers`` is keyed by ``(line name, place)`` and
+    holds only the terms the law keeps; ``origin`` gives, for each line of the law, the place of
+    each of its terms in order. :func:`check_written` holds the two to the law, one to one.
     """
 
     coefficients: Mapping[str, Fraction]
-    numbers: Mapping[tuple[int, int], Fraction]
+    numbers: Mapping[tuple[str, int], Fraction]
+    origin: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
+
+    def number(self, line: str, at: int) -> Fraction | None:
+        """The number written for the ``at``-th term of the law's line ``line``, if there is one."""
+        places = self.origin.get(line)
+        if places is None or not 0 <= at < len(places):
+            return None
+        return self.numbers.get((line, places[at]))
 
 
-def written_from(document: Mapping[str, Any]) -> Written:
+def written_from(
+    document: Mapping[str, Any], origin: Mapping[str, tuple[int, ...]] | None = None
+) -> Written:
     """The numbers of the law ``document`` states, read from a document parsed with ``Decimal``.
 
-    ``document`` is a controller's or a body's JSON, parsed with ``parse_float=Decimal``, so the
-    text ``0.1`` is the decimal ``0.1``. What is not a number there is left out.
+    ``document`` is a controller's or a body's JSON as written (nothing taken out of it), parsed
+    with ``parse_float=Decimal``, so the text ``0.1`` is the decimal ``0.1``. ``origin`` is where
+    each term the law keeps stands in it (:attr:`Scoped.origin`): only those terms' numbers are
+    taken, each by its place; with none given, every term of every line is kept. What is not a
+    number there is left out.
     """
     coefficients: dict[str, Fraction] = {}
     for name, measure in (document.get("coefficients") or {}).items():
@@ -755,12 +822,72 @@ def written_from(document: Mapping[str, Any]) -> Written:
     period = document.get("period")
     if isinstance(period, dict) and _is_number(period.get("value")):
         coefficients[PERIOD] = exact(period["value"])
-    numbers: dict[tuple[int, int], Fraction] = {}
-    for li, line in enumerate(document.get("lines") or ()):
-        for ti, term in enumerate(line.get("terms") or () if isinstance(line, dict) else ()):
+    kept = _identity(document) if origin is None else origin
+    terms_of = {
+        x["name"]: x["terms"]
+        for x in document.get("lines") or ()
+        if isinstance(x, dict)
+        and isinstance(x.get("name"), str)
+        and isinstance(x.get("terms"), list)
+    }
+    numbers: dict[tuple[str, int], Fraction] = {}
+    for name, places in kept.items():
+        terms = terms_of.get(name, [])
+        for place in places:
+            term = terms[place] if 0 <= place < len(terms) else None
             if isinstance(term, dict) and _is_number(term.get("number", 1)):
-                numbers[(li, ti)] = exact(term.get("number", 1))
-    return Written(coefficients, numbers)
+                numbers[(name, place)] = exact(term.get("number", 1))
+    return Written(coefficients, numbers, dict(kept))
+
+
+def _agrees(written: Fraction, number: float | int) -> bool:
+    """Whether the decimal ``written`` is the number the law was validated with."""
+    try:
+        return written == number if isinstance(number, int) else float(written) == number
+    except OverflowError:
+        return False
+
+
+def check_written(body: Body, values: Mapping[str, float], period: float, written: Written) -> None:
+    """Hold the numbers as written to the law, one to one, before anything is decided on them.
+
+    Every line of the law has its places and no other line has any; each of its terms has one
+    place, none shared, and one number at it, and no number is held for a place that is no term;
+    each number is the very number the law was validated with (read as a float, the decimal is
+    the float); each coefficient the law uses has its number, and the period; and no coefficient
+    is held that the law does not have. Anything else is a decision that would be made on
+    another law's numbers, and nothing is decided.
+
+    Raises:
+        LawRefused: ``written_numbers_do_not_match``, saying what does not correspond.
+    """
+
+    def refuse(what: str) -> LawRefused:
+        return LawRefused("written_numbers_do_not_match", f"the numbers as written: {what}")
+
+    if set(written.origin) != {line.name for line in body.lines}:
+        raise refuse("the lines they are held for are not the law's lines")
+    wanted: set[tuple[str, int]] = set()
+    for line in body.lines:
+        places = written.origin[line.name]
+        if len(places) != len(line.terms) or len(set(places)) != len(places):
+            raise refuse(
+                f"line {line.name!r} has {len(line.terms)} terms, not {len(places)} places"
+            )
+        for place, term in zip(places, line.terms, strict=True):
+            wanted.add((line.name, place))
+            number = written.numbers.get((line.name, place))
+            if number is None or not _agrees(number, term.number):
+                raise refuse(f"line {line.name!r}, the term written at {place + 1}, has no number")
+    if set(written.numbers) != wanted:
+        raise refuse("a number is held for a term the law does not have")
+    if set(written.coefficients) - {PERIOD} != set(values):
+        raise refuse("the coefficients are not the law's")
+    for name, value in values.items():
+        if not _agrees(written.coefficients[name], value):
+            raise refuse(f"the coefficient {name!r} is not the number the law has")
+    if PERIOD not in written.coefficients or not _agrees(written.coefficients[PERIOD], period):
+        raise refuse("the period is not the number the law has")
 
 
 @dataclass(frozen=True)
@@ -785,12 +912,15 @@ def _held(body: Body, values: Mapping[str, float], period: float, written: Writt
     exact_values = {name: exact(v) for name, v in values.items()}
     exact_period = exact(period)
     if written is not None:
+        check_written(body, values, period, written)
         exact_values.update({k: v for k, v in written.coefficients.items() if k != PERIOD})
-        exact_period = written.coefficients.get(PERIOD, exact_period)
+        exact_period = written.coefficients[PERIOD]
 
     def number(li: int, ti: int, term: Term) -> Fraction:
-        if written is not None and (li, ti) in written.numbers:
-            return exact(term.sign) * written.numbers[(li, ti)]
+        if written is not None:
+            at = written.number(body.lines[li].name, ti)
+            assert at is not None  # held by check_written()
+            return exact(term.sign) * at
         return exact(term.sign) * exact(term.number)
 
     rows, command, scales = _rows(body, _coefficients(exact_values, exact_period), number)
@@ -904,6 +1034,19 @@ class HeldMode:
             "read_by_the_command": self.read_by_command,
             "note": self.note,
         }
+
+
+#: The flag, by its name, on an answer whose law holds a state that a signal feeds and the command
+#: reads: the reference (which the loop analysis holds at zero) or a sensor (which can carry a
+#: bias) integrates into it, the firmware's value of it is unbounded, and this score cannot see
+#: that. Such an answer is a class of its own, never counted with the others.
+HELD_STATE_FLAG = "held_state_fed_by_reference_or_bias_and_read"
+
+
+def held_state_flags(modes: Sequence[HeldMode]) -> tuple[str, ...]:
+    """:data:`HELD_STATE_FLAG` if some mode set aside is read by the command and fed by a signal."""
+    flagged = any(mode.read_by_command and mode.fed_by_signals for mode in modes)
+    return (HELD_STATE_FLAG,) if flagged else ()
 
 
 def held_report(

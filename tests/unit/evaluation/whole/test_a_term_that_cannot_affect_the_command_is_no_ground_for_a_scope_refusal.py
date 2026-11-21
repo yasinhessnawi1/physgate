@@ -114,6 +114,94 @@ def test_a_term_of_weight_zero_that_read_an_out_of_scope_line_goes_with_it() -> 
     assert [t["of"] for t in scoped.body["lines"][0]["terms"]] == ["tilt"]
 
 
+ZERO = {"k_zero": 0.0, "g": 1.0}
+
+
+def _zero_reader(lone: bool) -> dict[str, Any]:
+    """``mm`` reads ``zz`` with weight 0; ``zz``'s one term is out of scope and weightless."""
+    mm = [_term("previous.zz", "k_zero")]
+    if not lone:
+        mm.append(_term("tilt_rate", "g"))
+    document = _doc(
+        [("zz_now", [_term("accelerometer_tilt", "k_zero")]), ("mm", mm)],
+        [{"name": "zz", "unit": "1", "next": "zz_now"}],
+    )
+    return _command_reads(document, _term("line.mm", "g"))
+
+
+def test_a_lone_term_of_weight_zero_that_reads_a_state_taken_out_is_a_line_of_nothing() -> None:
+    """The line is 0 at every update: it goes, and so does the term of the command that reads it."""
+    law = _law()
+    scoped = law.scoped(_zero_reader(lone=True), ZERO)
+    assert scoped.live == ()
+    assert [x["name"] for x in scoped.body["lines"]] == ["command"]
+    assert [t["of"] for t in scoped.body["lines"][0]["terms"]] == ["tilt"]
+    assert scoped.body["memory"] == []
+    body = law.Body.model_validate_json(
+        json.dumps({k: scoped.body[k] for k in ("memory", "lines", "command")})
+    )
+    assert [line.name for line in body.lines] == ["command"]
+
+
+def test_a_term_of_weight_zero_that_reads_a_state_taken_out_beside_a_real_term_is_dropped() -> None:
+    law = _law()
+    scoped = law.scoped(_zero_reader(lone=False), ZERO)
+    assert scoped.live == ()
+    assert [x["name"] for x in scoped.body["lines"]] == ["mm", "command"]
+    assert [t["of"] for t in scoped.body["lines"][0]["terms"]] == ["tilt_rate"]
+    law.Body.model_validate_json(
+        json.dumps({k: scoped.body[k] for k in ("memory", "lines", "command")})
+    )
+
+
+def test_a_line_of_a_term_reading_what_went_and_a_dead_term_is_a_line_of_nothing_too() -> None:
+    law = _law()
+    document = _doc(
+        [
+            ("zz_now", [_term("accelerometer_tilt", "k_zero")]),
+            (
+                "mm",
+                [_term("previous.zz", "k_zero"), _term("tilt*tilt_rate", "k_zero")],
+            ),
+        ],
+        [{"name": "zz", "unit": "1", "next": "zz_now"}],
+    )
+    _command_reads(document, _term("line.mm", "g"))
+    scoped = law.scoped(document, ZERO)
+    assert scoped.live == ()
+    assert [x["name"] for x in scoped.body["lines"]] == ["command"]
+    assert sorted(f"{o.line}:{o.index}" for o in scoped.dead) == ["mm:1", "zz_now:0"]
+
+
+def test_what_a_line_keeps_of_the_text_is_where_each_term_stood_in_it() -> None:
+    law = _law()
+    document = _zero_reader(lone=False)
+    scoped = law.scoped(document, ZERO)
+    assert scoped.origin == {"mm": (1,), "command": (0, 1)}
+    untouched = law.scoped(_doc([("a", [_term("tilt"), _term("tilt_rate")])]))
+    assert untouched.origin == {"a": (0, 1), "command": (0,)}
+
+
+def test_a_state_fed_by_a_line_of_nothing_goes_with_it_and_so_does_the_term_that_reads_it() -> None:
+    law = _law()
+    memory = [
+        {"name": "zz", "unit": "1", "next": "zz_now"},
+        {"name": "y", "unit": "1", "next": "mm"},
+    ]
+    document = _doc(
+        [
+            ("zz_now", [_term("accelerometer_tilt", "k_zero")]),
+            ("mm", [_term("previous.zz", "k_zero")]),
+        ],
+        memory,
+    )
+    _command_reads(document, _term("previous.y", "g"))
+    scoped = law.scoped(document, ZERO)
+    assert scoped.live == ()
+    assert scoped.body["memory"] == []
+    assert [t["of"] for t in scoped.body["lines"][0]["terms"]] == ["tilt"]
+
+
 def test_a_dead_term_that_is_the_only_one_of_a_line_the_command_reads_is_not_set_aside() -> None:
     # the line is read with a weight, but its one term has weight 0: taking it out leaves nothing
     document = _command_reads(

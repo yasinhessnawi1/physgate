@@ -282,7 +282,15 @@ def test_a_compute_delay_drawn_on_a_quantity_the_interface_does_not_state_is_fla
         coefficients={**COEFFICIENTS, "short_delay": (0.0005, "s")},
         interface=INTERFACE,
     )
-    assert controller["compute_delay_flags"] == ["compute_delay_names_a_non_interface_quantity"]
+    # it names none of the interface's bounds either, so those are left out too: both flags
+    assert controller["compute_delay_flags"] == [
+        "compute_delay_omits_interface_times",
+        "compute_delay_names_a_non_interface_quantity",
+    ]
+    assert controller["compute_delay_omitted"] == [
+        "computation_delay_bound",
+        "update_lateness_bound",
+    ]
     assert record.law_timing["compute_delay"]["not_the_interface_s"] == ["short_delay"]
     # the existing flag is still there, under its own name
     assert "compute_delay" in controller["no_interface_statement"]
@@ -325,6 +333,153 @@ def test_a_time_quantity_in_another_unit_of_time_is_left_out_all_the_same(tmp_pa
     _, controller, _ = _exported(tmp_path, helpers._file(), interface=interface)
     assert controller["compute_delay_flags"] == ["compute_delay_omits_interface_times"]
     assert controller["compute_delay_omitted"] == ["jitter"]
+
+
+# ── the omission flag looks at every interface node, not only the ones the law draws on ────────
+
+
+def test_a_20_ms_bound_in_another_interface_node_is_listed_as_left_out(tmp_path: Path) -> None:
+    """The interface says a motor takes 20 ms to answer; the compute delay (4 ms) never names it."""
+    interface = {**INTERFACE, "drive.train": {"duty_cycle": (0.9425, "1"), "response": (0.02, "s")}}
+    record, controller, written = _exported(tmp_path, helpers._file(), interface=interface)
+    assert controller["compute_delay"] == {"value": 0.004, "unit": "s"}
+    for flags, omitted in (
+        (
+            record.law_timing["compute_delay"]["flags"],
+            record.law_timing["compute_delay"]["omitted_interface_times"],
+        ),
+        (controller["compute_delay_flags"], controller["compute_delay_omitted"]),
+        (
+            written["law_timing"]["compute_delay"]["flags"],
+            written["law_timing"]["compute_delay"]["omitted_interface_times"],
+        ),
+    ):
+        assert flags == ["compute_delay_omits_interface_times"]
+        assert omitted == ["response"]
+    assert controller["no_interface_statement"] == []
+
+
+def test_every_time_quantity_of_every_interface_node_is_listed_with_the_drawn_ones(
+    tmp_path: Path,
+) -> None:
+    document = helpers._file()
+    document["compute_delay"] = {"quantity": "update_lateness_bound"}
+    interface = {
+        **INTERFACE,
+        "drive.train": {"duty_cycle": (0.9425, "1"), "response": (0.02, "s")},
+        "sensor.imu": {"settling": (4, "ms"), "ready": (1.0, "us")},
+    }
+    _, controller, _ = _exported(tmp_path, document, interface=interface)
+    assert controller["compute_delay_omitted"] == [
+        "computation_delay_bound",
+        "ready",
+        "response",
+        "settling",
+    ]
+
+
+@pytest.mark.parametrize("unit", ["s", "ms", "us", "\u00b5s", "\u03bcs", "ns"])
+def test_a_time_quantity_in_each_unit_of_time_an_undrawn_interface_node_states_is_listed(
+    tmp_path: Path, unit: str
+) -> None:
+    interface = {**INTERFACE, "drive.train": {"duty_cycle": (0.9425, "1"), "response": (5, unit)}}
+    _, controller, _ = _exported(tmp_path, helpers._file(), interface=interface)
+    assert controller["compute_delay_flags"] == ["compute_delay_omits_interface_times"]
+    assert controller["compute_delay_omitted"] == ["response"]
+
+
+def test_a_quantity_that_is_no_time_in_an_undrawn_interface_node_is_not_listed(
+    tmp_path: Path,
+) -> None:
+    interface = {
+        **INTERFACE,
+        "drive.train": {"duty_cycle": (0.9425, "1"), "gear_ratio": (110.0, "1"), "mass": (2, "kg")},
+    }
+    _, controller, _ = _exported(tmp_path, helpers._file(), interface=interface)
+    assert controller["compute_delay_flags"] == []
+    assert controller["compute_delay_omitted"] == []
+
+
+def test_a_time_quantity_control_wrote_in_an_undrawn_interface_node_is_not_listed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = helpers._node
+
+    def node(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        made: dict[str, Any] = original(*args, **kwargs)
+        if "control_response" in made["quantities"]:
+            made["quantities"]["control_response"]["written_by"] = "control"
+        return made
+
+    monkeypatch.setattr(helpers, "_node", node)
+    interface = {
+        **INTERFACE,
+        "drive.train": {"duty_cycle": (0.9425, "1"), "control_response": (0.02, "s")},
+    }
+    _, controller, _ = _exported(tmp_path, helpers._file(), interface=interface)
+    assert controller["compute_delay_flags"] == []
+    assert controller["compute_delay_omitted"] == []
+
+
+def test_a_time_quantity_of_a_node_that_is_no_interface_is_not_listed(tmp_path: Path) -> None:
+    """A firmware module's own 2 s boot time, written by firmware: no interface states it."""
+    settings = {**helpers.SETTINGS, "boot_time": (2, "s")}
+    _, controller, _ = _exported(tmp_path, helpers._file(), interface=INTERFACE, settings=settings)
+    assert controller["compute_delay_flags"] == []
+    assert controller["compute_delay_omitted"] == []
+
+
+# ── a held state a signal feeds and the command reads is flagged on the export's record ───────
+
+HELD_FLAG = "held_state_fed_by_reference_or_bias_and_read"
+
+
+def test_the_record_flags_a_held_state_fed_by_a_signal_and_read_by_the_command(
+    tmp_path: Path,
+) -> None:
+    record, out, _, _ = helpers._export(
+        tmp_path,
+        helpers._bytes(_leak_free_incremental()),
+        coefficients=_incremental_graph(),
+        interface=INTERFACE,
+    )
+    assert record.status == "exported", (record.law_reason, record.law_detail)
+    assert record.law_held_state_flags == (HELD_FLAG,)
+    assert json.loads(record_path(out).read_text())["law_held_state_flags"] == [HELD_FLAG]
+
+
+def test_the_record_beside_an_answer_of_a_named_structure_has_no_law_field(
+    tmp_path: Path,
+) -> None:
+    exports: Any = importlib.import_module(
+        "test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer"
+    )
+    run = exports._run(tmp_path, *exports._split(exports.FEEDBACK, exports.PARAMETERS))
+    record, out = exports._export(run, tmp_path)
+    assert record.status == "exported"
+    written = json.loads(record_path(out).read_text())
+    law_fields = {
+        "law_reason",
+        "law_detail",
+        "law_sha256",
+        "law_commit",
+        "law_path",
+        "vector_rows",
+        "law_signals",
+        "law_timing",
+        "supplied",
+        "law_held_modes",
+        "law_held_state_flags",
+        "law_pins",
+        "law_set_aside",
+    }
+    assert law_fields.isdisjoint(written)
+
+
+def test_the_record_of_a_law_with_no_held_state_carries_no_flag_for_it(tmp_path: Path) -> None:
+    record, out, _, _ = helpers._export(tmp_path)
+    assert record.law_held_state_flags == ()
+    assert json.loads(record_path(out).read_text())["law_held_state_flags"] == []
 
 
 # ── a term that cannot affect the command is no ground for refusing the law ─────────────────

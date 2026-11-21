@@ -80,7 +80,7 @@ import math
 import os
 import re
 import stat
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -475,9 +475,9 @@ class SampledLaw(_Loop, law_module.Body):
         Literal["command_limit", "compute_delay", "period", "sensor_delay"], ...
     ] = ()
     #: What the export found wrong with where the compute delay comes from, each by its own name
-    #: (distinct from the flag above): it leaves out time-valued quantities of the interface
-    #: nodes it draws on (``compute_delay_omitted`` names them), or it draws on a quantity the
-    #: run's interface does not state.
+    #: (distinct from the flag above): it leaves out time-valued quantities of the run's interface
+    #: nodes (``compute_delay_omitted`` names them), or it draws on a quantity the run's interface
+    #: does not state.
     compute_delay_flags: tuple[
         Literal[
             "compute_delay_omits_interface_times",
@@ -839,17 +839,25 @@ class OutsideScope(TaskFormatError):  # noqa: N818 - a refusal by name, not an e
 
 def _scoped(
     document: dict[str, Any], where: str
-) -> tuple[dict[str, Any], dict[str, OutsideScope], dict[str, tuple[law_module.Outside, ...]]]:
+) -> tuple[
+    dict[str, Any],
+    dict[str, OutsideScope],
+    dict[str, tuple[law_module.Outside, ...]],
+    dict[str, Mapping[str, tuple[int, ...]]],
+]:
     """The document with each law's out-of-scope terms sorted by whether they can matter.
 
     Returns the document to validate (a term that cannot affect the command taken out, one that
     can marked, so that every other check still runs on its law), the laws refused by name for a
-    term that can matter, by the field that holds them, and the terms set aside, by field. Read
-    from the document as written, since a schema would name only the field it fails on.
+    term that can matter, by the field that holds them, the terms set aside, by field, and, by
+    field, where each term the law keeps stood in the document as written (the identity its
+    number is found by). Read from the document as written, since a schema would name only the
+    field it fails on. This is the one place that decides which terms are taken out.
     """
     probe = dict(document)
     refused: dict[str, OutsideScope] = {}
     aside: dict[str, tuple[law_module.Outside, ...]] = {}
+    origin: dict[str, Mapping[str, tuple[int, ...]]] = {}
     for key in ("controller", "analysed_controller"):
         controller = document.get(key)
         if not (isinstance(controller, dict) and controller.get("structure") == "sampled_law"):
@@ -862,39 +870,129 @@ def _scoped(
         )
         sorted_out = law_module.scoped(controller, values)
         probe[key] = sorted_out.body
+        origin[key] = sorted_out.origin
         if sorted_out.dead:
             aside[key] = sorted_out.dead
         if sorted_out.live:
             first = sorted_out.live[0]
             msg = f"{key} is out of the scorer's reach: {first.code}: {first.detail}"
             refused[key] = OutsideScope(msg, name=first.code, where=where)
-    return probe, refused, aside
+    return probe, refused, aside, origin
 
 
-def _attach(answer: Answer, text: str, aside: dict[str, tuple[law_module.Outside, ...]]) -> Answer:
-    """Give each sampled law of ``answer`` its numbers as ``text`` wrote them, and what went.
+#: The refusals of a number that a float does not hold as the text wrote it.
+UNDERFLOWS = "number_underflows"
+OVERFLOWS = "number_overflows"
 
-    The numbers are read again from the same text with decimals kept as decimals, so that what is
-    decided on the law's structure is decided on ``0.1`` and not on the bits of its binary form.
+
+def _decimals(text: str, document: Mapping[str, Any], where: str) -> dict[str, Any]:
+    """``text`` read again with every non-integer number kept as the decimal it was written as.
+
+    Raises:
+        TaskFormatError: ``number_unreadable_as_written``: a number of a decimal cannot be held
+            (an exponent past any), and a sampled law is in the answer, whose numbers are decided
+            on as written. An answer with no sampled law is read as it always was.
+    """
+    try:
+        decimals = json.loads(text, parse_float=Decimal)
+    except (ValueError, RecursionError, ArithmeticError) as exc:
+        if any(
+            isinstance(document.get(key), dict) and document[key].get("structure") == "sampled_law"
+            for key in ("controller", "analysed_controller")
+        ):
+            msg = (
+                "the answer is not a whole-run answer: number_unreadable_as_written: a number "
+                "of the law has an exponent no decimal holds"
+            )
+            raise TaskFormatError(msg, where=where) from exc
+        return {}
+    return decimals if isinstance(decimals, dict) else {}
+
+
+def _unrepresentable(value: object, what: str) -> str | None:
+    """Why a float is not the number ``value`` was written as (naming ``what``); else ``None``."""
+    # An integer is exact in both readings; one past a float is refused by the bound on a number.
+    if isinstance(value, bool | int) or not isinstance(value, float | Decimal):
+        return None
+    shown = str(value) if len(str(value)) <= 40 else f"{str(value)[:37]}..."
+    try:
+        as_float = float(value)
+    except OverflowError:
+        as_float = math.inf
+    if not math.isfinite(as_float):
+        return (
+            f"{OVERFLOWS}: {what} is written as {shown}, which is infinite as a float; "
+            "a number of a law is one a float holds"
+        )
+    if as_float == 0.0 and value != 0:
+        return (
+            f"{UNDERFLOWS}: {what} is written as {shown}, which is zero as a float and not zero as "
+            "written; a number of a law is one a float holds, and zero is written as zero"
+        )
+    return None
+
+
+def _refuse_unrepresentable(decimals: Mapping[str, Any], where: str) -> None:
+    """Refuse by name a sampled law with a number a float does not hold as it was written.
+
+    The text is read twice, into floats (what the law is validated and built from) and into
+    decimals (what a held mode is decided on). A number that is zero in one and not in the other
+    would be a term taken out of one reading and kept in the other, so it is refused, as is one
+    that is infinite as a float. Wherever a number of the law stands: a coefficient, a term's
+    number, the period.
+
+    Raises:
+        TaskFormatError: ``number_underflows`` or ``number_overflows``, saying where.
+    """
+    for key in ("controller", "analysed_controller"):
+        controller = decimals.get(key)
+        if not (isinstance(controller, dict) and controller.get("structure") == "sampled_law"):
+            continue
+        found: list[tuple[object, str]] = []
+        coefficients = controller.get("coefficients")
+        for name, measure in coefficients.items() if isinstance(coefficients, dict) else ():
+            if isinstance(measure, dict):
+                found.append((measure.get("value"), f"the coefficient {name!r} of {key}"))
+        period = controller.get("period")
+        if isinstance(period, dict):
+            found.append((period.get("value"), f"the period of {key}"))
+        lines = controller.get("lines")
+        for line in lines if isinstance(lines, list) else ():
+            terms = line.get("terms") if isinstance(line, dict) else None
+            for at, term in enumerate(terms if isinstance(terms, list) else ()):
+                if isinstance(term, dict) and "number" in term:
+                    name = line.get("name")
+                    found.append((term["number"], f"the number of term {at + 1} of line {name!r}"))
+        for value, what in found:
+            reason = _unrepresentable(value, what)
+            if reason is not None:
+                msg = f"the answer is not a whole-run answer: {reason}"
+                raise TaskFormatError(msg, where=where)
+
+
+def _attach(
+    answer: Answer,
+    decimals: Mapping[str, Any],
+    aside: dict[str, tuple[law_module.Outside, ...]],
+    origin: Mapping[str, Mapping[str, tuple[int, ...]]],
+) -> Answer:
+    """Give each sampled law of ``answer`` its numbers as the text wrote them, and what went.
+
+    The numbers come from the same text read again with decimals kept as decimals, so that what
+    is decided on the law's structure is decided on ``0.1`` and not on the bits of its binary
+    form. Each is the number of a term the validated law keeps, found by the line's name and the
+    term's own place in the text as written (``origin``, from the one decision of which terms
+    are taken out), never by position in what is scored.
     """
     if not isinstance(answer, WholeRunV3):
         return answer
-    written = json.loads(text, parse_float=Decimal)
     for key in ("controller", "analysed_controller"):
         controller = getattr(answer, key)
         if not isinstance(controller, SampledLaw):
             continue
-        as_written = written.get(key)
+        as_written = decimals.get(key)
         if isinstance(as_written, dict):
-            # The same document the answer was validated from: the same terms taken out.
-            coefficients = as_written.get("coefficients")
-            values = (
-                {n: m.get("value") for n, m in coefficients.items() if isinstance(m, dict)}
-                if isinstance(coefficients, dict)
-                else None
-            )
-            as_written = law_module.scoped(as_written, values).body
-            controller._written = law_module.written_from(as_written)  # noqa: SLF001
+            controller._written = law_module.written_from(as_written, origin.get(key))  # noqa: SLF001
         controller._set_aside = aside.get(key, ())  # noqa: SLF001
     return answer
 
@@ -954,22 +1052,24 @@ def _parse(
     )
     if model is WholeRun:
         return _validate(model, text, where), None
-    probe, refused, aside = _scoped(document, where)
+    decimals = _decimals(text, document, where)
+    _refuse_unrepresentable(decimals, where)
+    probe, refused, aside, origin = _scoped(document, where)
     if probe == document:
-        return _attach(_validate(model, text, where), text, {}), None
+        return _attach(_validate(model, text, where), decimals, {}, origin), None
     # A law's out-of-scope term that cannot affect the command is taken out and the law judged as
     # it is. One that can matter is a refusal by name, but only for an answer that is otherwise
     # valid: the rest (every name declared, the units of every line that can be checked, the
     # settings) is validated first, each refused term marked, so no other fault is hidden behind it.
     answer = _validate(model, json.dumps(probe), where)
     if not refused:
-        return _attach(answer, text, aside), None
+        return _attach(answer, decimals, aside, origin), None
     if "controller" in refused:
         raise refused["controller"]
     if not tolerate_analysed:
         raise refused["analysed_controller"]
     rest = {k: v for k, v in probe.items() if k != "analysed_controller"}
-    return _attach(_validate(model, json.dumps(rest), where), text, aside), refused[
+    return _attach(_validate(model, json.dumps(rest), where), decimals, aside, origin), refused[
         "analysed_controller"
     ]
 

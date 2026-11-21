@@ -3,10 +3,11 @@
 A term that cannot affect the command (zero weight, or in a line nothing reads) is no ground for a
 scope refusal; scope is decided on what the law computes. A law refused for scope has every other
 check run on it first, and any other fault is the ordinary fail, so a scope refusal never covers
-an invalid or failing answer. The record lists each mode set aside (its memory states, what feeds
-them, whether the command reads them) with the plain note that a held state can grow in the
-firmware, the signals the law reads, and the flags on the compute delay, on the record and on every
-row.
+an invalid answer; it does cover a valid answer that would fail, since a law with a live term the
+scorer cannot take is not judged (and a dead term is never such a ground). The record lists each
+mode set aside (its memory states, what feeds them, whether the command reads them) with the plain
+note that a held state can grow in the firmware, the signals the law reads, and the flags on the
+compute delay, on the record and on every row.
 """
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ def _record(tmp_path: Path, controller: dict[str, Any], **document: Any) -> dict
         pytest.fail(f"{type(exc).__name__} escaped the scorer: {exc}")
 
 
-# ── a scope refusal speaks only for an otherwise valid and otherwise scorable answer ─────────
+# ── a scope refusal speaks only for an otherwise valid answer, and a dead term is no ground ──
 
 DEAD = [
     pytest.param(lambda: _scratch_line("accelerometer_tilt"), id="out_of_scope_line"),

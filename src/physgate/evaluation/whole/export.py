@@ -185,6 +185,9 @@ class Export(BaseModel):
     #: vectors achieve for each term and coefficient (the smallest relative change they notice);
     #: and the out-of-scope terms that cannot affect the command, taken out of the law.
     law_held_modes: tuple[dict[str, Any], ...] = ()
+    #: The flag, by its name, where a mode set aside is fed by a signal and read by the command:
+    #: such an answer is a class of its own (:data:`physgate.evaluation.whole.law.HELD_STATE_FLAG`).
+    law_held_state_flags: tuple[str, ...] = ()
     law_pins: dict[str, dict[str, float | None]] = {}
     law_set_aside: tuple[dict[str, Any], ...] = ()
 
@@ -727,6 +730,7 @@ def _export_law(
         law_timing=result.timing,
         supplied={n: {"value": v, "unit": u} for n, (v, u) in sorted(supplied.items())},
         law_held_modes=result.held_modes,
+        law_held_state_flags=result.held_state_flags,
         law_pins={key: pin.as_record() for key, pin in result.verified.pins.items()},
         law_set_aside=tuple(
             {"line": o.line, "term": o.index + 1, "code": o.code, "detail": o.detail}
@@ -796,16 +800,19 @@ def _compute_delay_flags(
 
     The compute delay has no catalogue name to hold a number against, so it is held to where it
     comes from. It is flagged when it does not include every time-valued quantity (a quantity in a
-    unit of time, not written by control) of each interface node it draws on: those left out are
-    named; and when it draws on a quantity that no interface node, apart from control's own copy,
-    states. Returns ``(flags, left_out, not_the_interface's)``.
+    unit of time, not written by control) of every interface node of the run, whether the law
+    draws on that node or not: a bound stated by one node and left out of the sum is as much
+    left out as one of the node it draws on, and the answer says which. It is flagged too when it
+    draws on a quantity that no interface node, apart from control's own copy, states. Returns
+    ``(flags, left_out, not_the_interface's)``.
     """
     outside = sorted(n for n in names if not _interface_statements(nodes, n))
-    drawn = sorted({node for n in names for node, _, _ in _interface_statements(nodes, n)})
     named = set(names)
     omitted: set[str] = set()
-    for node_id in drawn:
+    for node_id in sorted(nodes):
         node = nodes[node_id]
+        if node.get("kind") != INTERFACE_KIND:
+            continue
         for quantity_name, quantity in node.get("quantities", {}).items():
             writer = quantity.get("written_by") or node.get("owner_role")
             time_valued = writer != CONTROL_ROLE and quantity["unit"] in TIME_UNITS
@@ -836,7 +843,7 @@ def _timing(
     A copy of the interface's number in control's own node may be pointed at: it counts only if
     it equals the interface's. The compute delay has no catalogue name, so it is held to where it
     comes from and flagged by name (:func:`_compute_delay_flags`): it must include every
-    time-valued quantity of the interface nodes it draws on, and draw on no quantity that is not
+    time-valued quantity of every interface node of the run, and draw on no quantity that is not
     the interface's; the flag is on the answer, never a refusal. Where the interface states
     nothing, the answer is still exported, with the no-statement flag.
 
@@ -934,6 +941,7 @@ class _LawResult:
     verified: law_module.Verified
     timing: dict[str, dict[str, Any]]
     held_modes: tuple[dict[str, Any], ...]
+    held_state_flags: tuple[str, ...]
 
 
 def _law_controller(
@@ -997,6 +1005,7 @@ def _law_controller(
         verified,
         report,
         tuple(mode.as_record() for mode in held),
+        law_module.held_state_flags(held),
     )
 
 
@@ -1019,6 +1028,7 @@ def _record_bytes(export: Export, out: Path) -> bytes:
         "law_timing",
         "supplied",
         "law_held_modes",
+        "law_held_state_flags",
         "law_pins",
         "law_set_aside",
     }
