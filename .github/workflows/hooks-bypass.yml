@@ -119,7 +119,8 @@ jobs:
         pin:
           - { rig: claude-code, version: "2.1.301" }
           - { rig: claude-code-2.1.322, version: "2.1.322" }
-    timeout-minutes: 45
+    # A leg takes up to about 40 minutes on a hosted runner; the limit leaves room for a slow one.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
@@ -254,6 +255,19 @@ jobs:
             --junitxml="$RUNNER_TEMP/ablation-arms.xml" | tee "$RUNNER_TEMP/ablation-arms.txt"
           grep -c '<skipped' "$RUNNER_TEMP/ablation-arms.xml" && exit 1 || true
           tail -n 1 "$RUNNER_TEMP/ablation-arms.txt" | grep -Eq '^10 passed in [0-9.]+s'
+
+      - name: A tool server in a root withheld whole, in real bubblewrap
+        # Its wrapper must be run here, not skipped: the summary line must read exactly
+        # "8 passed", so a skip, an error or a deselect fails the step.
+        if: success() || failure()
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q -rA -m integration \
+            tests/integration/toolenv/test_a_tool_server_in_a_root_withheld_whole_reads_its_worktree_alone_inside_its_wrapper.py \
+            --junitxml="$RUNNER_TEMP/withheld-root-server.xml" | tee "$RUNNER_TEMP/withheld-root-server.txt"
+          grep -c '<skipped' "$RUNNER_TEMP/withheld-root-server.xml" && exit 1 || true
+          tail -n 1 "$RUNNER_TEMP/withheld-root-server.txt" | grep -Eq '^8 passed in [0-9.]+s'
 
       - name: The task author and the blind check on the real binary, in the evaluation environment
         # The runner holds every task to the control scorer, which only the evaluation group

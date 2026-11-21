@@ -270,7 +270,8 @@ def contract_choices(state: RunState, tested: ContractTested) -> dict[Position, 
             why = "deviates"
         elif sub.status != "done" or state.integration is not None:
             why = "closed"
-        elif any(attempt.fix for attempt in sub.attempts):
+        elif any(attempt.fix for attempt in sub.attempts) or last >= ATTEMPT_LIMIT:
+            # A follow-up can merge on the subtask's last number though it is no fix.
             why = "spent"
         choices[position] = ContractChoice(
             why, side.module, side.subtask_id, last + 1, fix=last >= REPAIR_BUDGET

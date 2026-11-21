@@ -60,6 +60,7 @@ from physgate.orchestrator.decisions import (
 )
 from physgate.orchestrator.declaration import DECLARATION_PATH, DeclarationError
 from physgate.orchestrator.decompose import contracts_of
+from physgate.orchestrator.design_wait import wait_line
 from physgate.orchestrator.dispute import DISPUTES_DIR, UNRECORDABLE, disputer_problem
 from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
 from physgate.orchestrator.escalation_state import RUBRIC_ITEM, escalation_state
@@ -197,7 +198,6 @@ from physgate.orchestrator.ports import (
     SessionReport,
     SessionRequest,
 )
-from physgate.orchestrator.producer_wait import owed_line
 from physgate.orchestrator.protocols import (
     REJECTING_RESULTS,
     Artefact,
@@ -1211,7 +1211,7 @@ class Loop:
                 self._raise_sign_offs()
                 continue
             if step.kind in ("hold", "release"):
-                self._emit(owed_line(self.state, step.subtask_id or "", self._env()))
+                self._emit(wait_line(self.state, step.subtask_id or "", self._env()))
                 continue
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"

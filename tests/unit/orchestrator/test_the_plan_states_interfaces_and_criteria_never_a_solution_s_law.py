@@ -12,7 +12,8 @@ it, and a program it cites for a number, a part or a condition is a source of th
 interface node holds what both sides must agree on, the physical properties one side gives the
 other among them, never tuned parameters; and where one module implements what another designs,
 whether or not a criterion says so, the designer comes before the implementer, writes its design
-on a node of its own that both specifications name, and the implementer's criteria compare it
+on a node of its own that both specifications name, its id the designing module's name and then
+what it holds (the harness reads the pair from that id), and the implementer's criteria compare it
 with that node as merged; an implementer that starts before the node is merged reports it and
 implements no design of its own. A re-plan is sent the same prompt, so it is told the rule too.
 
@@ -60,7 +61,8 @@ SAID = (
     # The designer's node: wherever one module implements another's design.
     "Where one module implements what another designs",
     "the designing module comes before the implementing module in the plan",
-    "writes its design on a node of its own, named in both specifications",
+    'writes its design on a node of its own, "<the designing module\'s name>.<what it holds>", '
+    "named in both specifications",
     "acceptance criteria compare its implementation with that node as merged",
     "where the node is not merged when it starts, it reports that and implements no design of its "
     "own",

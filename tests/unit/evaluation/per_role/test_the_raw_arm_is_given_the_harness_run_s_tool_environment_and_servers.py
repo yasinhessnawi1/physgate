@@ -34,10 +34,12 @@ from test_the_raw_arm_s_credential_is_handled_as_a_role_session_s import (
 
 from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.tiers.task import parse_task
-from physgate.hooks.settings import session_tool_search
+from physgate.hooks.settings import InstallRequest, build_config, session_tool_search
+from physgate.hooks.settings import current_installation as installation
 from physgate.orchestrator.invocation import MAX_SERVER_OUTPUT_TOKENS, NO_TOOL_SERVERS, role_argv
 from physgate.orchestrator.run_config import ToolServers, harness_root
 from physgate.orchestrator.tool_environment import measure_named
+from physgate.oslayer.policy import withheld_around_worktree
 from physgate.oslayer.probe import Absent, Present
 from physgate.series.writer import ENVIRONMENT_VARIABLE
 from physgate.toolenv.record import ToolEnvironment
@@ -321,3 +323,64 @@ def test_the_raw_session_is_spawned_with_the_servers_it_was_offered(
     raw.run_raw(TASK, setup, tmp_path / "work", cap=10**9)
     assert len(seen) == 1
     assert (seen[0].get("tool_servers"), seen[0].get("wrappers")) == offered
+
+
+def test_a_protected_trial_s_session_is_given_its_recorded_servers_contained(
+    tmp_path: Path,
+) -> None:
+    """A session in a root withheld whole but for its worktree there: its servers are contained.
+
+    Its configuration as the installer builds it for a protected trial (the store withheld
+    whole, the session's own place in it), read by the raw arm's own containment: the session
+    is not refused, and each server is named by its wrapper.
+    """
+    recorded = _measured(tmp_path)
+    store = Path(os.path.realpath(tmp_path)) / "store"
+    place = store / "control" / "work" / "baseline-r-0001-1" / "place"
+    sdir = place / "session"
+    for made in (place / "worktree", place.parent / "harness", sdir, tmp_path / "temps" / "own"):
+        made.mkdir(parents=True)
+    temps = Path(os.path.realpath(tmp_path)) / "temps"
+    request = InstallRequest(
+        profile="baseline",
+        role=None,
+        worktree=str(place / "worktree"),
+        own_branch=None,
+        store_root=None,
+        state_dir=str(sdir / "state"),
+        target_dir=str(sdir / "session"),
+        claude_config_dir=str(sdir / "config"),
+        user_home=str(sdir / "home"),
+        token_ceiling=1000,
+        sessions_root=str(sdir),
+        held_out=(str(place.parent / "harness"),),
+        temp_dir=str(temps / "own"),
+        session_temps=str(temps),
+        withheld_whole=(str(store),),
+        own_place=str(place),
+        tool_environment_roots=recorded.roots,
+        tool_servers=("control",),
+    )
+    config = build_config(request, installation())
+    assert withheld_around_worktree(config) == frozenset({str(store)})  # not vacuous
+    config_file = tmp_path / "config.json"
+    config_file.write_text(config.model_dump_json())
+    # A stand-in bubblewrap on the session's search path, where the platform is Linux: found,
+    # never run here.
+    (tmp_path / "bin").mkdir()
+    _program(tmp_path / "bin" / "bwrap", "a stand-in")
+    env = {"PATH": f"{tmp_path / 'bin'}:/usr/bin:/bin"}
+    setup = _bare_setup(
+        tmp_path, tool_environment=recorded, tool_servers=_servers(), os_layer=PRESENT
+    )
+    launches = raw.server_launches_for(setup)
+    servers, contained_by = raw.contained_servers_for(
+        setup, launches, config_file, sdir, temps / "own", env
+    )
+    entries = json.loads(servers)["mcpServers"]
+    assert sorted(entries) == ["control"], entries
+    assert contained_by and entries["control"]["command"] == contained_by[0], (
+        entries,
+        contained_by,
+    )
+    assert entries["control"]["args"][-len(launches[0].args) - 1] == launches[0].command, entries
