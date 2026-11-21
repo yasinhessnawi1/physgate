@@ -100,12 +100,67 @@
 
 ---
 
+## Procedure: computing with the run's tool environment
+
+1. Compute with the libraries, never by hand: python-control for transfer functions, state
+   space, margins, step and frequency responses; numpy and scipy around them; MuJoCo for a
+   nonlinear, contact or multibody model. Run them from a script under the module with the
+   session's `python3`, the run's recorded tool environment. It is fixed for the run and has no
+   network: never install a package, make an environment of your own or set `PYTHONPATH`. Name a
+   missing library in the module's spec; never write a substitute.
+2. The pinned version's conventions [python-control 0.10.1 reference; each checked by running it]:
+   - `control.stability_margins(L)` returns `(gm, pm, sm, wpc, wgc, wms)`: the gain margin as a
+     ratio (not dB), the phase margin in degrees (the extractor's `phase_margin` is in rad), the
+     frequencies in rad/s. `L` is the loop broken where the margin is claimed (standards §2). On
+     a loop unstable in open loop it returns one gain margin of several, and a `gm` below 1 is a
+     lower margin: ask for all with `returnall=True`. Its `sm` misses a minimum of |1 + L|
+     approached at ω → 0 or ω → ∞: report the extractor's `stability_margin`. A lower gain margin
+     set at ω = 0 lies on no recorded grid: state it from the model, and say so.
+   - `control.margin(L)` returns `(gm, pm, wcg, wcp)`: `wcg` is the phase crossover (where the
+     gain margin is read), `wcp` the gain crossover.
+   - `mag, phase, omega = control.frequency_response(L, w)` evaluates on `w`, in rad/s, given as a
+     numpy array: a list of exactly two frequencies is read as the limits of a range of 1,000. The
+     magnitude is a ratio and the phase is in rad, **wrapped to [−π, π]**: pass `.tolist()` of
+     each, as returned, to `series_writer.extract`, which unwraps along the grid.
+   - `control.step_info(T, T=t)` on the times given to `control.step_response(T, T=t)`; without
+     them it picks its own. Rise time is 10–90 % and settling 2 % by default: state the
+     thresholds with the numbers.
+   - `control.c2d(G, Ts, method="zoh")` gives the sampled plant; a controller that runs sampled
+     has its margins measured on the sampled loop (standards §2, §3).
+3. MuJoCo [MuJoCo 3.17 XML reference, `option`]: load the model from a file in the module
+   (`mujoco.MjModel.from_xml_path`) and state its `opt.timestep` (default 0.002 s, semi-implicit
+   Euler). For a sampled controller, make the sample period a whole number of steps and apply the
+   controller once every that many steps, or the loop simulated runs at another period than the
+   one its margins were measured at. Never open the viewer or render; draw noise from
+   `numpy.random.default_rng(seed)` and record the seed. matplotlib runs with the `Agg` backend:
+   save figures into the module.
+
+## The tool servers are working aids
+
+The `control` server (`margins`, `step_response`, `frequency_response`, `poles_zeros`, on a system
+given inline) and the `mujoco` server (`load_model` from a worktree file or text, `step`, `state`,
+`reset`, `model_info`) return quickly while exploring. **Nothing they return is evidence:** it has
+no record behind it and cannot be re-checked. A number in the module's spec or the graph comes
+from a module script that ran the library and recorded its output (the next procedure).
+
+## Antipatterns: the tool environment
+
+- **A margin copied from a tool server's output.** Recompute it in a module script and report
+  what the record shows.
+- **A library reimplemented by hand** (a margin search, an integrator): the numbers then rest on
+  code nobody reviewed instead of the pinned library.
+- **A MuJoCo run quoted as confirming linear margins.** The two models are different systems:
+  report each with the model it came from, and state where they disagree.
+
+---
+
 ## Procedure: recording a simulation's output as series records
 
 1. Keep every script that produces a reported result under the module directory and run it from
    there. A record is refused when the session ends if any code that produced it ran from outside
-   the module (a scratch script under `/tmp`, for instance): only the module is committed with the
-   attempt, so only its code can stand behind a curve. Write the record from the script that ran
+   the module (a scratch script under `/tmp`, for instance), the libraries of the run's recorded
+   tool environment apart: only the module is committed with the attempt, so only its code and
+   those libraries can stand behind a curve. Write the record from the script that ran
    the simulation, after it ran.
 2. Record each run with the series writer, `series_writer.py`, at the path your prompt names.
    Its opening lines show how a script under the module finds and imports it, and how to call
@@ -113,9 +168,10 @@
    unit, the run's inputs as value-and-unit pairs, the seed included. Records land in the series
    outbox your prompt names; write there only through the writer, from a script's own run (the
    Write and Edit tools are refused there). When the session ends the harness collects the
-   outbox and seals a record only if its script, and every file of code it loaded, lie in the
-   module, are unchanged, and are committed with the attempt: a helper the module ignores or
-   never adds refuses the record. Never commit a record into the module.
+   outbox and seals a record only if its script, and every file of code it loaded, either lie in the
+   module, unchanged and committed with the attempt, or are library code of the run's recorded
+   tool environment: a helper the module ignores or never adds refuses the record, and so does a
+   library loaded from anywhere else. Never commit a record into the module.
 3. For a feedback loop, record at least:
    - the step response the specification asks for (time in `s`; position, tilt and command, each
      in its unit);

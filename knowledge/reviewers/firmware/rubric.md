@@ -284,7 +284,8 @@ method. When no specification is issued, AC-9 replaces AC-1's line per criterion
   on-target run, a measurement or an integration test is not met by a host-side unit test, a
   simulation or a reasoning step. With no board in the run environment, a run on the simulator
   DS-29 accepts is an on-target run; with no simulator provided there is none, and what the run
-  cannot show is judged as DS-29 says.
+  cannot show is judged as DS-29 says. A criterion written as a check by a model of the code is met
+  by the model, under DS-29's conditions.
 - **AC-4. The evidence must be from the final code.** A test run counts only if it happened after
   the last edit to the files it covers. If the code changed after the last passing run, the
   criterion is unmet.
@@ -527,9 +528,13 @@ balances and follow-ups by reading, like every other item.
   verdict policy), is a finding (see RH-2); where that limit is missing (see the verdict policy),
   record a blocking specification defect for that limit only. Each limit is a *Specification
   value*. *Exercise*, judged whatever the specification gives: the trajectory shows each changed
-  trip condition exercised on target or on the rig DS-29 accepts (e.g. tilting past the
+  trip condition exercised on target, on the rig DS-29 accepts, or, where DS-29 names none, by the
+  host-side test or the model of the code DS-29 accepts for the trip's logic (e.g. tilting past the
   limit, stopping the loop, disconnecting or faulting the sensor, forcing a reset), and
-  observations that the motor outputs went off; a trip not exercised is a finding.
+  observations that the motor outputs went off; a trip not exercised is a finding. A trip
+  condition the run's instruments cannot reach (for a model, a forced reset or a disconnected
+  sensor) is not shown, with the reason, and is not a finding; one the model can reach and the
+  work did not exercise is a finding.
 
 ### Memory, control flow and code structure
 
@@ -608,8 +613,14 @@ balances and follow-ups by reading, like every other item.
   `-Wall` alone is not that setting: a GCC build without `-Wextra`, `-Wpedantic` or `-Wconversion`
   (implicit conversions) is a finding, and so is one without `-Wdouble-promotion` on a target with a
   single-precision FPU. `-Wconversion` does not warn about explicit casts, so read every cast the diff
-  adds (DS-23). The output shows zero warnings in scope. The trajectory shows at least one static
-  analyser run, its command and its output with zero warnings in scope. A warning removed by
+  adds (DS-23). The output shows zero warnings in scope; a warning the output places in a file out
+  of scope (a library header the module's code includes) is not counted. Where the run environment
+  provides a static analyser, the trajectory shows at least one run of it, its command and its
+  output with zero warnings in scope. Where it provides none, the analyser run is stated as not
+  shown, with that reason: not *unmet* and not a finding (DS-29's rule for an instrument the run
+  environment does not have), and the evidence is the build at these flags with zero warnings in
+  scope. A "not shown" claimed where the run environment provides an analyser is a finding. A
+  warning removed by
   suppression rather than by rewriting the code is a finding (see RH-3). *Normative rule
   (category 2)* (Holzmann rule 10): the flags and zero warnings.
 
@@ -678,19 +689,39 @@ balances and follow-ups by reading, like every other item.
     simulator, is an on-target run for AC-3, DS-5, DS-12 and AP-2, and its cycle counts, register
     states and pin timings are measurements. A device model the work adds cites the datasheet for
     each behaviour it models; one that does not is a finding. Where the run environment provides
-    none, there is no on-target run: the evidence is the build with the target's compiler, its
-    size, static checks and host-side tests of the logic and of the control law against the
-    designer's coefficients; DS-12's exercise is then a host-side test, for the trip's logic and
-    the outputs it commands, and on-target behaviour (a loop's timing, a fault's timing) is not
-    shown in this run. Having no board, or no simulator, is not a duty of the work.
-  - *What the run cannot show* (with no simulator, on-target behaviour; with one, a sensor's
-    physical noise, the driver's electrical behaviour, an off state set by the board's wiring), the
-    work states as not shown, with the reason. A criterion written against an instrument the run
+    none, there is no on-target run: the evidence is the build with the target's compiler (DS-21),
+    its size, a static analyser's run where the run environment provides one, and host-side tests
+    of the logic and of the control law against the designer's coefficients where it provides a
+    host compiler it records. Where it records none, the control law's arithmetic is evidenced by a
+    model of the code run in the environment's interpreter against the designer's coefficients,
+    labelled as a model of the code, not the compiled code. Read the model against the code; it
+    matches the compiled code (avr-gcc 7.3 on the ATmega32U4) only where `int` is 16 bits and each
+    intermediate result follows C's integer promotion and truncates, `float` and `double` are both
+    32-bit, `/` truncates toward zero while `>>` floors, saturation and the order of operations are
+    as in the source, and the constants are read from the module's source (or the designer's node
+    they are compared with), not retyped; and where `long` is 32-bit, `char` is signed unless
+    declared `unsigned`, a literal too large for `int` makes its expression 32-bit, `%` takes the
+    dividend's sign, each intermediate's type is set explicitly to the one C computes in (numpy
+    promotes otherwise), and no signed intermediate leaves its range over the inputs, with the range
+    checked stated (signed overflow is undefined in C). A model that differs on one of these is a
+    finding. That
+    the compiled logic ran is then not shown. DS-12's exercise is a
+    host-side test where a recorded host compiler exists, or else that model, for the trip's logic
+    and the outputs it commands, and on-target behaviour (a loop's timing, a fault's timing) is not
+    shown in this run. Having no board, no simulator, no analyser or no recorded host compiler is
+    not a duty of the work.
+  - *What the run cannot show* (with no simulator, on-target behaviour, the measured execution
+    times `Ci`, the loop's delay and its jitter among it; with one, a sensor's physical noise, the
+    driver's electrical behaviour, an off state set by the board's wiring), the work states as not
+    shown, with the reason. With no simulator and no board, DS-1's `Ci`, DS-4(c3)'s and DS-5's
+    measured delay and jitter, and AP-1's `Ci` are such lines, not a duty of the work; a figure the
+    build gives (code size, the stack depth from the stack-usage build) is still owed. A criterion written against an instrument the run
     environment does not have (a measurement on the board, or a simulator it does not provide) is
     *not evaluable* by this item's own rule, AC-1's one exception to its missing-input reading: a
     blocking specification defect naming the instrument. A section 2 or 3 sub-check that needs
     such an instrument is a non-blocking specification defect, not a finding. A "not shown"
-    claimed for what the run can show (what a provided simulator or a host-side test measures) is
+    claimed for what the run can show (what a provided simulator, analyser or recorded host
+    compiler measures, or what the model of the code shows) is
     judged as usual: the line is *unmet*, the sub-check a finding.
 - **DS-30. Changed quantities are followed up across domains.** A changed quantity which
   constrains another part of the design has a follow-up or a non-empty stated reason. Judge both by
@@ -814,4 +845,4 @@ policy).
   rather than the specification. *Confirmed when* that choice is in the delivered work; otherwise
   `noted`.
 
-<!-- 6b45153456006a521423f16ecaddca55 -->
+<!-- d3b2a2a12be86702e45c65dce6c1c63d -->
