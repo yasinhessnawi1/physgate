@@ -76,6 +76,7 @@ nothing outside that directory.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import stat
@@ -599,6 +600,43 @@ class ParametersV3(_Frozen):
         return self
 
 
+#: Each setting of version 3, with its unit and the name its bound is held under in
+#: :data:`FIELD_BOUNDS`.
+SETTINGS: dict[str, tuple[str, str]] = {
+    "update_rate": ("Hz", "update_rate"),
+    "output_data_rate": ("Hz", "gyro_output_data_rate"),
+    "gyro_full_scale": ("deg/s", "gyro_full_scale"),
+    "pwm_frequency": ("Hz", "pwm_frequency"),
+    "pwm_full_scale": ("count", "pwm_full_scale"),
+    "encoder_counts_per_wheel_revolution": ("count", "encoder_counts_per_wheel_revolution"),
+    "gyro_sensitivity": ("count*s/deg", "gyro_sensitivity"),
+}
+
+
+def setting_problem(name: str, value: object, unit: object) -> str | None:
+    """Why ``value`` in ``unit`` is not a value of the version 3 setting ``name``, or ``None``.
+
+    The answer's own rule, field by field: a finite number (never a truth value) in the one
+    unit the setting has, inside the bound :data:`FIELD_BOUNDS` states for it; the PWM full scale
+    a whole number of counts.
+    """
+    if name not in SETTINGS:
+        return f"{name!r} is not a setting of the answer"
+    expected, bound = SETTINGS[name]
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        return f"{name} is {value!r}; it is a finite number"
+    if not isinstance(unit, str):
+        return f"{name} is in {unit!r}; it is given in {expected!r}"
+    try:
+        measure = Measure(value=value, unit=unit)
+        number = _bounded(measure, expected, name, bound)
+    except (ValueError, ValidationError) as exc:
+        return str(exc).splitlines()[0]
+    if name == "pwm_full_scale" and not _whole(number):
+        return f"{name} is {number}; it is a whole number of counts"
+    return None
+
+
 def _module_path(path: str) -> str:
     if len(path) > MAX_PATH_LENGTH or not all(_PART.fullmatch(p) for p in path.split("/")):
         msg = f"the file {path!r} is not a plain path inside the answer's directory"
@@ -731,6 +769,19 @@ def _document(text: str) -> dict[str, Any]:
     return document if isinstance(document, dict) else {}
 
 
+class OutsideScope(TaskFormatError):  # noqa: N818 - a refusal by name, not an error of the scorer
+    """A law the scorer cannot judge, refused by name and never scored.
+
+    Not linear (``nonlinear``), or reading a signal it is not given (``out_of_scope``): no
+    verdict on the design, so not a failed answer.
+    """
+
+    def __init__(self, message: str, *, name: str, **context: str) -> None:
+        """Keep the refusal's ``name`` with the message and ``context``."""
+        super().__init__(message, **context)
+        self.name = name
+
+
 def _scope(document: dict[str, Any], where: str) -> None:
     """Refuse by name a law that is not linear, or reads a signal outside the closed list.
 
@@ -742,8 +793,8 @@ def _scope(document: dict[str, Any], where: str) -> None:
             try:
                 law_module.scope(controller)
             except law_module.LawRefused as exc:
-                msg = f"the answer is not a whole-run answer: {key}: {exc}"
-                raise TaskFormatError(msg, where=where) from exc
+                msg = f"{key} is out of the scorer's reach: {exc}"
+                raise OutsideScope(msg, name=exc.code, where=where) from exc
 
 
 def parse_whole_run(raw: bytes, *, where: str = "answer") -> WholeRun:

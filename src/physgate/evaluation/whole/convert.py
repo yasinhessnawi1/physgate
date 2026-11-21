@@ -54,13 +54,16 @@ class LinearLaw:
 
     The inputs are :data:`physgate.evaluation.whole.law.LOOP_SIGNALS`: the tilt, its rate, and
     the wheels' angle and speed relative to the body, each in SI. The memory is each state's
-    value before the update, in the law's own order.
+    value before the update, in the law's own order. ``held`` are the modes the law holds at
+    exactly 1 by its own lines (:func:`physgate.evaluation.whole.law.held_modes`), each the wheel
+    angle then the memory.
     """
 
     a: tuple[tuple[float, ...], ...]
     b: tuple[tuple[float, ...], ...]
     c: tuple[float, ...]
     d: tuple[float, ...]
+    held: tuple[tuple[float, ...], ...] = ()
 
     @property
     def states(self) -> int:
@@ -139,11 +142,9 @@ def to_si(
 def _law_to_si(controller: SampledLaw) -> SiLoop:
     """A sampled law as the loop analysis takes it: its matrices, and none of a named gain."""
     period = float(controller.period.value)
-    a, b, c, d = law_module.linear(
-        controller,
-        {name: float(measure.value) for name, measure in controller.coefficients.items()},
-        period=period,
-    )
+    values = {name: float(measure.value) for name, measure in controller.coefficients.items()}
+    a, b, c, d = law_module.linear(controller, values, period=period)
+    held = law_module.held_modes(controller, values, period=period)
     return SiLoop(
         incremental=False,
         angle=0.0,
@@ -156,7 +157,7 @@ def _law_to_si(controller: SampledLaw) -> SiLoop:
         sensor_delay=float(controller.sensor_delay.value),
         compute_delay=float(controller.compute_delay.value),
         factors=(),
-        law=LinearLaw(a=a, b=b, c=c, d=d),
+        law=LinearLaw(a=a, b=b, c=c, d=d, held=held),
     )
 
 

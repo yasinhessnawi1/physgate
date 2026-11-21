@@ -27,6 +27,24 @@ decays, set by the integrator's start and not by the balance. The loop's stabili
 on its other modes; that one is set aside exactly, by a change of basis that holds it apart.
 With no distance gain nothing holds the travel, and no mode is set aside.
 
+**What "held by structure" means for a sampled law.** A mode may be set aside only if the law's
+own lines hold it at exactly 1 whatever the gain, and it has controller memory in it. In
+plain words: put the body upright and still, the wheels anywhere (the travel is the plant's one
+pole at 1), and some value in the law's memory; the mode is held if one update then gives a
+command of exactly 0 and gives the very same memory back. That is decided on the numbers the
+law has, in exact arithmetic (:func:`physgate.evaluation.whole.law.held_modes`), with no
+window: a memory state whose update is itself and nothing else, a sum of states the updates
+conserve, a state nothing reads, and the leak-free angle's offset (where the wheels' angle is
+part of the mode, balanced against the memory) are held; a pole at ``1 + 1e-6``, or an
+integrator fed from the command with a gain of ``1e-6``, is not, whatever other coefficient
+the law has. The plant's own travel is never set aside: a mode that is the wheels' angle
+alone, no memory in it, is not returned, so a law that reads the wheel angle nowhere keeps its
+travel pole at 1 whether or not it also has an inert state. A mode that is the wheels' angle
+*and* memory is set aside: it is exactly the leak-free incremental structure's offset, and the
+named structure sets that aside as well. Every other pole is judged by the one stated rule:
+the closed loop is stable when its spectral radius is below 1 by at least
+:data:`STABILITY_EPSILON`.
+
 **Margins.** With the controller's command multiplied by a gain ``κ`` before the plant, the
 closed loop is stable for ``κ`` in an interval about 1 when the design is stable at all. The
 upward and downward gain margins are that interval's ends, found by stepping out from 1 and
@@ -57,7 +75,7 @@ from typing import Any
 import numpy as np
 from scipy.linalg import expm
 
-from physgate.evaluation.whole.convert import SiLoop
+from physgate.evaluation.whole.convert import LinearLaw, SiLoop
 from physgate.evaluation.whole.plant import bodies, motor
 
 Matrix = Any  # a numpy float array; numpy's own types do not survive mypy --strict here
@@ -71,7 +89,12 @@ GAIN_TOLERANCE = 1e-9
 #: Frequency points per decade of the phase-margin sweep, and its lowest frequency, rad/s.
 POINTS_PER_DECADE = 400
 LOWEST_FREQUENCY = 1e-4
-#: A closed loop is stable when its spectral radius is below one by at least this.
+#: A closed loop is stable when its spectral radius is below one by at least this, an absolute
+#: number, whatever the law's coefficients. Chosen: a few thousand times the rounding of a
+#: spectral radius near 1 for matrices of the size the law allows, so a loop within it of the
+#: unit circle is not told from one on it; a pole above 1 by more than this is unstable, however
+#: large another coefficient is. (With a coefficient near the bound of 1e6 the rounding of the
+#: eigenvalues is itself near 1e-10, which is why the answer bounds a coefficient.)
 STABILITY_EPSILON = 1e-12
 #: A fraction of a period below this is no fraction at all.
 FRACTION_EPSILON = 1e-12
@@ -80,10 +103,9 @@ FRACTION_EPSILON = 1e-12
 #: a leak just below 1 would leave a mode inside :data:`STABILITY_EPSILON` of the unit circle,
 #: judged unstable though it decays, while the leak-free loop sets that mode aside.
 DECAY_TOLERANCE = 1e-9
-#: How near zero a singular value or a component is, for the held modes of a sampled law.
-HELD_TOLERANCE = 1e-9
-#: The plant's own states, ``[θ, θ̇, x, v]``.
+#: The plant's own states, ``[θ, θ̇, x, v]``, and where the travel ``x`` is among them.
 PLANT_STATES = 4
+TRAVEL = 2
 
 
 class SimulationError(ArithmeticError):
@@ -264,33 +286,20 @@ def _neutral(loop: SiLoop, plant_size: int, size: int) -> Matrix | None:
     return mode
 
 
-def _held_modes(
-    ap: Matrix, bp: Matrix, cp: Matrix, ac: Matrix, bc: Matrix, cc: Matrix, dc: Matrix
-) -> Matrix | None:
-    """The modes a sampled law holds at exactly 1 whatever the gain, as columns, or ``None``.
+def _held_columns(law: LinearLaw, plant_size: int, wheel_radius: float) -> Matrix | None:
+    """The law's held modes as closed-loop states, as columns, or ``None`` when it holds none.
 
-    A closed-loop state ``(v_p, v_c)`` that the loop holds at every gain solves
-    ``(Ap - I) v_p = 0``, ``Dc Cp v_p + Cc v_c = 0`` and ``Bc Cp v_p + (Ac - I) v_c = 0``.
-    The plant's own travel is one with no memory in it, never set aside: no distance gain means
-    nothing holds the travel, as for the named structures. A mode with memory in it is the
-    leak-free estimate's offset, which the named incremental structure sets aside the same way.
+    A mode of :func:`physgate.evaluation.whole.law.held_modes` is the wheel angle ``β`` and the
+    memory; as a closed-loop state the plant is at rest but for its travel, ``x = r·β``, the
+    delay line empty (the command is 0), and the memory is the law's.
     """
-    n_p, n_c = ap.shape[0], ac.shape[0]
-    if n_c == 0:
+    if not law.held:
         return None
-    rows = np.vstack(
-        [
-            np.hstack([ap - np.eye(n_p), np.zeros((n_p, n_c))]),
-            np.hstack([dc @ cp, cc]),
-            np.hstack([bc @ cp, ac - np.eye(n_c)]),
-        ]
-    )
-    _, singular, vt = np.linalg.svd(rows)
-    rank = int(np.sum(singular > HELD_TOLERANCE * max(1.0, float(singular[0]))))
-    null = vt[rank:].T
-    if null.shape[1] == 0 or float(np.max(np.abs(null[n_p:, :]))) <= HELD_TOLERANCE:
-        return None
-    return null
+    columns = np.zeros((plant_size + law.states, len(law.held)))
+    for j, mode in enumerate(law.held):
+        columns[TRAVEL, j] = mode[0] * wheel_radius
+        columns[plant_size:, j] = mode[1:]
+    return columns
 
 
 def closed(system: System, gain: float) -> Matrix:
@@ -472,7 +481,7 @@ def system(values: dict[str, float], loop: SiLoop) -> System:
             cc=cc,
             dc=dc,
             period=loop.period,
-            held=_held_modes(ap, bp, cp, ac, bc, cc, dc),
+            held=_held_columns(loop.law, ap.shape[0], values["wheel_radius"]),
         )
     neutral = _neutral(loop, ap.shape[0], ap.shape[0] + ac.shape[0])
     return System(

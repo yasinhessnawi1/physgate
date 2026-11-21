@@ -342,6 +342,118 @@ def _refused(tmp_path: Path, code: str, *, law: bytes | None = None, **kwargs: A
     return record
 
 
+# ── the vectors must demand something of the law ────────────────────────────────────────────
+
+ABSURD: Values = {
+    **COEFFICIENTS,
+    "k_phi": (9, "1/rad"),
+    "k_theta": (50, "1/rad"),
+    "k_w": (-5, "s/rad"),
+    "k_rate": (7, "s/rad"),
+    "k_u": (3, "1"),
+    "leak": (1.7, "1"),
+}
+
+
+def test_one_all_zero_row_does_not_export_a_law_with_absurd_coefficients(tmp_path: Path) -> None:
+    document = _file()
+    document["vectors"] = [{"name": "nothing", "rows": [{"duty": 0.0, "counts": 0}]}]
+    record = _refused(tmp_path, "vectors_too_few", law=_bytes(document), coefficients=ABSURD)
+    assert "1 row" in record.law_detail
+    assert "10" in record.law_detail
+
+
+def _first_rows(duty_of: Any, count: int) -> list[dict[str, Any]]:
+    """``count`` one-row vectors from a zero state, the signal and the honest duty of each."""
+    vectors = []
+    for n in range(count):
+        rate = 0.1 + 0.05 * n
+        duty = duty_of(rate)
+        vectors.append(
+            {
+                "name": f"first update {n}",
+                "rows": [{"tilt_rate": rate, "duty": duty, "counts": round(duty * 400)}],
+            }
+        )
+    return vectors
+
+
+def test_vectors_that_are_only_first_rows_do_not_pin_the_memory_the_law_keeps(
+    tmp_path: Path,
+) -> None:
+    k_theta, k_w, k_rate = -0.0054505 - 1.03529, -0.038326, -0.0625146
+    honest = lambda rate: -(k_theta * 0.01 * rate + k_w * rate + k_rate * rate)  # noqa: E731
+    document = _file()
+    document["vectors"] = _first_rows(honest, 12)
+    coefficients = {**COEFFICIENTS, "k_u": (-9, "1"), "leak": (5, "1")}
+    record = _refused(
+        tmp_path, "vectors_do_not_exercise", law=_bytes(document), coefficients=coefficients
+    )
+    assert "u_prev" in record.law_detail
+    assert "theta_hat" in record.law_detail
+
+
+def _with_a_hidden_tilt_term() -> dict[str, Any]:
+    document = _file()
+    command = next(x for x in document["lines"] if x["name"] == "command")
+    command["terms"].append({"sign": -1, "coefficients": ["k_true"], "of": "tilt"})
+    document["coefficients"]["k_true"] = "k_true"
+    return document
+
+
+def test_a_term_on_a_signal_no_vector_row_sets_is_refused_and_the_signal_is_named(
+    tmp_path: Path,
+) -> None:
+    record = _refused(
+        tmp_path,
+        "vectors_do_not_exercise",
+        law=_bytes(_with_a_hidden_tilt_term()),
+        coefficients={**COEFFICIENTS, "k_true": (1.0, "1/rad")},
+    )
+    assert "tilt" in record.law_detail
+    assert "k_true" not in record.law_detail or "command" in record.law_detail
+
+
+def test_a_term_so_small_that_no_vector_output_moves_when_it_changes_is_refused_and_named(
+    tmp_path: Path,
+) -> None:
+    document = _file()
+    command = next(x for x in document["lines"] if x["name"] == "command")
+    command["terms"].append({"sign": 1, "coefficients": ["k_extra"], "of": "line.theta_now"})
+    document["coefficients"]["k_extra"] = "k_extra"
+    record = _refused(
+        tmp_path,
+        "vectors_do_not_pin",
+        law=_bytes(document),
+        coefficients={**COEFFICIENTS, "k_extra": (1e-9, "1/rad")},
+    )
+    assert "k_extra" in record.law_detail
+
+
+def test_fewer_than_the_minimum_rows_is_refused_with_the_count_said(tmp_path: Path) -> None:
+    document = _file()
+    kept, rows = [], 0
+    for vector in document["vectors"]:
+        if rows + len(vector["rows"]) > 9:
+            break
+        kept.append(vector)
+        rows += len(vector["rows"])
+    assert rows == 9
+    document["vectors"] = kept
+    record = _refused(tmp_path, "vectors_too_few", law=_bytes(document))
+    assert "9 rows" in record.law_detail
+
+
+def test_the_record_names_the_signals_the_law_reads(tmp_path: Path) -> None:
+    record, out, _, _ = _export(tmp_path)
+    assert record.law_signals == ("tilt_rate", "wheel_angle", "wheel_reference")
+    assert json.loads(record_path(out).read_text())["law_signals"] == [
+        "tilt_rate",
+        "wheel_angle",
+        "wheel_reference",
+    ]
+
+
 def test_a_file_whose_units_do_not_balance_is_refused_and_nothing_is_written(
     tmp_path: Path,
 ) -> None:
@@ -492,12 +604,14 @@ def test_a_setting_the_caller_supplies_is_exported_as_given_and_the_record_says_
         tmp_path, settings=held, supplied={"gyro_full_scale": (1000, "deg/s")}
     )
     assert record.status == "exported"
-    assert record.supplied == ("gyro_full_scale",)
+    assert record.supplied == {"gyro_full_scale": {"value": 1000, "unit": "deg/s"}}
     assert json.loads(out.read_bytes())["parameters"]["gyro_full_scale"] == {
         "value": 1000,
         "unit": "deg/s",
     }
-    assert json.loads(record_path(out).read_text())["supplied"] == ["gyro_full_scale"]
+    assert json.loads(record_path(out).read_text())["supplied"] == {
+        "gyro_full_scale": {"value": 1000, "unit": "deg/s"}
+    }
 
 
 def test_a_supplied_setting_the_graph_already_holds_or_that_is_no_setting_is_an_error(
@@ -508,6 +622,114 @@ def test_a_supplied_setting_the_graph_already_holds_or_that_is_no_setting_is_an_
     for name in ("gyro_full_scale", "not_a_setting"):
         with pytest.raises(ExportError):
             export_whole_run(run, _out(tmp_path), repository=repo, supplied={name: (1000, "deg/s")})
+
+
+@pytest.mark.parametrize(
+    "supplied",
+    [
+        (-3, "deg/s"),
+        (0, "deg/s"),
+        (20000, "deg/s"),
+        (1000, "bananas"),
+        (1000, "deg / s"),
+        (True, "deg/s"),
+        (float("nan"), "deg/s"),
+        (float("inf"), "deg/s"),
+        ("1000", "deg/s"),
+    ],
+)
+def test_a_supplied_value_that_is_no_value_of_its_setting_is_an_error_and_nothing_is_written(
+    tmp_path: Path, supplied: Any
+) -> None:
+    repo, (commit,) = _repo(tmp_path, _LAW.read_bytes())
+    held = {k: v for k, v in SETTINGS.items() if k != "gyro_full_scale"}
+    run = _run(tmp_path, commit, settings=held)
+    out = _out(tmp_path)
+    with pytest.raises(ExportError, match="gyro_full_scale"):
+        export_whole_run(run, out, repository=repo, supplied={"gyro_full_scale": supplied})
+    _nothing_written(out)
+
+
+def test_a_supplied_pwm_full_scale_is_a_whole_number_of_counts(tmp_path: Path) -> None:
+    repo, (commit,) = _repo(tmp_path, _LAW.read_bytes())
+    held = {k: v for k, v in SETTINGS.items() if k != "pwm_full_scale"}
+    run = _run(tmp_path, commit, settings=held)
+    with pytest.raises(ExportError, match="whole number"):
+        export_whole_run(
+            run, _out(tmp_path), repository=repo, supplied={"pwm_full_scale": (400.5, "count")}
+        )
+
+
+def test_a_supplied_pwm_full_scale_is_the_one_the_vectors_are_counted_in(tmp_path: Path) -> None:
+    held = {k: v for k, v in SETTINGS.items() if k != "pwm_full_scale"}
+    record, out, _, _ = _export(
+        tmp_path, settings=held, supplied={"pwm_full_scale": (400, "count")}
+    )
+    assert record.status == "exported"
+    assert json.loads(out.read_bytes())["parameters"]["pwm_full_scale"]["value"] == 400
+    assert record.supplied == {"pwm_full_scale": {"value": 400, "unit": "count"}}
+
+
+def test_a_law_whose_answer_the_scorer_could_not_read_is_a_refusal_and_nothing_is_written(
+    tmp_path: Path,
+) -> None:
+    # The delay sum is not in the vectors, so they pass; the answer's own bound on it does not.
+    record = _refused(
+        tmp_path,
+        "answer_not_valid",
+        coefficients={**COEFFICIENTS, "computation_delay_bound": (0.9, "s")},
+    )
+    assert "delay" in record.law_detail
+
+
+def _repo_with_the_law_path_as(tmp_path: Path, make: Any) -> tuple[Path, str]:
+    repo = Path(os.path.realpath(tmp_path)) / "target"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    target = repo / _MODULE / "law.json"
+    target.parent.mkdir(parents=True)
+    make(target)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "the law's path is not a file")
+    return repo, _git(repo, "rev-parse", "HEAD")
+
+
+def _a_directory(target: Path) -> None:
+    target.mkdir()
+    (target / "inside.json").write_bytes(_LAW.read_bytes())
+
+
+def _a_link_out(target: Path) -> None:
+    (target.parent.parent.parent / "outside.json").write_bytes(_LAW.read_bytes())
+    target.symlink_to("../../outside.json")
+
+
+@pytest.mark.parametrize("make", [_a_directory, _a_link_out])
+def test_a_directory_or_a_link_at_the_law_s_path_is_a_status_and_is_never_followed(
+    tmp_path: Path, make: Any
+) -> None:
+    repo, commit = _repo_with_the_law_path_as(tmp_path, make)
+    run = _run(tmp_path, commit)
+    out = _out(tmp_path)
+    try:
+        record = export_whole_run(run, out, repository=repo)
+    except ExportError as exc:
+        pytest.fail(f"a status was owed, not an error: {exc}")
+    assert record.status == "law_unverified"
+    assert record.law_reason == "malformed"
+    assert record.law_detail
+    _nothing_written(out)
+
+
+def test_a_loop_quantity_held_in_another_unit_than_the_loop_takes_is_refused(
+    tmp_path: Path,
+) -> None:
+    record = _refused(
+        tmp_path,
+        "units_do_not_balance",
+        coefficients={**COEFFICIENTS, "duty_cycle": (0.9425, "count")},
+    )
+    assert "duty_cycle" in record.law_detail or "command limit" in record.law_detail
 
 
 def test_two_nodes_that_disagree_on_a_coefficient_the_law_reads_are_ambiguous(

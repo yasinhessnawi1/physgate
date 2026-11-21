@@ -125,7 +125,13 @@ def _si(controller: dict[str, Any], radius: float, version: int = 2) -> SiLoop:
 
 
 def _as_law(legacy: SiLoop, radius: float) -> dict[str, Any]:
-    """The loop ``legacy`` as a law over the signals: the gains of metres in radians of wheel."""
+    """The loop ``legacy`` as a law over the signals: the gains of metres in radians of wheel.
+
+    ``radius`` is the wheel radius the gains are folded with. The equivalence rows pass each
+    corner's own radius, which takes the radius as known; a firmware has one number for it, so a
+    design written as a law and as a named structure score differently at a radius off the
+    one folded in (the law being the more faithful), as the off-nominal row below states.
+    """
     timing = {
         "period": _m(legacy.period, "s"),
         "command_limit": _m(legacy.command_limit, "1"),
@@ -230,6 +236,8 @@ def test_a_named_structure_written_as_a_law_gives_the_same_margins_to_1e_9(name:
     judged = 0
     worst = 0.0
     for values in points:
+        # The law's gains are re-folded with this corner's radius: the radius is taken as known,
+        # which is the only condition under which the two paths agree (see the off-nominal row).
         radius = values["wheel_radius"]
         legacy = _si(STRUCTURES[name](), radius)
         law = _si(_as_law(legacy, radius), radius, version=3)
@@ -253,9 +261,17 @@ def test_the_leak_free_form_has_its_held_offset_set_aside_by_the_law_as_by_the_n
     legacy = _si(_incremental(None), values["wheel_radius"])
     law = _si(_as_law(legacy, values["wheel_radius"]), values["wheel_radius"], version=3)
     assert loop_module.system(values, legacy).neutral is not None
-    held = loop_module.system(values, law).held
+    system = loop_module.system(values, law)
+    held = system.held
     assert held is not None
     assert held.shape[1] == 1
+    # The mode is held at every gain, not only at 1: the closed loop returns it unchanged.
+    for gain in (0.3, 1.0, 7.0):
+        residual = loop_module.closed(system, gain) @ held - held
+        assert float(abs(residual).max()) <= 1e-12
+    # and it has the wheels' angle and the memory in it, as the named form's offset has.
+    assert abs(held[loop_module.TRAVEL, 0]) > 0.0
+    assert abs(held[system.ap.shape[0] :, 0]).max() > 0.0
 
 
 def test_a_law_with_nothing_held_has_no_mode_set_aside() -> None:
@@ -273,6 +289,239 @@ def test_a_law_with_no_distance_gain_does_not_have_the_plant_s_travel_set_aside(
     law = _si(_as_law(legacy, values["wheel_radius"]), values["wheel_radius"], version=3)
     assert loop_module.margins(values, legacy).stable is False
     assert loop_module.margins(values, law).stable is False
+
+
+@pytest.mark.parametrize(
+    ("scale", "named", "written"),
+    [
+        # The same design (the good gains, in 1/m for the named form, in 1/rad for the law),
+        # judged on a plant whose wheel radius is off the nominal one by 5 %: the margins
+        # (phase margin in degrees, upward gain margin, downward gain margin) each way.
+        (0.95, (69.5786, 4.0864, 0.4775), (68.5502, 4.3475, 0.4538)),
+        (1.05, (66.9729, 4.0605, 0.4322), (67.5556, 3.8397, 0.4536)),
+    ],
+)
+def test_a_design_written_as_a_law_and_as_a_named_structure_differ_at_an_off_nominal_radius(
+    scale: float, named: tuple[float, float, float], written: tuple[float, float, float]
+) -> None:
+    """The equivalence above holds when the wheel radius is taken as known; here it is not.
+
+    The row above re-folds the law's wheel gains with each corner's own radius, so the two paths
+    agree to 1e-9 by construction. A law has one gain per radian of wheel, fixed by the firmware,
+    while the plant's radius varies; the named structure's gain is per metre of the true travel,
+    which is the same as a firmware that knows each corner's radius exactly. So at a radius off
+    the nominal one the same design scores differently by how it is written. The law is the
+    more faithful of the two (the firmware has one number for the wheel); the named form is the
+    kinder to a design whose radius is uncertain. The scored margins at +-5 % (this file's timing,
+    4.8 ms and 2 ms of delay) are those below: the upward gain margin differs by 0.26 at -5 % and
+    by 0.22 at +5 %, the phase margin by 1.0 and 0.6 degrees. Written into the pre-registration.
+    """
+    plant = _plant()
+    nominal_radius = nominal(plant)["wheel_radius"]
+    values = {**nominal(plant), "wheel_radius": nominal_radius * scale}
+    as_named = loop_module.margins(values, _si(_feedback(), values["wheel_radius"]))
+    legacy = _si(_feedback(), nominal_radius)
+    as_law = loop_module.margins(values, _si(_as_law(legacy, nominal_radius), nominal_radius, 3))
+    for got, expected in ((as_named, named), (as_law, written)):
+        assert got.stable
+        assert got.phase_margin == pytest.approx(expected[0], abs=0.001)
+        assert got.upward == pytest.approx(expected[1], abs=0.0001)
+        assert got.downward == pytest.approx(expected[2], abs=0.0001)
+    assert as_named.upward is not None and as_law.upward is not None
+    assert abs(as_named.upward - as_law.upward) > 0.1
+
+
+# ── a mode is set aside only if the law itself holds it at exactly 1 ─────────────────────────
+
+
+def _law(
+    terms: list[dict[str, Any]],
+    coefficients: dict[str, Any],
+    memory: list[dict[str, Any]] | None = None,
+    lines: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """A law over the nominal timing: ``terms`` are the command's, ``lines`` are the others."""
+    return {
+        "structure": "sampled_law",
+        **_timing(),
+        "coefficients": coefficients,
+        "memory": memory or [],
+        "lines": [*(lines or []), {"name": "command", "unit": "1", "terms": terms}],
+        "command": "command",
+    }
+
+
+def _no_travel_terms() -> list[dict[str, Any]]:
+    """The good gains on the tilt, its rate and the wheel speed, and nothing on the wheel angle."""
+    return [
+        {"sign": 1, "coefficients": ["angle_gain"], "of": "tilt"},
+        {"sign": 1, "coefficients": ["rate_gain"], "of": "tilt_rate"},
+        {"sign": 1, "coefficients": ["speed_gain"], "of": "wheel_speed"},
+    ]
+
+
+def _good_coefficients(radius: float) -> dict[str, Any]:
+    return {
+        "angle_gain": _m(GOOD_GAINS[0], "1/rad"),
+        "rate_gain": _m(GOOD_GAINS[1], "s/rad"),
+        "distance_gain": _m(GOOD_GAINS[2] * radius, "1/rad"),
+        "speed_gain": _m(GOOD_GAINS[3] * radius, "s/rad"),
+    }
+
+
+def _radius_of_loop(values: dict[str, float], loop: SiLoop) -> float:
+    """The closed loop's true spectral radius, nothing set aside."""
+    import numpy as np
+
+    system = loop_module.system(values, loop)
+    return float(np.max(np.abs(np.linalg.eigvals(loop_module.closed(system, 1.0)))))
+
+
+def _with_inert_state(controller: dict[str, Any], pole: float, unit: str = "1") -> dict[str, Any]:
+    """``controller`` plus one memory state that nothing reads, ``state[k] = pole·state[k-1]``."""
+    out = copy.deepcopy(controller)
+    out["coefficients"]["pole"] = _m(pole, "1")
+    out["memory"].append({"name": "inert", "unit": unit, "next": "inert_now"})
+    out["lines"].insert(
+        0,
+        {
+            "name": "inert_now",
+            "unit": unit,
+            "terms": [{"sign": 1, "coefficients": ["pole"], "of": "previous.inert"}],
+        },
+    )
+    return out
+
+
+def _with_loud_state(controller: dict[str, Any], big: float) -> dict[str, Any]:
+    """``controller`` plus a state fed ``big·tilt`` that nothing reads: a large coefficient."""
+    out = copy.deepcopy(controller)
+    out["coefficients"]["big"] = _m(big, "1/rad")
+    out["memory"].append({"name": "loud", "unit": "1", "next": "loud_now"})
+    out["lines"].insert(
+        0,
+        {
+            "name": "loud_now",
+            "unit": "1",
+            "terms": [{"sign": 1, "coefficients": ["big"], "of": "tilt"}],
+        },
+    )
+    return out
+
+
+def _stable_law(radius: float) -> dict[str, Any]:
+    """The good gains with the wheel-angle gain: it holds the travel, and is stable."""
+    wheel = {"sign": 1, "coefficients": ["distance_gain"], "of": "wheel_angle"}
+    return _law([*_no_travel_terms(), wheel], _good_coefficients(radius))
+
+
+def _loop_of(controller: dict[str, Any], values: dict[str, float]) -> SiLoop:
+    return _si(controller, values["wheel_radius"], version=3)
+
+
+def test_a_law_with_no_wheel_angle_gain_is_unstable_with_or_without_an_inert_memory_state() -> None:
+    values = nominal(_plant())
+    plain = _law(_no_travel_terms(), _good_coefficients(values["wheel_radius"]))
+    inert = _with_inert_state(plain, 1.0)
+    for controller in (plain, inert):
+        loop = _loop_of(controller, values)
+        assert _radius_of_loop(values, loop) >= 1.0 - 1e-9, "nothing holds the travel"
+        assert loop_module.margins(values, loop).stable is False
+
+
+def test_only_the_inert_state_is_set_aside_never_the_plant_s_own_travel() -> None:
+    values = nominal(_plant())
+    plain = _law(_no_travel_terms(), _good_coefficients(values["wheel_radius"]))
+    system = loop_module.system(values, _loop_of(_with_inert_state(plain, 1.0), values))
+    assert system.held is not None
+    assert system.held.shape[1] == 1
+    assert loop_module.system(values, _loop_of(plain, values)).held is None
+
+
+@pytest.mark.parametrize("gain", [-1e-6, -1e-8])
+def test_a_command_fed_integrator_with_a_tiny_gain_is_unstable_not_set_aside(gain: float) -> None:
+    values = nominal(_plant())
+    radius = values["wheel_radius"]
+    controller = _stable_law(radius)
+    controller["coefficients"]["ki"] = _m(gain, "1/rad")
+    controller["memory"].append({"name": "total", "unit": "rad", "next": "total_now"})
+    controller["lines"].insert(
+        0,
+        {
+            "name": "total_now",
+            "unit": "rad",
+            "terms": [
+                {"sign": 1, "of": "previous.total"},
+                {"sign": 1, "of": "wheel_angle"},
+            ],
+        },
+    )
+    controller["lines"][-1]["terms"].append(
+        {"sign": 1, "coefficients": ["ki"], "of": "previous.total"}
+    )
+    loop = _loop_of(controller, values)
+    assert _radius_of_loop(values, loop) > 1.0 + 1e-8, "the loop really grows"
+    assert loop_module.margins(values, loop).stable is False
+
+
+@pytest.mark.parametrize("big", [1e3, 1e6])
+@pytest.mark.parametrize("pole", [1.001, 1.0001])
+def test_an_unstable_pole_is_not_set_aside_because_a_large_coefficient_sits_elsewhere(
+    big: float, pole: float
+) -> None:
+    values = nominal(_plant())
+    controller = _with_loud_state(_with_inert_state(_stable_law(values["wheel_radius"]), pole), big)
+    loop = _loop_of(controller, values)
+    assert _radius_of_loop(values, loop) >= pole - 1e-9
+    assert loop_module.margins(values, loop).stable is False
+
+
+@pytest.mark.parametrize(
+    ("pole", "stable"),
+    [(1.0 + 1e-10, False), (1.0 - 1e-10, True), (1.0 - 1e-13, False), (1.0 - 1e-11, True)],
+)
+def test_a_pole_just_off_1_is_judged_at_the_stated_absolute_tolerance(
+    pole: float, stable: bool
+) -> None:
+    values = nominal(_plant())
+    controller = _with_inert_state(_stable_law(values["wheel_radius"]), pole)
+    assert loop_module.margins(values, _loop_of(controller, values)).stable is stable
+
+
+def test_states_a_law_holds_at_exactly_1_by_its_lines_are_set_aside_and_change_nothing() -> None:
+    values = nominal(_plant())
+    base = _stable_law(values["wheel_radius"])
+    margins = loop_module.margins(values, _loop_of(base, values))
+    assert margins.stable
+    inert = _with_inert_state(base, 1.0)
+    # Two states that share one sum: each next value is the mean of both, so (1, 1) is held.
+    shared = copy.deepcopy(base)
+    shared["coefficients"]["half"] = _m(0.5, "1")
+    shared["memory"] += [
+        {"name": "left", "unit": "1", "next": "left_now"},
+        {"name": "right", "unit": "1", "next": "right_now"},
+    ]
+    for name in ("left_now", "right_now"):
+        shared["lines"].insert(
+            0,
+            {
+                "name": name,
+                "unit": "1",
+                "terms": [
+                    {"sign": 1, "coefficients": ["half"], "of": "previous.left"},
+                    {"sign": 1, "coefficients": ["half"], "of": "previous.right"},
+                ],
+            },
+        )
+    for controller in (inert, shared):
+        loop = _loop_of(controller, values)
+        system = loop_module.system(values, loop)
+        assert system.held is not None
+        assert system.held.shape[1] == 1, "one mode at 1: the shared sum, or the inert state"
+        again = loop_module.margins(values, loop)
+        assert again.stable
+        for field in ("phase_margin", "upward", "downward"):
+            assert _same(getattr(again, field), getattr(margins, field))
 
 
 def test_the_work_bound_counts_the_law_s_memory_states() -> None:
@@ -479,3 +728,62 @@ def test_an_unstable_law_says_it_is_unstable_and_never_blames_a_distance_gain_it
     assert rows["pm"]["verdict"] == "fail"
     assert "unstable" in rows["pm"]["reason"]
     assert "distance gain" not in rows["pm"]["reason"]
+
+
+@pytest.mark.parametrize(
+    ("of", "name"),
+    [
+        ("accelerometer_tilt", "out_of_scope"),
+        ("line.phi_hat*tilt_rate", "nonlinear"),
+        ("abs(line.phi_hat)", "nonlinear"),
+    ],
+)
+def test_a_law_the_scorer_cannot_judge_is_refused_by_name_and_never_scored_as_a_fail(
+    tmp_path: Path, of: str, name: str
+) -> None:
+    scenario, root = _scenario(tmp_path, copy.deepcopy(SPECS))
+    controller = _recorded_controller()
+    command = next(x for x in controller["lines"] if x["name"] == "command")
+    command["terms"][0]["of"] = of
+    path = root / "refused.json"
+    path.write_bytes(_answer(controller, 3))
+    record = scenario.record(path)
+    assert record["refusal"]["name"] == name
+    assert name in record["refusal"]["reason"]
+    assert record["outcome"] == "unscored"
+    assert scenario.score(path) == "unscored"
+    assert record["specs"] == []
+
+
+def test_a_law_that_is_merely_malformed_is_still_a_fail(tmp_path: Path) -> None:
+    scenario, root = _scenario(tmp_path, copy.deepcopy(SPECS))
+    controller = _recorded_controller()
+    del controller["command"]
+    path = root / "malformed.json"
+    path.write_bytes(_answer(controller, 3))
+    record = scenario.record(path)
+    assert record["outcome"] == "fail"
+    assert record["answer_valid"] is False
+    assert "refusal" not in record
+
+
+@pytest.mark.parametrize("change", ["a term's sign", "a memory source", "a term's number"])
+def test_two_laws_with_the_same_coefficients_and_different_lines_are_not_compared(
+    tmp_path: Path, change: str
+) -> None:
+    scenario, root = _scenario(tmp_path, copy.deepcopy(SPECS))
+    document = json.loads(_answer(_recorded_controller(), 3))
+    twin = copy.deepcopy(document["controller"])
+    command = next(x for x in twin["lines"] if x["name"] == "command")
+    if change == "a term's sign":
+        command["terms"][4]["sign"] = 1
+    elif change == "a memory source":
+        twin["memory"][1]["next"] = "theta_now"
+    else:
+        command["terms"][2]["number"] = 2
+    document["analysed_controller"] = twin
+    path = root / "lines.json"
+    path.write_text(json.dumps(document))
+    row = {r["name"]: r for r in scenario.record(path)["specs"]}["same"]
+    assert row["verdict"] == "unscored", row
+    assert "differ in their lines" in row["reason"]

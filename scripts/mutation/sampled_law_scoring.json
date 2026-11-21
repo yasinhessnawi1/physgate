@@ -66,9 +66,9 @@
   },
   {
     "name": "a_mode_with_no_memory_is_set_aside",
-    "file": "src/physgate/evaluation/whole/loop.py",
-    "old": "    if null.shape[1] == 0 or float(np.max(np.abs(null[n_p:, :]))) <= HELD_TOLERANCE:\n",
-    "new": "    if null.shape[1] == 0:\n",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if _rank([*memory_parts, part]) > len(memory_parts):\n",
+    "new": "        if True:\n",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
     ],
@@ -93,7 +93,7 @@
   {
     "name": "a_law_s_held_modes_are_not_found",
     "file": "src/physgate/evaluation/whole/loop.py",
-    "old": "            held=_held_modes(ap, bp, cp, ac, bc, cc, dc),\n",
+    "old": "            held=_held_columns(loop.law, ap.shape[0], values[\"wheel_radius\"]),\n",
     "new": "            held=None,\n",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
@@ -132,8 +132,8 @@
   {
     "name": "two_laws_with_other_names_are_compared",
     "file": "src/physgate/evaluation/whole/scenario.py",
-    "old": "        and set(c.coefficients) != set(analysed.coefficients)\n",
-    "new": "        and set(c.coefficients) == set(analysed.coefficients)\n",
+    "old": "        if set(c.coefficients) != set(analysed.coefficients):\n",
+    "new": "        if set(c.coefficients) == set(analysed.coefficients):\n",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
     ],
@@ -166,6 +166,96 @@
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
       "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_law_s_held_modes_are_not_carried",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "law=LinearLaw(a=a, b=b, c=c, d=d, held=held),",
+    "new": "law=LinearLaw(a=a, b=b, c=c, d=d),",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "the_held_travel_is_in_radians",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "        columns[TRAVEL, j] = mode[0] * wheel_radius\n",
+    "new": "        columns[TRAVEL, j] = mode[0]\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "the_held_memory_is_not_in_the_mode",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "        columns[plant_size:, j] = mode[1:]\n",
+    "new": "        columns[plant_size:, j] = 0.0\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "a_pole_near_1_is_stable",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "STABILITY_EPSILON = 1e-12\n",
+    "new": "STABILITY_EPSILON = 1e-6\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "a_pole_on_the_circle_is_stable",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "STABILITY_EPSILON = 1e-12\n",
+    "new": "STABILITY_EPSILON = 1e-15\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "two_laws_with_other_lines_are_compared",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        if (c.memory, c.lines, c.command) != (analysed.memory, analysed.lines, analysed.command):\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "a_law_out_of_scope_is_a_fail",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "            record.update(specs=[], outcome=\"unscored\")\n",
+    "new": "            record.update(specs=[], outcome=\"fail\")\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "a_law_out_of_scope_is_named_malformed",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "raise OutsideScope(msg, name=exc.code, where=where) from exc",
+    "new": "raise OutsideScope(msg, name=\"malformed\", where=where) from exc",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "a_law_the_scorer_cannot_judge_is_a_format_error",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        except OutsideScope as exc:\n",
+    "new": "        except ZeroDivisionError as exc:\n",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "the_held_numbers_are_rounded_in_the_scorer",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "{k: Fraction(v) for k, v in _coefficients(values, period).items()}",
+    "new": "{k: Fraction(round(v, 6)) for k, v in _coefficients(values, period).items()}",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
     ]
   },
   {

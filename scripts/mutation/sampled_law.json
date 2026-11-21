@@ -277,8 +277,8 @@
   {
     "name": "memory_is_set_from_the_command_line",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "    rows = [basis[f\"line.{m.next}\"] for m in body.memory]\n",
-    "new": "    rows = [basis[f\"line.{body.command}\"] for m in body.memory]\n",
+    "old": "    return [basis[f\"line.{m.next}\"] for m in body.memory], basis[f\"line.{body.command}\"]\n",
+    "new": "    return [basis[f\"line.{body.command}\"] for m in body.memory], basis[f\"line.{body.command}\"]\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
       "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
@@ -901,9 +901,9 @@
   },
   {
     "name": "a_vector_miss_is_taken",
-    "file": "src/physgate/evaluation/whole/export.py",
-    "old": "    if mismatch is not None:\n",
-    "new": "    if False:\n",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    if mismatch is not None:\n        raise LawRefused(\"vector_not_reproduced\", mismatch)\n",
+    "new": "    if False:\n        raise LawRefused(\"vector_not_reproduced\", mismatch)\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
       "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
@@ -1029,6 +1029,606 @@
     "file": "src/physgate/evaluation/whole/export.py",
     "old": "    left = set() if export.structure == LAW_STRUCTURE else law_fields\n",
     "new": "    left = set()\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_term_s_sign_is_dropped_from_the_matrices",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            scale = number(float(term.sign)) * number(float(term.number))\n",
+    "new": "            scale = number(float(term.number))\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_reciprocal_is_a_product_in_the_matrices",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "                scale = scale / coefficients[factor]\n",
+    "new": "                scale = scale * coefficients[factor]\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_rows_are_not_counted",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    if total < MIN_ROWS:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "one_row_fewer_is_enough",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "MIN_ROWS = 10\n",
+    "new": "MIN_ROWS = 9\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_single_row_is_enough",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "MIN_ROWS = 10\n",
+    "new": "MIN_ROWS = 1\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_term_no_row_exercises_is_taken",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if (line.name, at) not in seen\n",
+    "new": "        if False\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_state_nothing_reads_is_taken",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "if m.name not in read\n",
+    "new": "if False\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_coefficient_is_not_moved",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if not all(both):\n            loose.append(f\"the coefficient {name!r}\")\n",
+    "new": "        if False:\n            loose.append(f\"the coefficient {name!r}\")\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_term_is_not_moved",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            if not all(both):\n                loose.append(_where(line, at))\n",
+    "new": "            if False:\n                loose.append(_where(line, at))\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_pin_of_half_is_demanded_of_nothing",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "PIN_RELATIVE = 0.02\n",
+    "new": "PIN_RELATIVE = 0.5\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_pin_of_nothing_is_demanded_of_everything",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "PIN_RELATIVE = 0.02\n",
+    "new": "PIN_RELATIVE = 1e-9\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_zero_coefficient_is_moved",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if values.get(name, 0.0) == 0.0:\n            continue\n",
+    "new": "        if False:\n            continue\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_zero_term_is_moved",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            if any(values.get(n, 0.0) == 0.0 for n in term.coefficients):\n                continue\n",
+    "new": "            if False:\n                continue\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_mode_with_no_memory_is_held",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if _rank([*memory_parts, part]) > len(memory_parts):\n",
+    "new": "        if True:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_held_numbers_are_rounded",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "{k: Fraction(v) for k, v in _coefficients(values, period).items()}",
+    "new": "{k: Fraction(round(v, 6)) for k, v in _coefficients(values, period).items()}",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_held_sign_is_flipped",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            vector[col] = -reduced[r][free]\n",
+    "new": "            vector[col] = reduced[r][free]\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_memory_is_not_held_to_itself",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "row[j] - (1 if i == j else 0)",
+    "new": "row[j]",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_supplied_value_is_not_validated",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        if problem is not None:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_directory_is_read_as_a_file",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "    if kind.stdout.strip() != b\"blob\":\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_answer_is_not_read_back",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        parse_answer(raw)\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "the_signals_read_are_not_recorded",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        law_signals=verified.signals,\n",
+    "new": "        law_signals=(),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_supplied_value_is_not_recorded",
+    "file": "src/physgate/evaluation/whole/export.py",
+    "old": "        supplied={n: {\"value\": v, \"unit\": u} for n, (v, u) in sorted(supplied.items())},\n",
+    "new": "        supplied={n: {\"value\": 0, \"unit\": u} for n, (v, u) in sorted(supplied.items())},\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_supplied_unit_is_not_held",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "        number = _bounded(measure, expected, name, bound)\n",
+    "new": "        number = _bounded(measure, unit, name, bound)\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl"
+    ]
+  },
+  {
+    "name": "a_supplied_scale_may_be_part_of_a_count",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    if name == \"pwm_full_scale\" and not _whole(number):\n",
+    "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
       "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py"

@@ -80,6 +80,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from physgate.evaluation.per_role.exceptions import TaskFormatError
 from physgate.evaluation.whole import law as law_module
 from physgate.evaluation.whole.answer import (
     Controller,
@@ -87,6 +88,8 @@ from physgate.evaluation.whole.answer import (
     ParametersV3,
     WholeRun,
     WholeRunV3,
+    parse_answer,
+    setting_problem,
 )
 from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.events import Merged, SubtaskPlanned, parse_events
@@ -168,7 +171,8 @@ class Export(BaseModel):
     law_commit: str | None = None
     law_path: str | None = None
     vector_rows: int | None = None
-    supplied: tuple[str, ...] = ()
+    law_signals: tuple[str, ...] = ()
+    supplied: dict[str, dict[str, float | int | str]] = {}
 
 
 def _literal(model: type[BaseModel], field: str) -> Any:
@@ -370,6 +374,12 @@ def _law_source(run_dir: Path, repository: Path) -> _LawSource | None:
     if _git(repository, "cat-file", "-e", f"{commit}^{{commit}}").returncode != 0:
         msg = "the run's last merged commit is not in the repository given"
         raise ExportError(msg, repository=str(repository), commit=commit)
+    kind = _git(repository, "cat-file", "-t", f"{commit}:{path}")
+    if kind.returncode != 0:
+        return None
+    if kind.stdout.strip() != b"blob":
+        msg = f"the law's path holds a {kind.stdout.strip().decode()}, not a file"
+        raise law_module.LawRefused("malformed", msg)
     size = _git(repository, "cat-file", "-s", f"{commit}:{path}")
     if size.returncode != 0:
         return None
@@ -624,6 +634,11 @@ def _export_law(
     if unknown or held_too:
         msg = "a supplied setting is not a setting of the answer, or the graph already holds it"
         raise ExportError(msg, names=", ".join(unknown + held_too))
+    for name, (value, unit) in sorted(supplied.items()):
+        problem = setting_problem(name, value, unit)
+        if problem is not None:
+            msg = f"the supplied setting {name!r} is refused: {problem}"
+            raise ExportError(msg, names=name)
     absent = tuple(n for n in file.graph_names() if n not in found)
     if absent:
         return Export(
@@ -648,7 +663,7 @@ def _export_law(
             **base,  # type: ignore[arg-type]
         )
     try:
-        controller, rows = _law_controller(file, found)
+        controller, verified = _law_controller(file, found, supplied)
     except law_module.LawRefused as exc:
         return Export(
             status="law_unverified",
@@ -667,6 +682,18 @@ def _export_law(
         "files": [],
     }
     raw = _json_bytes(answer)
+    try:
+        parse_answer(raw)
+    except TaskFormatError as exc:
+        # What the file and the graph make is not an answer the scorer can read (a number past
+        # its bound, say): a mapping error, so a refusal here and never a fail there.
+        return Export(
+            status="law_unverified",
+            law_reason="answer_not_valid",
+            law_detail=str(exc),
+            conflicts=conflicts,
+            **base,  # type: ignore[arg-type]
+        )
     read_names = sorted(set(file.graph_names()) | (set(PARAMETERS_V3) & set(found)))
     export = Export(
         status="exported",
@@ -676,8 +703,9 @@ def _export_law(
         conflicts=conflicts,
         left_out=(),
         sha256=hashlib.sha256(raw).hexdigest(),
-        vector_rows=rows,
-        supplied=tuple(sorted(supplied)),
+        vector_rows=verified.rows,
+        law_signals=verified.signals,
+        supplied={n: {"value": v, "unit": u} for n, (v, u) in sorted(supplied.items())},
         **base,  # type: ignore[arg-type]
     )
     _write_new(((record_path(out), _record_bytes(export, out)), (out, raw)))
@@ -685,9 +713,11 @@ def _export_law(
 
 
 def _law_controller(
-    file: law_module.LawFile, found: Mapping[str, tuple[Any, str, tuple[str, ...]]]
-) -> tuple[dict[str, Any], int]:
-    """The answer's controller from the law file and the graph, and the vector rows it reproduced.
+    file: law_module.LawFile,
+    found: Mapping[str, tuple[Any, str, tuple[str, ...]]],
+    supplied: Mapping[str, tuple[float | int, str]],
+) -> tuple[dict[str, Any], law_module.Verified]:
+    """The answer's controller from the law file and the graph, and what its vectors verified.
 
     Raises:
         law_module.LawRefused: the units do not balance, or a vector is not reproduced.
@@ -704,20 +734,27 @@ def _law_controller(
     }
     law_module.check(file, {name: m["unit"] for name, m in coefficients.items()})
     values = {name: float(m["value"]) for name, m in coefficients.items()}
-    rows, mismatch = law_module.reproduce(
+    verified = law_module.verify(
         file,
         values,
         file.vectors,
         period=float(timing["period"]["value"]),
         limit=float(timing["command_limit"]["value"]),
-        full_scale=float(found["pwm_full_scale"][0]),
+        full_scale=float(
+            found["pwm_full_scale"][0]
+            if "pwm_full_scale" in found
+            else supplied["pwm_full_scale"][0]
+        ),
     )
-    if mismatch is not None:
-        raise law_module.LawRefused("vector_not_reproduced", mismatch)
     body = file.model_dump(
         mode="json", include={"memory", "lines", "command"}, exclude_defaults=True
     )
-    return {"structure": LAW_STRUCTURE, **timing, "coefficients": coefficients, **body}, rows
+    return {
+        "structure": LAW_STRUCTURE,
+        **timing,
+        "coefficients": coefficients,
+        **body,
+    }, verified
 
 
 def _json_bytes(body: dict[str, Any]) -> bytes:
@@ -735,6 +772,7 @@ def _record_bytes(export: Export, out: Path) -> bytes:
         "law_commit",
         "law_path",
         "vector_rows",
+        "law_signals",
         "supplied",
     }
     left = set() if export.structure == LAW_STRUCTURE else law_fields

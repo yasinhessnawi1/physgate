@@ -427,3 +427,285 @@ def test_a_version_3_native_controller_needs_its_scales_and_a_file_is_named_once
     with pytest.raises(TaskFormatError) as twice:
         _answer().parse_answer(json.dumps(document).encode())
     assert "twice" in str(twice.value)
+
+
+# ── the vectors must demand something of the law (law.verify) ───────────────────────────────
+
+
+def _two_term_law(extra: list[dict[str, Any]] | None = None) -> Any:
+    """``command = a·tilt_rate + b·wheel_angle`` (and ``extra`` terms): no memory."""
+    terms = [
+        {"sign": 1, "coefficients": ["a"], "of": "tilt_rate"},
+        {"sign": 1, "coefficients": ["b"], "of": "wheel_angle"},
+        *(extra or []),
+    ]
+    return _law().Body.model_validate_json(
+        json.dumps(
+            {
+                "memory": [],
+                "lines": [{"name": "command", "unit": "1", "terms": terms}],
+                "command": "command",
+            }
+        )
+    )
+
+
+def _rows_of(count: int, angle_step: float, values: dict[str, float], **more: float) -> Any:
+    """One vector of ``count`` rows whose honest duty is ``a·rate + b·angle`` at ``values``."""
+    rows = []
+    for n in range(1, count + 1):
+        rate, angle = 0.1 * n, angle_step * n
+        duty = (
+            values["a"] * rate
+            + values["b"] * angle
+            + sum(values.get(k, 0.0) * v * n for k, v in more.items())
+        )
+        rows.append(
+            {
+                "tilt_rate": rate,
+                "wheel_angle": angle,
+                **{k: v * n for k, v in more.items()},
+                "duty": duty,
+                "counts": round(duty * 400),
+            }
+        )
+    return (_law().Vector.model_validate_json(json.dumps({"name": "ramp", "rows": rows})),)
+
+
+def _verify(body: Any, values: dict[str, float], vectors: Any) -> Any:
+    return _law().verify(body, values, vectors, period=0.01, limit=0.9425, full_scale=400.0)
+
+
+VALUES = {"a": 0.5, "b": 0.4}
+
+
+def test_ten_rows_that_exercise_and_pin_a_law_are_enough_and_nine_are_not() -> None:
+    body = _two_term_law()
+    verified = _verify(body, VALUES, _rows_of(10, 0.01, VALUES))
+    assert verified.rows == 10
+    assert verified.signals == ("tilt_rate", "wheel_angle")
+    assert _law().MIN_ROWS == 10
+    with pytest.raises(_law().LawRefused) as caught:
+        _verify(body, VALUES, _rows_of(9, 0.01, VALUES))
+    assert caught.value.code == "vectors_too_few"
+    assert "9 rows" in caught.value.detail
+
+
+@pytest.mark.parametrize(
+    ("angle_step", "pinned"),
+    [
+        # b·angle at the last row is 0.4·10·step; 2 % of it must be above the duty tolerance 1e-5.
+        (1.5e-4, True),
+        (1.0e-4, False),
+    ],
+)
+def test_a_coefficient_is_pinned_when_two_percent_of_it_moves_a_row_past_the_tolerance(
+    angle_step: float, pinned: bool
+) -> None:
+    body = _two_term_law()
+    vectors = _rows_of(10, angle_step, VALUES)
+    if pinned:
+        assert _verify(body, VALUES, vectors).rows == 10
+        return
+    with pytest.raises(_law().LawRefused) as caught:
+        _verify(body, VALUES, vectors)
+    assert caught.value.code == "vectors_do_not_pin"
+    assert "the coefficient 'b'" in caught.value.detail
+    assert "term 2 of line 'command'" in caught.value.detail
+    assert "the coefficient 'a'" not in caught.value.detail
+
+
+def test_a_term_on_a_signal_no_row_sets_is_not_exercised_and_the_signal_is_named() -> None:
+    extra = [{"sign": 1, "coefficients": ["c"], "of": "wheel_speed"}]
+    body = _two_term_law(extra)
+    with pytest.raises(_law().LawRefused) as caught:
+        _verify(body, {**VALUES, "c": 0.3}, _rows_of(10, 0.01, VALUES))
+    assert caught.value.code == "vectors_do_not_exercise"
+    assert "wheel_speed" in caught.value.detail
+
+
+def test_a_term_whose_coefficient_is_zero_is_exercised_by_its_signal_and_not_moved() -> None:
+    extra = [{"sign": 1, "coefficients": ["c"], "of": "wheel_speed"}]
+    values = {**VALUES, "c": 0.0}
+    vectors = _rows_of(10, 0.01, values, wheel_speed=0.05)
+    assert _verify(_two_term_law(extra), values, vectors).signals == (
+        "tilt_rate",
+        "wheel_angle",
+        "wheel_speed",
+    )
+
+
+def test_a_memory_state_no_term_reads_is_named() -> None:
+    body = _law().Body.model_validate_json(
+        json.dumps(
+            {
+                "memory": [{"name": "dead", "unit": "1", "next": "dead_now"}],
+                "lines": [
+                    {
+                        "name": "dead_now",
+                        "unit": "1",
+                        "terms": [{"sign": 1, "coefficients": ["a"], "of": "tilt_rate"}],
+                    },
+                    {
+                        "name": "command",
+                        "unit": "1",
+                        "terms": [
+                            {"sign": 1, "coefficients": ["a"], "of": "tilt_rate"},
+                            {"sign": 1, "coefficients": ["b"], "of": "wheel_angle"},
+                        ],
+                    },
+                ],
+                "command": "command",
+            }
+        )
+    )
+    with pytest.raises(_law().LawRefused) as caught:
+        _verify(body, VALUES, _rows_of(10, 0.01, VALUES))
+    assert caught.value.code == "vectors_do_not_exercise"
+    assert "the memory state 'dead' is read by no term" in caught.value.detail
+
+
+@pytest.mark.parametrize(
+    ("duty", "expected"),
+    [
+        (0.00125, 1),  # half a count rounds away from 0
+        (-0.00125, -1),
+        (0.001, 0),
+        (-0.001, 0),
+        (2.0, 360),  # held to the limit first: 0.9 of 400
+        (-2.0, -360),
+    ],
+)
+def test_the_command_is_held_to_its_limit_then_rounded_to_whole_counts_half_away_from_zero(
+    duty: float, expected: int
+) -> None:
+    assert _law().counts(duty, 0.9, 400.0) == expected
+
+
+# ── the modes a law holds at exactly 1, decided from its lines ──────────────────────────────
+
+
+def _held_body(
+    memory: list[tuple[str, str]], lines: list[dict[str, Any]], command: list[Any]
+) -> Any:
+    return _law().Body.model_validate_json(
+        json.dumps(
+            {
+                "memory": [{"name": n, "unit": "1", "next": nxt} for n, nxt in memory],
+                "lines": [*lines, {"name": "command", "unit": "1", "terms": command}],
+                "command": "command",
+            }
+        )
+    )
+
+
+def _carry(name: str, coefficient: str) -> dict[str, Any]:
+    """``name_now = coefficient · previous.name``: a state that carries itself and nothing else."""
+    return {
+        "name": f"{name}_now",
+        "unit": "1",
+        "terms": [{"sign": 1, "coefficients": [coefficient], "of": f"previous.{name}"}],
+    }
+
+
+GAINS = [{"sign": 1, "coefficients": ["g"], "of": "wheel_angle"}]
+
+
+def test_a_state_that_carries_itself_exactly_is_held_and_one_that_almost_does_is_not() -> None:
+    body = _held_body([("z", "z_now")], [_carry("z", "pole")], GAINS)
+    held = _law().held_modes(body, {"pole": 1.0, "g": 0.3}, period=0.01)
+    assert held == ((0.0, 1.0),)
+    for pole in (1.0 + 1e-12, 1.0 - 1e-12, 1.001, 0.999):
+        assert _law().held_modes(body, {"pole": pole, "g": 0.3}, period=0.01) == ()
+
+
+def test_a_large_coefficient_elsewhere_does_not_widen_what_is_held() -> None:
+    lines = [
+        _carry("z", "pole"),
+        {
+            "name": "loud_now",
+            "unit": "1",
+            "terms": [{"sign": 1, "coefficients": ["big"], "of": "tilt"}],
+        },
+    ]
+    body = _held_body([("z", "z_now"), ("q", "loud_now")], lines, GAINS)
+    values = {"pole": 1.0 + 1e-6, "g": 0.3, "big": 1e6}
+    assert _law().held_modes(body, values, period=0.01) == ()
+    assert len(_law().held_modes(body, {**values, "pole": 1.0}, period=0.01)) == 1
+
+
+def test_a_command_fed_integrator_is_held_only_when_the_command_does_not_read_it() -> None:
+    lines = [
+        {
+            "name": "total_now",
+            "unit": "1",
+            "terms": [
+                {"sign": 1, "of": "previous.total"},
+                {"sign": 1, "of": "wheel_angle"},
+            ],
+        }
+    ]
+    reads = [*GAINS, {"sign": 1, "coefficients": ["ki"], "of": "previous.total"}]
+    for ki in (1e-6, -1e-6, 1e-12):
+        body = _held_body([("total", "total_now")], lines, reads)
+        assert _law().held_modes(body, {"g": 0.3, "ki": ki}, period=0.01) == ()
+
+
+def test_a_sum_the_updates_conserve_is_held_once_not_per_state() -> None:
+    lines = [
+        {
+            "name": f"{name}_now",
+            "unit": "1",
+            "terms": [
+                {"sign": 1, "coefficients": ["half"], "of": "previous.left"},
+                {"sign": 1, "coefficients": ["half"], "of": "previous.right"},
+            ],
+        }
+        for name in ("left", "right")
+    ]
+    body = _held_body([("left", "left_now"), ("right", "right_now")], lines, GAINS)
+    (mode,) = _law().held_modes(body, {"half": 0.5, "g": 0.3}, period=0.01)
+    assert mode == (0.0, 1.0, 1.0)
+
+
+def test_the_travel_alone_is_never_returned_and_a_law_with_no_memory_holds_nothing() -> None:
+    # No term reads the wheel angle, so the plant's travel is a mode at 1 with no memory in it.
+    reads = [{"sign": 1, "coefficients": ["g"], "of": "tilt"}]
+    body = _held_body([("z", "z_now")], [_carry("z", "pole")], reads)
+    assert _law().held_modes(body, {"pole": 1.0, "g": 0.3}, period=0.01) == ((0.0, 1.0),)
+    stateless = _held_body([], [], reads)
+    assert _law().held_modes(stateless, {"g": 0.3}, period=0.01) == ()
+    only = _held_body([("z", "z_now")], [_carry("z", "pole")], reads)
+    assert _law().held_modes(only, {"pole": 0.5, "g": 0.3}, period=0.01) == ()
+
+
+def test_the_velocity_form_s_offset_has_the_wheel_angle_in_it() -> None:
+    # angle[k] = angle[k-1] + T·rate; command = angle_gain·angle[k] + wheel_gain·wheel_angle:
+    # (wheel angle β, angle m) with wheel_gain·β + angle_gain·m = 0 is held.
+    lines = [
+        {
+            "name": "angle_now",
+            "unit": "1",
+            "terms": [
+                {"sign": 1, "of": "previous.angle"},
+                {"sign": 1, "coefficients": ["period"], "of": "tilt_rate"},
+            ],
+        }
+    ]
+    command = [
+        {"sign": 1, "coefficients": ["angle_gain"], "of": "line.angle_now"},
+        {"sign": 1, "coefficients": ["wheel_gain"], "of": "wheel_angle"},
+    ]
+    body = _held_body([("angle", "angle_now")], lines, command)
+    (mode,) = _law().held_modes(body, {"angle_gain": 2.0, "wheel_gain": 0.5}, period=0.01)
+    beta, memory = mode
+    assert 0.5 * beta + 2.0 * memory == pytest.approx(0.0, abs=1e-15)
+    assert beta != 0.0 and memory != 0.0
+
+
+def test_a_variable_with_a_trailing_newline_is_not_one_variable() -> None:
+    document = _file()
+    next(x for x in document["lines"] if x["name"] == "command")["terms"][0]["of"] = "tilt\n"
+    with pytest.raises(_law().LawRefused) as caught:
+        _law().parse_file(json.dumps(document).encode())
+    assert caught.value.code == "nonlinear"

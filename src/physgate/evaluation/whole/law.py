@@ -43,7 +43,9 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from fractions import Fraction
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -96,7 +98,9 @@ class LawRefused(Exception):  # noqa: N818 - a refusal by name, not an error of 
     """The description cannot be used, for the reason named by ``code``.
 
     ``code`` is one of ``malformed``, ``nonlinear``, ``out_of_scope``, ``units_do_not_balance``,
-    ``coefficient_not_held`` and ``vector_not_reproduced``; ``detail`` says what, in words.
+    ``coefficient_not_held``, ``vector_not_reproduced``, ``vectors_too_few``,
+    ``vectors_do_not_exercise``, ``vectors_do_not_pin`` and ``answer_not_valid``; ``detail`` says
+    what, in words.
     """
 
     def __init__(self, code: str, detail: str) -> None:
@@ -190,7 +194,7 @@ class Body(_Frozen):
 
 
 #: What a term's ``of`` may be written as: a bare name, or ``previous.`` or ``line.`` and a name.
-_OF = re.compile(r"^(?:(previous|line)\.)?([a-z][a-z0-9_]*)$")
+_OF = re.compile(r"(?:(previous|line)\.)?([a-z][a-z0-9_]*)")
 
 
 def scope(raw: object) -> None:
@@ -220,7 +224,7 @@ def scope(raw: object) -> None:
             of = term.get("of")
             if not isinstance(of, str):
                 continue
-            found = _OF.match(of)
+            found = _OF.fullmatch(of)
             if found is None:
                 msg = f"line {line.get('name')!r} reads {of!r}, which is not one variable"
                 raise LawRefused("nonlinear", msg)
@@ -294,7 +298,7 @@ def _known(units: Mapping[str, str], name: str, line: str) -> Dimension:
 def _variable(
     of: str, memory: Mapping[str, Memory], lines: Mapping[str, Line], line: str
 ) -> Dimension:
-    found = _OF.match(of)
+    found = _OF.fullmatch(of)
     if found is None:
         msg = f"line {line!r} reads {of!r}, which is not one variable"
         raise LawRefused("nonlinear", msg)
@@ -340,27 +344,69 @@ def evaluate(
     period: float,
     state: Mapping[str, float],
     signals: Mapping[str, float],
+    scaled: tuple[str, int, float] | None = None,
+    seen: set[tuple[str, int]] | None = None,
 ) -> tuple[float, dict[str, float]]:
     """One update: the command before any limit, and each memory state's next value.
 
     ``values`` holds each coefficient's number as the graph holds it; ``state`` each memory
     state before the update, ``signals`` each signal this update (a missing one is 0).
+    ``scaled`` is ``(line, term, factor)``: that term's value times ``factor``, for the vector
+    check's perturbation; ``seen`` collects each ``(line, term)`` whose variable was not zero.
     """
     coefficients = _coefficients(values, period)
     lines: dict[str, float] = {}
     for line in body.lines:
         total = 0.0
-        for term in line.terms:
-            kind, name = _OF.match(term.of).groups()  # type: ignore[union-attr]
+        for at, term in enumerate(line.terms):
+            kind, name = _OF.fullmatch(term.of).groups()  # type: ignore[union-attr]
             if kind is None:
                 variable = signals.get(name, 0.0)
             elif kind == "previous":
                 variable = state[name]
             else:
                 variable = lines[name]
-            total += _term(term, coefficients, [variable])[0]
+            if seen is not None and variable != 0.0:
+                seen.add((line.name, at))
+            contribution = _term(term, coefficients, [variable])[0]
+            if scaled is not None and scaled[:2] == (line.name, at):
+                contribution *= scaled[2]
+            total += contribution
         lines[line.name] = total
     return lines[body.command], {m.name: lines[m.next] for m in body.memory}
+
+
+def _rows[N: (float, Fraction)](
+    body: Body, coefficients: Mapping[str, N], number: Callable[[float], N]
+) -> tuple[list[list[N]], list[N]]:
+    """Each memory state's next value and the command, as rows over (previous memory, inputs).
+
+    ``number`` is ``float`` for the loop's matrices and ``Fraction`` for the exact ones the held
+    modes are decided on: the same lines, the same order, the same arithmetic in either.
+    """
+    n, k = len(body.memory), len(LOOP_SIGNALS)
+    zero, one = number(0.0), number(1.0)
+    basis: dict[str, list[N]] = {}
+    for i, m in enumerate(body.memory):
+        basis[f"previous.{m.name}"] = [one if j == i else zero for j in range(n + k)]
+    for i, name in enumerate(LOOP_SIGNALS):
+        basis[name] = [one if j == n + i else zero for j in range(n + k)]
+    basis["wheel_reference"] = [zero] * (n + k)
+    for line in body.lines:
+        row = [zero] * (n + k)
+        for term in line.terms:
+            found = _OF.fullmatch(term.of)
+            assert found is not None  # held by check()
+            kind, name = found.groups()
+            key = name if kind is None else f"{kind}.{name}"
+            scale = number(float(term.sign)) * number(float(term.number))
+            for factor in term.coefficients:
+                scale = scale * coefficients[factor]
+            for factor in term.per:
+                scale = scale / coefficients[factor]
+            row = [a + scale * b for a, b in zip(row, basis[key], strict=True)]
+        basis[f"line.{line.name}"] = row
+    return [basis[f"line.{m.next}"] for m in body.memory], basis[f"line.{body.command}"]
 
 
 def linear(
@@ -378,31 +424,103 @@ def linear(
     The inputs are :data:`LOOP_SIGNALS`, the reference being zero. Exact for a linear law: each
     variable is carried as its row over (the previous memory, the inputs).
     """
-    n, k = len(body.memory), len(LOOP_SIGNALS)
-    coefficients = _coefficients(values, period)
-    basis: dict[str, list[float]] = {}
-    for i, m in enumerate(body.memory):
-        basis[f"previous.{m.name}"] = [1.0 if j == i else 0.0 for j in range(n + k)]
-    for i, name in enumerate(LOOP_SIGNALS):
-        basis[name] = [1.0 if j == n + i else 0.0 for j in range(n + k)]
-    basis["wheel_reference"] = [0.0] * (n + k)
-    for line in body.lines:
-        row = [0.0] * (n + k)
-        for term in line.terms:
-            found = _OF.match(term.of)
-            assert found is not None  # held by check()
-            kind, name = found.groups()
-            key = name if kind is None else f"{kind}.{name}"
-            row = [a + b for a, b in zip(row, _term(term, coefficients, basis[key]), strict=True)]
-        basis[f"line.{line.name}"] = row
-    rows = [basis[f"line.{m.next}"] for m in body.memory]
-    command = basis[f"line.{body.command}"]
+    n = len(body.memory)
+    rows, command = _rows(body, _coefficients(values, period), float)
     return (
         tuple(tuple(r[:n]) for r in rows),
         tuple(tuple(r[n:]) for r in rows),
         tuple(command[:n]),
         tuple(command[n:]),
     )
+
+
+def held_modes(
+    body: Body, values: Mapping[str, float], *, period: float
+) -> tuple[tuple[float, ...], ...]:
+    """The modes the law itself holds at exactly 1 whatever the gain: its structure, not a window.
+
+    A mode is *held by the law's structure* when, with the plant at rest but for the wheels'
+    angle ``β`` (the travel, the plant's one pole at 1) and the memory at some ``m``, one update
+    gives the command 0 and gives the same memory back::
+
+        D_w·β + C·m = 0        B_w·β + (A - I)·m = 0
+
+    ``A, B, C, D`` are the law's matrices (:func:`linear`), ``D_w`` and ``B_w`` the column that
+    reads the wheel angle. Then ``(β, m)`` is held at every gain: the command that would move the
+    plant is 0 and nothing changes. The two equations are solved in exact rational arithmetic on
+    the numbers the law has (a float is one exact rational), so a mode is held or it is not,
+    whatever the size of any coefficient in the law and with no tolerance to widen: a memory state
+    that carries itself and nothing else, a sum of states conserved by the updates, the velocity
+    form's offset (the angle estimate's start against the travel it settles to), a state read by
+    nothing. A pole at ``1 + 1e-6``, or a command-fed integrator with a gain of ``1e-6``, is no
+    solution, exactly.
+
+    The solutions that are the plant alone (``m = 0``, which exist only when the law reads the
+    wheel angle nowhere) are the plant's own travel, never set aside; the others are returned,
+    one for each independent memory part, each as ``(β, m_1, .., m_n)`` scaled to its largest
+    entry 1. The travel and a memory-only mode can be in one space; only the second is returned.
+    """
+    n = len(body.memory)
+    if n == 0:
+        return ()
+    rows, command = _rows(
+        body, {k: Fraction(v) for k, v in _coefficients(values, period).items()}, Fraction
+    )
+    wheel = n + LOOP_SIGNALS.index("wheel_angle")
+    stacked = [[command[wheel], *command[:n]]]
+    for i, row in enumerate(rows):
+        stacked.append([row[wheel], *(row[j] - (1 if i == j else 0) for j in range(n))])
+    chosen: list[list[Fraction]] = []
+    memory_parts: list[list[Fraction]] = []
+    for vector in _null_space(stacked):
+        part = vector[1:]
+        if _rank([*memory_parts, part]) > len(memory_parts):
+            memory_parts.append(part)
+            chosen.append(vector)
+    out = []
+    for vector in chosen:
+        top = max(abs(x) for x in vector)
+        out.append(tuple(float(x / top) for x in vector))
+    return tuple(out)
+
+
+def _echelon(rows: list[list[Fraction]]) -> tuple[list[list[Fraction]], list[int]]:
+    """``rows`` reduced to row echelon form over the rationals, with the pivot columns."""
+    reduced = [list(r) for r in rows]
+    pivots: list[int] = []
+    at = 0
+    for col in range(len(reduced[0]) if reduced else 0):
+        found = next((r for r in range(at, len(reduced)) if reduced[r][col] != 0), None)
+        if found is None:
+            continue
+        reduced[at], reduced[found] = reduced[found], reduced[at]
+        lead = reduced[at][col]
+        reduced[at] = [x / lead for x in reduced[at]]
+        for r in range(len(reduced)):
+            if r != at and reduced[r][col] != 0:
+                factor = reduced[r][col]
+                reduced[r] = [a - factor * b for a, b in zip(reduced[r], reduced[at], strict=True)]
+        pivots.append(col)
+        at += 1
+    return reduced, pivots
+
+
+def _rank(rows: list[list[Fraction]]) -> int:
+    return len(_echelon(rows)[1])
+
+
+def _null_space(rows: list[list[Fraction]]) -> list[list[Fraction]]:
+    """A basis of the vectors ``x`` with ``rows · x = 0``, exactly."""
+    reduced, pivots = _echelon(rows)
+    width = len(rows[0])
+    basis = []
+    for free in (c for c in range(width) if c not in pivots):
+        vector = [Fraction(0)] * width
+        vector[free] = Fraction(1)
+        for r, col in enumerate(pivots):
+            vector[col] = -reduced[r][free]
+        basis.append(vector)
+    return basis
 
 
 def counts(duty: float, limit: float, full_scale: float) -> int:
@@ -426,6 +544,8 @@ def reproduce(
     period: float,
     limit: float,
     full_scale: float,
+    scaled: tuple[str, int, float] | None = None,
+    seen: set[tuple[str, int]] | None = None,
 ) -> tuple[int, str | None]:
     """How many rows of ``vectors`` the law reproduces, and the first that it does not.
 
@@ -433,14 +553,22 @@ def reproduce(
     A row holds when the duty before the limit and each named memory state are within
     :data:`DUTY_TOLERANCE` and the command, held to the limit and rounded to whole counts of
     ``full_scale``, within :data:`COUNT_TOLERANCE`. A state marked applied then holds that
-    command as applied.
+    command as applied. ``scaled`` and ``seen`` are :func:`evaluate`'s.
     """
     checked = 0
     for vector in vectors:
         state = {m.name: vector.start.get(m.name, 0.0) for m in body.memory}
         for at, row in enumerate(vector.rows, 1):
             signals = {name: getattr(row, name) for name in SIGNALS}
-            duty, following = evaluate(body, values, period=period, state=state, signals=signals)
+            duty, following = evaluate(
+                body,
+                values,
+                period=period,
+                state=state,
+                signals=signals,
+                scaled=scaled,
+                seen=seen,
+            )
             command = counts(duty, limit, full_scale)
             where = f"vector {vector.name!r}, update {at}"
             if not abs(duty - row.duty) <= DUTY_TOLERANCE:
@@ -459,6 +587,155 @@ def reproduce(
             }
             checked += 1
     return checked, None
+
+
+#: The fewest rows the test vectors may have in all. Chosen: a law of the size this kit's
+#: controllers have (six numbers, three memory states) is first seen working only from the
+#: second update of a vector, and ten is a floor that every honest set in hand clears three
+#: times over (the recorded design's has 30 and its note states 41), while one row, or the few
+#: a hand writes to look as if it checked, cannot. It is the floor; what the rows must do is
+#: :func:`verify`'s other rules, not their number.
+MIN_ROWS = 10
+#: The relative change by which a term, or a coefficient in all its terms, is moved to see
+#: whether the vectors notice: both up and down by this much must make a vector miss. Chosen:
+#: 2 % moves the recorded design's phase margin by at most 1.4 degrees and its upward gain
+#: margin by at most 0.11 of 5.17 (any one coefficient, either way); it is twice the loosest
+#: pin that design's vectors hold (one coefficient, 1.0 %), so that design passes it with room.
+PIN_RELATIVE = 0.02
+#: The most term evaluations the vector check may make, so a crafted file cannot cost hours.
+MAX_CHECK_WORK = 50_000_000
+
+
+@dataclass(frozen=True)
+class Verified:
+    """What the vectors verified: the rows reproduced and the signals the law reads."""
+
+    rows: int
+    signals: tuple[str, ...]
+
+
+def signals_read(body: Body) -> tuple[str, ...]:
+    """The signals some term of ``body`` reads, in the closed list's order."""
+    named = set()
+    for line in body.lines:
+        for term in line.terms:
+            found = _OF.fullmatch(term.of)
+            if found is not None and found.group(1) is None:
+                named.add(found.group(2))
+    return tuple(name for name in SIGNALS if name in named)
+
+
+def _where(line: Line, at: int) -> str:
+    term = line.terms[at]
+    sign = "-" if term.sign < 0 else "+"
+    factors = "*".join(term.coefficients) or "1"
+    divide = "".join(f"/{name}" for name in term.per)
+    return f"term {at + 1} of line {line.name!r} ({sign}{factors}{divide} * {term.of})"
+
+
+def verify(
+    body: Body,
+    values: Mapping[str, float],
+    vectors: tuple[Vector, ...],
+    *,
+    period: float,
+    limit: float,
+    full_scale: float,
+) -> Verified:
+    """Hold ``body`` to its vectors, and the vectors to what they must demand of it.
+
+    The rules, each a refusal by its name, in this order:
+
+    - ``vectors_too_few``: fewer than :data:`MIN_ROWS` rows in all;
+    - ``vector_not_reproduced``: a row the law does not reproduce (:func:`reproduce`);
+    - ``vectors_do_not_exercise``: a term whose variable is zero at every update of every
+      vector (a signal no row sets, a memory state that is never not zero, a line that is
+      always zero), or a memory state no term reads: the vectors say nothing of it, so a
+      number on it could be anything;
+    - ``vectors_do_not_pin``: a term, or a coefficient in all its terms, that can be moved by
+      :data:`PIN_RELATIVE`, up and down, with every row still reproduced: the vectors cannot
+      tell its number from another within that, so they do not pin it. A term or coefficient
+      whose value is 0 is exercised but not moved (nothing is 2 % of 0).
+
+    Every refusal names what is missing or loose, and none depends on a tolerance that grows with
+    a coefficient: the rows' own tolerances are absolute, and a number that the rows are blind
+    to, as a small signal is to a large tolerance, is what the last rule finds.
+
+    Raises:
+        LawRefused: by one of the codes above.
+    """
+    total = sum(len(v.rows) for v in vectors)
+    if total < MIN_ROWS:
+        msg = (
+            f"the vectors have {total} row{'s' if total != 1 else ''} in all; at least "
+            f"{MIN_ROWS} are required, since fewer cannot exercise a law's signals and memory"
+        )
+        raise LawRefused("vectors_too_few", msg)
+    checked, mismatch = reproduce(
+        body, values, vectors, period=period, limit=limit, full_scale=full_scale
+    )
+    if mismatch is not None:
+        raise LawRefused("vector_not_reproduced", mismatch)
+    terms = sum(len(line.terms) for line in body.lines)
+    coefficients = sorted(
+        {n for line in body.lines for t in line.terms for n in (*t.coefficients, *t.per)}
+    )
+    if (2 * (terms + len(coefficients)) + 1) * total * terms > MAX_CHECK_WORK:
+        msg = "the law and its vectors are too large for the vectors to be checked"
+        raise LawRefused("malformed", msg)
+    seen: set[tuple[str, int]] = set()
+    reproduce(body, values, vectors, period=period, limit=limit, full_scale=full_scale, seen=seen)
+    silent = [
+        f"{_where(line, at)} reads {term.of!r}, which is zero at every update of every vector"
+        for line in body.lines
+        for at, term in enumerate(line.terms)
+        if (line.name, at) not in seen
+    ]
+    read = {t.of.removeprefix("previous.") for line in body.lines for t in line.terms}
+    silent += [
+        f"the memory state {m.name!r} is read by no term" for m in body.memory if m.name not in read
+    ]
+    if silent:
+        raise LawRefused("vectors_do_not_exercise", "; ".join(silent))
+
+    def notices(held: Mapping[str, float], scaled: tuple[str, int, float] | None) -> bool:
+        return (
+            reproduce(
+                body,
+                held,
+                vectors,
+                period=period,
+                limit=limit,
+                full_scale=full_scale,
+                scaled=scaled,
+            )[1]
+            is not None
+        )
+
+    loose = []
+    for name in coefficients:
+        if values.get(name, 0.0) == 0.0:
+            continue
+        both = [
+            notices({**values, name: values[name] * (1 + sign * PIN_RELATIVE)}, None)
+            for sign in (1, -1)
+        ]
+        if not all(both):
+            loose.append(f"the coefficient {name!r}")
+    for line in body.lines:
+        for at, term in enumerate(line.terms):
+            if any(values.get(n, 0.0) == 0.0 for n in term.coefficients):
+                continue
+            both = [notices(values, (line.name, at, 1 + sign * PIN_RELATIVE)) for sign in (1, -1)]
+            if not all(both):
+                loose.append(_where(line, at))
+    if loose:
+        msg = (
+            f"the vectors do not pin {'; '.join(loose)}: changed by {PIN_RELATIVE:.0%} up or "
+            "down, every row is still reproduced"
+        )
+        raise LawRefused("vectors_do_not_pin", msg)
+    return Verified(rows=checked, signals=signals_read(body))
 
 
 # ── the file ────────────────────────────────────────────────────────────────────────────────

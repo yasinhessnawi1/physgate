@@ -21,9 +21,11 @@ not searched, so a margin that dips between corners is not seen.
 **Outcomes.** ``fail`` when any headline spec fails; otherwise ``unscored`` when any headline
 spec could not be judged; ``pass`` only when every headline spec passes. ``unscored`` is never
 ``fail``. An answer that is not a whole-run answer fails, with its reason; it is never an
-error of the scorer. Nor is an answer the analysis cannot compute with, or one whose analysis
-would cost more than :data:`MAX_WORK`: each fails as a named ``refusal``, the work bound
-decided before any of the work is done.
+error of the scorer. A sampled law that is not linear (``nonlinear``) or reads a signal outside
+the closed list (``out_of_scope``) is the exception: the scorer cannot judge it, so it is
+``unscored`` with a ``refusal`` of that name, never a fail. Nor is an answer the analysis cannot
+compute with, or one whose analysis would cost more than :data:`MAX_WORK`: each fails as a
+named ``refusal``, the work bound decided before any of the work is done.
 
 **The plant judged on.** The scenario judges on a frozen plant (one of
 :data:`~physgate.evaluation.whole.plant.FROZEN_PLANTS`, by digest) unless it is told it judges a
@@ -56,6 +58,7 @@ from physgate.evaluation.tiers.task import COMPOSES_AT_LEAST, Spec, TaskId
 from physgate.evaluation.whole import loop as loop_module
 from physgate.evaluation.whole.answer import (
     Answer,
+    OutsideScope,
     SampledLaw,
     read_answer,
 )
@@ -179,15 +182,19 @@ def _static(answer: Answer, metric: str) -> tuple[float | None, str | None]:
             "the firmware's and the analysed controller are written in different structures; "
             "coefficients are compared as written, never through a conversion"
         )
-    if (
-        isinstance(c, SampledLaw)
-        and isinstance(analysed, SampledLaw)
-        and set(c.coefficients) != set(analysed.coefficients)
-    ):
-        return None, (
-            "the firmware's and the analysed law name different coefficients; they are "
-            "compared as written, never through a conversion"
-        )
+    if isinstance(c, SampledLaw) and isinstance(analysed, SampledLaw):
+        # For a law the structure is its lines: two laws with the same coefficient names and
+        # numbers and different lines are two controllers, and no number says they are one.
+        if (c.memory, c.lines, c.command) != (analysed.memory, analysed.lines, analysed.command):
+            return None, (
+                "the firmware's and the analysed law differ in their lines (their memory, their "
+                "terms or their command); laws are compared as written, never through a conversion"
+            )
+        if set(c.coefficients) != set(analysed.coefficients):
+            return None, (
+                "the firmware's and the analysed law name different coefficients; they are "
+                "compared as written, never through a conversion"
+            )
     pairs = zip(coefficients(c), coefficients(analysed), strict=True)
     return max(_relative(float(a[1]), float(b[1])) for a, b in pairs), None
 
@@ -273,6 +280,13 @@ class WholeDesignScenario:
         }
         try:
             read = read_answer(answer, root=self._root)
+        except OutsideScope as exc:
+            # A law that is not linear, or reads a signal outside the closed list, is refused by
+            # name: the scorer cannot judge it, which is no verdict on the design.
+            record.update(answer_valid=False, reason=str(exc))
+            record.update(refusal={"name": exc.name, "reason": str(exc)})
+            record.update(specs=[], outcome="unscored")
+            return record
         except TaskFormatError as exc:
             record.update(answer_valid=False, reason=str(exc), specs=[], outcome="fail")
             return record
