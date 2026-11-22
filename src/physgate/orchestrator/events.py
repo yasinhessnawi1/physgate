@@ -251,6 +251,12 @@ class RunStarted(_Event):
     #: ended without a merge; replay refuses such a dispatch. Left out of every other run, so a
     #: line written before the rule keeps its bytes and replays as it did.
     closing_wait: Literal["hold"] | None = None
+    #: ``release`` in a run that acts on decisions and was started under the rule that a hold on
+    #: a producer is let go when the producer cannot end before the held subtask runs (it waits,
+    #: through a chain of builder and reader holds, for the held subtask itself, or is held for
+    #: good); replay refuses such a dispatch with no release line. Left out of every other run, so
+    #: a line written before the rule keeps its bytes and replays as it did.
+    wait_cycle: Literal["release"] | None = None
     #: The digest of the version of the sign-off rule table the run started under, written by
     #: code on every run started since the table existed, never by a parameter: which modules owe
     #: a person's sign-off before they are complete (ARCH-130). Left out of a run started before
@@ -271,6 +277,7 @@ class RunStarted(_Event):
             "ablation",
             "producer_wait",
             "closing_wait",
+            "wait_cycle",
             "sign_offs",
         ):
             if getattr(self, absent) is None:
@@ -1154,14 +1161,28 @@ class DispatchHeld(_Event):
 #: ``waits_for_closing_pass``: a person chose the producer's value in a dispute, and its attempt
 #: waits for sizing's closing pass, which comes after the subtask. ``mutual_readers``: the two
 #: read from each other, so the subtask is dispatched with the producer waiting, and never held.
-ReleasedHow = Literal["merged", "ended_unmerged", "waits_for_closing_pass", "mutual_readers"]
+#: ``producer_waits_for_reader``: the producer cannot end before the subtask runs, since its own
+#: dispatch waits, through a chain of builder and reader holds, for the subtask itself; so the
+#: subtask runs without it, and where no hold stood none was written. ``producer_held_for_good``:
+#: the producer is a builder no decision of the run can let go any more, so it never ends, and the
+#: subtask runs without it. Both only in a run started under the ``wait_cycle`` mark.
+ReleasedHow = Literal[
+    "merged",
+    "ended_unmerged",
+    "waits_for_closing_pass",
+    "mutual_readers",
+    "producer_waits_for_reader",
+    "producer_held_for_good",
+]
 
 
 class DispatchReleased(_Event):
     """A held dispatch let go, or a dispatch not held although its producer waits on a person.
 
-    ``item_id`` is the item the hold named, or for ``mutual_readers`` the item the producer waits
-    on. Every outcome but ``mutual_readers`` closes the one hold of ``subtask_id`` on ``producer``.
+    ``item_id`` is the item the hold named, or where none stood (``mutual_readers``, and the two
+    outcomes of the ``wait_cycle`` rule when no hold was open) the item the producer waits on.
+    Every outcome but ``mutual_readers`` closes the hold of ``subtask_id`` on ``producer`` where
+    one stands.
     """
 
     kind: Literal["dispatch_released"] = "dispatch_released"

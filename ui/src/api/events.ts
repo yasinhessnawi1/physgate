@@ -19,6 +19,8 @@ export const RELEASED_HOW = [
   "ended_unmerged",
   "waits_for_closing_pass",
   "mutual_readers",
+  "producer_waits_for_reader",
+  "producer_held_for_good",
 ] as const;
 
 /** Why a builder is held until the design it implements merges, as the loop writes it. */
