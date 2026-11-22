@@ -14,6 +14,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -31,6 +34,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -48,6 +54,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -65,6 +74,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -82,6 +94,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -99,13 +114,16 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
     "name": "planner_marker_unchecked",
     "file": "src/physgate/orchestrator/decompose.py",
-    "old": "if PLANNER_LIBRARY_BEGIN in text or PLANNER_LIBRARY_END in text:",
-    "new": "if False:",
+    "old": "    return PLANNER_LIBRARY_BEGIN in text or PLANNER_LIBRARY_END in text",
+    "new": "    return False",
     "tests": [
       "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
     ],
@@ -116,6 +134,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -133,6 +154,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -150,6 +174,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -167,6 +194,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -184,6 +214,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -201,13 +234,16 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
     "name": "planner_first_call_without_section",
     "file": "src/physgate/orchestrator/design_rounds.py",
-    "old": "    opening = (\n        None\n        if files is None",
-    "new": "    opening = (\n        None\n        if True",
+    "old": "    opening = None if files is None else built.text",
+    "new": "    opening = None",
     "tests": [
       "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
     ],
@@ -218,6 +254,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -235,13 +274,16 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
     "name": "planner_library_not_recorded",
     "file": "src/physgate/orchestrator/decompose.py",
-    "old": "planner_library=library_files(planner_files) if planner_files else None,",
-    "new": "planner_library=None,",
+    "old": "            planner_library=library_files(planner_files) if planner_files else None,\n            prompt_sha256=outcome.prompt_sha256,\n            prompt_bytes=outcome.prompt_bytes,\n        ),\n        reviewed=reviewed,",
+    "new": "            planner_library=None,\n            prompt_sha256=outcome.prompt_sha256,\n            prompt_bytes=outcome.prompt_bytes,\n        ),\n        reviewed=reviewed,",
     "tests": [
       "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
     ],
@@ -252,6 +294,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -269,13 +314,16 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
     "name": "planner_prompt_digest_not_recorded",
     "file": "src/physgate/orchestrator/decompose.py",
-    "old": "prompt_sha256=outcome.prompt_sha256,\n            prompt_bytes=outcome.prompt_bytes,",
-    "new": "prompt_sha256=None,\n            prompt_bytes=None,",
+    "old": "            prompt_sha256=outcome.prompt_sha256,\n            prompt_bytes=outcome.prompt_bytes,\n        ),\n        reviewed=reviewed,",
+    "new": "            prompt_sha256=None,\n            prompt_bytes=None,\n        ),\n        reviewed=reviewed,",
     "tests": [
       "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
     ],
@@ -286,12 +334,355 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
     "name": "planner_round_prompt_not_recorded",
     "file": "src/physgate/orchestrator/design_rounds.py",
-    "old": "                prompt_sha256=outcome.prompt_sha256,\n                prompt_bytes=outcome.prompt_bytes,",
+    "old": "                prompt_sha256=outcome.prompt_sha256,\n                prompt_bytes=outcome.prompt_bytes,\n            )\n        )\n        follows",
+    "new": "            )\n        )\n        follows",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_ceiling_over_by_one",
+    "file": "src/physgate/orchestrator/decompose.py",
+    "old": "[(library / path).absolute() for path in files], token_ceiling, role=PLANNER_ROLE",
+    "new": "[(library / path).absolute() for path in files], token_ceiling + 1, role=PLANNER_ROLE",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_launch_function_without_library",
+    "file": "src/physgate/orchestrator/decompose.py",
+    "old": "    files = planner_library(library, skills=skills, token_ceiling=token_ceiling)\n    if files is not None and holds_a_marker(brief):",
+    "new": "    files = None\n    if files is not None and holds_a_marker(brief):",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_skills_not_passed",
+    "file": "src/physgate/orchestrator/design_rounds.py",
+    "old": "        skills=config.skills,\n        library=library,",
+    "new": "        skills=\"on\",\n        library=library,",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_ceiling_not_passed",
+    "file": "src/physgate/orchestrator/design_rounds.py",
+    "old": "        token_ceiling=config.token_ceiling,\n    )\n    files = built.files",
+    "new": "        token_ceiling=None,\n    )\n    files = built.files",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_launch_function_composes_its_own_string",
+    "file": "src/physgate/orchestrator/decompose.py",
+    "old": "    return planner_prompt(\n        brief,\n        roles,\n        parts=parts,\n        skills=skills,\n        library=library,\n        token_ceiling=token_ceiling,\n    ).text",
+    "new": "    files = planner_library(library, skills=skills, token_ceiling=token_ceiling)\n    return prompt_for(brief, sorted(roles), parts=parts, library=files)",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_run_composes_its_own_first_prompt",
+    "file": "src/physgate/orchestrator/design_rounds.py",
+    "old": "    opening = None if files is None else built.text",
+    "new": "    opening = (\n        None\n        if files is None\n        else __import__(\n            \"physgate.orchestrator.decompose\", fromlist=[\"prompt_for\"]\n        ).prompt_for(\n            brief,\n            sorted(config.models.roles),\n            parts=config.parts_on_hand == \"on\",\n            library=files,\n        )\n    )",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_brief_marker_unchecked",
+    "file": "src/physgate/orchestrator/decompose.py",
+    "old": "    if files is not None and holds_a_marker(brief):",
+    "new": "    if False:",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_marker_needs_both",
+    "file": "src/physgate/orchestrator/decompose.py",
+    "old": "    return PLANNER_LIBRARY_BEGIN in text or PLANNER_LIBRARY_END in text",
+    "new": "    return PLANNER_LIBRARY_BEGIN in text and PLANNER_LIBRARY_END in text",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_text_without_newline_run_together",
+    "file": "src/physgate/orchestrator/decompose.py",
+    "old": "+ (\"\" if text.endswith(\"\\n\") else \"\\n\")",
+    "new": "+ \"\"",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_text_always_gains_a_newline",
+    "file": "src/physgate/orchestrator/decompose.py",
+    "old": "+ (\"\" if text.endswith(\"\\n\") else \"\\n\")",
+    "new": "+ \"\\n\"",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_retried_digest_not_on_its_line",
+    "file": "src/physgate/orchestrator/record.py",
+    "old": "                    prompt_sha256=again.prompt_sha256,\n                    prompt_bytes=again.prompt_bytes,\n                )",
+    "new": "                )",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_retried_digest_not_taken_without_review",
+    "file": "src/physgate/orchestrator/design_rounds.py",
+    "old": "                    prompt_sha256=outcome.prompt_sha256,\n                    prompt_bytes=outcome.prompt_bytes,\n                ),\n            )\n            outcome = make_call(",
+    "new": "                ),\n            )\n            outcome = make_call(",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_retried_digest_not_taken_with_review",
+    "file": "src/physgate/orchestrator/design_rounds.py",
+    "old": "                    prompt_sha256=refused_first.prompt_sha256,\n                    prompt_bytes=refused_first.prompt_bytes,\n                )\n            )\n            proposals.append(",
+    "new": "                )\n            )\n            proposals.append(",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_refused_first_call_not_in_its_proposal",
+    "file": "src/physgate/orchestrator/design_rounds.py",
+    "old": "                    prompt_sha256=refused_first.prompt_sha256,\n                    prompt_bytes=refused_first.prompt_bytes,\n                )\n            )\n        proposals.append(",
+    "new": "                )\n            )\n        proposals.append(",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_failed_decomposition_names_no_library",
+    "file": "src/physgate/orchestrator/decompose.py",
+    "old": "            planner_library=library_files(planner_files) if planner_files else None,\n            prompt_sha256=outcome.prompt_sha256,\n            prompt_bytes=outcome.prompt_bytes,\n        )\n        record.fail_decomposition(",
+    "new": "            planner_library=None,\n            prompt_sha256=outcome.prompt_sha256,\n            prompt_bytes=outcome.prompt_bytes,\n        )\n        record.fail_decomposition(",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_failed_decomposition_names_no_prompt",
+    "file": "src/physgate/orchestrator/decompose.py",
+    "old": "            planner_library=library_files(planner_files) if planner_files else None,\n            prompt_sha256=outcome.prompt_sha256,\n            prompt_bytes=outcome.prompt_bytes,\n        )\n        record.fail_decomposition(",
+    "new": "            planner_library=library_files(planner_files) if planner_files else None,\n        )\n        record.fail_decomposition(",
+    "tests": [
+      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/replan_rig.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "planner_void_round_names_no_library",
+    "file": "src/physgate/orchestrator/design_rounds.py",
+    "old": "                planner_library=library_files(files) if files else None,",
     "new": "",
     "tests": [
       "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
@@ -303,47 +694,16 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
-    ]
-  },
-  {
-    "name": "planner_ceiling_over_by_one",
-    "file": "src/physgate/orchestrator/decompose.py",
-    "old": "        breach = breach_reason([library / path for path in files], token_ceiling, role=PLANNER_ROLE)",
-    "new": "        breach = breach_reason([library / path for path in files], token_ceiling + 1, role=PLANNER_ROLE)",
-    "tests": [
-      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
     ],
-    "data": [
-      "tests/unit/orchestrator/design_review_rig.py",
-      "tests/unit/orchestrator/journal_helper.py",
-      "tests/unit/orchestrator/loop_fakes.py",
-      "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/orchestrator/replan_rig.py",
-      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    "paths": [
+      "knowledge"
     ]
   },
   {
-    "name": "planner_launch_function_without_library",
-    "file": "src/physgate/orchestrator/decompose.py",
-    "old": "    files = planner_library(library, skills=skills, token_ceiling=token_ceiling)\n    return prompt_for(brief, sorted(roles), parts=parts, library=files)",
-    "new": "    return prompt_for(brief, sorted(roles), parts=parts)",
-    "tests": [
-      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
-    ],
-    "data": [
-      "tests/unit/orchestrator/design_review_rig.py",
-      "tests/unit/orchestrator/journal_helper.py",
-      "tests/unit/orchestrator/loop_fakes.py",
-      "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/orchestrator/replan_rig.py",
-      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
-    ]
-  },
-  {
-    "name": "planner_skills_not_passed",
+    "name": "planner_void_round_names_no_prompt",
     "file": "src/physgate/orchestrator/design_rounds.py",
-    "old": "planner_library(library, skills=config.skills, token_ceiling=config.token_ceiling)",
-    "new": "planner_library(library, skills=\"on\", token_ceiling=config.token_ceiling)",
+    "old": "                prompt_sha256=outcome.prompt_sha256,\n                prompt_bytes=outcome.prompt_bytes,\n                planner_library=library_files(files) if files else None,\n",
+    "new": "                planner_library=library_files(files) if files else None,\n",
     "tests": [
       "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
     ],
@@ -354,13 +714,16 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
-    "name": "planner_ceiling_not_passed",
-    "file": "src/physgate/orchestrator/design_rounds.py",
-    "old": "planner_library(library, skills=config.skills, token_ceiling=config.token_ceiling)",
-    "new": "planner_library(library, skills=config.skills, token_ceiling=None)",
+    "name": "planner_halt_not_given_what_was_sent",
+    "file": "src/physgate/orchestrator/record.py",
+    "old": "                planner_library=named.planner_library,\n                prompt_sha256=named.prompt_sha256,\n                prompt_bytes=named.prompt_bytes,\n",
+    "new": "",
     "tests": [
       "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
     ],
@@ -371,6 +734,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -388,6 +754,9 @@
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   }
 ]

@@ -200,6 +200,16 @@ class PlanReviewed(RoundReview):
     install: ReviewInstall
 
 
+class SentToThePlanner(BaseModel):
+    """What a call was sent: the library files it read and its prompt's digest and length."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    planner_library: tuple[PlannerFile, ...] | None = None
+    prompt_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
+    prompt_bytes: Annotated[int, Field(ge=1)] | None = None
+
+
 class RetriedCall(BaseModel):
     """A round's first call, whose output its schema refused, and so made once more (ARCH-001)."""
 
@@ -208,6 +218,9 @@ class RetriedCall(BaseModel):
     round: Annotated[int, Field(ge=1)]
     call: DecompositionCall
     detail: NonEmptyStr
+    #: The refused call's prompt by its digest and byte length; ``None`` where not recorded.
+    prompt_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
+    prompt_bytes: Annotated[int, Field(ge=1)] | None = None
 
 
 class Proposal(BaseModel):
@@ -630,6 +643,8 @@ class RunRecord:
                     session_id=again.call.session_id,
                     cause=RETRIED_CAUSE,
                     detail=again.detail,
+                    prompt_sha256=again.prompt_sha256,
+                    prompt_bytes=again.prompt_bytes,
                 )
             mine = mine[1:]
         yield from self._spent(call, envelope, mine)
@@ -903,11 +918,27 @@ class RunRecord:
         earlier: Sequence[EarlierRound] = (),
         proposals: Sequence[Proposal] = (),
         retried: Sequence[RetriedCall] = (),
+        *,
+        sent: SentToThePlanner | None = None,
     ) -> None:
-        """Record a run whose last call produced no plan it could start, after ``earlier``."""
+        """Record a run whose last call produced no plan it could start, after ``earlier``.
+
+        ``sent`` is what the failed call was sent: the library's files and its prompt's digest and
+        length; the halt names them, so a failed decomposition says what it was given.
+        """
         self._require_proposals(earlier, proposals, retried)
         self._begin(call, None, earlier, proposals, retried)
-        self.emit(Halted(**self.envelope(), reason="decomposition_failed", detail=detail))
+        named = sent or SentToThePlanner()
+        self.emit(
+            Halted(
+                **self.envelope(),
+                reason="decomposition_failed",
+                detail=detail,
+                planner_library=named.planner_library,
+                prompt_sha256=named.prompt_sha256,
+                prompt_bytes=named.prompt_bytes,
+            )
+        )
 
     def remove(self, subtask_id: str, reason: str) -> None:
         """Take a subtask not yet dispatched out of the plan; its id stays visible."""

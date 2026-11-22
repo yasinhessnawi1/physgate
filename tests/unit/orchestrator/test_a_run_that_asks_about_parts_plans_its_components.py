@@ -708,7 +708,7 @@ def test_the_command_s_one_retry_asks_as_its_run_does(
     assert len(asking.script.calls) == 2, asking.code
     again = asking.script.calls[1]["prompt"]
     first = decompose.prompt_a_run_sends(
-        replan_rig.BRIEF, rig_roles, parts=True, library=fixture_library
+        replan_rig.BRIEF, rig_roles, parts=True, library=fixture_library, token_ceiling=None
     )
     assert again.startswith(first)
     assert again.count(sentence(rig_roles)) == 1 and again.count(refusal) == 1

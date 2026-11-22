@@ -396,6 +396,16 @@ class DecisionsSealed(_Event):
     sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
+class PlannerFile(BaseModel):
+    """One file of the library the planner was sent: where it is, how long and its sha256."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    path: NonEmptyStr
+    size: Annotated[int, Field(ge=1)]
+    sha256: Sha256
+
+
 class Halted(_Event):
     """The run stopped, and why. Resuming reads this line."""
 
@@ -405,11 +415,35 @@ class Halted(_Event):
     #: For a halt on the account's usage limit: the reset as the stream gave it, and as an
     #: instant where it parses.
     usage_limit: UsageLimit | None = None
+    #: For a halt on a failed decomposition: the library files the planner was sent, each by
+    #: path, size and sha256, in the order sent, and the sha256 and byte length of the prompt of
+    #: the call that failed. Left out of any other halt, and of a failure that was written before
+    #: they were recorded, so such a line keeps its bytes.
+    planner_library: tuple[PlannerFile, ...] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    prompt_sha256: Sha256 | None = Field(default=None, exclude_if=lambda v: v is None)
+    prompt_bytes: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
     @model_validator(mode="after")
     def _a_limit_halt_names_its_reset(self) -> Halted:
         if (self.reason == "usage_limit") != (self.usage_limit is not None):
             msg = "a halt on the usage limit carries the limit, and no other halt does"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _only_a_failed_decomposition_names_its_prompt(self) -> Halted:
+        named = (self.planner_library, self.prompt_sha256, self.prompt_bytes)
+        if self.reason != "decomposition_failed" and any(one is not None for one in named):
+            msg = (
+                "only a halt on a failed decomposition names the prompt and the library it was sent"
+            )
+            raise ValueError(msg)
+        if (self.prompt_sha256 is None) != (self.prompt_bytes is None):
+            msg = "a prompt is named by its digest and its length together"
             raise ValueError(msg)
         return self
 
@@ -1308,16 +1342,6 @@ class Followable(BaseModel):
     payload_sha256: Annotated[dict[NodeIdKey, Sha256], Field(min_length=1)]
 
 
-class PlannerFile(BaseModel):
-    """One file of the library the planner was sent: where it is, how long and its sha256."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    path: NonEmptyStr
-    size: Annotated[int, Field(ge=1)]
-    sha256: Sha256
-
-
 class Decomposed(_Event):
     """The run's one model call produced a plan, and what it wrote."""
 
@@ -1495,6 +1519,12 @@ class DecompositionRetried(_Event):
     session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
     cause: Literal["schema_refused"]
     detail: NonEmptyStr
+    #: The sha256 and byte length of the prompt the refused call was sent; left out of a line
+    #: written before they were recorded.
+    prompt_sha256: Sha256 | None = Field(default=None, exclude_if=lambda v: v is None)
+    prompt_bytes: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
 
 class DesignUnavailable(BaseModel):

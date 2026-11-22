@@ -27,7 +27,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -131,6 +131,7 @@ from physgate.orchestrator.record import (
     Proposal,
     RetriedCall,
     RunRecord,
+    SentToThePlanner,
 )
 from physgate.orchestrator.repair import quoted
 from physgate.orchestrator.run_config import RunConfig
@@ -898,6 +899,15 @@ PLANNER_LIBRARY_BEGIN = "<<<PLANNER LIBRARY BEGIN>>>"
 PLANNER_LIBRARY_END = "<<<PLANNER LIBRARY END>>>"
 
 
+def holds_a_marker(text: str) -> bool:
+    """Whether ``text`` holds either of the section's markers, anywhere in it.
+
+    The one rule for a library file and for the brief: the marker's own text, on a line of its
+    own or inside a sentence, is refused, so nothing a text says can open or close the section.
+    """
+    return PLANNER_LIBRARY_BEGIN in text or PLANNER_LIBRARY_END in text
+
+
 def planner_library(
     library: Path | None, *, skills: Skills, token_ceiling: int | None
 ) -> dict[Path, bytes] | None:
@@ -939,7 +949,7 @@ def planner_library(
         except UnicodeDecodeError:
             msg = "a file of the planner's library is not text"
             raise LibraryRefusedError(msg, path=path.as_posix()) from None
-        if PLANNER_LIBRARY_BEGIN in text or PLANNER_LIBRARY_END in text:
+        if holds_a_marker(text):
             msg = "a file of the planner's library holds a marker of its own section"
             raise LibraryRefusedError(msg, path=path.as_posix())
         words = evaluation_words(text)
@@ -970,6 +980,45 @@ def library_section(files: Mapping[Path, bytes]) -> str:
     return f"{PLANNER_LIBRARY_BEGIN}\n{body}{PLANNER_LIBRARY_END}\n\n"
 
 
+class PlannerPrompt(NamedTuple):
+    """What the planner's first call is sent, and the files it holds."""
+
+    #: The prompt, as the run's first call is sent it.
+    text: str
+    #: The files in its section, read once, in the order sent; ``None`` for a run with no library.
+    files: dict[Path, bytes] | None
+
+
+def planner_prompt(
+    brief: str,
+    roles: Sequence[str],
+    *,
+    parts: bool,
+    skills: Skills,
+    library: Path | None,
+    token_ceiling: int | None,
+) -> PlannerPrompt:
+    """The prompt a run's first call is sent, and the files read for it: the one builder.
+
+    The run's decomposition (its first call, from which a re-plan and the retry are made) and a
+    launch check (:func:`prompt_a_run_sends`) both take the prompt from here, so the two cannot
+    differ. ``roles`` are the run's, taken in sorted order as the call takes them; ``parts`` is
+    the run's parts flag and ``skills`` its switch; ``library`` is the checkout the run copies its
+    library from (``None`` for a run with none, which is sent the template without the section).
+    It reads and refuses as the run does before its call (:func:`planner_library`), and refuses a
+    brief that holds a marker of the section (:func:`holds_a_marker`), the same rule as for a file
+    of the library; ``token_ceiling`` is the run's own, not held where it is ``None``.
+
+    Raises:
+        LibraryRefusedError: as :func:`planner_library` raises it, or the brief holds a marker.
+    """
+    files = planner_library(library, skills=skills, token_ceiling=token_ceiling)
+    if files is not None and holds_a_marker(brief):
+        msg = "the brief holds a marker of the planner's library section"
+        raise LibraryRefusedError(msg)
+    return PlannerPrompt(prompt_for(brief, sorted(roles), parts=parts, library=files), files)
+
+
 def prompt_a_run_sends(
     brief: str,
     roles: Sequence[str],
@@ -977,22 +1026,27 @@ def prompt_a_run_sends(
     parts: bool = False,
     skills: Skills = "on",
     library: Path | None,
-    token_ceiling: int | None = None,
+    token_ceiling: int | None,
 ) -> str:
     """The prompt a run's first call is sent, built with no model call and no credential.
 
-    The same bytes as the call a run makes: ``roles`` as the run's configuration names them,
-    ``parts`` as its parts flag, ``skills`` as its switch, and ``library`` the checkout the run
-    copies its library from (``None`` for a run with none, which is sent the template without
-    the section). It reads and refuses as the run does before its call (:func:`planner_library`);
-    ``token_ceiling`` is the run's own, and the ceiling is not held where it is ``None``. A launch
-    check measures and pins this, never :func:`prompt_for`, which is the template alone.
+    The same bytes as the call a run makes, from the same builder (:func:`planner_prompt`):
+    ``roles`` as the run's configuration names them, ``parts`` as its parts flag, ``skills`` as its
+    switch, ``library`` the checkout the run copies its library from and ``token_ceiling`` the
+    run's own, ``None`` for a caller that has no ceiling and says so. A launch check measures and
+    pins this, never :func:`prompt_for`, which is the template alone.
 
     Raises:
-        LibraryRefusedError: as :func:`planner_library` raises it.
+        LibraryRefusedError: as :func:`planner_prompt` raises it.
     """
-    files = planner_library(library, skills=skills, token_ceiling=token_ceiling)
-    return prompt_for(brief, sorted(roles), parts=parts, library=files)
+    return planner_prompt(
+        brief,
+        roles,
+        parts=parts,
+        skills=skills,
+        library=library,
+        token_ceiling=token_ceiling,
+    ).text
 
 
 def prompt_for(
@@ -1645,6 +1699,9 @@ def call(
             input=sent,
             capture_output=True,
             text=True,
+            # The bytes the binary is given are the prompt's UTF-8, whatever the locale: the
+            # digest the record keeps is of these.
+            encoding="utf-8",
             check=False,
             timeout=config.bounds.session_wall_clock_s,
         )
@@ -2532,7 +2589,12 @@ def start_run(
     spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
     if refused is not None or not outcome.ok or outcome.plan is None:
         detail = refused or f"{outcome.cause}: {outcome.detail}"
-        record.fail_decomposition(spent, detail, earlier, proposals, retried)
+        sent = SentToThePlanner(
+            planner_library=library_files(planner_files) if planner_files else None,
+            prompt_sha256=outcome.prompt_sha256,
+            prompt_bytes=outcome.prompt_bytes,
+        )
+        record.fail_decomposition(spent, detail, earlier, proposals, retried, sent=sent)
         return record
     plan = outcome.plan
     entries = [one.entry for one in planned]

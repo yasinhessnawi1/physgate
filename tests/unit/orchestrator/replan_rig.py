@@ -270,16 +270,17 @@ def decompose(
     loop_patches: dict[str, Any] | None = None,
     library: Path | None = None,
     config_update: dict[str, Any] | None = None,
+    brief: str = BRIEF,
 ) -> Ran:
     """Run ``decompose`` once under ``design_review`` on ``steps``, in ``root``; never raises.
 
     ``loop_patches`` replaces names in the loop's module for the run, where a row needs it;
     ``library`` is the checkout the run copies its library from, in place of the suite's fixture;
-    ``config_update`` changes fields of the run's configuration.
+    ``config_update`` changes fields of the run's configuration; ``brief`` is the brief's text.
     """
     root.mkdir(parents=True, exist_ok=True)
     repo = target_repo(root)
-    (root / "brief.md").write_text(BRIEF)
+    (root / "brief.md").write_text(brief)
     params = {
         **PARAMS,
         "design_review": "on" if design_review.startswith("repair:") else design_review,

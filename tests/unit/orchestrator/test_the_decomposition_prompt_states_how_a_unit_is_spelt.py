@@ -197,7 +197,9 @@ def test_a_run_that_does_not_review_its_plan_tells_its_one_retry_the_refusal(
     ran = replan_rig.decompose(tmp_path, "off", [replan_rig.Step(call=REFUSED), replan_rig.Step()])
     assert len(ran.script.calls) == 2 and ran.code == 0, ran.err
     first, second = ran.script.calls
-    sent = decompose.prompt_a_run_sends(replan_rig.BRIEF, RIG_ROLES, library=fixture_library)
+    sent = decompose.prompt_a_run_sends(
+        replan_rig.BRIEF, RIG_ROLES, library=fixture_library, token_ceiling=None
+    )
     assert first["prompt"] == sent
     _told(second["prompt"], sent, unit_refused)
     # Still one retry, on the record with the refusal, each call with its own tokens.
@@ -213,7 +215,9 @@ def test_a_reviewed_round_tells_its_one_retry_the_refusal(
     ran = replan_rig.decompose(tmp_path, "on", steps)
     assert len(ran.script.calls) == 2 and ran.code == 0, ran.err
     first, second = ran.script.calls
-    sent = decompose.prompt_a_run_sends(replan_rig.BRIEF, RIG_ROLES, library=fixture_library)
+    sent = decompose.prompt_a_run_sends(
+        replan_rig.BRIEF, RIG_ROLES, library=fixture_library, token_ceiling=None
+    )
     _told(second["prompt"], sent, unit_refused)
     (refused,) = [one for one in replan_rig.journal(ran.run_dir) if one["kind"] == "call_refused"]
     assert refused["detail"] == unit_refused
@@ -250,5 +254,7 @@ def test_a_refusal_that_is_not_a_unit_s_is_retried_with_the_prompt_as_it_was(
 ) -> None:
     ran = replan_rig.decompose(tmp_path, "off", [replan_rig.Step(call=REFUSED), replan_rig.Step()])
     assert len(ran.script.calls) == 2 and ran.code == 0, ran.err
-    sent = decompose.prompt_a_run_sends(replan_rig.BRIEF, RIG_ROLES, library=fixture_library)
+    sent = decompose.prompt_a_run_sends(
+        replan_rig.BRIEF, RIG_ROLES, library=fixture_library, token_ceiling=None
+    )
     assert [call["prompt"] for call in ran.script.calls] == [sent, sent]
