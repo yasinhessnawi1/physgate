@@ -528,11 +528,11 @@ def test_a_term_whose_coefficient_is_zero_is_exercised_by_its_signal_and_not_mov
     extra = [{"sign": 1, "coefficients": ["c"], "of": "wheel_speed"}]
     values = {**VALUES, "c": 0.0}
     vectors = _rows_of(10, 0.01, values, wheel_speed=0.05)
-    assert _verify(_two_term_law(extra), values, vectors).signals == (
-        "tilt_rate",
-        "wheel_angle",
-        "wheel_speed",
-    )
+    try:
+        verified = _verify(_two_term_law(extra), values, vectors)
+    except _law().LawRefused as exc:
+        pytest.fail(f"a term of zero value, exercised by its signal, was refused: {exc.code}")
+    assert verified.signals == ("tilt_rate", "wheel_angle", "wheel_speed")
 
 
 def test_a_memory_state_no_term_reads_is_named() -> None:

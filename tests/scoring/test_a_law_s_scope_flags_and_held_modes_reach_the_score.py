@@ -1,10 +1,9 @@
 """What a scored law's record says: its scope, its flags, the modes set aside, the signals it reads.
 
-A term that cannot affect the command (zero weight, or in a line nothing reads) is no ground for a
-scope refusal; scope is decided on what the law computes. A law refused for scope has every other
-check run on it first, and any other fault is the ordinary fail, so a scope refusal never covers
-an invalid answer; it does cover a valid answer that would fail, since a law with a live term the
-scorer cannot take is not judged (and a dead term is never such a ground). The record lists each
+Nothing is taken out of a law before it is judged: a term the scorer cannot take, of any weight and
+in any line, leaves the law unscored by name. A law refused for scope has every other check run on
+it first, and any other fault is the ordinary fail, so a scope refusal never covers an invalid
+answer; it does cover a valid answer that would fail. The record lists each
 mode set aside (its memory states, what feeds them, whether the command reads them) with the plain
 note that a held state can grow in the firmware, the signals the law reads, and the flags on the
 compute delay, on the record and on every row.
@@ -64,17 +63,15 @@ DEAD = [
 
 
 @pytest.mark.parametrize("dead", DEAD)
-def test_an_unstable_law_with_one_dead_out_of_scope_term_is_a_fail_not_unscored(
+def test_an_unstable_law_with_a_term_out_of_scope_in_a_line_nothing_reads_is_unscored(
     tmp_path: Path, dead: Any
 ) -> None:
     controller = _unstable(helpers._recorded_controller())
     controller["lines"].insert(0, dead())
     record = _record(tmp_path, controller)
-    assert record["outcome"] == "fail", record.get("refusal")
-    assert "refusal" not in record
-    rows = {r["name"]: r for r in record["specs"]}
-    assert rows["pm"]["verdict"] == "fail"
-    assert "unstable" in rows["pm"]["reason"]
+    assert record["outcome"] == "unscored", record
+    assert record["refusal"]["name"] in {"out_of_scope", "nonlinear"}
+    assert record["specs"] == []
 
 
 @pytest.mark.parametrize("dead", DEAD)
@@ -104,7 +101,7 @@ def test_a_law_whose_units_do_not_balance_and_one_dead_term_is_a_fail_not_unscor
     assert "refusal" not in record
 
 
-def test_a_term_of_zero_weight_that_is_out_of_scope_is_taken_out_and_the_law_judged(
+def test_a_term_of_zero_weight_that_is_out_of_scope_leaves_the_law_unscored(
     tmp_path: Path,
 ) -> None:
     controller = helpers._recorded_controller()
@@ -113,33 +110,23 @@ def test_a_term_of_zero_weight_that_is_out_of_scope_is_taken_out_and_the_law_jud
         {"sign": 1, "coefficients": ["k_zero"], "of": "accelerometer_tilt"}
     )
     record = _record(tmp_path, controller)
-    rows = {r["name"]: r for r in record["specs"]}
-    assert rows["pm"]["verdict"] == "pass"
-    assert record["set_aside"] == [
-        {
-            "line": "command",
-            "term": 7,
-            "code": "out_of_scope",
-            "detail": record["set_aside"][0]["detail"],
-        }
-    ]
-    assert "accelerometer_tilt" in record["set_aside"][0]["detail"]
-    # and unstable it is a fail, whatever it carries
+    assert record["refusal"]["name"] == "out_of_scope"
+    assert record["outcome"] == "unscored"
+    # and unstable it is unscored too, whatever it carries
     again = _record(tmp_path, _unstable(controller))
-    assert again["outcome"] == "fail"
+    assert again["outcome"] == "unscored"
 
 
-def test_a_line_nothing_reads_is_taken_out_and_the_law_is_scored_as_it_would_be_without_it(
+def test_a_line_nothing_reads_that_the_scorer_can_take_is_judged_and_changes_no_verdict(
     tmp_path: Path,
 ) -> None:
     plain = _record(tmp_path, helpers._recorded_controller())
     controller = helpers._recorded_controller()
-    controller["lines"].insert(0, _scratch_line("accelerometer_tilt"))
+    controller["lines"].insert(0, _scratch_line("tilt"))
     carried = _record(tmp_path, controller)
-    assert carried["set_aside"][0]["line"] == "scratch"
     assert carried["specs"] == plain["specs"]
     assert carried["outcome"] == plain["outcome"]
-    assert plain["set_aside"] == []
+    assert "set_aside" not in carried
 
 
 def test_a_live_nonlinear_term_and_nothing_else_wrong_is_unscored_by_name(tmp_path: Path) -> None:

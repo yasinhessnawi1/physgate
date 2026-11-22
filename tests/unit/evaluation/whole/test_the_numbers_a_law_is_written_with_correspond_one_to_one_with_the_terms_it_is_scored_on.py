@@ -1,11 +1,10 @@
 """Each number "as written" belongs to one term of the validated body, found by identity.
 
 The text of an answer is read twice: into floats, from which the law is validated and its matrices
-built, and into decimals, which a mode held at 1 is decided on. A term that cannot affect the
-command is taken out of the validated body, by one decision, and its number is not carried:
-the numbers that remain are keyed by the line's name and the term's own place in the text, and
-each term of the body is given the number of its own place, never the number at its position in
-the body. The scorer will not proceed if the numbers and the body do not correspond one to one.
+built, and into decimals, which a mode held at 1 is decided on. Nothing is taken out of a law, so
+every term of the text is a term of the validated body: the numbers are keyed by the line's name
+and the term's own place in the line, and each term of the body is given the number of its own
+place. The scorer will not proceed if the numbers and the body do not correspond one to one.
 """
 
 from __future__ import annotations
@@ -48,10 +47,10 @@ def _m(value: object, unit: str) -> dict[str, object]:
 
 
 def _text(tiny: str = "0.0", kv: str = "1.0", period: str = "0.01", number: str = "1") -> bytes:
-    """A law whose state integrates half the wheel speed, a term out of scope before the others.
+    """A law whose state integrates half the wheel speed, a term of ``tiny`` weight before them.
 
-    ``tiny`` is the coefficient of that term, ``number`` the number of the first wheel-speed term;
-    each is written as given, as text.
+    ``tiny`` is the coefficient of that term (on the tilt), ``number`` the number of the first
+    wheel-speed term; each is written as given, as text.
     """
     return (
         '{"form": "whole_run", "version": 3, "parameters": '
@@ -64,11 +63,11 @@ def _text(tiny: str = "0.0", kv: str = "1.0", period: str = "0.01", number: str 
         '"coefficients": {"kz": {"value": 0.002, "unit": "1"}, '
         '"g": {"value": 0.3, "unit": "1/rad"}, '
         f'"kv": {{"value": {kv}, "unit": "s/rad"}}, '
-        f'"tiny": {{"value": {tiny}, "unit": "1"}}}}, '
+        f'"tiny": {{"value": {tiny}, "unit": "1/rad"}}}}, '
         '"memory": [{"name": "z", "unit": "1", "next": "z_now"}], '
         '"lines": [{"name": "z_now", "unit": "1", "terms": ['
         '{"sign": 1, "of": "previous.z"}, '
-        '{"sign": 1, "number": 1, "coefficients": ["tiny"], "of": "tilt*tilt_rate"}, '
+        '{"sign": 1, "number": 1, "coefficients": ["tiny"], "of": "tilt"}, '
         f'{{"sign": 1, "number": {number}, "coefficients": ["kv"], "of": "wheel_speed"}}, '
         '{"sign": -1, "number": 0.5, "coefficients": ["kv"], "of": "wheel_speed"}]}, '
         '{"name": "command", "unit": "1", "terms": ['
@@ -136,8 +135,14 @@ def test_such_an_exponent_where_no_law_is_read_is_no_ground_to_refuse() -> None:
     )
 
 
-@pytest.mark.parametrize("spelling", [{"tiny": "NaN"}, {"kv": "Infinity"}, {"kv": "-Infinity"}])
-def test_a_constant_that_is_no_number_is_refused_by_name_too(spelling: dict[str, str]) -> None:
+def test_a_not_a_number_is_refused_under_a_name_that_says_so() -> None:
+    reason = _refused(_text(tiny="NaN"))
+    assert "number_is_not_a_number" in reason
+    assert "number_overflows" not in reason
+
+
+@pytest.mark.parametrize("spelling", [{"kv": "Infinity"}, {"kv": "-Infinity"}])
+def test_an_infinite_constant_is_refused_as_an_overflow(spelling: dict[str, str]) -> None:
     assert "number_overflows" in _refused(_text(**spelling))
 
 
@@ -148,6 +153,7 @@ def test_every_spelling_of_zero_is_zero_in_both_passes(zero: str) -> None:
     assert written.coefficients["tiny"] == 0
     assert [t.of for t in answer.controller.lines[0].terms] == [
         "previous.z",
+        "tilt",
         "wheel_speed",
         "wheel_speed",
     ]
@@ -164,47 +170,44 @@ def test_a_number_that_is_small_but_not_zero_as_a_float_is_read_as_written() -> 
 # ── the numbers are the validated body's own, by line and the term's place in the text ─────────
 
 
-def test_the_numbers_are_keyed_by_the_line_and_the_terms_own_place_in_the_text() -> None:
+def test_the_numbers_are_keyed_by_the_line_and_the_terms_own_place_in_the_line() -> None:
     answer = _answer().parse_answer(_text(tiny="0.0", number="0.75"))
     law = answer.controller
     written = law.written
-    assert [t.of for t in law.lines[0].terms] == ["previous.z", "wheel_speed", "wheel_speed"]
-    assert written.origin["z_now"] == (0, 2, 3)
-    assert written.origin["command"] == (0, 1)
+    assert [t.of for t in law.lines[0].terms] == [
+        "previous.z",
+        "tilt",
+        "wheel_speed",
+        "wheel_speed",
+    ]
     assert set(written.numbers) == {
         ("z_now", 0),
+        ("z_now", 1),
         ("z_now", 2),
         ("z_now", 3),
         ("command", 0),
         ("command", 1),
     }
     assert written.number("z_now", 0) == Fraction(1)
-    assert written.number("z_now", 1) == Fraction(3, 4)
-    assert written.number("z_now", 2) == Fraction(1, 2)
+    assert written.number("z_now", 2) == Fraction(3, 4)
+    assert written.number("z_now", 3) == Fraction(1, 2)
+    assert written.number("z_now", 4) is None
 
 
-def test_a_term_out_of_scope_that_is_taken_out_leaves_no_number_behind() -> None:
+def test_a_term_of_zero_weight_stays_in_the_law_with_its_number() -> None:
     law = _answer().parse_answer(_text(tiny="0.0")).controller
-    assert ("z_now", 1) not in law.written.numbers
+    assert ("z_now", 1) in law.written.numbers
+    assert len(law.lines[0].terms) == 4
 
 
-def test_an_answer_with_nothing_taken_out_has_each_number_at_its_own_place() -> None:
-    plain = _text().replace(
-        b'{"sign": 1, "number": 1, "coefficients": ["tiny"], "of": "tilt*tilt_rate"}, ', b""
-    )
-    law = _answer().parse_answer(plain).controller
-    assert law.written.origin["z_now"] == (0, 1, 2)
-    assert law.written.number("z_now", 2) == Fraction(1, 2)
-
-
-def test_two_laws_one_with_a_term_taken_out_and_one_without_are_decided_alike() -> None:
+def test_a_zero_weight_term_is_decided_as_the_law_without_it() -> None:
     law = _law()
     with_term = _answer().parse_answer(_text(tiny="0.0")).controller
     without = (
         _answer()
         .parse_answer(
             _text().replace(
-                b'{"sign": 1, "number": 1, "coefficients": ["tiny"], "of": "tilt*tilt_rate"}, ', b""
+                b'{"sign": 1, "number": 1, "coefficients": ["tiny"], "of": "tilt"}, ', b""
             )
         )
         .controller
@@ -229,16 +232,21 @@ def test_duplicate_keys_and_two_spellings_of_one_number_agree_in_both_passes() -
 
 
 def _mismatched(written: Any) -> Any:
-    """The law of ``_text`` with a term taken out, given ``written`` as its numbers."""
+    """The law of ``_text`` given ``written`` as its numbers."""
     law = _answer().parse_answer(_text(tiny="0.0")).controller
     law._written = written  # noqa: SLF001 - constructing the fault the check is for
     return law
 
 
-def _positional(law: Any) -> Any:
-    """What a second pass that kept the term would have written: the numbers of every term."""
-    decimals = json.loads(_text(tiny="0.0"), parse_float=Decimal)["controller"]
-    return _law().written_from(decimals)
+def _off_by_one(written: Any) -> Any:
+    """What a reading that lost a term would have written: each place of the line one on."""
+    return _shifted(
+        written,
+        numbers={
+            (line, at + 1 if line == "z_now" else at): n
+            for (line, at), n in written.numbers.items()
+        },
+    )
 
 
 def test_numbers_that_belong_to_other_terms_are_refused_by_name_before_anything_is_decided() -> (
@@ -247,7 +255,7 @@ def test_numbers_that_belong_to_other_terms_are_refused_by_name_before_anything_
     law_module = _law()
     law = _answer().parse_answer(_text(tiny="0.0")).controller
     values = {n: float(m.value) for n, m in law.coefficients.items()}
-    wrong = _positional(law)
+    wrong = _off_by_one(law.written)
     law._written = wrong  # noqa: SLF001
     for decide in (law_module.held_modes, law_module.held_report):
         with pytest.raises(law_module.LawRefused) as caught:
@@ -258,7 +266,8 @@ def test_numbers_that_belong_to_other_terms_are_refused_by_name_before_anything_
 def test_numbers_of_a_term_that_is_not_the_body_s_are_refused_in_the_conversion_too() -> None:
     law_module = _law()
     convert = importlib.import_module(_CONVERT)
-    law = _mismatched(_positional(None))
+    base = _answer().parse_answer(_text(tiny="0.0")).controller
+    law = _mismatched(_off_by_one(base.written))
     radius = convert.ScaleFactor("wheel_radius", 0.04, "m", "this test's plant")
     with pytest.raises(law_module.LawRefused) as caught:
         convert.to_si(law, _answer().parse_answer(_text()).parameters, wheel_radius=radius)
@@ -273,11 +282,8 @@ def _shifted(written: Any, **change: Any) -> Any:
 @pytest.mark.parametrize(
     "fault",
     [
-        lambda w: _shifted(w, origin={**w.origin, "z_now": (0, 1, 3)}),
-        lambda w: _shifted(w, origin={**w.origin, "z_now": (0, 2)}),
-        lambda w: _shifted(w, origin={k: v for k, v in w.origin.items() if k != "command"}),
-        lambda w: _shifted(w, origin={**w.origin, "stranger": (0,)}),
-        lambda w: _shifted(w, numbers={**w.numbers, ("z_now", 1): Fraction(1)}),
+        lambda w: _shifted(w, numbers={**w.numbers, ("z_now", 4): Fraction(1)}),
+        lambda w: _shifted(w, numbers={**w.numbers, ("stranger", 0): Fraction(1)}),
         lambda w: _shifted(w, numbers={k: v for k, v in w.numbers.items() if k != ("z_now", 3)}),
         lambda w: _shifted(w, numbers={**w.numbers, ("z_now", 2): Fraction(7, 10)}),
         lambda w: _shifted(w, numbers={**w.numbers, ("z_now", 3): Fraction(1)}),
@@ -287,11 +293,8 @@ def _shifted(written: Any, **change: Any) -> Any:
         lambda w: _shifted(w, coefficients={**w.coefficients, "period": Fraction(1, 50)}),
     ],
     ids=[
-        "origin_names_another_term",
-        "origin_has_too_few",
-        "origin_misses_a_line",
-        "origin_has_a_line_not_in_the_body",
-        "a_number_for_a_term_taken_out",
+        "a_number_for_a_place_that_is_no_term",
+        "a_number_for_a_line_that_is_not_the_law_s",
         "a_number_missing",
         "a_number_that_is_another_value",
         "the_number_of_the_other_wheel_speed_term",
@@ -359,16 +362,17 @@ def test_an_analysed_law_has_the_numbers_it_was_written_with_and_the_primary_its
     assert answer.analysed_controller.written.coefficients["rest"] == Fraction(
         10000000000000001, 10**17
     )
-    assert answer.analysed_controller.written.origin["z_now"] == (1, 2)
-    assert answer.controller.written.origin["z_now"] == (0, 1)
+    assert answer.analysed_controller.written.number("z_now", 2) == Fraction(1)
+    assert len(answer.analysed_controller.written.numbers) == 5
+    assert len(answer.controller.written.numbers) == 4
 
 
-# ── a held mode is decided on each term's own number, wherever the terms stand in the text ────
+# ── a held mode is decided on each term's own number, wherever the terms stand in the line ────
 
 
 def _held_text(dead_first: bool, rest: str = "0.1") -> bytes:
     """A state held at 1 by ``0.9`` and ``rest`` of itself, read by the command."""
-    dead = '{"sign": 1, "coefficients": ["off"], "of": "tilt*tilt_rate"}, '
+    dead = '{"sign": 1, "coefficients": ["off"], "of": "tilt"}, '
     return (
         '{"form": "whole_run", "version": 3, "parameters": '
         + json.dumps(SETTINGS)
@@ -379,7 +383,7 @@ def _held_text(dead_first: bool, rest: str = "0.1") -> bytes:
         '"compute_delay": {"value": 0.004, "unit": "s"}, '
         '"coefficients": {"kz": {"value": 0.002, "unit": "1"}, '
         '"g": {"value": 0.3, "unit": "1/rad"}, '
-        '"off": {"value": 0.0, "unit": "1"}, '
+        '"off": {"value": 0.0, "unit": "1/rad"}, '
         '"pole": {"value": 0.9, "unit": "1"}, '
         f'"rest": {{"value": {rest}, "unit": "1"}}}}, '
         '"memory": [{"name": "z", "unit": "1", "next": "z_now"}], '
@@ -400,7 +404,7 @@ def _modes(raw: bytes) -> Any:
     return _law().held_modes(law, values, period=0.01, written=law.written)
 
 
-def test_a_term_taken_out_before_the_others_does_not_change_which_number_each_has() -> None:
+def test_a_zero_weight_term_before_the_others_does_not_change_which_number_each_has() -> None:
     plain = _modes(_held_text(dead_first=False))
     assert plain != ()
     assert _modes(_held_text(dead_first=True)) == plain
@@ -409,19 +413,3 @@ def test_a_term_taken_out_before_the_others_does_not_change_which_number_each_ha
 def test_the_17_digit_decimal_of_the_second_term_is_the_second_term_s_wherever_it_stands() -> None:
     for dead_first in (False, True):
         assert _modes(_held_text(dead_first, rest="0.10000000000000001")) == ()
-
-
-def test_a_place_may_serve_one_term_only() -> None:
-    """Two terms of one number at one place: the numbers agree with both and the place is shared."""
-    law_module = _law()
-    law = _answer().parse_answer(_text(tiny="0.0", number="0.5")).controller
-    values = {n: float(m.value) for n, m in law.coefficients.items()}
-    written = law.written
-    twice = _shifted(
-        written,
-        origin={**written.origin, "z_now": (0, 2, 2)},
-        numbers={k: v for k, v in written.numbers.items() if k != ("z_now", 3)},
-    )
-    with pytest.raises(law_module.LawRefused) as caught:
-        law_module.held_modes(law, values, period=0.01, written=twice)
-    assert caught.value.code == "written_numbers_do_not_match"

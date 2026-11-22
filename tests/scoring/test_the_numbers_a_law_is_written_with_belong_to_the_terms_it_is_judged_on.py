@@ -57,7 +57,7 @@ def _reviewer_law(kz: float = 0.002, tiny: object = 0.0) -> dict[str, Any]:
             **helpers._good_coefficients(RADIUS),
             "kz": _m(kz, "1"),
             "kv": _m(1.0, "s/rad"),
-            "tiny": _m(tiny, "1"),
+            "tiny": _m(tiny, "1/rad"),
         },
         [{"name": "z", "unit": "1", "next": "z_now"}],
         [
@@ -66,7 +66,7 @@ def _reviewer_law(kz: float = 0.002, tiny: object = 0.0) -> dict[str, Any]:
                 "unit": "1",
                 "terms": [
                     {"sign": 1, "of": "previous.z"},
-                    {"sign": 1, "number": 1, "coefficients": ["tiny"], "of": "tilt*tilt_rate"},
+                    {"sign": 1, "number": 1, "coefficients": ["tiny"], "of": "tilt"},
                     {"sign": 1, "number": 1, "coefficients": ["kv"], "of": "wheel_speed"},
                     {"sign": -1, "number": 0.5, "coefficients": ["kv"], "of": "wheel_speed"},
                 ],
@@ -146,7 +146,6 @@ def test_the_same_law_with_its_zero_spelled_honestly_is_unstable_whatever_the_sp
     assert rows["pm"]["verdict"] == "fail"
     assert "unstable" in rows["pm"]["reason"]
     assert record["held_modes"] == []
-    assert [s["term"] for s in record["set_aside"]] == [2]
 
 
 def test_the_same_law_with_no_term_out_of_scope_at_all_gives_the_same_verdict(
@@ -157,7 +156,6 @@ def test_the_same_law_with_no_term_out_of_scope_at_all_gives_the_same_verdict(
     terms = plain["lines"][0]["terms"]
     del terms[1]
     without = _record_of_text(tmp_path, helpers._answer(plain, 3))
-    assert without["set_aside"] == []
     assert with_term["specs"] == without["specs"]
     assert with_term["outcome"] == without["outcome"] == "fail"
 
@@ -235,12 +233,12 @@ def _held_law_with_dead_term_first(dead_first: bool) -> dict[str, Any]:
         {"sign": 1, "coefficients": ["pole"], "of": "previous.z"},
         {"sign": 1, "coefficients": ["rest"], "of": "previous.z"},
     ]
-    dead = {"sign": 1, "coefficients": ["off"], "of": "tilt*tilt_rate"}
+    dead = {"sign": 1, "coefficients": ["off"], "of": "tilt"}
     controller["lines"][0]["terms"] = [dead, *terms] if dead_first else terms
     return controller  # type: ignore[no-any-return]
 
 
-def test_a_dead_term_before_the_others_changes_nothing_the_law_is_judged_on(
+def test_a_zero_weight_term_before_the_others_changes_nothing_the_law_is_judged_on(
     tmp_path: Path,
 ) -> None:
     plain = _record_of_text(tmp_path, helpers._answer(_held_law_with_dead_term_first(False), 3))
@@ -249,10 +247,9 @@ def test_a_dead_term_before_the_others_changes_nothing_the_law_is_judged_on(
     assert shifted["held_modes"] == plain["held_modes"]
     assert shifted["specs"] == plain["specs"]
     assert shifted["outcome"] == plain["outcome"]
-    assert [s["line"] for s in shifted["set_aside"]] == ["z_now"]
 
 
-def test_a_dead_term_before_the_others_keeps_each_number_with_its_own_term(
+def test_a_zero_weight_term_before_the_others_keeps_each_number_with_its_own_term(
     tmp_path: Path,
 ) -> None:
     """17 digits: ``0.9`` and ``0.10000000000000001`` do not sum to 1, as the text wrote them."""
@@ -282,13 +279,14 @@ def _lone_zero_reader(lone: bool = True) -> dict[str, Any]:
         mm_terms.append({"sign": 1, "coefficients": ["k_mm"], "of": "tilt"})
     controller = helpers._recorded_controller()
     controller["coefficients"]["zero"] = helpers._m(0.0, "1")
+    controller["coefficients"]["zero_t"] = helpers._m(0.0, "1/rad")
     controller["coefficients"]["k_mm"] = helpers._m(0.0125, "1/rad")
     controller["coefficients"]["kk"] = helpers._m(0.3, "1")
     controller["memory"].append({"name": "zz", "unit": "1", "next": "zz_now"})
     zz_now = {
         "name": "zz_now",
         "unit": "1",
-        "terms": [{"sign": 1, "coefficients": ["zero"], "of": "tilt*tilt_rate"}],
+        "terms": [{"sign": 1, "coefficients": ["zero_t"], "of": "tilt"}],
     }
     mm = {"name": "mm", "unit": "1" if lone else "1", "terms": mm_terms}
     controller["lines"] = [zz_now, mm, *controller["lines"]]
@@ -306,7 +304,6 @@ def test_a_lone_term_of_weight_zero_reading_a_state_taken_out_is_judged_as_the_l
     assert record["outcome"] == plain["outcome"]
     assert _rows(plain)["pm"]["verdict"] == "pass"
     assert [r["verdict"] for r in record["specs"]] == [r["verdict"] for r in plain["specs"]]
-    assert "zz_now" in {s["line"] for s in record["set_aside"]}
 
 
 def test_a_lone_term_of_weight_zero_reading_a_state_taken_out_leaves_an_unstable_law_unstable(
@@ -401,7 +398,7 @@ def test_a_flag_the_answer_states_for_itself_is_not_taken(tmp_path: Path) -> Non
     assert record["answer_valid"] is False
 
 
-# ── a refusal for scope speaks for a valid answer, failing or not; a dead term is no ground ───
+# ── a refusal for scope speaks for a valid answer, failing or not, whatever the weight ───────
 
 
 @pytest.mark.parametrize("weight", [1e-9, 1e-300, 5e-324, 3.0])
@@ -422,7 +419,7 @@ def test_a_valid_but_unstable_law_with_one_live_term_out_of_scope_of_any_weight_
     assert record["outcome"] == "unscored"
 
 
-def test_the_same_term_with_weight_zero_is_dead_and_the_unstable_law_is_a_fail(
+def test_the_same_term_with_weight_zero_leaves_the_unstable_law_unscored_too(
     tmp_path: Path,
 ) -> None:
     controller = scope._unstable(helpers._recorded_controller())
@@ -431,26 +428,33 @@ def test_the_same_term_with_weight_zero_is_dead_and_the_unstable_law_is_a_fail(
         {"sign": 1, "coefficients": ["w"], "of": "accelerometer_tilt"}
     )
     record = _record_of_text(tmp_path, helpers._answer(controller, 3))
-    assert record["outcome"] == "fail"
-    assert "refusal" not in record
+    assert record["outcome"] == "unscored"
+    assert record["refusal"]["name"] == "out_of_scope"
 
 
 # ── the scorer does not proceed with numbers that do not correspond to the law it scores ──────
 
 
-def test_numbers_that_do_not_correspond_to_the_law_end_the_score_unscored_by_name(
+def test_numbers_that_do_not_correspond_to_the_law_end_the_score_as_a_scorer_fault(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A constructed mismatch: the numbers of every term of the text, though one was taken out."""
+    """A constructed mismatch: the number of one term of the law is not held."""
+    import dataclasses
+
     from physgate.evaluation.whole import law as law_module
 
     real = law_module.written_from
-    monkeypatch.setattr(law_module, "written_from", lambda document, origin=None: real(document))
+
+    def one_short(document: Any) -> Any:
+        written = real(document)
+        return dataclasses.replace(written, numbers=dict(list(written.numbers.items())[1:]))
+
+    monkeypatch.setattr(law_module, "written_from", one_short)
     record = _record_of_text(tmp_path, _text(_reviewer_law(0.002), tiny="0.0"))
     assert record["answer_valid"] is True
     assert record["refusal"]["name"] == "written_numbers_do_not_match"
-    assert record["outcome"] == "unscored"
-    assert record["specs"] == []
+    assert record["outcome"] == "scorer_fault"
+    assert {row["verdict"] for row in record["specs"]} == {"scorer_fault"}
     _never_stable(record)
 
 
