@@ -15,8 +15,9 @@ margins' controller reads (the tilt, its rate, and the wheels' turn relative to 
 (time ``k·T``) the law reads the plant as it was ``sensor_delay`` earlier, and the command it
 computes lands ``compute_delay`` after ``k·T`` and is held until the next one lands. The period is
 cut exactly at the instants that matter (the update, the landing of a command, the instant a
-reading is taken, and :data:`OUTPUT_PER_PERIOD` equal output points), each segment held with its
-own exact matrices, so a delay that is a fraction of a period, or longer than one, is not rounded.
+reading is taken, and output points no further apart than :data:`OUTPUT_SPACING`), each segment
+held with its own exact matrices, so a delay that is a fraction of a period, or longer than one,
+is not rounded.
 Moving the sensor delay onto the plant's time axis shows that what the law reads is the margins'
 closed loop's own sample, ``W(jT) = X(jT - τs)``; a row proves it to 1e-9 on small signals.
 
@@ -26,6 +27,15 @@ marked ``applied`` holds the applied value. Where the command reaches the limit 
 longer linear: the number is then that of a linear plant under a limited command, and the record
 counts the updates at the limit.
 
+**What the numbers can bear.** The command is rounded to whole counts on a plant that is unstable
+while the command sits at its limit, so a lane near the limit amplifies the last bit: a difference
+of 1e-17 grows until a count flips, and then differs by whole counts. The batch is therefore run a
+second time with one tiny perturbation (:data:`SENSITIVITY_RATE_OFFSET`), and the record says how
+many points change verdict or fall between the two runs; such a point counts neither way.
+
+**A lane that fell** is frozen where it passed 70°. Nothing of it is counted at the limit, and its
+window means and its speed at the push are not numbers; the record says when it fell.
+
 **One stepper.** A version 3 law is stepped as its lines. A version 2 named structure goes
 through :func:`named_as_law`, its lines written as a law with the corner's wheel radius folded
 into the gains, as the equivalence rows do. Both are compiled by :func:`compile_law` into the same
@@ -33,8 +43,8 @@ float operations :func:`physgate.evaluation.whole.law.evaluate` makes (a row ass
 bitwise equal), and every plant point is stepped in one batch of numpy arrays.
 
 **Proposals.** Every number of the timeline below is a proposal, chosen, none sourced, none
-frozen: its owner freezes it. The three taken from the brief (the push, its band and 70°) are the
-brief's own.
+frozen: each is to be frozen before any design is scored. The three taken from the brief (the push,
+its band and 70°) are the brief's own.
 
 **Not modelled** (:data:`NOT_MODELLED`): the gyro's full scale, the encoders' counts, noise,
 bias, the gearbox's friction, large angles, contact and slip.
@@ -68,7 +78,9 @@ METRICS: dict[str, str] = {STEADY_SPEED: "m/s", PUSH_PEAK_TILT: "deg"}
 #: What every record of the kind says.
 LABEL = (
     "the linear model's answer: a linear plant under the law's lines, with the command limit and "
-    "whole counts; not criterion 17's or 18's verdict"
+    "whole counts; not criterion 17's or 18's verdict. The corner counts are reproducible on one "
+    "machine and may differ by a few points between machines, because a lane near the limit "
+    "amplifies the last bit"
 )
 NOT_MODELLED = (
     "gyro_full_scale_clip",
@@ -79,7 +91,7 @@ NOT_MODELLED = (
     "contact_and_slip",
 )
 
-# ── the timeline: every number a proposal, none frozen, each to be frozen by its owner ──────────
+# ── the timeline: every number a proposal, none frozen, each to be frozen before scoring ────────
 #: Proposal: the robot balances at rest this long before the reference moves, s.
 REST_TIME = 1.0
 #: Proposal: the reference ground speed ramps at this acceleration, m/s².
@@ -104,11 +116,25 @@ PUSH_RATE = 1.5
 PUSH_BAND = (-0.05, 0.0, 0.05)
 #: The brief's (criterion 18): a tilt past this angle is a fall, rad.
 FELL_TILT = math.radians(70.0)
-#: Proposal: equal output points per update period, for the peak between updates.
-OUTPUT_PER_PERIOD = 4
-#: The most work one analysis may do: points × updates (the shared run and the three branches) ×
-#: states. A proposal: about a minute on a laptop, and a task past it has its rows unscored.
-MAX_DYNAMIC_WORK = 400_000_000
+#: Proposal: the output points of a period are no further apart than this, s, so that the peak
+#: between two updates is found at this spacing whatever the period (the record states it).
+OUTPUT_SPACING = 2.5e-3
+#: Proposal: the one tiny perturbation of the second run, rad/s, added to the initial tilt rate of
+#: every lane. It is twelve orders below the brief's push (1.5 rad/s), and it is the only
+#: nonzero part of the starting state, so it enters every lane; it is large enough, against the
+#: plant's unit scales, not to be lost to rounding at the start.
+SENSITIVITY_RATE_OFFSET = 1e-12
+#: The tolerance, in updates, with which an instant is taken as being on an update.
+INDEX_TOLERANCE = 1e-9
+#: The runs of one analysis: the batch, and the batch again with the perturbation.
+RUNS = 2
+#: Proposal: what one cut of a period costs an update, in the units of one state or one term of
+#: the law (a matrix product and the fall test are about this many array operations).
+SEGMENT_WEIGHT = 12
+#: The most work one analysis may do: runs × points × updates (the shared run and the three
+#: branches) × (states + the law's size + the cuts' weight). A proposal, measured: about a minute
+#: on a laptop at 2.6 ns a unit, and a task past it has its rows unscored.
+MAX_DYNAMIC_WORK = 20_000_000_000
 
 
 @dataclass(frozen=True)
@@ -122,12 +148,18 @@ class Timing:
     sensor_periods: int
 
 
+def output_points(period: float) -> int:
+    """The equal parts a period is cut into for its peak: none further apart than the spacing."""
+    return max(1, math.ceil(period / OUTPUT_SPACING - INDEX_TOLERANCE))
+
+
 def timing(period: float, sensor_delay: float, compute_delay: float) -> Timing:
     """The cuts of one period under the two delays, each fraction of a period kept exact."""
     eps = FRACTION_EPSILON * period
     compute_periods, compute_fraction = _split(compute_delay, period)
     sensor_periods, sensor_fraction = _split(sensor_delay, period)
-    raw = [0.0, period, *(j * period / OUTPUT_PER_PERIOD for j in range(1, OUTPUT_PER_PERIOD))]
+    points = output_points(period)
+    raw = [0.0, period, *(j * period / points for j in range(1, points))]
     if compute_fraction > 0.0:
         raw.append(compute_fraction)
     snapshot_at = period - sensor_fraction if sensor_fraction > 0.0 else None
@@ -182,6 +214,16 @@ class Compiled:
         )
 
 
+def _variable(term: Any) -> tuple[str | None, str]:
+    """A term's variable as (its kind, its name); a term with none the scorer reads is refused."""
+    found = _OF.fullmatch(term.of) if isinstance(term.of, str) else None
+    if found is None:
+        msg = "a term holds no variable the scorer can step: nothing is stepped that it cannot take"
+        raise law_module.LawRefused("malformed", msg)
+    kind, name = found.groups()
+    return kind, name
+
+
 def compile_law(body: law_module.Body, values: dict[str, Any], period: float) -> Compiled:
     """``body`` with its coefficients (numbers, or arrays over points) multiplied out per term.
 
@@ -192,12 +234,7 @@ def compile_law(body: law_module.Body, values: dict[str, Any], period: float) ->
     for line in body.lines:
         terms = []
         for term in line.terms:
-            assert (
-                term.of is not None
-            )  # nothing is stepped that holds a term the scorer cannot take
-            found = _OF.fullmatch(term.of)
-            assert found is not None
-            kind, name = found.groups()
+            kind, name = _variable(term)
             scale: Any = float(term.sign) * float(term.number)
             for factor in term.coefficients:
                 scale = scale * coefficients[factor]
@@ -357,7 +394,7 @@ class Updates:
 
 def updates(period: float) -> Updates:
     """The update indices of the hold window's first, of the push, and the observed count."""
-    eps = 1e-9
+    eps = INDEX_TOLERANCE
     return Updates(
         window_first=math.ceil((PUSH_TIME - HOLD_LENGTH) / period - eps),
         push=math.ceil(PUSH_TIME / period - eps),
@@ -365,10 +402,48 @@ def updates(period: float) -> Updates:
     )
 
 
-def work(points: int, period: float, states: int) -> int:
-    """The analysis's work, known before it runs: points × updates (run and branches) × states."""
+def law_size(body: law_module.Body) -> int:
+    """What the law costs an update: its terms and its lines, each a few array operations."""
+    return sum(len(line.terms) for line in body.lines) + len(body.lines)
+
+
+def work(points: int, period: float, states: int, size: int) -> int:
+    """The analysis's work, known before it runs.
+
+    The runs × points × updates (the shared run and the branches) × (the closed loop's states, the
+    law's size, :func:`law_size`, and the cuts of a period at their weight: the output points and
+    the two cuts a delay can add).
+    """
     u = updates(period)
-    return points * (u.push + len(PUSH_BAND) * u.observed) * states
+    per_update = states + size + SEGMENT_WEIGHT * (output_points(period) + 2)
+    return RUNS * points * (u.push + len(PUSH_BAND) * u.observed) * per_update
+
+
+def realised_times(period: float) -> dict[str, float]:
+    """The push's instant and the averaging's length the period realises, s."""
+    u = updates(period)
+    return {
+        "push_time": u.push * period,
+        "speed_average": max(1, round(SPEED_AVERAGE / period)) * period,
+    }
+
+
+def ceiling(values: dict[str, float], limit: float) -> float:
+    """The ground speed the plant holds under a constant command ``limit``, m/s.
+
+    The steady state of :func:`~physgate.evaluation.whole.loop.continuous` (its motor model: the
+    drive ``2·Kt·V/R`` and the back-EMF damping ``2·Kt·Ke/R``): the tilt leans and stays, the speed
+    is constant, so the tilt's and the wheels' accelerations are zero. With the unknowns ``θ`` and
+    ``v``: ``A[1,0]·θ + A[1,3]·v = -B[1]·u`` and ``A[3,0]·θ + A[3,3]·v = -B[3]·u``.
+    """
+    a, b = continuous(values)
+    rows = [1, 3]
+    system = a[np.ix_(rows, [0, 3])]
+    try:
+        _, speed = np.linalg.solve(system, -b[rows, 0] * limit)
+    except np.linalg.LinAlgError:
+        return math.nan
+    return float(speed)
 
 
 @dataclass(frozen=True)
@@ -377,29 +452,45 @@ class Result:
 
     #: The lowest sliding mean of the ground speed in the hold window, m/s; NaN if it fell first.
     speed: Any
-    #: The mean of the ground speed over the last SPEED_AVERAGE before each information time, m/s.
+    #: The mean of the ground speed over the last SPEED_AVERAGE before each information time, m/s;
+    #: NaN where the lane had fallen by then (a fallen lane is frozen, its speed no speed).
     means: dict[float, Any]
     #: The mean of the hold window's second half less its first half, m/s (information).
     settled: Any
-    #: The ground speed at the push, m/s.
+    #: The ground speed at the push, m/s; NaN if it fell first.
     speed_at_push: Any
     #: Whether the tilt went past FELL_TILT (or a state stopped being finite) before the push.
     fell_before: Any
-    #: Updates at the limit in the hold window.
+    #: When the lane fell before the push, s from the start; NaN if it did not.
+    fell_at: Any
+    #: Updates at the limit in the hold window, counted until the lane fell.
     saturated_hold: Any
     #: The largest tilt from the push, deg, per branch; NaN if it fell before the push.
     peak: Any
-    #: Updates at the limit from the push on, per branch.
+    #: Updates at the limit from the push on, per branch, counted until the lane fell.
     saturated_push: Any
     #: Whether the tilt went past FELL_TILT after the push, per branch.
     fell_after: Any
+    #: When the lane fell after the push, s from the start, per branch; NaN if it did not (or
+    #: had fallen before the push).
+    fell_at_push: Any
+    #: The ground speed the plant holds under a constant command at the limit, m/s, per point.
+    ceiling: Any
     timing: Timing
 
 
 class _Sim:
     """The state of a batch of runs, advanced a period at a time."""
 
-    def __init__(self, plan: Plan, radius: Any, phis: list[Any], gams: list[Any], tm: Timing):
+    def __init__(
+        self,
+        plan: Plan,
+        radius: Any,
+        phis: list[Any],
+        gams: list[Any],
+        tm: Timing,
+        rate_offset: float = 0.0,
+    ):
         lanes = len(plan.points)
         self.plan, self.tm = plan, tm
         self.lanes = lanes
@@ -407,12 +498,14 @@ class _Sim:
         self.phis, self.gams = phis, gams
         self.law = plan.law
         self.x = np.zeros((lanes, 4))
+        self.x[:, 1] = rate_offset
         self.memory = {name: np.zeros(lanes) for name, _, _ in plan.law.memory}
         self.commands: deque[Any] = deque(maxlen=tm.compute_periods + 1)
         self.snaps: dict[int, Any] = {}
         self.active = np.zeros(lanes)
         self.fell = np.zeros(lanes, dtype=bool)
         self.frozen = np.zeros((lanes, 4))
+        self.fell_at = np.full(lanes, np.nan)
         self.peak = np.zeros(lanes)
         self.saturated = np.zeros(lanes, dtype=np.int64)
         self.saturated_hold = np.zeros(lanes, dtype=np.int64)
@@ -436,16 +529,18 @@ class _Sim:
         self.active = rep(self.active)
         self.fell = rep(self.fell)
         self.frozen = rep(self.frozen)
+        self.fell_at = rep(self.fell_at)
         self.peak = np.zeros(self.lanes)
         self.saturated = np.zeros(self.lanes, dtype=np.int64)
 
-    def _freeze(self, track_peak: bool) -> None:
+    def _freeze(self, track_peak: bool, at: float) -> None:
         tilt = np.abs(self.x[:, 0])
         if track_peak:
             self.peak = np.maximum(self.peak, np.where(np.isfinite(tilt), tilt, np.inf))
         bad = ~(tilt <= FELL_TILT)
         newly = bad & ~self.fell
         if newly.any():
+            self.fell_at = np.where(newly, at, self.fell_at)
             self.frozen = np.where(
                 newly[:, None],
                 np.where(np.isfinite(self.x), self.x, 0.0),
@@ -474,7 +569,8 @@ class _Sim:
         duty, following = update(self.law, self.memory, signals)
         counts = counts_of(duty, plan.command_limit, plan.full_scale)
         applied = counts / plan.full_scale
-        limited = np.abs(duty) > plan.command_limit
+        # a lane that fell is frozen, and the law keeps reading its frozen state: not counted
+        limited = (np.abs(duty) > plan.command_limit) & ~self.fell
         if after_push:
             self.saturated += limited
         if in_hold:
@@ -492,7 +588,7 @@ class _Sim:
                 np.matmul(self.phis[i], self.x[:, :, None])[:, :, 0]
                 + self.gams[i] * self.active[:, None]
             )
-            self._freeze(after_push)
+            self._freeze(after_push, k * plan.period + tm.offsets[i + 1])
             if tm.snapshot_cut == i + 1:
                 self.snaps[k] = self.x.copy()
         self.snaps.pop(k - tm.sensor_periods - 3, None)
@@ -511,17 +607,18 @@ def _segments(plan: Plan, tm: Timing) -> tuple[Any, list[Any], list[Any]]:
     return radius, phis, gams
 
 
-def run(plan: Plan) -> Result:
+def run(plan: Plan, *, rate_offset: float = 0.0) -> Result:
     """Step every plant point of ``plan`` through the timeline, and read the two numbers off.
 
     Never raises on a diverging loop: a point whose tilt passes 70° (or whose state stops being
-    finite) is frozen there and reported as having fallen.
+    finite) is frozen there and reported as having fallen. ``rate_offset`` is added to every
+    lane's initial tilt rate: 0 for the run, :data:`SENSITIVITY_RATE_OFFSET` for the second.
     """
     tm = timing(plan.period, plan.sensor_delay, plan.compute_delay)
     u = updates(plan.period)
     with np.errstate(all="ignore"):
         radius, phis, gams = _segments(plan, tm)
-        sim = _Sim(plan, radius, phis, gams, tm)
+        sim = _Sim(plan, radius, phis, gams, tm, rate_offset)
         wanted = _information_indices(plan.period, u)
         speeds: dict[int, Any] = {}
         for k in range(u.push):
@@ -529,7 +626,8 @@ def run(plan: Plan) -> Result:
                 speeds[k] = sim.x[:, 3].copy()
             sim.period(k, in_hold=k >= u.window_first, after_push=False)
         fell_before = sim.fell.copy()
-        speed_at_push = sim.x[:, 3].copy()
+        fell_at = sim.fell_at.copy()
+        speed_at_push = np.where(fell_before, np.nan, sim.x[:, 3])
         saturated_hold = sim.saturated_hold.copy()
         kicks = np.repeat([PUSH_RATE * (1.0 + b) for b in PUSH_BAND], sim.lanes)
         sim.branch(len(PUSH_BAND), kicks)
@@ -542,7 +640,11 @@ def run(plan: Plan) -> Result:
     speed, settled = _window_numbers(speeds, window, plan.period, lanes)
     speed = np.where(fell_before, np.nan, speed)
     means = {
-        t: _mean_over(speeds, _indices_before(t, plan.period), lanes)
+        t: np.where(
+            fell_at < t,  # False for NaN: a lane that never fell keeps its mean
+            np.nan,
+            _mean_over(speeds, _indices_before(t, plan.period), lanes),
+        )
         for t in (*INFORMATION_TIMES, PUSH_TIME)
     }
     return Result(
@@ -551,17 +653,22 @@ def run(plan: Plan) -> Result:
         settled=np.where(fell_before, np.nan, settled),
         speed_at_push=speed_at_push,
         fell_before=fell_before,
+        fell_at=fell_at,
         saturated_hold=saturated_hold,
         peak=peak,
         saturated_push=sim.saturated.reshape(len(PUSH_BAND), lanes),
         fell_after=sim.fell.reshape(len(PUSH_BAND), lanes) & ~fell_before[None, :],
+        fell_at_push=np.where(
+            fell_before[None, :], np.nan, sim.fell_at.reshape(len(PUSH_BAND), lanes)
+        ),
+        ceiling=np.array([ceiling(p, plan.command_limit) for p in plan.points]),
         timing=tm,
     )
 
 
 def _indices_before(t: float, period: float) -> list[int]:
     """The updates in the SPEED_AVERAGE before time ``t``."""
-    eps = 1e-9
+    eps = INDEX_TOLERANCE
     first = math.ceil((t - SPEED_AVERAGE) / period - eps)
     last = math.ceil(t / period - eps)
     return list(range(max(first, 0), last))

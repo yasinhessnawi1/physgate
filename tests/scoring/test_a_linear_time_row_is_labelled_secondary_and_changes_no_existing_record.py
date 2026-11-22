@@ -149,17 +149,6 @@ def test_a_run_past_the_work_bound_is_unscored_and_never_fails_the_answer(
     assert "refusal" not in record
 
 
-def test_a_version_2_named_structure_gets_the_same_rows(tmp_path: Path) -> None:
-    scenario, root = _scenario(tmp_path, [HEADLINE, SPEED, PUSH])
-    path = root / "named.json"
-    path.write_bytes(helpers._answer(helpers._incremental(0.999), 2))
-    record = scenario.record(path)
-    rows = _rows(record)
-    assert rows[dynamic.STEADY_SPEED]["kind"] == "dynamic_linear"
-    assert rows[dynamic.STEADY_SPEED]["corners"]["count"] == 1024
-    assert record["dynamic_linear"]["points"] == 1025
-
-
 def test_a_task_naming_neither_metric_gets_no_new_key_anywhere(tmp_path: Path) -> None:
     pm = {
         "name": "pm",

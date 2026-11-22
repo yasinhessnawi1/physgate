@@ -76,6 +76,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.evaluation.per_role.exceptions import TaskFormatError
@@ -365,6 +366,11 @@ class WholeDesignScenario:
                         "verdict": SCORER_FAULT,
                         "measured": None,
                         "reason": reason,
+                        **(
+                            {"label": dynamic_module.LABEL}
+                            if METRICS[spec.metric][1] == "dynamic_linear"
+                            else {}
+                        ),
                     }
                     for spec in self._task.specs
                 ],
@@ -426,6 +432,8 @@ class WholeDesignScenario:
         loop = to_si(
             read.controller, read.parameters, wheel_radius=self._radius(nominal(self._plant))
         )
+        # A task that names only the linear time rows reads no loop metric: its corners are 0 and
+        # this bound is not reached for it; the time run has its own bound, checked before any step.
         reads_loop = any(s.metric in LOOP_METRICS for s in self._task.specs)
         corners = 1 + 2 ** len(ranged(self._plant, LOOP_INPUTS)) if reads_loop else 0
         steps, states = loop_module.steps(loop), loop_module.states(loop)
@@ -565,7 +573,9 @@ class WholeDesignScenario:
                 [c.values["wheel_radius"] for c in lane_corners],
             )
         points = len(lane_corners)
-        cost = dynamic_module.work(points, loop.period, loop_module.states(loop))
+        cost = dynamic_module.work(
+            points, loop.period, loop_module.states(loop), dynamic_module.law_size(body)
+        )
         run = _LinearRun(points=points, cost=cost, loop=loop)
         if "wheel_reference" not in law_module.signals_read(body):
             run.reason = (
@@ -588,7 +598,11 @@ class WholeDesignScenario:
             )
             try:
                 run.result = dynamic_module.run(plan)
+                run.perturbed = dynamic_module.run(
+                    plan, rate_offset=dynamic_module.SENSITIVITY_RATE_OFFSET
+                )
             except loop_module.NUMERICAL_FAILURES as exc:
+                run.result = None
                 run.reason = (
                     f"the time run could not compute with the answer: {type(exc).__name__}: {exc}"
                 )
@@ -598,54 +612,76 @@ class WholeDesignScenario:
     def _linear_row(
         self, spec: Spec, row: dict[str, Any], read: Answer, sets: dict[str, list[_Corner]]
     ) -> dict[str, Any]:
-        """A ``dynamic_linear`` row: the linear model's number at the nominal set and corners."""
+        """A ``dynamic_linear`` row: the linear model's number at the nominal set and corners.
+
+        The batch is run twice (the second with one tiny perturbation): a point whose verdict
+        differs between the two runs counts neither as passing nor as failing, so it can only
+        move the row towards ``unscored``. The number is the first run's.
+        """
         unit = METRICS[spec.metric][0]
         run = self._linear_run(read, sets)
         row["label"] = dynamic_module.LABEL
-        if run.result is None:
+        if run.result is None or run.perturbed is None:
             row.update(
                 verdict="unscored",
                 measured=None,
                 reason=f"the linear model's answer, not judged: {run.reason}",
             )
             return row
-        res = run.result
+        res, other = run.result, run.perturbed
         steady = spec.metric == dynamic_module.STEADY_SPEED
-        numbers = res.speed if steady else res.peak.max(axis=0)
-        limited = res.saturated_hold if steady else res.saturated_push.max(axis=0)
+        numbers, numbers_other = _numbers(res, steady), _numbers(other, steady)
         values = [float(v) for v in numbers[1:]]
         at_nominal = float(numbers[0])
-        held = [_holds(spec, v) for v in values]
+        held = [_holds(spec, float(v)) for v in numbers]
+        held_other = [_holds(spec, float(v)) for v in numbers_other]
+        contested = [a != b for a, b in zip(held[1:], held_other[1:], strict=True)]
+        passing = sum(a and b for a, b in zip(held[1:], held_other[1:], strict=True))
+        failing = sum(not a and not b for a, b in zip(held[1:], held_other[1:], strict=True))
         finite = [v for v in values if not math.isnan(v)]
         varied = ranged(self._plant, LOOP_INPUTS)
-        reached = int((limited[1:] > 0).sum())
+        # a lane that fell has no number: nothing of it is counted at the limit
+        has_number = ~res.fell_before
+        limited = res.saturated_hold if steady else res.saturated_push.max(axis=0)
+        reached = int(((limited[1:] > 0) & has_number[1:]).sum())
+        of = int(has_number[1:].sum())
+        at_limit_nominal = bool(has_number[0] and limited[0] > 0)
         row.update(
             measured=_measure(at_nominal, unit),
             corners={
                 "ranged": list(varied),
                 "count": len(values),
-                "passing": sum(held),
+                "passing": passing,
+                "failing": failing,
+                "contested": sum(contested),
                 "fell": sum(math.isnan(v) for v in values),
                 "low": _measure(min(finite), unit) if finite else None,
                 "high": _measure(max(finite), unit) if finite else None,
             },
-            linear_run=_linear_information(res, steady, int(limited[0]), reached),
+            sensitivity=_sensitivity(
+                res, other, numbers, numbers_other, held, held_other, steady, unit
+            ),
+            linear_run=_linear_information(
+                res, steady, int(limited[0]) if has_number[0] else None, reached, of
+            ),
         )
         said = (
             "the linear model's answer, not criterion 17's or 18's verdict; "
-            f"the command limit was reached at {reached} of {len(values)} corners"
-            + (" and at the nominal values" if limited[0] else "")
+            f"the command limit was reached at {reached} of {of} corners that did not fall"
+            + (" and at the nominal values" if at_limit_nominal else "")
             + (
                 ", where the number is that of a linear plant under a limited command"
-                if reached or limited[0]
+                if reached or at_limit_nominal
                 else ""
             )
         )
-        if all(held) and _holds(spec, at_nominal):
+        both_nominal = held[0] and held_other[0]
+        neither_nominal = not held[0] and not held_other[0]
+        if passing == len(values) and both_nominal:
             row.update(
                 verdict="pass", reason=f"{said}; holds at the nominal values and at every corner"
             )
-        elif not any(held) and not _holds(spec, at_nominal):
+        elif failing == len(values) and neither_nominal:
             row.update(
                 verdict="fail", reason=f"{said}; fails at the nominal values and at every corner"
             )
@@ -653,11 +689,67 @@ class WholeDesignScenario:
             row.update(
                 verdict="unscored",
                 reason=(
-                    f"{said}; holds at {sum(held)} of {len(values)} corners of the ranges of "
-                    f"{', '.join(varied)}: the verdict rests on values no source fixes"
+                    f"{said}; holds at {passing} of {len(values)} corners of the ranges of "
+                    f"{', '.join(varied)}, fails at {failing}, and {sum(contested)} are contested "
+                    "(their verdict differs between the two runs, so they count neither way)"
+                    + ("; the nominal verdict is contested" if held[0] != held_other[0] else "")
+                    + ": the verdict rests on values no source fixes"
                 ),
             )
         return row
+
+
+def _numbers(res: dynamic_module.Result, steady: bool) -> Any:
+    """The row's number at every point: the speed held, or the largest peak of the branches."""
+    return res.speed if steady else res.peak.max(axis=0)
+
+
+def _fell(res: dynamic_module.Result, steady: bool) -> Any:
+    """Whether each point fell, as the row counts it: before the push, or after it as well."""
+    return res.fell_before if steady else (res.fell_before | res.fell_after.any(axis=0))
+
+
+def _sensitivity(
+    res: dynamic_module.Result,
+    other: dynamic_module.Result,
+    numbers: Any,
+    numbers_other: Any,
+    held: list[bool],
+    held_other: list[bool],
+    steady: bool,
+    unit: str,
+) -> dict[str, Any]:
+    """What the second run, with its one tiny perturbation, changed: judged by nothing."""
+    fell, fell_other = _fell(res, steady), _fell(other, steady)
+    both = np.isfinite(numbers) & np.isfinite(numbers_other)
+    change = np.where(both, np.abs(numbers - numbers_other), np.nan)
+    corner_change = change[1:][~np.isnan(change[1:])]
+    return {
+        "perturbation": {
+            "name": "initial_tilt_rate_offset",
+            "value": dynamic_module.SENSITIVITY_RATE_OFFSET,
+            "unit": "rad/s",
+        },
+        "meaning": (
+            "the batch run a second time with the perturbation added to every point's initial "
+            "tilt rate; what changed is told, judged by nothing; a point whose verdict against "
+            "the row's bound differs between the two runs counts neither as passing nor as "
+            "failing"
+        ),
+        "corners": {
+            "count": len(held) - 1,
+            "verdict_differs": sum(a != b for a, b in zip(held[1:], held_other[1:], strict=True)),
+            "fell_differs": int((fell[1:] != fell_other[1:]).sum()),
+            "largest_change": _measure(float(corner_change.max()), unit)
+            if corner_change.size
+            else None,
+        },
+        "nominal": {
+            "verdict_differs": held[0] != held_other[0],
+            "fell_differs": bool(fell[0] != fell_other[0]),
+            "change": _measure(float(change[0]), unit) if both[0] else None,
+        },
+    }
 
 
 #: The keys of the flags on the record and on every row of a sampled law.
@@ -751,6 +843,8 @@ class _LinearRun:
     cost: int
     loop: SiLoop
     result: dynamic_module.Result | None = None
+    #: The same batch with the sensitivity's perturbation.
+    perturbed: dynamic_module.Result | None = None
     reason: str = ""
 
     def block(self) -> dict[str, Any]:
@@ -772,7 +866,11 @@ class _LinearRun:
             "status": "proposal: every number of the timeline is chosen, none is frozen",
             "timeline": {k: _quantity(v, u) for k, (v, u) in constants.items()},
             "push_band": list(d.PUSH_BAND),
-            "output_points_per_period": d.OUTPUT_PER_PERIOD,
+            "output_spacing": _quantity(d.OUTPUT_SPACING, "s"),
+            "sensitivity_perturbation": {
+                "name": "initial_tilt_rate_offset",
+                **_quantity(d.SENSITIVITY_RATE_OFFSET, "rad/s"),
+            },
             "not_modelled": list(d.NOT_MODELLED),
             "points": self.points,
             "work": {"value": self.cost, "bound": d.MAX_DYNAMIC_WORK},
@@ -781,7 +879,13 @@ class _LinearRun:
             block["not_run"] = self.reason
         else:
             tm = self.result.timing
+            times = d.realised_times(self.loop.period)
             block["realised"] = {
+                "push_time": _quantity(times["push_time"], "s"),
+                "speed_average": _quantity(times["speed_average"], "s"),
+                "output_spacing": _quantity(
+                    self.loop.period / d.output_points(self.loop.period), "s"
+                ),
                 "period": _quantity(self.loop.period, "s"),
                 "sensor_delay": _quantity(self.loop.sensor_delay, "s"),
                 "compute_delay": _quantity(self.loop.compute_delay, "s"),
@@ -791,11 +895,26 @@ class _LinearRun:
 
 
 def _linear_information(
-    res: dynamic_module.Result, steady: bool, nominal_limited: int, corners_limited: int
+    res: dynamic_module.Result,
+    steady: bool,
+    nominal_limited: int | None,
+    corners_limited: int,
+    corners_with_number: int,
 ) -> dict[str, Any]:
-    """What a ``dynamic_linear`` row records beside its number, judged by nothing."""
+    """What a ``dynamic_linear`` row records beside its number, judged by nothing.
+
+    A point that fell is frozen and has no number: nothing of it is counted at the limit or shown
+    as a mean; the record says how many fell, when the nominal point did, and whether the demand
+    was beyond what the motor can drive (the ceiling) where they did.
+    """
     out: dict[str, Any] = {
-        "limit_reached": {"nominal_updates": nominal_limited, "corners": corners_limited}
+        "limit_reached": {
+            "nominal_updates": nominal_limited,
+            "corners": corners_limited,
+            "of": corners_with_number,
+        },
+        "fell": _fell_information(res, steady),
+        "ceiling": _ceiling_information(res),
     }
     if steady:
         out["window_means_at_nominal"] = {
@@ -813,6 +932,56 @@ def _linear_information(
             {"push_band": b, "peak": _measure(float(p), "deg")}
             for b, p in zip(dynamic_module.PUSH_BAND, res.peak[:, 0], strict=True)
         ]
+        out["peak_meaning"] = (
+            "the largest tilt from the push; of a point that fell after it, the first sample "
+            "past the bound, not a true peak"
+        )
         out["speed_at_push_at_nominal"] = _measure(float(res.speed_at_push[0]), "m/s")
         out["fell_after_push_at_corners"] = int(res.fell_after[:, 1:].any(axis=0).sum())
     return out
+
+
+def _fell_information(res: dynamic_module.Result, steady: bool) -> dict[str, Any]:
+    """How many points fell and when the nominal one did; the fallen split by the ceiling."""
+    fallen = _fell(res, steady)[1:]
+    ceilings = res.ceiling[1:]
+    demand = dynamic_module.DEMAND_SPEED
+    split = {
+        "below_demand": int((fallen & (ceilings < demand)).sum()),
+        "at_or_above_demand": int((fallen & (ceilings >= demand)).sum()),
+    }
+    if (unknown := int((fallen & np.isnan(ceilings)).sum())) > 0:
+        split["no_ceiling"] = unknown
+    out: dict[str, Any] = {
+        "before_push": int(res.fell_before[1:].sum()),
+        "nominal": {"before_push_at": _measure(float(res.fell_at[0]), "s")},
+        "by_ceiling": split,
+        "by_ceiling_meaning": (
+            "the points that fell, by whether the plant's ground-speed ceiling at the command "
+            "limit is below the demanded speed (the demand is beyond the motor) or not (the "
+            "law, or the plant's other parts, is the reason)"
+        ),
+    }
+    if not steady:
+        out["after_push"] = int(res.fell_after[:, 1:].any(axis=0).sum())
+        out["nominal"]["after_push_at"] = [
+            {"push_band": b, "at": _measure(float(t), "s")}
+            for b, t in zip(dynamic_module.PUSH_BAND, res.fell_at_push[:, 0], strict=True)
+        ]
+    return out
+
+
+def _ceiling_information(res: dynamic_module.Result) -> dict[str, Any]:
+    """The ground-speed ceiling at the command limit: nominal, and lowest and highest point."""
+    corner = [float(c) for c in res.ceiling[1:] if not math.isnan(c)]
+    return {
+        "nominal": _measure(float(res.ceiling[0]), "m/s"),
+        "low": _measure(min(corner), "m/s") if corner else None,
+        "high": _measure(max(corner), "m/s") if corner else None,
+        "demand": _quantity(dynamic_module.DEMAND_SPEED, "m/s"),
+        "formula": (
+            "the speed of the linear plant at rest under a constant command at the limit, body "
+            "leaning: the tilt's and the wheels' accelerations of loop.continuous set to 0 with "
+            "the tilt rate 0 (A[1,0]*tilt + A[1,3]*v = -B[1]*u, A[3,0]*tilt + A[3,3]*v = -B[3]*u)"
+        ),
+    }

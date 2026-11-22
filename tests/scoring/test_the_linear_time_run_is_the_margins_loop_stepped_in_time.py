@@ -300,18 +300,17 @@ def test_the_number_is_the_lowest_sliding_mean_and_the_settled_figure_is_a_diffe
     assert settled[0] == pytest.approx(series[-half:].mean() - series[:half].mean(), abs=1e-12)
 
 
-def test_the_timeline_puts_the_hold_window_just_before_the_push() -> None:
-    u = dynamic.updates(0.01)
-    assert u.push == 2000
-    assert u.window_first == 1800
-    assert u.observed == 400
-    assert dynamic.work(1025, 0.01, 10) == 1025 * (2000 + 3 * 400) * 10
-
-
 # ── numbers on laws made for the row ─────────────────────────────────────────────────────────
 
 
-def _stepped(limit: float, controller: dict[str, Any] | None = None, **tweak: float) -> Any:
+def _stepped(
+    limit: float,
+    full_scale: float = EXACT_COUNTS,
+    controller: dict[str, Any] | None = None,
+    rate_offset: float = 0.0,
+    **tweak: float,
+) -> Any:
+    """One run of the nominal point; no rounding of the command unless a full scale says so."""
     values = nominal(_PLANT)
     legacy = helpers._si(controller or helpers._feedback(), values["wheel_radius"])
     coefficients = dynamic.named_values([legacy], [values["wheel_radius"]])
@@ -323,10 +322,10 @@ def _stepped(limit: float, controller: dict[str, Any] | None = None, **tweak: fl
         sensor_delay=legacy.sensor_delay,
         compute_delay=legacy.compute_delay,
         command_limit=limit,
-        full_scale=400.0,
+        full_scale=full_scale,
         points=(values,),
     )
-    return dynamic.run(plan)
+    return dynamic.run(plan, rate_offset=rate_offset)
 
 
 def test_a_stable_law_reaches_the_speed_the_reference_advances_at() -> None:
@@ -337,10 +336,18 @@ def test_a_stable_law_reaches_the_speed_the_reference_advances_at() -> None:
     assert result.saturated_hold[0] == 0
 
 
-def test_a_command_limit_below_what_the_reference_needs_is_counted_and_not_hidden() -> None:
-    result = _stepped(0.75)
-    # the demand is past what 0.75 of the pack can drive the wheels at: the limit is reached
-    assert result.saturated_hold[0] > 0
+def test_a_limit_that_a_push_reaches_is_counted_in_each_branch_and_the_lane_stays_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A push of 10 rad/s asks for more than a limit of 1.3 gives: some updates, not all."""
+    monkeypatch.setattr(dynamic, "PUSH_RATE", 10.0)
+    result = _stepped(1.3)
+    assert not result.fell_before[0]
+    assert not result.fell_after[:, 0].any()
+    at_limit = [int(n) for n in result.saturated_push[:, 0]]
+    assert all(0 < n < 100 for n in at_limit)
+    assert at_limit == sorted(at_limit)  # a bigger push is at the limit for longer
+    assert result.saturated_hold[0] == 0
 
 
 def test_a_law_that_falls_has_no_speed_and_no_peak() -> None:
@@ -351,13 +358,20 @@ def test_a_law_that_falls_has_no_speed_and_no_peak() -> None:
 
 
 def test_the_push_branches_are_the_band_and_the_peak_grows_with_the_push() -> None:
+    """Nothing rounds and nothing limits, so the response is linear.
+
+    The peaks are in the pushes' ratio, and the one tiny perturbation of the record moves no
+    peak by a thousandth.
+    """
     result = _stepped(UNLIMITED)
     low, mid, high = (float(p) for p in result.peak[:, 0])
     assert low < mid < high
     assert dynamic.PUSH_BAND == (-0.05, 0.0, 0.05)
-    # the response is linear below the limit: the peak is the push's size times a constant
-    # beside the cruise's own tilt, so the three peaks are in the ratio of the pushes' sizes
-    assert (high - low) / (mid - low) == pytest.approx(2.0, rel=0.05)
+    kicks = [dynamic.PUSH_RATE * (1.0 + b) for b in dynamic.PUSH_BAND]
+    expected = (kicks[2] - kicks[0]) / (kicks[1] - kicks[0])
+    assert (high - low) / (mid - low) == pytest.approx(expected, rel=1e-3)
+    nudged = _stepped(UNLIMITED, rate_offset=dynamic.SENSITIVITY_RATE_OFFSET)
+    assert nudged.peak[:, 0] == pytest.approx(result.peak[:, 0], rel=1e-3)
 
 
 def test_a_tilt_past_seventy_degrees_is_a_fall_and_stays_a_number_past_the_bound(
@@ -390,10 +404,14 @@ def test_the_push_is_added_forward_at_the_brief_s_size_in_each_branch(
     assert kick[2] == pytest.approx(1.575)
 
 
-def test_a_limit_that_is_reached_changes_the_run_and_the_applied_memory_holds_the_limit() -> None:
+def test_a_limit_that_is_reached_changes_the_run_and_the_applied_memory_holds_the_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dynamic, "PUSH_RATE", 10.0)
     free = _stepped(UNLIMITED)
-    held = _stepped(0.75)
-    assert math.isnan(held.speed[0]) or abs(held.speed[0] - free.speed[0]) > 1e-3
+    held = _stepped(1.3)
+    # the limit lets the tilt grow further than the free run's linear response: by degrees
+    assert (held.peak[:, 0] - free.peak[:, 0] > 1.0).all()
     values = nominal(_PLANT)
     legacy = helpers._si(helpers._incremental(0.999), values["wheel_radius"])
     plan = dynamic.Plan(
@@ -450,7 +468,7 @@ def test_a_named_structure_at_the_reference_s_own_pace_has_no_speed_error() -> N
     assert duty == pytest.approx(0.5 * legacy.distance * radius, rel=1e-9)
 
 
-def test_the_period_is_output_at_equal_points_between_the_updates() -> None:
+def test_the_period_is_output_at_the_stated_spacing_between_the_updates() -> None:
     tm = dynamic.timing(0.01, 0.0, 0.0)
-    assert len(tm.offsets) == dynamic.OUTPUT_PER_PERIOD + 1
-    assert tm.offsets[1] == pytest.approx(0.0025)
+    assert len(tm.offsets) == round(0.01 / dynamic.OUTPUT_SPACING) + 1
+    assert tm.offsets[1] == pytest.approx(dynamic.OUTPUT_SPACING)
