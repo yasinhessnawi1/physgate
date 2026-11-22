@@ -1,0 +1,466 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "push_sign",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "[PUSH_RATE * (1.0 + b) for b in PUSH_BAND]",
+    "new": "[-PUSH_RATE * (1.0 + b) for b in PUSH_BAND]",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "command_limit_not_applied",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "counts = counts_of(duty, plan.command_limit, plan.full_scale)",
+    "new": "counts = counts_of(duty, 1e9, plan.full_scale)",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "counts_not_rounded_to_nearest",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "whole = np.floor(np.abs(held) * full_scale + 0.5)",
+    "new": "whole = np.floor(np.abs(held) * full_scale)",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "sensor_delay_read_a_cut_early",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "read = k - tm.sensor_periods - (0 if tm.snapshot_cut is None else 1)",
+    "new": "read = k - tm.sensor_periods",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "whole_periods_of_compute_delay_ignored",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "held = len(self.commands) - 1 - tm.compute_periods",
+    "new": "held = len(self.commands) - 1",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "snapshot_taken_one_cut_late",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "if tm.snapshot_cut == i + 1:",
+    "new": "if tm.snapshot_cut == i:",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "reference_not_advanced_after_the_ramp",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "return 0.5 * RAMP_ACCELERATION * ramp * ramp + DEMAND_SPEED * (s - ramp)",
+    "new": "return 0.5 * RAMP_ACCELERATION * ramp * ramp",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "hold_window_twice_as_long",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "window_first=math.ceil((PUSH_TIME - HOLD_LENGTH) / period - eps)",
+    "new": "window_first=math.ceil((PUSH_TIME - 2 * HOLD_LENGTH) / period - eps)",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "highest_sliding_mean_taken",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "lowest = ((total[n:] - total[:-n]) / n).min(axis=0)",
+    "new": "lowest = ((total[n:] - total[:-n]) / n).max(axis=0)",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "push_band_collapsed",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "PUSH_BAND = (-0.05, 0.0, 0.05)",
+    "new": "PUSH_BAND = (0.0, 0.0, 0.0)",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "distance_reference_sign",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "_term(\"wheel_reference\", \"distance_gain\", sign=-1),",
+    "new": "_term(\"wheel_reference\", \"distance_gain\", sign=1),",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "reference_speed_term_dropped",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "            _term(\"line.reference_speed\", \"speed_gain\", sign=-1),\n",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "fallen_lane_not_frozen",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "self.x = np.where(self.fell[:, None], self.frozen, self.x)",
+    "new": "self.x = self.x",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "applied_memory_holds_the_duty",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "name: (applied if is_applied else following[name])",
+    "new": "name: following[name]",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "limit_reached_never_counted",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "limited = np.abs(duty) > plan.command_limit",
+    "new": "limited = np.abs(duty) > 10 * plan.command_limit",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "reference_not_in_wheel_angle",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "\"wheel_reference\": reference_position(k * plan.period) / r,",
+    "new": "\"wheel_reference\": reference_position(k * plan.period),",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "wheel_speed_not_relative_to_the_body",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "\"wheel_speed\": (seen[:, 3] - r * seen[:, 1]) / r,",
+    "new": "\"wheel_speed\": seen[:, 3] / r,",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "push_on_the_tilt_not_its_rate",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "self.x[:, 1] += kick",
+    "new": "self.x[:, 0] += kick",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "a_fallen_run_keeps_its_speed",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "speed = np.where(fell_before, np.nan, speed)",
+    "new": "speed = speed",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "leak_dropped_from_the_integrated_angle",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "_term(\"tilt_rate\", \"decay\", law_module.PERIOD),",
+    "new": "_term(\"tilt_rate\", law_module.PERIOD),",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "settled_difference_reversed",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "settled = series[len(window) - half :].mean(axis=0) - series[:half].mean(axis=0)",
+    "new": "settled = series[:half].mean(axis=0) - series[len(window) - half :].mean(axis=0)",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "one_output_point_per_period",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "OUTPUT_PER_PERIOD = 4",
+    "new": "OUTPUT_PER_PERIOD = 1",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "information_time_left_out",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "INFORMATION_TIMES = (5.0, 10.0, 15.0)",
+    "new": "INFORMATION_TIMES = (5.0, 10.0)",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "headline_linear_spec_allowed",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "if known[1] == \"dynamic_linear\" and spec.counts != \"secondary\":",
+    "new": "if False:",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "a_law_with_no_reference_is_run",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "if \"wheel_reference\" not in law_module.signals_read(body):",
+    "new": "if False:",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "work_bound_ignored",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "elif cost > dynamic_module.MAX_DYNAMIC_WORK:",
+    "new": "elif False:",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "worst_branch_not_taken",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "numbers = res.speed if steady else res.peak.max(axis=0)",
+    "new": "numbers = res.speed if steady else res.peak[1]",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  }
+]
