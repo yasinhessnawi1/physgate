@@ -72,7 +72,9 @@ the modes the rule sets aside are taken out (the rule's choice is not changed by
 exact part covers the rest subspace and nothing more: a mode at exactly 1 or -1 that is reached
 only through the plant, or through a state the command reads (a held integrator the command reads,
 fed by a constant state nothing feeds, say), lies outside it and is judged in floating point, where
-the largest error measured is 1e-15. So a position gain of the right sign at 1e-9 scores stable,
+the error measured, for that shape (a held integrator the command reads, fed by a constant state
+nothing feeds) and its amplified variants, is at most 1e-15; it is no bound for every mode outside
+the rest subspace. So a position gain of the right sign at 1e-9 scores stable,
 while none and the wrong sign do not, and an eigenvalue of ``1 - 1e-9`` is inside. The decision
 depends on the law's numbers alone, so it is made once per answer, not per plant point. Every number
 of a law is a number a float holds as it is written (one that underflows, written as a nonzero that

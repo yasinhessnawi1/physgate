@@ -104,3 +104,28 @@ def test_any_refusal_after_validation_is_a_scorer_fault_under_its_own_name(
             "reason": record["refusal"]["reason"],
         }
     assert scenario.score(path) == "scorer_fault"
+
+
+def test_a_scorer_fault_row_carries_its_spec_s_own_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A spec counts either as a headline or as a secondary measure. Give the specs both, so that
+    # a row that said "headline" for every spec would differ from the spec's own on the secondary
+    # ones.
+    specs = copy.deepcopy(helpers.SPECS)
+    for index, spec in enumerate(specs):
+        spec["counts"] = "secondary" if index % 2 == 0 else "headline"
+    scenario, root = helpers._scenario(tmp_path, specs)
+    path = root / "answer.json"
+    path.write_bytes(helpers._answer(helpers._recorded_controller(), 3))
+    monkeypatch.setattr(law_module, "held_report", _late("zero_divisor"))
+    record = scenario.record(path)
+    assert record["outcome"] == "scorer_fault"
+    task_specs = scenario._task.specs
+    assert {spec.counts for spec in task_specs} == {"headline", "secondary"}
+    assert len(record["specs"]) == len(task_specs)
+    for spec, row in zip(task_specs, record["specs"], strict=True):
+        assert row["counts"] == spec.counts, (spec.name, row["counts"], spec.counts)
+    assert [row["counts"] for row in record["specs"]] == [
+        "secondary" if index % 2 == 0 else "headline" for index in range(len(specs))
+    ]
