@@ -492,11 +492,30 @@ class SampledLaw(_Loop, law_module.Body):
     #: Each number of the law as written in the text it was read from (:func:`parse_answer` sets
     #: it): not a field of the answer.
     _written: law_module.Written | None = PrivateAttr(default=None)
+    #: What the exact arithmetic decides on this law, made the first time it is asked for.
+    _decision: law_module.Decision | None = PrivateAttr(default=None)
 
     @property
     def written(self) -> law_module.Written | None:
         """The numbers as written, where the answer was read from text; else ``None``."""
         return self._written
+
+    def decision(self) -> law_module.Decision:
+        """What the exact arithmetic decides on the law's numbers as written, made once.
+
+        The decision depends on the law's numbers alone, never on a plant point, so it is made the
+        first time it is asked for and kept: once per answer, however many points are scored.
+
+        Raises:
+            LawRefused: ``zero_divisor``, or ``written_numbers_do_not_match``
+                (:func:`~physgate.evaluation.whole.law.decide`).
+        """
+        if self._decision is None:
+            values = {name: float(measure.value) for name, measure in self.coefficients.items()}
+            self._decision = law_module.decide(
+                self, values, period=float(self.period.value), written=self._written
+            )
+        return self._decision
 
     @model_validator(mode="after")
     def _law_holds(self) -> SampledLaw:

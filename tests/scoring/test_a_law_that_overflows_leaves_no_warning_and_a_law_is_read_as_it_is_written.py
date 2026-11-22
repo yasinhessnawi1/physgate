@@ -15,6 +15,7 @@ import warnings
 from fractions import Fraction
 from typing import Any
 
+from physgate.evaluation.per_role.exceptions import TaskFormatError
 from physgate.evaluation.whole import loop as loop_module
 from physgate.evaluation.whole.answer import (
     OutsideScope,
@@ -148,10 +149,11 @@ def test_an_analysed_law_has_its_own_numbers_as_written_not_the_primary_s() -> N
     assert parsed.analysed_controller.written.coefficients["second"] == Fraction(1, 5)
 
 
-def _refusal(raw: bytes) -> OutsideScope | None:
+def _refusal(raw: bytes) -> TaskFormatError | None:
+    """The refusal the reading raises, whatever it is: a scope refusal is one kind of it."""
     try:
         parse_answer_scoped(raw)
-    except OutsideScope as exc:
+    except TaskFormatError as exc:
         return exc
     return None
 
@@ -164,6 +166,7 @@ def test_when_both_laws_are_refused_the_primary_s_refusal_is_the_one_raised() ->
     )
     refusal = _refusal(json.dumps(document).encode())
     assert refusal is not None, "the primary is refused, whatever the analysed law is"
+    assert isinstance(refusal, OutsideScope), f"reported as {type(refusal).__name__}: {refusal}"
     assert refusal.name == "nonlinear"
     assert str(refusal).startswith("controller is out of the scorer's reach")
 

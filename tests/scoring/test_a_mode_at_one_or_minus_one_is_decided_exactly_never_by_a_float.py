@@ -119,7 +119,12 @@ def test_the_reviewer_s_law_is_a_fail_with_the_exact_reason_named_in_the_record(
     assert rows["pm"]["verdict"] == "fail", rows["pm"]
     assert "unstable" in rows["pm"]["reason"]
     assert "exactly 1" in rows["pm"]["reason"], rows["pm"]["reason"]
-    assert record["unit_circle"] == {"at_one_not_set_aside": 1, "at_minus_one": 0}
+    assert record["unit_circle"] == {
+        "at_one_not_set_aside": 1,
+        "algebraic_at_one": 1,
+        "set_aside": 0,
+        "at_minus_one": 0,
+    }
     assert record["outcome"] == "fail"
 
 
@@ -197,7 +202,12 @@ def test_a_coupled_pair_at_exactly_minus_one_is_a_fail_with_the_exact_reason_nam
     rows = {r["name"]: r for r in record["specs"]}
     assert rows["pm"]["verdict"] == "fail", rows["pm"]
     assert "exactly -1" in rows["pm"]["reason"], rows["pm"]["reason"]
-    assert record["unit_circle"] == {"at_one_not_set_aside": 0, "at_minus_one": 1}
+    assert record["unit_circle"] == {
+        "at_one_not_set_aside": 0,
+        "algebraic_at_one": 0,
+        "set_aside": 0,
+        "at_minus_one": 1,
+    }
 
 
 def test_a_three_state_ring_at_exactly_minus_one_is_unstable_and_counted_once() -> None:
@@ -221,7 +231,11 @@ def _same_as_before(controller: dict[str, Any], expected: list[tuple[Any, ...]])
             margins.upward,
             margins.downward,
         )
-        assert now == old, (values["wheel_radius"], now, old)
+        # "as before" is the stored number to a relative 1e-9: another machine's BLAS moves the
+        # phase margin by about 1e-13 degrees, a thousandth of a part in a million of the number
+        assert (now[0], now[2]) == (old[0], old[2]), (values["wheel_radius"], now, old)
+        for found, stored in ((now[1], old[1]), (now[3], old[3]), (now[4], old[4])):
+            assert found == pytest.approx(stored, rel=1e-9, abs=0.0), (values["wheel_radius"], now)
 
 
 RECORDED = [
@@ -283,12 +297,12 @@ INERT_ONE = [
 ]
 
 
-def test_the_recorded_design_s_law_scores_to_the_digit_as_before() -> None:
+def test_the_recorded_design_s_law_scores_as_before_to_a_relative_1e_9() -> None:
     _same_as_before(helpers._recorded_controller(), RECORDED)
-    assert RECORDED[0][1] == 50.64325855119688, "the number the first look printed as 50.64"
+    assert RECORDED[0][1] == pytest.approx(50.64, abs=0.01), "the number the first look printed"
 
 
-def test_a_mode_held_at_one_and_set_aside_scores_to_the_digit_as_before() -> None:
+def test_a_mode_held_at_one_and_set_aside_scores_as_before_to_a_relative_1e_9() -> None:
     leak_free = helpers._as_law(
         helpers._si(helpers._incremental(None), POINTS[0]["wheel_radius"]),
         POINTS[0]["wheel_radius"],

@@ -554,9 +554,7 @@ def _law_record(law: SampledLaw) -> dict[str, Any]:
         **_flags(law, modes),
         "law_signals": list(law_module.signals_read(law)),
         "held_modes": [mode.as_record() for mode in modes],
-        "unit_circle": law_module.unit_circle(
-            law, values, period=float(law.period.value), written=law.written
-        ).as_record(),
+        "unit_circle": law.decision().circle.as_record(),
     }
 
 

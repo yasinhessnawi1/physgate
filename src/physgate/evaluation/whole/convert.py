@@ -147,7 +147,7 @@ def _law_to_si(controller: SampledLaw) -> SiLoop:
     period = float(controller.period.value)
     values = {name: float(measure.value) for name, measure in controller.coefficients.items()}
     a, b, c, d = law_module.linear(controller, values, period=period)
-    decision = law_module.decide(controller, values, period=period, written=controller.written)
+    decision = controller.decision()
     return SiLoop(
         incremental=False,
         angle=0.0,

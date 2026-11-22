@@ -50,29 +50,31 @@ the reference and read by the command is set aside (the loop analysis holds it b
 answer is flagged (:data:`HELD_STATE_FLAG`), for in the firmware a bias or a reference grows it
 without bound.
 
-**What is decided exactly, and what in floating point.** An eigenvalue of the closed loop at
-exactly 1 or exactly -1 is decided exactly, in rational arithmetic on the numbers as written
-(:func:`decide`), never by a float. At 1: the closed loop has an eigenvalue of exactly 1 with an
-eigenvector the plant takes no part in but its travel (the memory ``m`` and the wheel angle
-``beta`` with ``D_w·beta + C·m = 0`` and ``B_w·beta + (A - I)·m = 0``, the held vectors) that the
-set-aside rule does not set aside, and the law is unstable outright, at every plant point and
-every gain, whatever the floating-point eigenvalue comes out as; the independent vectors the rule
-sets aside are compared in number with the held vectors, and every one must be among them. At
--1: a memory vector the plant does not move (``C·m = 0``) that the update returns negated
-(``(A + I)·m = 0``) is never set aside, and the law is unstable outright. Both depend on the law's
-numbers alone, not on the plant point: the plant's own rest states are its travel offset, so an
-eigenvector at 1 or -1 that moves any other plant state is not a structural fact of the law, and
-it is judged in floating point like every other point of the unit circle. What is judged in
-floating point, then, is the rest: an eigenvalue exactly on the unit circle at any other point,
-and any eigenvalue within 1e-12 of it, each by the one stated rule, a spectral radius below 1 by
-:data:`~physgate.evaluation.whole.loop.STABILITY_EPSILON` (1e-12), after the modes set aside are
-taken out. So a position gain of the right sign at 1e-9 scores stable, while none and the wrong
-sign do not, and an eigenvalue of ``1 - 1e-9`` is inside. Every number of a law is a number a
-float holds as it is written (one
-that underflows, written as a nonzero that reads as zero, or overflows is refused by name), and
-is written with at most 15 significant digits: a held state is decided on the decimals as
-written, and two spellings of one float past 15 digits can be decided differently, always
-towards unstable.
+**What is decided exactly, and what in floating point.** One part of the verdict is decided in
+rational arithmetic on the law's numbers as written (:func:`decide`), never by a float: the *rest
+subspace*. With the plant at rest and the command zero the plant stays at rest, so the state that
+matters is the wheel angle (the travel, kept as it is; the one signal that is not zero at rest with
+a travel offset) and the law's memory, and its update is the law's own numbers. The rest subspace is
+the largest part of that state on which the command stays zero at every update (the unobservable
+subspace of the command row and that update): closed under the update, so that on it the closed
+loop's eigenvalues are the update's own. On it, the algebraic multiplicity of the eigenvalue 1 (a
+chain of integrators counted link by link, not only its eigenvector) is compared with the number of
+independent modes the set-aside rule sets aside, and if it is larger the law is unstable outright,
+at every plant point and every gain, whatever the floating-point eigenvalue comes out as; any
+eigenvalue of exactly -1 there (never set aside) makes the law unstable outright too.
+
+What is judged in floating point is everything that moves the plant: every mode outside the rest
+subspace, an eigenvalue exactly on the unit circle there included (at 1, at -1 or anywhere else),
+and any eigenvalue within 1e-12 of the circle anywhere, each by the one stated rule, a spectral
+radius below 1 by :data:`~physgate.evaluation.whole.loop.STABILITY_EPSILON` (1e-12), after exactly
+the modes the rule sets aside are taken out (the rule's choice is not changed by the count). So a
+position gain of the right sign at 1e-9 scores stable, while none and the wrong sign do not, and an
+eigenvalue of ``1 - 1e-9`` is inside. The decision depends on the law's numbers alone, so it is made
+once per answer, not per plant point. Every number of a law is a number a float holds as it is
+written (one that underflows, written as a nonzero that reads as zero, or overflows is refused by
+name), and is written with at most 15 significant digits: a held state is decided on the decimals as
+written, and two spellings of one float past 15 digits can be decided differently, always towards
+unstable.
 
 **The coefficients** are named by the design, each ``{value, unit}`` as the graph holds it. The
 reserved name ``period`` is the loop's own period, in s. Units are checked line by line: every
@@ -795,7 +797,6 @@ class _Held:
     command: list[Fraction]
     scales: list[list[Fraction]]
     set_aside: bool
-    minus_one: int
 
 
 def _held(body: Body, values: Mapping[str, float], period: float, written: Written | None) -> _Held:
@@ -815,14 +816,6 @@ def _held(body: Body, values: Mapping[str, float], period: float, written: Writt
         return exact(term.sign) * exact(term.number)
 
     rows, command, scales = _rows(body, _coefficients(exact_values, exact_period), number)
-    # Memory alone with the plant at rest, returned negated and the command 0: ``C·m = 0`` and
-    # ``(A + I)·m = 0``. Such a mode is an eigenvalue of exactly -1 whatever the plant and the gain.
-    negated = (
-        [command[:n]] + [[rows[r][c] + (1 if r == c else 0) for c in range(n)] for r in range(n)]
-        if n
-        else []
-    )
-    minus_one = len(_null_space(negated)) if n else 0
     wheel = n + LOOP_SIGNALS.index("wheel_angle")
     stacked = [[command[wheel], *command[:n]]]
     for i, row in enumerate(rows):
@@ -830,7 +823,7 @@ def _held(body: Body, values: Mapping[str, float], period: float, written: Writt
     kernel = _null_space(stacked)
 
     def held(*, set_aside: bool) -> _Held:
-        return _Held(kernel, rows, command, scales, set_aside, minus_one)
+        return _Held(kernel, rows, command, scales, set_aside)
 
     if not kernel:
         return held(set_aside=False)
@@ -844,6 +837,55 @@ def _held(body: Body, values: Mapping[str, float], period: float, written: Writt
         if y[0] != 0 or fed != 0:
             return held(set_aside=False)
     return held(set_aside=True)
+
+
+def _multiply(matrix: list[list[Fraction]], vector: list[Fraction]) -> list[Fraction]:
+    return [sum((a * b for a, b in zip(row, vector, strict=True)), Fraction(0)) for row in matrix]
+
+
+def _rest_subspace(held: _Held, body: Body) -> tuple[int, int]:
+    """On the rest subspace: the algebraic multiplicity of the eigenvalue 1, and the count at -1.
+
+    The state is the wheel angle (the travel, which is kept) and the law's memory, ``(β, m)``, and
+    its update with the plant at rest and the command zero is ``β' = β``, ``m' = B_w·β + A·m``
+    (the wheel angle is the one signal that is not zero at rest with a travel offset), the
+    command ``D_w·β + C·m``: ``update`` and ``command`` below, in the law's numbers as written.
+    The rest subspace is the largest part of that state on which the command stays zero at every
+    update: the vectors with ``command·update^k = 0`` for ``k`` from 0 to the state's size less 1
+    (the unobservable subspace of the pair), found exactly. It is closed under the update, and on
+    it the closed loop's own update is this one and nothing else. The multiplicity of 1 is the
+    dimension of the kernel of ``(update - I)^d`` on it (``d`` its dimension), and the count at -1
+    the dimension of the kernel of ``update + I`` on it.
+    """
+    n = len(body.memory)
+    wheel = n + LOOP_SIGNALS.index("wheel_angle")
+    size = n + 1
+    update = [[Fraction(1)] + [Fraction(0)] * n]
+    for row in held.rows:
+        update.append([row[wheel], *row[:n]])
+    command = [held.command[wheel], *held.command[:n]]
+    observed = [command]
+    for _ in range(size - 1):
+        last = observed[-1]
+        observed.append(
+            [sum((last[r] * update[r][c] for r in range(size)), Fraction(0)) for c in range(size)]
+        )
+    rest = _null_space(observed)
+    if not rest:
+        return 0, 0
+
+    def kernel_of(shift: int, power: int) -> int:
+        """The dimension of the kernel of ``(update + shift·I)^power`` on the rest subspace."""
+        images = []
+        for vector in rest:
+            image = list(vector)
+            for _ in range(power):
+                moved = _multiply(update, image)
+                image = [moved[i] + shift * image[i] for i in range(size)]
+            images.append(image)
+        return len(rest) - _rank(images)
+
+    return kernel_of(-1, len(rest)), kernel_of(1, 1)
 
 
 def held_modes(
@@ -911,16 +953,21 @@ def _modes(held: _Held) -> tuple[tuple[float, ...], ...]:
 
 @dataclass(frozen=True)
 class UnitCircle:
-    """The eigenvalues at exactly 1 and -1 that no rule sets aside, counted by independent vectors.
+    """The eigenvalues at exactly 1 and -1 on the rest subspace that no rule sets aside.
 
-    ``at_one`` are the held vectors (:func:`held_modes`' kernel) that are not among the modes set
-    aside; ``at_minus_one`` are the memory vectors the plant does not move that the law returns
-    negated. Either being above zero is an eigenvalue of the closed loop that is exactly on the
-    unit circle at every plant point and every gain: the law is unstable, whatever a float says.
+    ``algebraic_at_one`` is the algebraic multiplicity of the eigenvalue 1 on the rest subspace
+    (:func:`_rest_subspace`), ``set_aside`` the number of independent modes the set-aside rule sets
+    aside (:func:`held_modes`), and ``at_one`` their difference: the eigenvalues of exactly 1 left
+    in the loop. ``at_minus_one`` is the count at exactly -1 there, which is never set aside.
+    Either of ``at_one`` and ``at_minus_one`` above zero is an eigenvalue of the closed loop that
+    is exactly on the unit circle at every plant point and every gain: the law is unstable,
+    whatever a float says.
     """
 
     at_one: int
     at_minus_one: int
+    algebraic_at_one: int = 0
+    set_aside: int = 0
 
     @property
     def unstable(self) -> bool:
@@ -929,15 +976,22 @@ class UnitCircle:
 
     def as_record(self) -> dict[str, int]:
         """The counts as a plain record."""
-        return {"at_one_not_set_aside": self.at_one, "at_minus_one": self.at_minus_one}
+        return {
+            "at_one_not_set_aside": self.at_one,
+            "algebraic_at_one": self.algebraic_at_one,
+            "set_aside": self.set_aside,
+            "at_minus_one": self.at_minus_one,
+        }
 
     def reason(self) -> str:
         """In words, why the law is unstable by this, or ``""`` if it is not."""
         parts = []
         if self.at_one:
             parts.append(
-                f"{self.at_one} eigenvalue(s) of exactly 1 that the set-aside rule does not set "
-                "aside (decided exactly on the law's numbers as written)"
+                f"an eigenvalue of exactly 1 of multiplicity {self.algebraic_at_one} on the "
+                f"subspace the law keeps at rest, of which the set-aside rule sets aside "
+                f"{self.set_aside}: {self.at_one} eigenvalue(s) of exactly 1 are left "
+                "(decided exactly on the law's numbers as written)"
             )
         if self.at_minus_one:
             parts.append(
@@ -964,8 +1018,9 @@ def decide(
 ) -> Decision:
     """The modes :func:`held_modes` sets aside and the :class:`UnitCircle` count, from one solve.
 
-    The count compares dimensions: every independent vector of the held kernel must be one the
-    set-aside rule sets aside, or the difference is an eigenvalue of exactly 1 left in the loop.
+    The count compares dimensions: the algebraic multiplicity of the eigenvalue 1 on the rest
+    subspace (a chain included) against the number of modes the set-aside rule sets aside; the
+    difference is an eigenvalue of exactly 1 left in the loop. At -1, any eigenvalue there counts.
 
     Raises:
         LawRefused: ``zero_divisor``: a term divides by a coefficient whose number is 0, or
@@ -973,7 +1028,8 @@ def decide(
     """
     held = _held(body, values, period, written)
     modes = _modes(held)
-    return Decision(modes, UnitCircle(len(held.kernel) - len(modes), held.minus_one))
+    algebraic, minus_one = _rest_subspace(held, body)
+    return Decision(modes, UnitCircle(algebraic - len(modes), minus_one, algebraic, len(modes)))
 
 
 def unit_circle(
