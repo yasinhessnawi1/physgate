@@ -561,9 +561,9 @@
   },
   {
     "name": "the_written_numbers_are_not_used_in_the_loop",
-    "file": "src/physgate/evaluation/whole/convert.py",
-    "old": "    decision = law_module.decide(controller, values, period=period, written=controller.written)\n",
-    "new": "    decision = law_module.decide(controller, values, period=period, written=None)\n",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "self, values, period=float(self.period.value), written=self._written",
+    "new": "self, values, period=float(self.period.value), written=None",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
@@ -1057,8 +1057,8 @@
   {
     "name": "the_exact_test_at_one_is_skipped",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "UnitCircle(len(held.kernel) - len(modes), held.minus_one)",
-    "new": "UnitCircle(0, held.minus_one)",
+    "old": "UnitCircle(algebraic - len(modes), minus_one, algebraic, len(modes))",
+    "new": "UnitCircle(0, minus_one, algebraic, len(modes))",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
@@ -1066,7 +1066,8 @@
       "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py",
       "tests/scoring/test_a_law_is_judged_as_it_is_written_nothing_is_taken_out_first.py",
       "tests/scoring/test_a_mode_at_one_or_minus_one_is_decided_exactly_never_by_a_float.py",
-      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py"
+      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py",
+      "tests/scoring/test_the_exact_part_of_the_verdict_is_one_definition_on_the_rest_subspace.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1076,8 +1077,8 @@
   {
     "name": "the_exact_test_at_minus_one_is_skipped",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "UnitCircle(len(held.kernel) - len(modes), held.minus_one)",
-    "new": "UnitCircle(len(held.kernel) - len(modes), 0)",
+    "old": "UnitCircle(algebraic - len(modes), minus_one, algebraic, len(modes))",
+    "new": "UnitCircle(algebraic - len(modes), 0, algebraic, len(modes))",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
@@ -1085,7 +1086,8 @@
       "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py",
       "tests/scoring/test_a_law_is_judged_as_it_is_written_nothing_is_taken_out_first.py",
       "tests/scoring/test_a_mode_at_one_or_minus_one_is_decided_exactly_never_by_a_float.py",
-      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py"
+      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py",
+      "tests/scoring/test_the_exact_part_of_the_verdict_is_one_definition_on_the_rest_subspace.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1095,8 +1097,8 @@
   {
     "name": "the_set_aside_comparison_is_weakened_to_any_kernel_vector",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "UnitCircle(len(held.kernel) - len(modes), held.minus_one)",
-    "new": "UnitCircle(0 if modes else len(held.kernel), held.minus_one)",
+    "old": "UnitCircle(algebraic - len(modes), minus_one, algebraic, len(modes))",
+    "new": "UnitCircle(0 if modes else algebraic, minus_one, algebraic, len(modes))",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
@@ -1104,7 +1106,8 @@
       "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py",
       "tests/scoring/test_a_law_is_judged_as_it_is_written_nothing_is_taken_out_first.py",
       "tests/scoring/test_a_mode_at_one_or_minus_one_is_decided_exactly_never_by_a_float.py",
-      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py"
+      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py",
+      "tests/scoring/test_the_exact_part_of_the_verdict_is_one_definition_on_the_rest_subspace.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1114,8 +1117,8 @@
   {
     "name": "a_state_the_command_reads_may_be_a_minus_one_mode",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "        [command[:n]] + [[rows[r][c] + (1 if r == c else 0) for c in range(n)] for r in range(n)]\n",
-    "new": "        [[rows[r][c] + (1 if r == c else 0) for c in range(n)] for r in range(n)]\n",
+    "old": "kernel_of(1, 1)",
+    "new": "len(_null_space([[update[r][c] + (1 if r == c else 0) for c in range(size)] for r in range(size)]))",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
@@ -1123,7 +1126,8 @@
       "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py",
       "tests/scoring/test_a_law_is_judged_as_it_is_written_nothing_is_taken_out_first.py",
       "tests/scoring/test_a_mode_at_one_or_minus_one_is_decided_exactly_never_by_a_float.py",
-      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py"
+      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py",
+      "tests/scoring/test_the_exact_part_of_the_verdict_is_one_definition_on_the_rest_subspace.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1133,8 +1137,8 @@
   {
     "name": "the_minus_one_test_is_a_test_at_one",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "[[rows[r][c] + (1 if r == c else 0) for c in range(n)] for r in range(n)]\n        if n\n",
-    "new": "[[rows[r][c] - (1 if r == c else 0) for c in range(n)] for r in range(n)]\n        if n\n",
+    "old": "kernel_of(1, 1)",
+    "new": "kernel_of(-1, 1)",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
       "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
@@ -1142,7 +1146,108 @@
       "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py",
       "tests/scoring/test_a_law_is_judged_as_it_is_written_nothing_is_taken_out_first.py",
       "tests/scoring/test_a_mode_at_one_or_minus_one_is_decided_exactly_never_by_a_float.py",
-      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py"
+      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py",
+      "tests/scoring/test_the_exact_part_of_the_verdict_is_one_definition_on_the_rest_subspace.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_multiplicity_at_one_is_the_geometric_one",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "kernel_of(-1, len(rest))",
+    "new": "kernel_of(-1, 1)",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py",
+      "tests/scoring/test_a_law_is_judged_as_it_is_written_nothing_is_taken_out_first.py",
+      "tests/scoring/test_a_mode_at_one_or_minus_one_is_decided_exactly_never_by_a_float.py",
+      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py",
+      "tests/scoring/test_the_exact_part_of_the_verdict_is_one_definition_on_the_rest_subspace.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_comparison_with_the_modes_set_aside_is_weakened_to_one_more",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "UnitCircle(algebraic - len(modes), minus_one, algebraic, len(modes))",
+    "new": "UnitCircle(max(algebraic - len(modes) - 1, 0), minus_one, algebraic, len(modes))",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py",
+      "tests/scoring/test_a_law_is_judged_as_it_is_written_nothing_is_taken_out_first.py",
+      "tests/scoring/test_a_mode_at_one_or_minus_one_is_decided_exactly_never_by_a_float.py",
+      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py",
+      "tests/scoring/test_the_exact_part_of_the_verdict_is_one_definition_on_the_rest_subspace.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_minus_one_test_is_skipped_on_the_rest_subspace",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "kernel_of(1, 1)",
+    "new": "0",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py",
+      "tests/scoring/test_a_law_is_judged_as_it_is_written_nothing_is_taken_out_first.py",
+      "tests/scoring/test_a_mode_at_one_or_minus_one_is_decided_exactly_never_by_a_float.py",
+      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py",
+      "tests/scoring/test_the_exact_part_of_the_verdict_is_one_definition_on_the_rest_subspace.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_record_does_not_carry_the_multiplicity_at_one",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            \"algebraic_at_one\": self.algebraic_at_one,\n",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py",
+      "tests/scoring/test_a_law_is_judged_as_it_is_written_nothing_is_taken_out_first.py",
+      "tests/scoring/test_a_mode_at_one_or_minus_one_is_decided_exactly_never_by_a_float.py",
+      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py",
+      "tests/scoring/test_the_exact_part_of_the_verdict_is_one_definition_on_the_rest_subspace.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json"
+    ]
+  },
+  {
+    "name": "the_record_does_not_carry_the_number_set_aside",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            \"set_aside\": self.set_aside,\n",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
+      "tests/scoring/test_a_law_that_does_not_restore_the_wheels_is_never_stable.py",
+      "tests/scoring/test_a_law_s_scope_flags_and_held_modes_reach_the_score.py",
+      "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py",
+      "tests/scoring/test_a_law_is_judged_as_it_is_written_nothing_is_taken_out_first.py",
+      "tests/scoring/test_a_mode_at_one_or_minus_one_is_decided_exactly_never_by_a_float.py",
+      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py",
+      "tests/scoring/test_the_exact_part_of_the_verdict_is_one_definition_on_the_rest_subspace.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -1228,7 +1333,7 @@
   {
     "name": "the_record_does_not_carry_the_unit_circle",
     "file": "src/physgate/evaluation/whole/scenario.py",
-    "old": "        \"unit_circle\": law_module.unit_circle(\n            law, values, period=float(law.period.value), written=law.written\n        ).as_record(),\n",
+    "old": "        \"unit_circle\": law.decision().circle.as_record(),\n",
     "new": "",
     "tests": [
       "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py",
@@ -1237,7 +1342,8 @@
       "tests/scoring/test_the_numbers_a_law_is_written_with_belong_to_the_terms_it_is_judged_on.py",
       "tests/scoring/test_a_law_is_judged_as_it_is_written_nothing_is_taken_out_first.py",
       "tests/scoring/test_a_mode_at_one_or_minus_one_is_decided_exactly_never_by_a_float.py",
-      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py"
+      "tests/scoring/test_a_variable_that_is_no_name_and_a_late_refusal_are_named_by_what_they_are.py",
+      "tests/scoring/test_the_exact_part_of_the_verdict_is_one_definition_on_the_rest_subspace.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",

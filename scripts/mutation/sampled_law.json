@@ -5471,8 +5471,8 @@
   {
     "name": "the_exact_test_at_one_is_skipped",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "UnitCircle(len(held.kernel) - len(modes), held.minus_one)",
-    "new": "UnitCircle(0, held.minus_one)",
+    "old": "UnitCircle(algebraic - len(modes), minus_one, algebraic, len(modes))",
+    "new": "UnitCircle(0, minus_one, algebraic, len(modes))",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
       "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
@@ -5483,7 +5483,8 @@
       "tests/unit/evaluation/whole/test_the_numbers_a_law_is_written_with_correspond_one_to_one_with_the_terms_it_is_scored_on.py",
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
       "tests/unit/evaluation/whole/test_a_mode_on_the_unit_circle_is_counted_exactly_on_the_numbers_as_written.py",
-      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py"
+      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py",
+      "tests/unit/evaluation/whole/test_the_rest_subspace_is_the_part_of_the_law_s_state_that_keeps_the_command_zero.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -5510,8 +5511,8 @@
   {
     "name": "the_exact_test_at_minus_one_is_skipped",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "UnitCircle(len(held.kernel) - len(modes), held.minus_one)",
-    "new": "UnitCircle(len(held.kernel) - len(modes), 0)",
+    "old": "UnitCircle(algebraic - len(modes), minus_one, algebraic, len(modes))",
+    "new": "UnitCircle(algebraic - len(modes), 0, algebraic, len(modes))",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
       "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
@@ -5522,7 +5523,8 @@
       "tests/unit/evaluation/whole/test_the_numbers_a_law_is_written_with_correspond_one_to_one_with_the_terms_it_is_scored_on.py",
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
       "tests/unit/evaluation/whole/test_a_mode_on_the_unit_circle_is_counted_exactly_on_the_numbers_as_written.py",
-      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py"
+      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py",
+      "tests/unit/evaluation/whole/test_the_rest_subspace_is_the_part_of_the_law_s_state_that_keeps_the_command_zero.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -5549,8 +5551,8 @@
   {
     "name": "the_set_aside_comparison_is_weakened_to_any_kernel_vector",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "UnitCircle(len(held.kernel) - len(modes), held.minus_one)",
-    "new": "UnitCircle(0 if modes else len(held.kernel), held.minus_one)",
+    "old": "UnitCircle(algebraic - len(modes), minus_one, algebraic, len(modes))",
+    "new": "UnitCircle(0 if modes else algebraic, minus_one, algebraic, len(modes))",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
       "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
@@ -5561,7 +5563,8 @@
       "tests/unit/evaluation/whole/test_the_numbers_a_law_is_written_with_correspond_one_to_one_with_the_terms_it_is_scored_on.py",
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
       "tests/unit/evaluation/whole/test_a_mode_on_the_unit_circle_is_counted_exactly_on_the_numbers_as_written.py",
-      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py"
+      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py",
+      "tests/unit/evaluation/whole/test_the_rest_subspace_is_the_part_of_the_law_s_state_that_keeps_the_command_zero.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -5588,8 +5591,8 @@
   {
     "name": "a_state_the_command_reads_may_be_a_minus_one_mode",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "        [command[:n]] + [[rows[r][c] + (1 if r == c else 0) for c in range(n)] for r in range(n)]\n",
-    "new": "        [[rows[r][c] + (1 if r == c else 0) for c in range(n)] for r in range(n)]\n",
+    "old": "kernel_of(1, 1)",
+    "new": "len(_null_space([[update[r][c] + (1 if r == c else 0) for c in range(size)] for r in range(size)]))",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
       "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
@@ -5600,7 +5603,8 @@
       "tests/unit/evaluation/whole/test_the_numbers_a_law_is_written_with_correspond_one_to_one_with_the_terms_it_is_scored_on.py",
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
       "tests/unit/evaluation/whole/test_a_mode_on_the_unit_circle_is_counted_exactly_on_the_numbers_as_written.py",
-      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py"
+      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py",
+      "tests/unit/evaluation/whole/test_the_rest_subspace_is_the_part_of_the_law_s_state_that_keeps_the_command_zero.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
@@ -5627,8 +5631,8 @@
   {
     "name": "the_minus_one_test_is_a_test_at_one",
     "file": "src/physgate/evaluation/whole/law.py",
-    "old": "[[rows[r][c] + (1 if r == c else 0) for c in range(n)] for r in range(n)]\n        if n\n",
-    "new": "[[rows[r][c] - (1 if r == c else 0) for c in range(n)] for r in range(n)]\n        if n\n",
+    "old": "kernel_of(1, 1)",
+    "new": "kernel_of(-1, 1)",
     "tests": [
       "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
       "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
@@ -5639,7 +5643,248 @@
       "tests/unit/evaluation/whole/test_the_numbers_a_law_is_written_with_correspond_one_to_one_with_the_terms_it_is_scored_on.py",
       "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
       "tests/unit/evaluation/whole/test_a_mode_on_the_unit_circle_is_counted_exactly_on_the_numbers_as_written.py",
-      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py"
+      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py",
+      "tests/unit/evaluation/whole/test_the_rest_subspace_is_the_part_of_the_law_s_state_that_keeps_the_command_zero.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_and_integration_escalated.jsonl",
+      "tests/unit/gate/run4/sizing.drivetrain_result.json",
+      "tests/unit/gate/run4/values.json",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_rest_subspace_is_the_whole_command_kernel",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    for _ in range(size - 1):\n        last = observed[-1]",
+    "new": "    for _ in range(0):\n        last = observed[-1]",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_the_scorer_cannot_take_is_marked_and_nothing_is_taken_out_of_a_law.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py",
+      "tests/unit/evaluation/whole/test_the_numbers_a_law_is_written_with_correspond_one_to_one_with_the_terms_it_is_scored_on.py",
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
+      "tests/unit/evaluation/whole/test_a_mode_on_the_unit_circle_is_counted_exactly_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py",
+      "tests/unit/evaluation/whole/test_the_rest_subspace_is_the_part_of_the_law_s_state_that_keeps_the_command_zero.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_and_integration_escalated.jsonl",
+      "tests/unit/gate/run4/sizing.drivetrain_result.json",
+      "tests/unit/gate/run4/values.json",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_multiplicity_at_one_is_the_geometric_one",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "kernel_of(-1, len(rest))",
+    "new": "kernel_of(-1, 1)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_the_scorer_cannot_take_is_marked_and_nothing_is_taken_out_of_a_law.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py",
+      "tests/unit/evaluation/whole/test_the_numbers_a_law_is_written_with_correspond_one_to_one_with_the_terms_it_is_scored_on.py",
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
+      "tests/unit/evaluation/whole/test_a_mode_on_the_unit_circle_is_counted_exactly_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py",
+      "tests/unit/evaluation/whole/test_the_rest_subspace_is_the_part_of_the_law_s_state_that_keeps_the_command_zero.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_and_integration_escalated.jsonl",
+      "tests/unit/gate/run4/sizing.drivetrain_result.json",
+      "tests/unit/gate/run4/values.json",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_comparison_with_the_modes_set_aside_is_weakened_to_one_more",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "UnitCircle(algebraic - len(modes), minus_one, algebraic, len(modes))",
+    "new": "UnitCircle(max(algebraic - len(modes) - 1, 0), minus_one, algebraic, len(modes))",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_the_scorer_cannot_take_is_marked_and_nothing_is_taken_out_of_a_law.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py",
+      "tests/unit/evaluation/whole/test_the_numbers_a_law_is_written_with_correspond_one_to_one_with_the_terms_it_is_scored_on.py",
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
+      "tests/unit/evaluation/whole/test_a_mode_on_the_unit_circle_is_counted_exactly_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py",
+      "tests/unit/evaluation/whole/test_the_rest_subspace_is_the_part_of_the_law_s_state_that_keeps_the_command_zero.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_and_integration_escalated.jsonl",
+      "tests/unit/gate/run4/sizing.drivetrain_result.json",
+      "tests/unit/gate/run4/values.json",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_minus_one_test_is_skipped_on_the_rest_subspace",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "kernel_of(1, 1)",
+    "new": "0",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_the_scorer_cannot_take_is_marked_and_nothing_is_taken_out_of_a_law.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py",
+      "tests/unit/evaluation/whole/test_the_numbers_a_law_is_written_with_correspond_one_to_one_with_the_terms_it_is_scored_on.py",
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
+      "tests/unit/evaluation/whole/test_a_mode_on_the_unit_circle_is_counted_exactly_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py",
+      "tests/unit/evaluation/whole/test_the_rest_subspace_is_the_part_of_the_law_s_state_that_keeps_the_command_zero.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_and_integration_escalated.jsonl",
+      "tests/unit/gate/run4/sizing.drivetrain_result.json",
+      "tests/unit/gate/run4/values.json",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_record_does_not_carry_the_multiplicity_at_one",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            \"algebraic_at_one\": self.algebraic_at_one,\n",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_the_scorer_cannot_take_is_marked_and_nothing_is_taken_out_of_a_law.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py",
+      "tests/unit/evaluation/whole/test_the_numbers_a_law_is_written_with_correspond_one_to_one_with_the_terms_it_is_scored_on.py",
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
+      "tests/unit/evaluation/whole/test_a_mode_on_the_unit_circle_is_counted_exactly_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py",
+      "tests/unit/evaluation/whole/test_the_rest_subspace_is_the_part_of_the_law_s_state_that_keeps_the_command_zero.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/finished.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/unfinished.jsonl",
+      "tests/unit/gate/run4/plan_interfaces.json",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_a_sign_off_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_signed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_waiting_on_a_sign_off.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_alone.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_failed_call.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_integration_escalated.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_a_sign_off_owed_and_a_call_failed_under_observe.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/records_two_sign_offs_owed.jsonl",
+      "tests/unit/evaluation/whole/recorded_runs/acts_rejected_and_integration_escalated.jsonl",
+      "tests/unit/gate/run4/sizing.drivetrain_result.json",
+      "tests/unit/gate/run4/values.json",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_record_does_not_carry_the_number_set_aside",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "            \"set_aside\": self.set_aside,\n",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_sampled_law_is_stated_in_linear_lines_and_held_to_its_units.py",
+      "tests/unit/evaluation/whole/test_a_recorded_design_s_law_is_exported_when_it_reproduces_its_own_vectors.py",
+      "tests/unit/evaluation/whole/test_a_mode_is_set_aside_only_where_the_wheels_return_and_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_term_the_scorer_cannot_take_is_marked_and_nothing_is_taken_out_of_a_law.py",
+      "tests/unit/evaluation/whole/test_a_law_s_timing_and_scope_are_held_and_its_record_says_what_it_set_aside.py",
+      "tests/unit/evaluation/whole/test_no_law_in_an_answer_or_a_file_escapes_as_anything_but_a_refusal.py",
+      "tests/unit/evaluation/whole/test_the_numbers_a_law_is_written_with_correspond_one_to_one_with_the_terms_it_is_scored_on.py",
+      "tests/unit/evaluation/whole/test_a_harness_run_s_graph_is_exported_as_its_whole_run_answer.py",
+      "tests/unit/evaluation/whole/test_a_mode_on_the_unit_circle_is_counted_exactly_on_the_numbers_as_written.py",
+      "tests/unit/evaluation/whole/test_a_variable_that_is_no_name_is_malformed_and_a_marked_law_still_meets_the_vectors.py",
+      "tests/unit/evaluation/whole/test_the_rest_subspace_is_the_part_of_the_law_s_state_that_keeps_the_command_zero.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/recorded_law/law.json",
