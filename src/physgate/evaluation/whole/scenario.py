@@ -21,9 +21,30 @@ not searched, so a margin that dips between corners is not seen.
 **Outcomes.** ``fail`` when any headline spec fails; otherwise ``unscored`` when any headline
 spec could not be judged; ``pass`` only when every headline spec passes. ``unscored`` is never
 ``fail``. An answer that is not a whole-run answer fails, with its reason; it is never an
-error of the scorer. Nor is an answer the analysis cannot compute with, or one whose analysis
-would cost more than :data:`MAX_WORK`: each fails as a named ``refusal``, the work bound
-decided before any of the work is done.
+error of the scorer. A sampled law with a term that is not linear (``nonlinear``) or reads a
+signal outside the closed list (``out_of_scope``) is the exception: nothing is taken out of a law
+before it is judged, so such a term, of any weight (zero included) and in any line (read by the
+command or not), leaves the law unjudged. It is ``unscored`` with a ``refusal`` of that name, never
+a fail, and only after every other check has run on it: a fault anywhere else in the answer (a
+name not declared, a unit that does not balance, a setting, a zero divisor, a name that is not
+plain ASCII) is the ordinary fail, so a scope refusal never covers an invalid answer. It does cover
+an answer that is valid and would fail: a law with a term the scorer cannot take is not judged,
+whatever else it would have scored (an unstable law with one more term of any weight on a signal
+outside the list is ``unscored``, not ``fail``). ``unscored`` is never a pass and stays in the
+denominator, so nothing is bought by it. Nor is an answer the analysis cannot compute with, or one
+whose analysis would cost more than :data:`MAX_WORK`: each fails as a named ``refusal``, the work
+bound decided before any of the work is done. The ways an answer ends ``unscored`` are exactly: a
+law with a term out of scope in the primary controller; and a headline row that cannot be judged
+(a dynamic metric, criterion 19 with no analysed controller or a different structure, an analysed
+law out of scope or with other lines or coefficients, corners that disagree, so a law that is
+unstable at one corner and not another can end there).
+
+**A scorer fault is an outcome of its own** (:data:`SCORER_FAULT`): a law whose written numbers do
+not correspond to the law scored (``written_numbers_do_not_match``) is a defect of the scorer, not
+a verdict on a design and not a refusal for a design's own reason. The record's ``outcome`` and
+the verdict of each of its rows say ``scorer_fault``, never ``pass``, ``fail`` or ``unscored``, so
+that a count of it can stop an evaluation instead of being averaged with them (the tiers' probe
+refuses an outcome that is none of its own, so such a score stops there).
 
 **The plant judged on.** The scenario judges on a frozen plant (one of
 :data:`~physgate.evaluation.whole.plant.FROZEN_PLANTS`, by digest) unless it is told it judges a
@@ -42,7 +63,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -53,8 +74,14 @@ from physgate.evaluation.per_role.exceptions import TaskFormatError
 from physgate.evaluation.tiers.base import Identifier
 from physgate.evaluation.tiers.scenario import Outcome, ScenarioError
 from physgate.evaluation.tiers.task import COMPOSES_AT_LEAST, Spec, TaskId
+from physgate.evaluation.whole import law as law_module
 from physgate.evaluation.whole import loop as loop_module
-from physgate.evaluation.whole.answer import WholeRun, read_whole_run
+from physgate.evaluation.whole.answer import (
+    Answer,
+    OutsideScope,
+    SampledLaw,
+    read_answer_scoped,
+)
 from physgate.evaluation.whole.convert import ScaleFactor, SiLoop, coefficients, to_si
 from physgate.evaluation.whole.plant import (
     FROZEN_PLANTS,
@@ -70,6 +97,8 @@ from physgate.evaluation.whole.plant import (
 
 Kind = Literal["static", "computed", "dynamic"]
 Verdict = Literal["pass", "fail", "unscored"]
+#: The outcome (and the verdict of every row) of a score the scorer itself got wrong.
+SCORER_FAULT = "scorer_fault"
 
 #: Every metric the scenario computes: its unit and its class.
 METRICS: dict[str, tuple[str, Kind]] = {
@@ -144,7 +173,9 @@ def _relative(a: float, b: float) -> float:
     return abs(a - b) / abs(b)
 
 
-def _static(answer: WholeRun, metric: str) -> tuple[float | None, str | None]:
+def _static(
+    answer: Answer, metric: str, refused: OutsideScope | None = None
+) -> tuple[float | None, str | None]:
     """A static metric's value, or ``None`` with the reason it has none."""
     p, c = answer.parameters, answer.controller
     si = to_si(c, p, wheel_radius=ScaleFactor("wheel_radius", 1.0, "m", "unused"))
@@ -154,7 +185,7 @@ def _static(answer: WholeRun, metric: str) -> tuple[float | None, str | None]:
         "command_limit_counts": lambda: si.command_limit * full_scale,
         "update_rate": lambda: float(p.update_rate.value),
         "controller_rate": lambda: 1.0 / si.period,
-        "gyro_output_data_rate": lambda: float(p.gyro_output_data_rate.value),
+        "gyro_output_data_rate": lambda: float(_output_data_rate(p).value),
         "gyro_full_scale": lambda: float(p.gyro_full_scale.value),
         "pwm_frequency": lambda: float(p.pwm_frequency.value),
         "pwm_full_scale": lambda: full_scale,
@@ -164,6 +195,8 @@ def _static(answer: WholeRun, metric: str) -> tuple[float | None, str | None]:
     }
     if metric != "coefficient_difference":
         return values[metric](), None
+    if refused is not None:
+        return None, f"the analysed controller is out of the scorer's reach ({refused}); not judged"
     analysed = answer.analysed_controller
     if analysed is None:
         return None, (
@@ -175,6 +208,19 @@ def _static(answer: WholeRun, metric: str) -> tuple[float | None, str | None]:
             "the firmware's and the analysed controller are written in different structures; "
             "coefficients are compared as written, never through a conversion"
         )
+    if isinstance(c, SampledLaw) and isinstance(analysed, SampledLaw):
+        # For a law the structure is its lines: two laws with the same coefficient names and
+        # numbers and different lines are two controllers, and no number says they are one.
+        if (c.memory, c.lines, c.command) != (analysed.memory, analysed.lines, analysed.command):
+            return None, (
+                "the firmware's and the analysed law differ in their lines (their memory, their "
+                "terms or their command); laws are compared as written, never through a conversion"
+            )
+        if set(c.coefficients) != set(analysed.coefficients):
+            return None, (
+                "the firmware's and the analysed law name different coefficients; they are "
+                "compared as written, never through a conversion"
+            )
     pairs = zip(coefficients(c), coefficients(analysed), strict=True)
     return max(_relative(float(a[1]), float(b[1])) for a, b in pairs), None
 
@@ -221,6 +267,9 @@ class WholeDesignScenario:
         self._task = task
         self._plant = parse_plant(plant)
         self._root = root
+        self._analysed_refusal: OutsideScope | None = None
+        #: The sampled law's flags of the answer being judged, on every row beside the record's.
+        self._law_flags: dict[str, Any] = {}
         self._plant_digest = hashlib.sha256(plant).hexdigest()
         self._plant_version = FROZEN_PLANTS.get(self._plant_digest)
         if draft and self._plant.status != "draft":
@@ -259,11 +308,57 @@ class WholeDesignScenario:
             },
         }
         try:
-            read = read_whole_run(answer, root=self._root)
+            read, analysed_refusal = read_answer_scoped(answer, root=self._root)
+        except OutsideScope as exc:
+            # A law that is not linear, or reads a signal outside the closed list, is refused by
+            # name: the scorer cannot judge it, which is no verdict on the design.
+            record.update(answer_valid=False, reason=str(exc))
+            record.update(refusal={"name": exc.name, "reason": str(exc)})
+            record.update(specs=[], outcome="unscored")
+            return record
         except TaskFormatError as exc:
             record.update(answer_valid=False, reason=str(exc), specs=[], outcome="fail")
             return record
         record.update(answer_valid=True, structure=read.controller.structure)
+        self._analysed_refusal = analysed_refusal
+        self._law_flags = {}
+        if analysed_refusal is not None:
+            record["analysed_refusal"] = {
+                "name": analysed_refusal.name,
+                "reason": str(analysed_refusal),
+            }
+        try:
+            return self._judged(record, read)
+        except law_module.LawRefused as exc:
+            # The law's own numbers do not correspond to the law that is scored (a fault of the
+            # scorer's, not of the design): no verdict on the design, and an outcome of its own,
+            # so that it is counted apart and never averaged with a pass, a fail or an unscored.
+            reason = str(exc)
+            record.update(
+                refusal={"name": exc.code, "reason": reason},
+                specs=[
+                    {
+                        "name": spec.name,
+                        "metric": spec.metric,
+                        "kind": METRICS[spec.metric][1],
+                        "counts": spec.counts,
+                        "composes": list(spec.composes),
+                        "verdict": SCORER_FAULT,
+                        "measured": None,
+                        "reason": reason,
+                    }
+                    for spec in self._task.specs
+                ],
+                outcome=SCORER_FAULT,
+            )
+            return record
+
+    def _judged(self, record: dict[str, Any], read: Answer) -> dict[str, Any]:
+        """``record`` with the answer's work, its rows and its outcome."""
+        if isinstance(read.controller, SampledLaw):
+            law_record = _law_record(read.controller)
+            record.update(law_record)
+            self._law_flags = {k: law_record[k] for k in FLAG_KEYS}
         work = self._work(read)
         record["work"] = {name: _quantity(value, "1") for name, value in work.items()}
         record["work"]["bound"] = _quantity(MAX_WORK, "1")
@@ -304,7 +399,7 @@ class WholeDesignScenario:
             "the plant's wheel_radius: " + self._plant.parameters["wheel_radius"].source,
         )
 
-    def _work(self, read: WholeRun) -> dict[str, int]:
+    def _work(self, read: Answer) -> dict[str, int]:
         """The loop analyses' work, known before any is done: corners, steps, states, total."""
         loop = to_si(
             read.controller, read.parameters, wheel_radius=self._radius(nominal(self._plant))
@@ -319,7 +414,7 @@ class WholeDesignScenario:
             "total": corners * steps * states,
         }
 
-    def _corner_sets(self, read: WholeRun) -> dict[str, list[_Corner]]:
+    def _corner_sets(self, read: Answer) -> dict[str, list[_Corner]]:
         sets: dict[str, list[_Corner]] = {"nominal": [_Corner(nominal(self._plant))]}
         for inputs in {
             METRIC_INPUTS[s.metric] for s in self._task.specs if s.metric in METRIC_INPUTS
@@ -332,7 +427,7 @@ class WholeDesignScenario:
                 corner.factors = corner.loop.factors
         return sets
 
-    def _computed(self, metric: str, read: WholeRun, corner: _Corner) -> float:
+    def _computed(self, metric: str, read: Answer, corner: _Corner) -> float:
         assert corner.loop is not None
         if metric == "stall_current":
             return stall_current(corner.values, corner.loop.command_limit)
@@ -349,7 +444,7 @@ class WholeDesignScenario:
         assert value is not None
         return value
 
-    def _row(self, spec: Spec, read: WholeRun, sets: dict[str, list[_Corner]]) -> dict[str, Any]:
+    def _row(self, spec: Spec, read: Answer, sets: dict[str, list[_Corner]]) -> dict[str, Any]:
         unit, kind = METRICS[spec.metric]
         row: dict[str, Any] = {
             "name": spec.name,
@@ -358,11 +453,13 @@ class WholeDesignScenario:
             "counts": spec.counts,
             "composes": list(spec.composes),
         }
+        if isinstance(read.controller, SampledLaw):
+            row.update(self._law_flags)
         if kind == "dynamic":
             row.update(verdict="unscored", measured=None, reason=DYNAMIC_REASON)
             return row
         if kind == "static":
-            value, reason = _static(read, spec.metric)
+            value, reason = _static(read, spec.metric, self._analysed_refusal)
             if value is None:
                 # Not judged either way: criterion 19's relative difference of 0 is taken
                 # coefficient by coefficient, and two structures share no coefficient.
@@ -419,6 +516,53 @@ class WholeDesignScenario:
         return row
 
 
+#: The keys of the flags on the record and on every row of a sampled law.
+FLAG_KEYS = (
+    "no_interface_statement",
+    "compute_delay_flags",
+    "compute_delay_omitted",
+    "held_state_flags",
+)
+
+
+def _flags(law: SampledLaw, modes: Sequence[law_module.HeldMode]) -> dict[str, Any]:
+    """What is flagged about the law, by name: on the record and on every row.
+
+    What the export flagged about its timing (the answer says it; a raw answer's own claim), and
+    the flag the scorer decides itself from the law's own modes: a held state a signal feeds and
+    the command reads.
+    """
+    return {
+        "no_interface_statement": list(law.no_interface_statement),
+        "compute_delay_flags": list(law.compute_delay_flags),
+        "compute_delay_omitted": list(law.compute_delay_omitted),
+        "held_state_flags": list(law_module.held_state_flags(modes)),
+    }
+
+
+def _law_record(law: SampledLaw) -> dict[str, Any]:
+    """What the record says of a sampled law beside its flags.
+
+    The signals it reads (a law that reads the true tilt is judged as if tilt were measured
+    directly, as the named state feedback is); each mode the stability test sets aside, with the
+    memory states in it, what feeds them and whether the command reads them, and the note that a
+    held state is bounded in the model and not in the firmware.
+    """
+    values = {name: float(m.value) for name, m in law.coefficients.items()}
+    modes = law_module.held_report(law, values, period=float(law.period.value), written=law.written)
+    return {
+        **_flags(law, modes),
+        "law_signals": list(law_module.signals_read(law)),
+        "held_modes": [mode.as_record() for mode in modes],
+        "unit_circle": law.decision().circle.as_record(),
+    }
+
+
+def _output_data_rate(p: Any) -> Any:
+    """The gyro's output data rate under either version's name for it."""
+    return p.output_data_rate if hasattr(p, "output_data_rate") else p.gyro_output_data_rate
+
+
 def _unstable_reason(nominal_corner: _Corner, at_nominal: float, values: list[float]) -> str:
     """Why a margin has no number, when the loop is unstable somewhere: a clause, or ``""``."""
     count = sum(math.isnan(v) for v in values)
@@ -429,7 +573,11 @@ def _unstable_reason(nominal_corner: _Corner, at_nominal: float, values: list[fl
         where += " and at the nominal values"
     clause = f"; the closed loop is unstable {where}, and an unstable loop has no margin"
     loop = nominal_corner.loop
-    if loop is not None and loop.distance == 0.0:
+    if loop is not None and loop.law is not None and loop.law.circle.unstable:
+        clause += (
+            "; " + loop.law.circle.reason() + ", so the loop is unstable whatever a float says"
+        )
+    if loop is not None and loop.law is None and loop.distance == 0.0:
         clause += (
             "; with no distance gain nothing holds the travel, so the plant's travel stays a "
             "pole at 1 and the loop is never strictly stable"

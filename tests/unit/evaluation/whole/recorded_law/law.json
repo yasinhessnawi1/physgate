@@ -1,0 +1,566 @@
+{
+ "form": "sampled_law_file",
+ "version": 1,
+ "period": {
+  "reciprocal_of": "update_rate"
+ },
+ "command_limit": {
+  "quantity": "duty_cycle"
+ },
+ "sensor_delay": {
+  "reciprocal_of": "output_data_rate"
+ },
+ "compute_delay": {
+  "sum_of": [
+   "computation_delay_bound",
+   "update_lateness_bound"
+  ]
+ },
+ "coefficients": {
+  "k_phi": "k_phi",
+  "k_theta": "k_theta",
+  "k_w": "k_w",
+  "k_rate": "k_rate",
+  "k_u": "k_u",
+  "leak": "leak"
+ },
+ "memory": [
+  {
+   "name": "theta_hat",
+   "unit": "rad",
+   "next": "theta_now"
+  },
+  {
+   "name": "p_prev",
+   "unit": "rad",
+   "next": "p_now"
+  },
+  {
+   "name": "u_prev",
+   "unit": "1",
+   "next": "command",
+   "applied": true
+  }
+ ],
+ "lines": [
+  {
+   "name": "theta_now",
+   "unit": "rad",
+   "terms": [
+    {
+     "sign": 1,
+     "coefficients": [
+      "leak"
+     ],
+     "of": "previous.theta_hat"
+    },
+    {
+     "sign": 1,
+     "coefficients": [
+      "period"
+     ],
+     "of": "tilt_rate"
+    }
+   ]
+  },
+  {
+   "name": "p_now",
+   "unit": "rad",
+   "terms": [
+    {
+     "sign": 1,
+     "of": "wheel_angle"
+    }
+   ]
+  },
+  {
+   "name": "phi_hat",
+   "unit": "rad",
+   "terms": [
+    {
+     "sign": 1,
+     "of": "wheel_angle"
+    },
+    {
+     "sign": 1,
+     "of": "line.theta_now"
+    }
+   ]
+  },
+  {
+   "name": "w_hat",
+   "unit": "rad/s",
+   "terms": [
+    {
+     "sign": 1,
+     "per": [
+      "period"
+     ],
+     "of": "wheel_angle"
+    },
+    {
+     "sign": -1,
+     "per": [
+      "period"
+     ],
+     "of": "previous.p_prev"
+    },
+    {
+     "sign": 1,
+     "of": "tilt_rate"
+    }
+   ]
+  },
+  {
+   "name": "command",
+   "unit": "1",
+   "terms": [
+    {
+     "sign": -1,
+     "coefficients": [
+      "k_phi"
+     ],
+     "of": "line.phi_hat"
+    },
+    {
+     "sign": 1,
+     "coefficients": [
+      "k_phi"
+     ],
+     "of": "wheel_reference"
+    },
+    {
+     "sign": -1,
+     "coefficients": [
+      "k_theta"
+     ],
+     "of": "line.theta_now"
+    },
+    {
+     "sign": -1,
+     "coefficients": [
+      "k_w"
+     ],
+     "of": "line.w_hat"
+    },
+    {
+     "sign": -1,
+     "coefficients": [
+      "k_rate"
+     ],
+     "of": "tilt_rate"
+    },
+    {
+     "sign": -1,
+     "coefficients": [
+      "k_u"
+     ],
+     "of": "previous.u_prev"
+    }
+   ]
+  }
+ ],
+ "command": "command",
+ "vectors": [
+  {
+   "name": "upright at rest",
+   "start": {
+    "theta_hat": 0.0,
+    "p_prev": 0.0,
+    "u_prev": 0.0
+   },
+   "rows": [
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.0,
+     "duty": 0.0,
+     "counts": 0,
+     "memory": {
+      "theta_hat": 0.0
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.0,
+     "duty": 0.0,
+     "counts": 0,
+     "memory": {
+      "theta_hat": 0.0
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.0,
+     "duty": 0.0,
+     "counts": 0,
+     "memory": {
+      "theta_hat": 0.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "leaning 0.05 rad forward",
+   "start": {
+    "theta_hat": 0.05,
+    "p_prev": 0.0,
+    "u_prev": 0.0
+   },
+   "rows": [
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.05,
+     "duty": 0.051712,
+     "counts": 21,
+     "memory": {
+      "theta_hat": 0.04995
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.05,
+     "duty": 0.069877,
+     "counts": 28,
+     "memory": {
+      "theta_hat": 0.0499
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.05,
+     "duty": 0.075897,
+     "counts": 30,
+     "memory": {
+      "theta_hat": 0.04985
+     }
+    }
+   ]
+  },
+  {
+   "name": "leaning 0.03 rad back",
+   "start": {
+    "theta_hat": -0.03,
+    "p_prev": 0.0,
+    "u_prev": 0.0
+   },
+   "rows": [
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": -0.03,
+     "duty": -0.031027,
+     "counts": -12,
+     "memory": {
+      "theta_hat": -0.02997
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": -0.03,
+     "duty": -0.041406,
+     "counts": -17,
+     "memory": {
+      "theta_hat": -0.02994
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": -0.03,
+     "duty": -0.045712,
+     "counts": -18,
+     "memory": {
+      "theta_hat": -0.02991
+     }
+    }
+   ]
+  },
+  {
+   "name": "gyro 1 rad/s forward, one update",
+   "start": {
+    "theta_hat": 0.0,
+    "p_prev": 0.0,
+    "u_prev": 0.0
+   },
+   "rows": [
+    {
+     "tilt_rate": 0.9999863946059999,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.0,
+     "duty": 0.111246,
+     "counts": 44,
+     "memory": {
+      "theta_hat": 0.01
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.0,
+     "duty": 0.048564,
+     "counts": 19,
+     "memory": {
+      "theta_hat": 0.00999
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.0,
+     "duty": 0.026868,
+     "counts": 11,
+     "memory": {
+      "theta_hat": 0.00998
+     }
+    }
+   ]
+  },
+  {
+   "name": "wheels rolling forward 20 counts per update",
+   "start": {
+    "theta_hat": 0.0,
+    "p_prev": 0.0,
+    "u_prev": 0.0
+   },
+   "rows": [
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.047495503099999996,
+     "wheel_reference": 0.0,
+     "duty": 0.18229,
+     "counts": 73,
+     "memory": {
+      "theta_hat": 0.0
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.09499100619999999,
+     "wheel_reference": 0.0,
+     "duty": 0.245872,
+     "counts": 98,
+     "memory": {
+      "theta_hat": 0.0
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.14248650929999998,
+     "wheel_reference": 0.0,
+     "duty": 0.267817,
+     "counts": 107,
+     "memory": {
+      "theta_hat": 0.0
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.18998201239999998,
+     "wheel_reference": 0.0,
+     "duty": 0.275883,
+     "counts": 110,
+     "memory": {
+      "theta_hat": 0.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "start away from encoder zero, at rest",
+   "start": {
+    "theta_hat": 0.0,
+    "p_prev": 29.316599288474997,
+    "u_prev": 0.0
+   },
+   "rows": [
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 29.316599288474997,
+     "wheel_reference": 29.316599288474997,
+     "duty": 0.0,
+     "counts": 0,
+     "memory": {
+      "theta_hat": 0.0
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 29.316599288474997,
+     "wheel_reference": 29.316599288474997,
+     "duty": 0.0,
+     "counts": 0,
+     "memory": {
+      "theta_hat": 0.0
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 29.316599288474997,
+     "wheel_reference": 29.316599288474997,
+     "duty": 0.0,
+     "counts": 0,
+     "memory": {
+      "theta_hat": 0.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "large forward lean: clamps at +377",
+   "start": {
+    "theta_hat": 1.0,
+    "p_prev": 0.0,
+    "u_prev": 0.0
+   },
+   "rows": [
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 1.0,
+     "duty": 1.034249,
+     "counts": 377,
+     "memory": {
+      "theta_hat": 0.999
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 1.0,
+     "duty": 1.360233,
+     "counts": 377,
+     "memory": {
+      "theta_hat": 0.998001
+     }
+    }
+   ]
+  },
+  {
+   "name": "large back lean: clamps at -377",
+   "start": {
+    "theta_hat": -1.0,
+    "p_prev": 0.0,
+    "u_prev": 0.0
+   },
+   "rows": [
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": -1.0,
+     "duty": -1.034249,
+     "counts": -377,
+     "memory": {
+      "theta_hat": -0.999
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": -1.0,
+     "duty": -1.360233,
+     "counts": -377,
+     "memory": {
+      "theta_hat": -0.998001
+     }
+    }
+   ]
+  },
+  {
+   "name": "tilt held by the leak, no rate",
+   "start": {
+    "theta_hat": 0.1,
+    "p_prev": 0.0,
+    "u_prev": 0.0
+   },
+   "rows": [
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.1,
+     "duty": 0.103425,
+     "counts": 41,
+     "memory": {
+      "theta_hat": 0.0999
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.1,
+     "duty": 0.138886,
+     "counts": 56,
+     "memory": {
+      "theta_hat": 0.0998
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.1,
+     "duty": 0.151794,
+     "counts": 61,
+     "memory": {
+      "theta_hat": 0.0997
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.1,
+     "duty": 0.156027,
+     "counts": 62,
+     "memory": {
+      "theta_hat": 0.099601
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.1,
+     "duty": 0.156791,
+     "counts": 63,
+     "memory": {
+      "theta_hat": 0.099501
+     }
+    },
+    {
+     "tilt_rate": 0.0,
+     "wheel_angle": 0.0,
+     "wheel_reference": 0.1,
+     "duty": 0.157555,
+     "counts": 63,
+     "memory": {
+      "theta_hat": 0.099401
+     }
+    }
+   ]
+  },
+  {
+   "name": "mixed sequence, first update",
+   "start": {
+    "theta_hat": 0.02,
+    "p_prev": -1.1873875774999998,
+    "u_prev": 0.0
+   },
+   "rows": [
+    {
+     "tilt_rate": 0.1832595714,
+     "wheel_angle": -1.1636398259499998,
+     "wheel_reference": -1.1673875774999998,
+     "duty": 0.132217,
+     "counts": 53,
+     "memory": {
+      "theta_hat": 0.021813
+     }
+    }
+   ]
+  }
+ ]
+}

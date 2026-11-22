@@ -41,6 +41,14 @@ failure of the answer, never an error of the scorer.
   converts it to SI only where a predicate needs SI, every scale factor named with its
   source; a brief's "relative difference of 0" compares the integers themselves.
 
+**Version 3** adds a fourth structure and names the settings as the gate's catalogue does
+(``output_data_rate`` for version 2's ``gyro_output_data_rate``):
+
+- ``sampled_law``, a general sampled linear law over the tilt and its rate and the wheels'
+  angle and speed, with memory states, stated as the design states it
+  (:mod:`physgate.evaluation.whole.law`). Version 2 is read exactly as it was; a version 2
+  answer is never read as a version 3 one nor the reverse.
+
 In each, the measurements used at update ``k`` were taken ``sensor_delay`` earlier, and the
 command computed at ``k`` reaches the motors ``compute_delay`` later. Both are times in s,
 not whole updates: the kit's own sensor and computation delay is a few milliseconds, less
@@ -67,18 +75,23 @@ nothing outside that directory.
 
 from __future__ import annotations
 
+import json
+import math
 import os
 import re
 import stat
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
     AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     ValidationError,
     field_validator,
     model_validator,
@@ -87,6 +100,7 @@ from pydantic import (
 from physgate.evaluation.per_role.exceptions import TaskFormatError
 from physgate.evaluation.tiers.authoring import AuthoringError, _open_chain
 from physgate.evaluation.tiers.base import Measure
+from physgate.evaluation.whole import law as law_module
 
 #: The largest answer file read: a controller, six settings and a list of paths.
 MAX_ANSWER_BYTES = 64 * 1024
@@ -434,6 +448,144 @@ Controller = Annotated[
 ]
 
 
+#: The largest magnitude a law's coefficient or number may have. Chosen: a gain of a million
+#: per unit is past any a 10 ms loop on this kit can hold, and its products stay finite.
+LAW_MAGNITUDE = 1e6
+
+
+class SampledLaw(_Loop, law_module.Body):
+    """A general sampled linear law, stated as the design states it (version 3).
+
+    The command is the line ``command`` (see :mod:`physgate.evaluation.whole.law`): a sum of
+    terms, each one coefficient-weighted variable, over the signals the loop analysis feeds
+    (the tilt and its rate, the wheels' angle and speed relative to the body) and the memory
+    the law keeps. Each coefficient is ``{value, unit}``, named by the design; every line is
+    checked for units, and a law that is not linear in its signals, or that reads a signal
+    outside the closed list, is refused by name and never judged. The limit and the integer
+    rounding are outside the linear loop, as for every other structure. The two delays are
+    times in s, the same as for every other structure.
+    """
+
+    structure: Literal["sampled_law"]
+    coefficients: dict[law_module.Name, Measure] = Field(max_length=law_module.MAX_COEFFICIENTS)
+    #: The loop quantities (``period``, ``sensor_delay``, ``compute_delay``, ``command_limit``)
+    #: the run's interface states nothing to hold against: the export's flag, carried to the
+    #: scorer's rows. Empty where every one was held against the interface.
+    no_interface_statement: tuple[
+        Literal["command_limit", "compute_delay", "period", "sensor_delay"], ...
+    ] = ()
+    #: What the export found wrong with where the compute delay comes from, each by its own name
+    #: (distinct from the flag above): it leaves out time-valued quantities of the run's interface
+    #: nodes (``compute_delay_omitted`` names them), or it draws on a quantity the run's interface
+    #: does not state.
+    compute_delay_flags: tuple[
+        Literal[
+            "compute_delay_omits_interface_times",
+            "compute_delay_names_a_non_interface_quantity",
+        ],
+        ...,
+    ] = ()
+    compute_delay_omitted: tuple[Annotated[str, Field(max_length=80)], ...] = Field(
+        default=(), max_length=law_module.MAX_COEFFICIENTS * 4
+    )
+
+    #: Each number of the law as written in the text it was read from (:func:`parse_answer` sets
+    #: it): not a field of the answer.
+    _written: law_module.Written | None = PrivateAttr(default=None)
+    #: What the exact arithmetic decides on this law, made the first time it is asked for.
+    _decision: law_module.Decision | None = PrivateAttr(default=None)
+
+    @property
+    def written(self) -> law_module.Written | None:
+        """The numbers as written, where the answer was read from text; else ``None``."""
+        return self._written
+
+    def decision(self) -> law_module.Decision:
+        """What the exact arithmetic decides on the law's numbers as written, made once.
+
+        The decision depends on the law's numbers alone, never on a plant point, so it is made the
+        first time it is asked for and kept: once per answer, however many points are scored.
+
+        Raises:
+            LawRefused: ``zero_divisor``, or ``written_numbers_do_not_match``
+                (:func:`~physgate.evaluation.whole.law.decide`).
+        """
+        if self._decision is None:
+            values = {name: float(measure.value) for name, measure in self.coefficients.items()}
+            self._decision = law_module.decide(
+                self, values, period=float(self.period.value), written=self._written
+            )
+        return self._decision
+
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
+        """A copy, which decides afresh: a kept decision is of the original's numbers."""
+        copied = super().model_copy(update=update, deep=deep)
+        copied._decision = None  # noqa: SLF001
+        return copied
+
+    @model_validator(mode="after")
+    def _law_holds(self) -> SampledLaw:
+        units: dict[str, str] = {}
+        for name, measure in self.coefficients.items():
+            if name == law_module.PERIOD:
+                msg = "the period is the loop's own, not a coefficient"
+                raise ValueError(msg)
+            _unit_bounded(measure, name)
+            units[name] = measure.unit
+        try:
+            law_module.check(self, units)
+        except law_module.LawRefused as exc:
+            raise ValueError(str(exc)) from exc
+        divisors = law_module.zero_divisors(
+            self, {name: float(m.value) for name, m in self.coefficients.items()}
+        )
+        if divisors:
+            msg = (
+                f"zero_divisor: a term divides by the coefficient {divisors[0]!r}, whose number "
+                "is 0; nothing is defined there"
+            )
+            raise ValueError(msg)
+        for line in self.lines:
+            for term in line.terms:
+                # a term the scorer cannot take (marked) is judged on no number: its weight may be
+                # any, zero included; every other term's number is a scale, never zero
+                unjudged = term.of is None
+                if (term.number == 0 and not unjudged) or not abs(term.number) <= LAW_MAGNITUDE:
+                    msg = (
+                        f"line {line.name!r} has the number {_shown(term.number)}, "
+                        f"outside 0 to {LAW_MAGNITUDE:g}"
+                    )
+                    raise ValueError(msg)
+        return self
+
+
+def _shown(value: float) -> str:
+    """``value`` as a short ``%g`` text; an integer past a float is said by its digits."""
+    try:
+        return f"{value:g}"
+    except OverflowError:
+        return f"an integer of {len(str(value))} digits"
+
+
+def _unit_bounded(measure: Measure, name: str) -> None:
+    """A law coefficient in a unit that is one, and its magnitude inside :data:`LAW_MAGNITUDE`."""
+    try:
+        law_module.dimension(measure.unit)
+    except law_module.LawRefused as exc:
+        msg = f"the coefficient {name!r} is in {measure.unit!r}, which is not a unit"
+        raise ValueError(msg) from exc
+    if not abs(measure.value) <= LAW_MAGNITUDE:
+        msg = f"the coefficient {name!r} is {_shown(measure.value)}; it is within {LAW_MAGNITUDE:g}"
+        raise ValueError(msg)
+
+
+#: A version 3 controller: the closed list of version 2 and the general sampled law.
+ControllerV3 = Annotated[
+    IncrementalRisingOffset | StateFeedback | NativeRisingOffset | SampledLaw,
+    Field(discriminator="structure"),
+]
+
+
 class Parameters(_Frozen):
     """The settings a brief constrains that the design chooses, each in its own unit.
 
@@ -480,6 +632,85 @@ class Parameters(_Frozen):
                 self.gyro_sensitivity, "count*s/deg", "the gyro's sensitivity", "gyro_sensitivity"
             )
         return self
+
+
+def _settings_hold(p: Parameters | ParametersV3) -> None:
+    """The settings of either version in their units and bounds, each field by its own name."""
+    odr = p.output_data_rate if isinstance(p, ParametersV3) else p.gyro_output_data_rate
+    _bounded(p.update_rate, "Hz", "the update rate", "update_rate")
+    _bounded(odr, "Hz", "the gyro's output data rate", "gyro_output_data_rate")
+    _bounded(p.gyro_full_scale, "deg/s", "the gyro's full scale", "gyro_full_scale")
+    _bounded(p.pwm_frequency, "Hz", "the PWM frequency", "pwm_frequency")
+    full_scale = _bounded(p.pwm_full_scale, "count", "the PWM full scale", "pwm_full_scale")
+    if not _whole(full_scale):
+        msg = f"the PWM full scale is {full_scale}; it is a whole number of counts"
+        raise ValueError(msg)
+    _bounded(
+        p.encoder_counts_per_wheel_revolution,
+        "count",
+        "the encoder counts per wheel revolution",
+        "encoder_counts_per_wheel_revolution",
+    )
+    if p.gyro_sensitivity is not None:
+        _bounded(p.gyro_sensitivity, "count*s/deg", "the gyro's sensitivity", "gyro_sensitivity")
+
+
+class ParametersV3(_Frozen):
+    """The settings of version 3: those of version 2 under the gate catalogue's names.
+
+    The gyro's rate is ``output_data_rate``, as the catalogue names it; every other setting,
+    its unit and its bound are version 2's.
+    """
+
+    update_rate: Measure
+    output_data_rate: Measure
+    gyro_full_scale: Measure
+    pwm_frequency: Measure
+    pwm_full_scale: Measure
+    encoder_counts_per_wheel_revolution: Measure
+    gyro_sensitivity: Measure | None = None
+
+    @model_validator(mode="after")
+    def _each_positive_in_its_unit(self) -> ParametersV3:
+        _settings_hold(self)
+        return self
+
+
+#: Each setting of version 3, with its unit and the name its bound is held under in
+#: :data:`FIELD_BOUNDS`.
+SETTINGS: dict[str, tuple[str, str]] = {
+    "update_rate": ("Hz", "update_rate"),
+    "output_data_rate": ("Hz", "gyro_output_data_rate"),
+    "gyro_full_scale": ("deg/s", "gyro_full_scale"),
+    "pwm_frequency": ("Hz", "pwm_frequency"),
+    "pwm_full_scale": ("count", "pwm_full_scale"),
+    "encoder_counts_per_wheel_revolution": ("count", "encoder_counts_per_wheel_revolution"),
+    "gyro_sensitivity": ("count*s/deg", "gyro_sensitivity"),
+}
+
+
+def setting_problem(name: str, value: object, unit: object) -> str | None:
+    """Why ``value`` in ``unit`` is not a value of the version 3 setting ``name``, or ``None``.
+
+    The answer's own rule, field by field: a finite number (never a truth value) in the one
+    unit the setting has, inside the bound :data:`FIELD_BOUNDS` states for it; the PWM full scale
+    a whole number of counts.
+    """
+    if name not in SETTINGS:
+        return f"{name!r} is not a setting of the answer"
+    expected, bound = SETTINGS[name]
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        return f"{name} is {value!r}; it is a finite number"
+    if not isinstance(unit, str):
+        return f"{name} is in {unit!r}; it is given in {expected!r}"
+    try:
+        measure = Measure(value=value, unit=unit)
+        number = _bounded(measure, expected, name, bound)
+    except (ValueError, ValidationError) as exc:
+        return str(exc).splitlines()[0]
+    if name == "pwm_full_scale" and not _whole(number):
+        return f"{name} is {number}; it is a whole number of counts"
+    return None
 
 
 def _module_path(path: str) -> str:
@@ -548,12 +779,269 @@ class WholeRun(_Frozen):
         return self
 
 
+class WholeRunV3(_Frozen):
+    """One whole-run answer of version 3: version 2's, with the catalogue's names and the law.
+
+    The controller is any structure of the closed list, the general sampled law included, and
+    the settings carry the gate catalogue's names. Version 2 is unchanged and still read.
+    """
+
+    form: Literal["whole_run"]
+    version: Literal[3]
+    controller: ControllerV3
+    analysed_controller: ControllerV3 | None = None
+    parameters: ParametersV3
+    files: tuple[ModulePath, ...] = Field(default=(), max_length=MAX_FILES)
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _version_is_a_number(cls, value: object) -> object:
+        if isinstance(value, bool):
+            msg = "the version is a number, not a truth value"
+            raise ValueError(msg)
+        return value
+
+    @model_validator(mode="after")
+    def _each_file_once(self) -> WholeRunV3:
+        seen: set[str] = set()
+        for path in self.files:
+            if path.lower() in seen:
+                msg = f"the answer names the file {path!r} twice"
+                raise ValueError(msg)
+            seen.add(path.lower())
+        return self
+
+    @model_validator(mode="after")
+    def _native_needs_its_scales(self) -> WholeRunV3:
+        full_scale = float(self.parameters.pwm_full_scale.value)
+        for controller in (self.controller, self.analysed_controller):
+            if not isinstance(controller, NativeRisingOffset):
+                continue
+            if self.parameters.gyro_sensitivity is None:
+                msg = (
+                    "a controller written natively needs the gyro's sensitivity stated in "
+                    "the parameters: its divisor is what the code believes, not the sensor"
+                )
+                raise ValueError(msg)
+            if controller.motor_speed_limit.value > full_scale:
+                msg = (
+                    f"the motor speed limit is {controller.motor_speed_limit.value} counts, "
+                    f"past the PWM full scale of {full_scale:g}"
+                )
+                raise ValueError(msg)
+        return self
+
+
+#: A whole-run answer of either version.
+Answer = WholeRun | WholeRunV3
+
+
+def _document(text: str) -> dict[str, Any]:
+    """The JSON document ``text`` is, if an object, or an empty one where it is not readable."""
+    try:
+        document = json.loads(text)
+    except (ValueError, RecursionError):
+        return {}
+    return document if isinstance(document, dict) else {}
+
+
+class OutsideScope(TaskFormatError):  # noqa: N818 - a refusal by name, not an error of the scorer
+    """A law the scorer cannot judge, refused by name and never scored.
+
+    Not linear (``nonlinear``), or reading a signal it is not given (``out_of_scope``): no
+    verdict on the design, so not a failed answer.
+    """
+
+    def __init__(self, message: str, *, name: str, **context: str) -> None:
+        """Keep the refusal's ``name`` with the message and ``context``."""
+        super().__init__(message, **context)
+        self.name = name
+
+
+def _marked(
+    document: dict[str, Any], where: str
+) -> tuple[dict[str, Any], dict[str, OutsideScope], dict[str, tuple[law_module.Outside, ...]]]:
+    """The document with each law's terms the scorer cannot take marked, and the laws that have any.
+
+    Returns the document to validate (such a term marked, so that every other check still runs on
+    its law, and nothing taken out of it), the laws refused by name for a term that cannot be
+    taken, by the field that holds them, and each such law's marked terms. Read from the document
+    as written, since a schema would name only the field it fails on.
+    """
+    probe = dict(document)
+    refused: dict[str, OutsideScope] = {}
+    found: dict[str, tuple[law_module.Outside, ...]] = {}
+    for key in ("controller", "analysed_controller"):
+        controller = document.get(key)
+        if not (isinstance(controller, dict) and controller.get("structure") == "sampled_law"):
+            continue
+        marked = law_module.mark(controller)
+        probe[key] = marked.body
+        found[key] = marked.outside
+        if marked.outside:
+            first = marked.outside[0]
+            msg = f"{key} is out of the scorer's reach: {first.code}: {first.detail}"
+            refused[key] = OutsideScope(msg, name=first.code, where=where)
+    return probe, refused, found
+
+
+#: The refusals of a number that a float does not hold as the text wrote it.
+UNDERFLOWS = "number_underflows"
+OVERFLOWS = "number_overflows"
+NOT_A_NUMBER = "number_is_not_a_number"
+
+
+def _decimals(text: str, document: Mapping[str, Any], where: str) -> dict[str, Any]:
+    """``text`` read again with every non-integer number kept as the decimal it was written as.
+
+    Raises:
+        TaskFormatError: ``number_unreadable_as_written``: a number of a decimal cannot be held
+            (an exponent past any), and a sampled law is in the answer, whose numbers are decided
+            on as written. An answer with no sampled law is read as it always was.
+    """
+    try:
+        decimals = json.loads(text, parse_float=Decimal)
+    except (ValueError, RecursionError, ArithmeticError) as exc:
+        if any(
+            isinstance(document.get(key), dict) and document[key].get("structure") == "sampled_law"
+            for key in ("controller", "analysed_controller")
+        ):
+            msg = (
+                "the answer is not a whole-run answer: number_unreadable_as_written: a number "
+                "of the law has an exponent no decimal holds"
+            )
+            raise TaskFormatError(msg, where=where) from exc
+        return {}
+    return decimals if isinstance(decimals, dict) else {}
+
+
+def _unrepresentable(value: object, what: str) -> str | None:
+    """Why a float is not the number ``value`` was written as (naming ``what``); else ``None``."""
+    # An integer is exact in both readings; one past a float is refused by the bound on a number.
+    if isinstance(value, bool | int) or not isinstance(value, float | Decimal):
+        return None
+    shown = str(value) if len(str(value)) <= 40 else f"{str(value)[:37]}..."
+    try:
+        as_float = float(value)
+    except OverflowError:
+        as_float = math.inf
+    if math.isnan(as_float):
+        return (
+            f"{NOT_A_NUMBER}: {what} is written as {shown}, which is not a number; "
+            "a number of a law is one a float holds"
+        )
+    if not math.isfinite(as_float):
+        return (
+            f"{OVERFLOWS}: {what} is written as {shown}, which is infinite as a float; "
+            "a number of a law is one a float holds"
+        )
+    if as_float == 0.0 and value != 0:
+        return (
+            f"{UNDERFLOWS}: {what} is written as {shown}, which is zero as a float and not zero as "
+            "written; a number of a law is one a float holds, and zero is written as zero"
+        )
+    return None
+
+
+def _refuse_unrepresentable(decimals: Mapping[str, Any], where: str) -> None:
+    """Refuse by name a sampled law with a number a float does not hold as it was written.
+
+    The text is read twice, into floats (what the law is validated and built from) and into
+    decimals (what a held mode is decided on). A number that is zero in one and not in the other
+    would be a term taken out of one reading and kept in the other, so it is refused, as is one
+    that is infinite as a float. Wherever a number of the law stands: a coefficient, a term's
+    number, the period.
+
+    Raises:
+        TaskFormatError: ``number_underflows``, ``number_overflows`` or ``number_is_not_a_number``,
+            saying where.
+    """
+    for key in ("controller", "analysed_controller"):
+        controller = decimals.get(key)
+        if not (isinstance(controller, dict) and controller.get("structure") == "sampled_law"):
+            continue
+        found: list[tuple[object, str]] = []
+        coefficients = controller.get("coefficients")
+        for name, measure in coefficients.items() if isinstance(coefficients, dict) else ():
+            if isinstance(measure, dict):
+                found.append((measure.get("value"), f"the coefficient {name!r} of {key}"))
+        period = controller.get("period")
+        if isinstance(period, dict):
+            found.append((period.get("value"), f"the period of {key}"))
+        lines = controller.get("lines")
+        for line in lines if isinstance(lines, list) else ():
+            terms = line.get("terms") if isinstance(line, dict) else None
+            for at, term in enumerate(terms if isinstance(terms, list) else ()):
+                if isinstance(term, dict) and "number" in term:
+                    name = line.get("name")
+                    found.append((term["number"], f"the number of term {at + 1} of line {name!r}"))
+        for value, what in found:
+            reason = _unrepresentable(value, what)
+            if reason is not None:
+                msg = f"the answer is not a whole-run answer: {reason}"
+                raise TaskFormatError(msg, where=where)
+
+
+def _attach(answer: Answer, decimals: Mapping[str, Any]) -> Answer:
+    """Give each sampled law of ``answer`` its numbers as the text wrote them.
+
+    The numbers come from the same text read again with decimals kept as decimals, so that what
+    is decided on the law's structure is decided on ``0.1`` and not on the bits of its binary
+    form. Nothing is taken out of a law, so each number is found by its line's name and the term's
+    own place in the line.
+    """
+    if not isinstance(answer, WholeRunV3):
+        return answer
+    for key in ("controller", "analysed_controller"):
+        controller = getattr(answer, key)
+        if not isinstance(controller, SampledLaw):
+            continue
+        as_written = decimals.get(key)
+        if isinstance(as_written, dict):
+            controller._written = law_module.written_from(as_written)  # noqa: SLF001
+    return answer
+
+
 def parse_whole_run(raw: bytes, *, where: str = "answer") -> WholeRun:
-    """``raw`` validated whole as a whole-run answer, or refused with the reason.
+    """``raw`` validated whole as a version 2 whole-run answer, or refused with the reason.
+
+    Version 2 is read exactly as it always was; :func:`parse_answer` reads either version.
+
+    Raises:
+        TaskFormatError: it is too large, not UTF-8, not JSON, or not a version 2 answer.
+    """
+    answer, _ = _parse(raw, where, versions=(2,))
+    assert isinstance(answer, WholeRun)
+    return answer
+
+
+def parse_answer(raw: bytes, *, where: str = "answer") -> Answer:
+    """``raw`` validated whole as a whole-run answer of version 2 or 3, or refused with the reason.
 
     Raises:
         TaskFormatError: it is too large, not UTF-8, not JSON, or not a whole-run answer.
     """
+    return _parse(raw, where, versions=(2, 3))[0]
+
+
+def parse_answer_scoped(raw: bytes, *, where: str = "answer") -> tuple[Answer, OutsideScope | None]:
+    """:func:`parse_answer`, but an ``analysed_controller`` alone out of scope is returned.
+
+    The answer is then read without its analysed controller, and the refusal is the second
+    value: the primary controller is still scorable, only the comparison with the analysed one
+    is not. A refusal of the primary ``controller`` is raised, and only once the rest of the
+    answer is valid: an answer invalid for any other reason fails, whatever its laws say.
+
+    Raises:
+        OutsideScope: the primary controller is out of the scorer's reach, the rest being valid.
+        TaskFormatError: it is too large, not UTF-8, not JSON, or not a whole-run answer.
+    """
+    return _parse(raw, where, versions=(2, 3), tolerate_analysed=True)
+
+
+def _parse(
+    raw: bytes, where: str, *, versions: tuple[int, ...], tolerate_analysed: bool = False
+) -> tuple[Answer, OutsideScope | None]:
     if len(raw) > MAX_ANSWER_BYTES:
         msg = f"the answer is larger than any whole-run answer ({len(raw)} bytes)"
         raise TaskFormatError(msg, where=where)
@@ -562,8 +1050,67 @@ def parse_whole_run(raw: bytes, *, where: str = "answer") -> WholeRun:
     except UnicodeDecodeError as exc:
         msg = "the answer is not UTF-8 text"
         raise TaskFormatError(msg, where=where) from exc
+    document = _document(text)
+    version = document.get("version")
+    model: type[WholeRun] | type[WholeRunV3] = (
+        WholeRunV3 if version == 3 and 3 in versions and not isinstance(version, bool) else WholeRun
+    )
+    if model is WholeRun:
+        return _validate(model, text, where), None
+    decimals = _decimals(text, document, where)
+    _refuse_unrepresentable(decimals, where)
+    probe, refused, found = _marked(document, where)
+    if not refused:
+        return _attach(_validate(model, text, where), decimals), None
+    # A law with a term the scorer cannot take is refused by name, but only for an answer that is
+    # otherwise valid: the rest (every name declared, the units of every line that can be checked,
+    # the settings) is validated first, each such term marked, so no other fault is hidden behind
+    # it. Nothing is taken out of the law.
+    marked_answer = _validate(model, json.dumps(probe), where, outside=_places(found))
+    _require_marks(marked_answer, found, where)
+    if "controller" in refused:
+        raise refused["controller"]
+    if not tolerate_analysed:
+        raise refused["analysed_controller"]
+    rest = {k: v for k, v in probe.items() if k != "analysed_controller"}
+    return _attach(_validate(model, json.dumps(rest), where), decimals), refused[
+        "analysed_controller"
+    ]
+
+
+def _places(found: Mapping[str, tuple[law_module.Outside, ...]]) -> frozenset[tuple[str, int]]:
+    """Every place, in either law, where the scorer found a term it cannot take."""
+    return frozenset((o.line, o.index) for outside in found.values() for o in outside)
+
+
+def _require_marks(
+    answer: Answer, found: Mapping[str, tuple[law_module.Outside, ...]], where: str
+) -> None:
+    """Hold each law's marked terms to the places the scorer found them, one to one.
+
+    Raises:
+        TaskFormatError: a term holds no variable, or a key a term does not have, where the scorer
+            found no term out of scope (a text's own ``null`` for a variable).
+    """
+    for key, outside in found.items():
+        law = getattr(answer, key, None)
+        if isinstance(law, SampledLaw):
+            try:
+                law_module.require_marks(law, outside)
+            except law_module.LawRefused as exc:
+                msg = f"the answer is not a whole-run answer: {exc}"
+                raise TaskFormatError(msg, where=where) from exc
+
+
+def _validate(
+    model: type[WholeRun] | type[WholeRunV3],
+    text: str,
+    where: str,
+    *,
+    outside: frozenset[tuple[str, int]] = frozenset(),
+) -> Answer:
     try:
-        return WholeRun.model_validate_json(text)
+        return model.model_validate_json(text, context={"outside": outside})
     except ValidationError as exc:
         first = exc.errors()[0]
         reason = (
@@ -580,7 +1127,35 @@ _FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 
 
 def read_whole_run(path: Path, *, root: Path) -> WholeRun:
-    """The whole-run answer at ``path``, which lies inside ``root``, or refused with the reason.
+    """The version 2 whole-run answer at ``path``, inside ``root``, or refused with the reason.
+
+    Read as :func:`read_answer` reads, but a version 3 answer is refused.
+
+    Raises:
+        TaskFormatError: as :func:`read_answer`.
+    """
+    answer = _read(path, root, parse_whole_run)
+    assert isinstance(answer, WholeRun)
+    return answer
+
+
+def read_answer(path: Path, *, root: Path) -> Answer:
+    """The whole-run answer, of version 2 or 3, at ``path``, inside ``root``, or refused.
+
+    Raises:
+        TaskFormatError: it is missing, outside ``root``, not spelt plainly, reached through a
+            link, not a regular file with one name, too large, or not an answer.
+    """
+    return _read(path, root, parse_answer)
+
+
+def read_answer_scoped(path: Path, *, root: Path) -> tuple[Answer, OutsideScope | None]:
+    """:func:`read_answer` through :func:`parse_answer_scoped`."""
+    return _read(path, root, parse_answer_scoped)
+
+
+def _read[T](path: Path, root: Path, parse: Callable[..., T]) -> T:
+    """Either version's answer at ``path``, inside ``root``, read with ``parse``.
 
     The file is opened once and read from that one descriptor; nothing is looked up by path
     again, so nothing put in place between a check and the read is read. Its directory is
@@ -622,7 +1197,7 @@ def read_whole_run(path: Path, *, root: Path) -> WholeRun:
             os.close(fd)
     finally:
         os.close(directory)
-    return parse_whole_run(raw, where=spelt)
+    return parse(raw, where=spelt)
 
 
 def _read_bounded(fd: int, where: str) -> bytes:

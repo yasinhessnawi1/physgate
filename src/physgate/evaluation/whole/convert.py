@@ -19,11 +19,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from physgate.evaluation.whole import law as law_module
 from physgate.evaluation.whole.answer import (
-    Controller,
+    ControllerV3,
     IncrementalRisingOffset,
     NativeRisingOffset,
     Parameters,
+    ParametersV3,
+    SampledLaw,
     StateFeedback,
 )
 
@@ -41,6 +44,34 @@ class ScaleFactor:
     value: float
     unit: str
     source: str
+
+
+@dataclass(frozen=True)
+class LinearLaw:
+    """A sampled linear law as matrices.
+
+    Memory next = a·memory + b·inputs, command = c·memory + d·inputs.
+
+    The inputs are :data:`physgate.evaluation.whole.law.LOOP_SIGNALS`: the tilt, its rate, and
+    the wheels' angle and speed relative to the body, each in SI. The memory is each state's
+    value before the update, in the law's own order. ``held`` are the modes the law holds at
+    exactly 1 by its own lines (:func:`physgate.evaluation.whole.law.held_modes`), each the wheel
+    angle then the memory. ``circle`` counts what the same exact arithmetic finds at exactly 1
+    (not set aside) and at exactly -1: either above zero and the loop is unstable at every plant
+    point and gain, whatever its floating-point eigenvalues say.
+    """
+
+    a: tuple[tuple[float, ...], ...]
+    b: tuple[tuple[float, ...], ...]
+    c: tuple[float, ...]
+    d: tuple[float, ...]
+    held: tuple[tuple[float, ...], ...] = ()
+    circle: law_module.UnitCircle = law_module.UnitCircle(0, 0)
+
+    @property
+    def states(self) -> int:
+        """The memory states the law keeps."""
+        return len(self.c)
 
 
 @dataclass(frozen=True)
@@ -64,9 +95,12 @@ class SiLoop:
     sensor_delay: float
     compute_delay: float
     factors: tuple[ScaleFactor, ...]
+    law: LinearLaw | None = None
 
 
-def to_si(controller: Controller, parameters: Parameters, *, wheel_radius: ScaleFactor) -> SiLoop:
+def to_si(
+    controller: ControllerV3, parameters: Parameters | ParametersV3, *, wheel_radius: ScaleFactor
+) -> SiLoop:
     """``controller`` in SI, with every scale factor of the conversion.
 
     Raises:
@@ -89,6 +123,8 @@ def to_si(controller: Controller, parameters: Parameters, *, wheel_radius: Scale
             compute_delay=float(controller.compute_delay.value),
             factors=(),
         )
+    if isinstance(controller, SampledLaw):
+        return _law_to_si(controller)
     if isinstance(controller, StateFeedback):
         return SiLoop(
             incremental=False,
@@ -106,8 +142,30 @@ def to_si(controller: Controller, parameters: Parameters, *, wheel_radius: Scale
     return _native_to_si(controller, parameters, wheel_radius)
 
 
+def _law_to_si(controller: SampledLaw) -> SiLoop:
+    """A sampled law as the loop analysis takes it: its matrices, and none of a named gain."""
+    period = float(controller.period.value)
+    values = {name: float(measure.value) for name, measure in controller.coefficients.items()}
+    a, b, c, d = law_module.linear(controller, values, period=period)
+    decision = controller.decision()
+    return SiLoop(
+        incremental=False,
+        angle=0.0,
+        rate=0.0,
+        distance=0.0,
+        speed=0.0,
+        decay=1.0,
+        period=period,
+        command_limit=float(controller.command_limit.value),
+        sensor_delay=float(controller.sensor_delay.value),
+        compute_delay=float(controller.compute_delay.value),
+        factors=(),
+        law=LinearLaw(a=a, b=b, c=c, d=d, held=decision.modes, circle=decision.circle),
+    )
+
+
 def _native_to_si(
-    controller: NativeRisingOffset, parameters: Parameters, wheel_radius: ScaleFactor
+    controller: NativeRisingOffset, parameters: Parameters | ParametersV3, wheel_radius: ScaleFactor
 ) -> SiLoop:
     sensitivity = parameters.gyro_sensitivity
     if sensitivity is None:
@@ -242,7 +300,7 @@ _COMPARED: dict[type, tuple[str, ...]] = {
 }
 
 
-def coefficients(controller: Controller) -> tuple[Coefficient, ...]:
+def coefficients(controller: ControllerV3) -> tuple[Coefficient, ...]:
     """What a brief's "same coefficients, period and limit" compares, as the answer wrote it.
 
     A native structure's are its integers, as ``int``; an SI structure's are its numbers.
@@ -250,6 +308,12 @@ def coefficients(controller: Controller) -> tuple[Coefficient, ...]:
     structure carries. An absent angle decay is the default 1 and compares as 1.
     """
     out: list[Coefficient] = []
+    if isinstance(controller, SampledLaw):
+        for name in ("period", "command_limit"):
+            measure = getattr(controller, name)
+            out.append((name, measure.value, measure.unit))
+        out.extend((name, m.value, m.unit) for name, m in sorted(controller.coefficients.items()))
+        return tuple(out)
     for name in _COMPARED[type(controller)]:
         measure = getattr(controller, name)
         value = measure.value

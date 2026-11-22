@@ -626,8 +626,8 @@
   {
     "name": "stable_no_set_aside",
     "file": "src/physgate/evaluation/whole/loop.py",
-    "old": "    if system.neutral is not None:\n        at",
-    "new": "    if False:\n        at",
+    "old": "    elif system.neutral is not None:\n        at",
+    "new": "    elif False:\n        at",
     "tests": [
       "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
       "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",

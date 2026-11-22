@@ -940,7 +940,7 @@
   {
     "name": "sc_no_distance_reason_off",
     "file": "src/physgate/evaluation/whole/scenario.py",
-    "old": "    if loop is not None and loop.distance == 0.0:",
+    "old": "    if loop is not None and loop.law is None and loop.distance == 0.0:",
     "new": "    if False:",
     "tests": [
       "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
