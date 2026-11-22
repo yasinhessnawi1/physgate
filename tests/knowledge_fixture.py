@@ -15,8 +15,9 @@ from pathlib import Path
 
 from physgate.knowledge import loader
 
-#: Every role the suite plans, with cross's standards, which every role reads.
-FIXTURE_ROLES = ("cross", "electrical", "mechanical", "control", "firmware")
+#: Every role the suite plans, with cross's standards, which every role reads, and the design
+#: role's, which the planner reads before it plans.
+FIXTURE_ROLES = ("cross", "design", "electrical", "mechanical", "control", "firmware")
 
 
 def fixture_text(relative: Path) -> str:

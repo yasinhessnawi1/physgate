@@ -41,6 +41,8 @@ from replan_rig import (
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.decompose import (
     FailureCause,
+    planner_library,
+    prompt_for,
     replan_findings,
     replan_prompt,
     require_fresh,
@@ -106,15 +108,18 @@ def test_repair_n_replans_at_most_n_times_then_holds_as_on(tmp_path: Path, n: in
     assert len(_held(ran)) == 1
 
 
-def test_each_replan_is_reviewed_again(tmp_path: Path) -> None:
+def test_each_replan_is_reviewed_again(tmp_path: Path, fixture_library: Path) -> None:
     ran = decompose(tmp_path, "repair:2", [Step(), Step(review="blocked"), Step(review="pass")])
     assert ran.code == 0, ran.code
     assert [call["workdir"] for call in ran.script.calls] == [
         round_dir(ran.run_dir, k) for k in (1, 2, 3)
     ]
-    assert ran.script.calls[0].get("prompt") is None
+    files = planner_library(fixture_library, skills="on", token_ceiling=None)
+    assert ran.script.calls[0].get("prompt") == prompt_for(BRIEF, ROLES, library=files)
     for k, kind in ((1, "fail"), (2, "blocked")):
-        told = replan_prompt(BRIEF, ROLES, plan_of(k), replan_findings(verdict(k, kind)))
+        told = replan_prompt(
+            BRIEF, ROLES, plan_of(k), replan_findings(verdict(k, kind)), library=files
+        )
         assert ran.script.calls[k]["prompt"] == told
     for k, under in enumerate(ran.script.seen, start=1):
         stream = round_dir(ran.run_dir, k) / "stdout.jsonl"
@@ -262,12 +267,17 @@ def _expected(ending: str, k: int) -> tuple[int, str, str]:
 
 
 @pytest.fixture(scope="module")
-def shorter(tmp_path_factory: pytest.TempPathFactory) -> dict[int, Ran]:
+def shorter(tmp_path_factory: pytest.TempPathFactory, fixture_library: Path) -> dict[int, Ran]:
     """For each j, the run ending at round j − 1 on the same script: ``on``, then ``repair:j−2``."""
     found: dict[int, Ran] = {}
     for j in (2, 3, 4):
         mode = "on" if j == 2 else f"repair:{j - 2}"
-        found[j] = decompose(tmp_path_factory.mktemp(f"shorter-{j}"), mode, [Step()] * (j - 1))
+        found[j] = decompose(
+            tmp_path_factory.mktemp(f"shorter-{j}"),
+            mode,
+            [Step()] * (j - 1),
+            library=fixture_library,
+        )
     return found
 
 
@@ -414,14 +424,17 @@ def test_decomposition_invocations_equal_rounds(tmp_path: Path) -> None:
 
 
 def test_the_round_three_prompt_equals_round_two_s_from_the_same_plan_and_findings(
-    tmp_path: Path,
+    tmp_path: Path, fixture_library: Path
 ) -> None:
     once = decompose(tmp_path / "once", "repair:1", [Step(), Step()])
     thrice = decompose(tmp_path / "thrice", "repair:3", [Step(), Step(said=1), Step(review="pass")])
     assert once.code == 0 and thrice.code == 0, (once.code, thrice.code)
     assert len(once.script.calls) == 2 and len(thrice.script.calls) == 3
     at_two = once.script.calls[1]["prompt"]
-    assert at_two == replan_prompt(BRIEF, ROLES, plan_of(1), replan_findings(verdict(1, "fail")))
+    files = planner_library(fixture_library, skills="on", token_ceiling=None)
+    assert at_two == replan_prompt(
+        BRIEF, ROLES, plan_of(1), replan_findings(verdict(1, "fail")), library=files
+    )
     assert thrice.script.calls[2]["prompt"] == at_two
 
 

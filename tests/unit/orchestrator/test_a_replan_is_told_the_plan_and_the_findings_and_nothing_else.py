@@ -169,6 +169,7 @@ def test_a_replan_names_no_repair_budget_and_no_round() -> None:
         "plan",
         "findings",
         "parts",
+        "library",
     ]
     findings = decompose.replan_findings(_review())
     first = prompt_of(BRIEF, ROLES, _plan(), findings)

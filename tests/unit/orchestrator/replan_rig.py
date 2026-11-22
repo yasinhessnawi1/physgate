@@ -94,6 +94,14 @@ class Step:
     said: int | None = None
 
 
+def sent_as_the_call_records_it(prompt: object) -> dict[str, Any]:
+    """The prompt's digest and length, as the real call takes them."""
+    if not isinstance(prompt, str):
+        return {}
+    data = prompt.encode()
+    return {"prompt_sha256": hashlib.sha256(data).hexdigest(), "prompt_bytes": len(data)}
+
+
 def plan_of(k: int) -> Plan:
     """Round k's plan: one electrical module and one node, its specification naming the round."""
     node: dict[str, Any] = {
@@ -200,6 +208,7 @@ class Script:
             model="claude-sonnet-5",
             num_turns=1,
             stream_seal=seal(stream.read_bytes()),
+            **sent_as_the_call_records_it(given.get("prompt")),
         )
 
     def startable(self, plan: Any, **given: Any) -> Any:  # noqa: ANN401
@@ -259,14 +268,19 @@ def decompose(
     *,
     capsys: Any = None,  # noqa: ANN401 - pytest's capture fixture
     loop_patches: dict[str, Any] | None = None,
+    library: Path | None = None,
+    config_update: dict[str, Any] | None = None,
+    brief: str = BRIEF,
 ) -> Ran:
     """Run ``decompose`` once under ``design_review`` on ``steps``, in ``root``; never raises.
 
-    ``loop_patches`` replaces names in the loop's module for the run, where a row needs it.
+    ``loop_patches`` replaces names in the loop's module for the run, where a row needs it;
+    ``library`` is the checkout the run copies its library from, in place of the suite's fixture;
+    ``config_update`` changes fields of the run's configuration; ``brief`` is the brief's text.
     """
     root.mkdir(parents=True, exist_ok=True)
     repo = target_repo(root)
-    (root / "brief.md").write_text(BRIEF)
+    (root / "brief.md").write_text(brief)
     params = {
         **PARAMS,
         "design_review": "on" if design_review.startswith("repair:") else design_review,
@@ -306,6 +320,8 @@ def decompose(
             "material_check",
             lambda config: CanaryCheck(held_out=held, review_material=frozenset()),
         )
+        if library is not None:
+            patch.setattr(orchestrator_cli, "_library_root", lambda: library)
         loop = _loop_module()
         if loop is not None:
             patch.setattr(loop, "require_startable", script.startable)
@@ -314,7 +330,7 @@ def decompose(
         real = orchestrator_cli._config
 
         def configured(given: Any, credential: Any) -> Any:  # noqa: ANN401
-            update: dict[str, Any] = {"design_review": design_review}
+            update: dict[str, Any] = {"design_review": design_review, **(config_update or {})}
             if design_review.startswith("repair:"):
                 update |= {"reportable": True, "harness": CLEAN_HARNESS}
             return real(given, credential).model_copy(update=update)

@@ -669,6 +669,7 @@ def test_the_command_s_one_retry_asks_as_its_run_does(
     monkeypatch: pytest.MonkeyPatch,
     design_review: str,
     steps: tuple[str, str],
+    fixture_library: Path,
 ) -> None:
     # Through the decompose command with a scripted call: the first call's plan is refused
     # for a unit, and the retry is sent the brief's prompt again. Each run's own, so one that
@@ -706,7 +707,10 @@ def test_the_command_s_one_retry_asks_as_its_run_does(
     asking = replan_rig.decompose(tmp_path / "asking", design_review, script)
     assert len(asking.script.calls) == 2, asking.code
     again = asking.script.calls[1]["prompt"]
-    assert again.startswith(prompt_for(replan_rig.BRIEF, rig_roles, parts=True))
+    first = decompose.prompt_a_run_sends(
+        replan_rig.BRIEF, rig_roles, parts=True, library=fixture_library, token_ceiling=None
+    )
+    assert again.startswith(first)
     assert again.count(sentence(rig_roles)) == 1 and again.count(refusal) == 1
 
 

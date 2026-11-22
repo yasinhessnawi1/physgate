@@ -396,6 +396,16 @@ class DecisionsSealed(_Event):
     sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
+class PlannerFile(BaseModel):
+    """One file of the library the planner was sent: where it is, how long and its sha256."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    path: NonEmptyStr
+    size: Annotated[int, Field(ge=1)]
+    sha256: Sha256
+
+
 class Halted(_Event):
     """The run stopped, and why. Resuming reads this line."""
 
@@ -405,11 +415,35 @@ class Halted(_Event):
     #: For a halt on the account's usage limit: the reset as the stream gave it, and as an
     #: instant where it parses.
     usage_limit: UsageLimit | None = None
+    #: For a halt on a failed decomposition: the library files the planner was sent, each by
+    #: path, size and sha256, in the order sent, and the sha256 and byte length of the prompt of
+    #: the call that failed. Left out of any other halt, and of a failure that was written before
+    #: they were recorded, so such a line keeps its bytes.
+    planner_library: tuple[PlannerFile, ...] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    prompt_sha256: Sha256 | None = Field(default=None, exclude_if=lambda v: v is None)
+    prompt_bytes: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
     @model_validator(mode="after")
     def _a_limit_halt_names_its_reset(self) -> Halted:
         if (self.reason == "usage_limit") != (self.usage_limit is not None):
             msg = "a halt on the usage limit carries the limit, and no other halt does"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _only_a_failed_decomposition_names_its_prompt(self) -> Halted:
+        named = (self.planner_library, self.prompt_sha256, self.prompt_bytes)
+        if self.reason != "decomposition_failed" and any(one is not None for one in named):
+            msg = (
+                "only a halt on a failed decomposition names the prompt and the library it was sent"
+            )
+            raise ValueError(msg)
+        if (self.prompt_sha256 is None) != (self.prompt_bytes is None):
+            msg = "a prompt is named by its digest and its length together"
             raise ValueError(msg)
         return self
 
@@ -1349,6 +1383,17 @@ class Decomposed(_Event):
     #: ask, so its line keeps its bytes. Typed with the plan's own model and bound, and held to
     #: the plan's rules for the list and the line's own interface nodes.
     components: Annotated[tuple[Component, ...], Field(max_length=MAX_COMPONENTS)] | None = None
+    #: The files the planner read before it planned, each by path, size and sha256, in the order
+    #: they were sent; left out of a line written before they were sent, or by a run with no
+    #: library.
+    planner_library: tuple[PlannerFile, ...] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    #: The sha256 and byte length of the prompt as the last call was sent it; left out as above.
+    prompt_sha256: Sha256 | None = Field(default=None, exclude_if=lambda v: v is None)
+    prompt_bytes: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
     @model_validator(mode="after")
     def _the_components_hold_the_plan_s_rules(self) -> Decomposed:
@@ -1435,6 +1480,10 @@ class PlanProposed(_Event):
     #: The round's first call, or its second: made once, when the first's output was refused
     #: by its schema. Left out of the line for a first call.
     call: Literal[1, 2] = 1
+    #: The sha256 and byte length of the prompt the call was sent; left out of a line written
+    #: before they were recorded.
+    prompt_sha256: Sha256 | None = None
+    prompt_bytes: Annotated[int, Field(ge=1)] | None = None
 
     @model_validator(mode="after")
     def _a_plan_or_why_not(self) -> PlanProposed:
@@ -1446,7 +1495,7 @@ class PlanProposed(_Event):
     @model_serializer(mode="wrap")
     def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for absent in ("plan_sha256", "cause"):
+        for absent in ("plan_sha256", "cause", "prompt_sha256", "prompt_bytes"):
             if data.get(absent) is None:
                 data.pop(absent, None)
         if data.get("call") == 1:
@@ -1470,6 +1519,12 @@ class DecompositionRetried(_Event):
     session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
     cause: Literal["schema_refused"]
     detail: NonEmptyStr
+    #: The sha256 and byte length of the prompt the refused call was sent; left out of a line
+    #: written before they were recorded.
+    prompt_sha256: Sha256 | None = Field(default=None, exclude_if=lambda v: v is None)
+    prompt_bytes: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
 
 class DesignUnavailable(BaseModel):
