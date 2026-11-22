@@ -12,6 +12,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -32,6 +35,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -52,6 +58,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -72,6 +81,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -92,6 +104,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -112,6 +127,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -132,6 +150,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -152,6 +173,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -172,6 +196,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -192,6 +219,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -212,6 +242,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -232,6 +265,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -252,6 +288,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -272,6 +311,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -292,6 +334,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -312,6 +357,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -332,6 +380,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -352,6 +403,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -372,6 +426,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -392,6 +449,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -412,6 +472,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -432,6 +495,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -452,6 +518,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -472,6 +541,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -492,6 +564,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -512,6 +587,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -532,6 +610,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -552,6 +633,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -572,6 +656,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -592,26 +679,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/orchestrator/replan_rig.py",
-      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
-    ],
-    "paths": [
-      "knowledge"
-    ]
-  },
-  {
-    "name": "planner_retried_digest_not_taken_with_review",
-    "file": "src/physgate/orchestrator/design_rounds.py",
-    "old": "                    prompt_sha256=refused_first.prompt_sha256,\n                    prompt_bytes=refused_first.prompt_bytes,\n                )\n            )\n            proposals.append(",
-    "new": "                )\n            )\n            proposals.append(",
-    "tests": [
-      "tests/unit/orchestrator/test_the_planner_reads_its_library_before_it_plans.py"
-    ],
-    "data": [
-      "tests/unit/orchestrator/design_review_rig.py",
-      "tests/unit/orchestrator/journal_helper.py",
-      "tests/unit/orchestrator/loop_fakes.py",
-      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -632,6 +702,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -652,6 +725,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -672,6 +748,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -692,6 +771,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -712,6 +794,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -732,6 +817,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],
@@ -752,6 +840,9 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/replan_rig.py",
       "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ],

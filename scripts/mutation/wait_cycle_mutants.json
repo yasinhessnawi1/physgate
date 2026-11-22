@@ -16,6 +16,7 @@
       "tests/unit/orchestrator/accounted.py",
       "tests/unit/orchestrator/arbitration_runs.py",
       "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/off_identity_reference.json",
       "tests/unit/orchestrator/off_identity_rig.py",
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/sign_off_rig.py",
@@ -33,7 +34,7 @@
       "tests/unit/orchestrator/wait_cycle_rig.py"
     ],
     "paths": [
-      "tests/unit/orchestrator/off_identity_reference.json"
+      "knowledge"
     ]
   },
   {
@@ -66,6 +67,9 @@
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
       "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -98,6 +102,9 @@
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
       "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -130,6 +137,9 @@
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
       "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -162,6 +172,9 @@
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
       "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -194,6 +207,9 @@
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
       "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -226,6 +242,9 @@
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
       "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -258,6 +277,9 @@
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
       "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -290,6 +312,9 @@
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
       "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -322,6 +347,9 @@
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
       "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -354,6 +382,9 @@
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
       "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -373,6 +404,7 @@
       "tests/unit/orchestrator/accounted.py",
       "tests/unit/orchestrator/arbitration_runs.py",
       "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/off_identity_reference.json",
       "tests/unit/orchestrator/off_identity_rig.py",
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/sign_off_rig.py",
@@ -390,7 +422,112 @@
       "tests/unit/orchestrator/wait_cycle_rig.py"
     ],
     "paths": [
-      "tests/unit/orchestrator/off_identity_reference.json"
+      "knowledge"
+    ]
+  },
+  {
+    "name": "a_chain_runs_through_two_readers_of_each_other",
+    "file": "src/physgate/orchestrator/wait_cycle.py",
+    "old": "        if _mutual(state, subtask_id, producer):\n            continue",
+    "new": "        if False and _mutual(state, subtask_id, producer):\n            continue",
+    "tests": [
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_release_key_ignores_the_dispatch",
+    "file": "src/physgate/orchestrator/producer_wait.py",
+    "old": "    return (reader, producer, len(state.subtasks[reader].attempts))",
+    "new": "    return (reader, producer, 0)",
+    "tests": [
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "replay_leaves_the_hold_open_after_a_cycle_release",
+    "file": "src/physgate/orchestrator/producer_wait.py",
+    "old": "        state.producer_waits.open.pop((subtask_id, event.producer), None)",
+    "new": "        pass",
+    "tests": [
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -410,6 +547,7 @@
       "tests/unit/orchestrator/accounted.py",
       "tests/unit/orchestrator/arbitration_runs.py",
       "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/off_identity_reference.json",
       "tests/unit/orchestrator/off_identity_rig.py",
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/orchestrator/sign_off_rig.py",
@@ -427,7 +565,7 @@
       "tests/unit/orchestrator/wait_cycle_rig.py"
     ],
     "paths": [
-      "tests/unit/orchestrator/off_identity_reference.json"
+      "knowledge"
     ]
   }
 ]

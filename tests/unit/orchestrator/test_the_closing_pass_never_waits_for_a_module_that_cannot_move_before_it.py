@@ -273,6 +273,9 @@ def test_a_reader_of_a_builder_held_for_good_does_not_hold_the_closing_pass(
     ]
     assert open_items(rig) == []
     assert refusal(events_of(rig)) is None
+    # What the run does next: nothing is left that any decision or any module can move, so it is
+    # over, with the builder held for good never run (not a wait on it, which was the defect).
+    assert state.next_step().kind == "done"
 
 
 def test_a_module_merged_on_a_fix_a_person_ordered_is_owed_no_follow_up_and_the_run_ends_escalated(

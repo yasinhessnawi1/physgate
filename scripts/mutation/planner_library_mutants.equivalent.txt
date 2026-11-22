@@ -1,0 +1,25 @@
+Mutants of planner_library_mutants.json judged equivalent and removed from it.
+
+A mutant stays in the list only if some row can tell it from the source. The entry below
+changes no behaviour a run can reach; it says why, from the code, and what would make it
+reachable. A change to the source named here means the argument is to be read again.
+
+planner_retried_digest_not_taken_with_review
+  file: src/physgate/orchestrator/design_rounds.py, the round loop, the first call's refusal
+  old:  `                    prompt_sha256=refused_first.prompt_sha256,\n                    prompt_bytes=refused_first.prompt_bytes,\n                )\n            )\n            proposals.append(`
+  new:  `                )\n            )\n            proposals.append(`
+  The change leaves the digest and the byte count off the RetriedCall that a reviewed round
+  keeps for its refused first call, so both stay None. Nothing reads them there. A RetriedCall's
+  two fields have one reader, record.py `_calls`, and it reads them only inside `if not
+  proposals:`, to write a DecompositionRetried line. A run that reviews its plan passes the
+  proposals of every round (`_require_proposals` refuses a run that reviews and has none), and
+  the refused call's own Proposal is appended right after the RetriedCall, so in a reviewed
+  round the test is false and the line is never built. The digest of that refused call is
+  written on its Proposal (`PlanProposed`), from the second copy a few lines below
+  (`prompt_sha256=refused_first.prompt_sha256` in `Proposal(...)`), which
+  planner_refused_first_call_not_in_its_proposal removes and a row kills. The other readers of
+  a RetriedCall (`_require_proposals`, the replay's retried-call comparison) read its round,
+  session, model and turns, never the digest. The mutated RetriedCall is therefore the same on
+  every reachable path. It would stop being equivalent if a reader of the digest outside the
+  `if not proposals:` branch were added, or if a reviewed round's refused call were written as a
+  DecompositionRetried line as well as a proposal.

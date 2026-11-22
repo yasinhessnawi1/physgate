@@ -37,6 +37,7 @@ from wait_cycle_rig import (
     Shape,
     first_run,
     resumed,
+    resumed_before,
 )
 
 from physgate import roles
@@ -311,6 +312,94 @@ def test_two_readers_of_each_other_are_dispatched_as_before_under_the_mark(
     assert refusal(rows) is None
 
 
+#: Control reads firmware's interface; firmware and electrical read each other's and sizing's;
+#: electrical builds control's design. Control waits for firmware, which waits for sizing's item,
+#: and electrical waits for control: but firmware's wait on electrical is a mutual read, no
+#: link of a chain, so firmware does not wait for control and control's hold on it is a true wait.
+MUTUAL_IN_THE_CHAIN = Shape(
+    order=(SIZING, CONTROL, FIRMWARE, ELECTRICAL),
+    reads=(
+        (SIZING, FIRMWARE),
+        (SIZING, ELECTRICAL),
+        (FIRMWARE, CONTROL),
+        (FIRMWARE, ELECTRICAL),
+        (ELECTRICAL, FIRMWARE),
+    ),
+    design=((CONTROL, ELECTRICAL),),
+)
+
+
+def test_a_reader_of_a_producer_that_is_in_a_mutual_read_with_its_own_builder_stays_held(
+    tmp_path: Any,  # noqa: ANN401
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A chain does not run through two readers of each other: the hold on firmware is true.
+
+    Electrical builds control's design, so electrical waits for control; if firmware's read of
+    electrical counted as a link, firmware would wait for control and control would be let go of
+    firmware, which can still run first. It is not: control is held on firmware until sizing is
+    decided, and runs after firmware.
+    """
+    rig, step, rows = decided_run(tmp_path, monkeypatch, MUTUAL_IN_THE_CHAIN)
+    assert step == "done", sequence(rows)
+    assert sequence(rows) == [
+        ("dispatch_held", CONTROL, FIRMWARE, ""),
+        ("dispatch_released", FIRMWARE, ELECTRICAL, "mutual_readers"),
+        ("dispatch_held", FIRMWARE, SIZING, ""),
+        ("dispatch_released", ELECTRICAL, FIRMWARE, "mutual_readers"),
+        ("dispatch_held", ELECTRICAL, SIZING, ""),
+        ("dispatch_released", FIRMWARE, SIZING, "merged"),
+        ("dispatch_released", CONTROL, FIRMWARE, "merged"),
+        ("dispatch_released", ELECTRICAL, SIZING, "merged"),
+    ]
+    assert not [r for r in sequence(rows) if r[3] == "producer_waits_for_reader"]
+    assert merged_order(rows) == [SIZING, FIRMWARE, CONTROL, ELECTRICAL, CLOSING, INTEG]
+    assert open_ids(rig) == []
+    assert refusal(rows) is None
+
+
+#: Control reads firmware's interface and sizing's, firmware reads sizing's; control designs
+#: electrical's, which designs firmware's: firmware waits, through electrical, for control, so
+#: control is let go of firmware whenever it is dispatched while the cycle stands.
+TWO_BUILDERS_IN_A_CYCLE = Shape(
+    order=(SIZING, CONTROL, ELECTRICAL, FIRMWARE),
+    reads=((FIRMWARE, CONTROL), (SIZING, FIRMWARE)),
+    design=((CONTROL, ELECTRICAL), (ELECTRICAL, FIRMWARE)),
+)
+
+
+def test_a_reader_let_go_is_let_go_again_on_each_dispatch_while_the_cycle_stands(
+    tmp_path: Any,  # noqa: ANN401
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One release line for each dispatch of the reader, its second attempt included.
+
+    Sizing goes to a person (three failed reviews). Control, let go of firmware, runs: its first
+    review fails, its second passes. Firmware still waits for control through electrical when
+    control is dispatched the second time, so the release is written again, before that attempt.
+    """
+    verdicts = ("fail", "fail", "fail", "fail", "pass")
+    rig, step, rows = decided_run(tmp_path, monkeypatch, TWO_BUILDERS_IN_A_CYCLE, verdicts=verdicts)
+    assert step == "done", sequence(rows)
+    assert sequence(rows) == [
+        ("dispatch_released", CONTROL, FIRMWARE, "producer_waits_for_reader"),
+        ("dispatch_released", CONTROL, FIRMWARE, "producer_waits_for_reader"),
+        ("dispatch_held", FIRMWARE, SIZING, ""),
+        ("dispatch_released", FIRMWARE, SIZING, "merged"),
+    ]
+    attempts = [
+        i
+        for i, r in enumerate(rows)
+        if r["kind"] == "stage_entered" and r["subtask_id"] == CONTROL and r["stage"] == "resolve"
+    ]
+    assert len(attempts) == 2
+    for i in attempts:
+        assert rows[i - 1]["kind"] == "dispatch_released", f"no release before attempt at line {i}"
+        assert (rows[i - 1]["subtask_id"], rows[i - 1]["producer"]) == (CONTROL, FIRMWARE)
+    assert open_ids(rig) == []
+    assert refusal(rows) is None
+
+
 # --- a producer held for good ------------------------------------------------------------------
 
 
@@ -345,6 +434,52 @@ def test_a_reader_held_on_a_builder_held_for_good_is_let_go_and_runs_without_it(
     ]
     assert merged_order(rows) == [SIZING, ELECTRICAL, CLOSING]
     assert refusal(rows) is None
+
+
+def test_replay_takes_a_cycle_release_after_a_hold_and_lets_the_reader_be_dispatched(
+    tmp_path: Any,  # noqa: ANN401
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hold, the release that lets it go, the dispatch: the record the loop would write next.
+
+    The run is killed before it writes the release, and the release and the dispatch are added
+    here by hand, so the row reads the record only: the loop is not asked to write either. A
+    release takes its hold off the record; one that left it would leave the reader held, and
+    the dispatch that follows would be refused.
+    """
+    shape = Shape(
+        order=(SIZING, CONTROL, FIRMWARE, ELECTRICAL),
+        reads=((SIZING, FIRMWARE), (FIRMWARE, ELECTRICAL)),
+        design=((CONTROL, FIRMWARE),),
+    )
+    rig = shape.rig(tmp_path, verdicts=("fail",) * 6)
+    assert first_run(rig, monkeypatch, shape) == "wait"
+    rows = lines(rig)
+    decide(rig.run_dir, "reject", "no design", item_id=item_of(rows, CONTROL))
+    decide(rig.run_dir, "approve", item_id=item_of(rows, SIZING))
+    resumed_before(
+        rig,
+        monkeypatch,
+        shape,
+        lambda e: e.kind == "dispatch_released" and e.outcome == "producer_held_for_good",
+    )
+    rows = lines(rig)
+    assert refusal(rows) is None
+    assert [r for r in sequence(rows) if r[0] == "dispatch_held" and r[1] == ELECTRICAL] == [
+        ("dispatch_held", ELECTRICAL, FIRMWARE, "")
+    ]
+    assert not [r for r in rows if r.get("outcome") in ("producer_held_for_good",)]
+    assert of(rows, "builder_held") != []
+    (hold,) = of(rows, "dispatch_held", subtask_id=ELECTRICAL)
+    release = {k: v for k, v in hold.items() if k != "interfaces"} | {
+        "kind": "dispatch_released",
+        "outcome": "producer_held_for_good",
+    }
+    (first,) = of(rows, "stage_entered", subtask_id=SIZING, attempt=1, stage="resolve")
+    dispatch = first | {"subtask_id": ELECTRICAL}
+    assert refusal([*rows, dispatch]) is not None, "a dispatch while the hold stands"
+    assert refusal([*rows, release]) is None
+    assert refusal([*rows, release, dispatch]) is None
 
 
 # --- replay ---------------------------------------------------------------------------------------

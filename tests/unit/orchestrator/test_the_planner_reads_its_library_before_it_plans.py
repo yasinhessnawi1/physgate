@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,12 @@ def _section(root: Path, *, skills: bool = True) -> str:
         text = (root / relative).read_text(encoding="utf-8")
         body += f"File: {relative.as_posix()}\n" + text + ("" if text.endswith("\n") else "\n")
     return f"<<<PLANNER LIBRARY BEGIN>>>\n{body}<<<PLANNER LIBRARY END>>>\n\n"
+
+
+def field_of(line: Mapping[str, Any], key: str) -> Any:  # noqa: ANN401 - a recorded value
+    """``line``'s ``key``, asserting first that the line holds it: a line without it fails."""
+    assert key in line, f"the {line.get('kind')} line holds no {key}"
+    return line[key]
 
 
 def _library(root: Path) -> Path:
@@ -201,7 +208,7 @@ def test_a_run_under_skills_off_sends_the_planner_no_skill_file(tmp_path: Path) 
     assert "File: knowledge/design/skill.md" not in call["prompt"]
     assert "File: knowledge/design/standards.md" in call["prompt"]
     (decomposed,) = [e for e in events(ran.run_dir) if e["kind"] == "decomposed"]
-    assert [f["path"] for f in decomposed["planner_library"]] == [
+    assert [f["path"] for f in field_of(decomposed, "planner_library")] == [
         "knowledge/cross/standards.md",
         "knowledge/design/standards.md",
     ]
@@ -346,6 +353,7 @@ def test_every_call_of_a_run_is_sent_the_section_and_the_record_names_it(tmp_pat
     ran = decompose(tmp_path, "repair:1", [Step(review="fail"), Step(review="pass")])
     assert ran.code == 0, ran.err
     first, second = ran.script.calls
+    assert PLANNER_LIBRARY_BEGIN in first["prompt"] and PLANNER_LIBRARY_END in first["prompt"]
     block = first["prompt"][
         first["prompt"].index(PLANNER_LIBRARY_BEGIN) : first["prompt"].index(PLANNER_LIBRARY_END)
     ]
@@ -353,7 +361,7 @@ def test_every_call_of_a_run_is_sent_the_section_and_the_record_names_it(tmp_pat
     assert REPLAN_SENTENCE in second["prompt"] and REPLAN_SENTENCE not in first["prompt"]
     log = events(ran.run_dir)
     (decomposed,) = [e for e in log if e["kind"] == "decomposed"]
-    files = decomposed["planner_library"]
+    files = field_of(decomposed, "planner_library")
     assert [f["path"] for f in files] == [p.as_posix() for p in DESIGN_SET]
     for entry in files:
         shown = f"File: {entry['path']}\n"
@@ -366,9 +374,13 @@ def test_every_call_of_a_run_is_sent_the_section_and_the_record_names_it(tmp_pat
         (first, second), [e for e in log if e["kind"] == "plan_proposed"], strict=True
     ):
         sent = call["prompt"].encode()
-        assert line["prompt_sha256"] == _sha(sent) and line["prompt_bytes"] == len(sent)
+        assert field_of(line, "prompt_sha256") == _sha(sent) and field_of(
+            line, "prompt_bytes"
+        ) == len(sent)
     sent = second["prompt"].encode()
-    assert decomposed["prompt_sha256"] == _sha(sent) and decomposed["prompt_bytes"] == len(sent)
+    assert field_of(decomposed, "prompt_sha256") == _sha(sent) and field_of(
+        decomposed, "prompt_bytes"
+    ) == len(sent)
     replay(read_events(ran.run_dir / "events.jsonl"))
 
 
@@ -384,8 +396,8 @@ def test_a_run_that_does_not_review_its_plan_records_its_prompt_on_the_decomposi
     ran = decompose(tmp_path, "off", [Step()])
     (decomposed,) = [e for e in events(ran.run_dir) if e["kind"] == "decomposed"]
     sent = ran.script.calls[0]["prompt"].encode()
-    assert decomposed["prompt_sha256"] == _sha(sent)
-    assert decomposed["prompt_bytes"] == len(sent)
+    assert field_of(decomposed, "prompt_sha256") == _sha(sent)
+    assert field_of(decomposed, "prompt_bytes") == len(sent)
 
 
 def test_a_line_written_before_the_fields_existed_still_reads_and_replays(tmp_path: Path) -> None:
@@ -532,6 +544,7 @@ def test_a_text_without_a_final_newline_gains_exactly_one_and_the_record_is_the_
     (call,) = ran.script.calls
     sent = call["prompt"]
     lines = sent.splitlines(keepends=True)
+    assert "A line that ends the file.\n" in lines, "the file's last line ran into the next text"
     at = lines.index("A line that ends the file.\n")
     # One newline, and then the next file's header or the closing marker: nothing between.
     assert lines[at + 1].startswith("File: ")
@@ -542,13 +555,13 @@ def test_a_text_without_a_final_newline_gains_exactly_one_and_the_record_is_the_
             f"File: {relative.as_posix()}\n{text}" + ("" if text.endswith("\n") else "\n")
         ) in sent
     (decomposed,) = [e for e in events(ran.run_dir) if e["kind"] == "decomposed"]
-    recorded = {f["path"]: f for f in decomposed["planner_library"]}
+    recorded = {f["path"]: f for f in field_of(decomposed, "planner_library")}
     for relative, data in on_disk.items():
         assert recorded[relative.as_posix()]["size"] == len(data)
         assert recorded[relative.as_posix()]["sha256"] == _sha(data)
     sent_bytes = sent.encode()
-    assert decomposed["prompt_sha256"] == _sha(sent_bytes)
-    assert decomposed["prompt_bytes"] == len(sent_bytes)
+    assert field_of(decomposed, "prompt_sha256") == _sha(sent_bytes)
+    assert field_of(decomposed, "prompt_bytes") == len(sent_bytes)
     # The section is the same whether the text ends in a newline or the one added.
     closed = ends.read_bytes() + b"\n"
     ends.write_bytes(closed)
@@ -617,8 +630,10 @@ def test_a_refused_then_retried_decomposition_without_plan_review_records_both_c
     (decomposed,) = [e for e in log if e["kind"] == "decomposed"]
     for line, call in ((retried, first), (decomposed, second)):
         sent = call["prompt"].encode()
-        assert line["prompt_sha256"] == _sha(sent) and line["prompt_bytes"] == len(sent)
-    assert retried["prompt_sha256"] != decomposed["prompt_sha256"]
+        assert field_of(line, "prompt_sha256") == _sha(sent) and field_of(
+            line, "prompt_bytes"
+        ) == len(sent)
+    assert field_of(retried, "prompt_sha256") != field_of(decomposed, "prompt_sha256")
     replay(read_events(ran.run_dir / "events.jsonl"))
 
 
@@ -633,12 +648,14 @@ def test_a_reviewed_round_s_refused_first_call_is_recorded_with_its_prompt(
     assert [line.get("call", 1) for line in lines] == [1, 2]
     for line, call in zip(lines, (first, second), strict=True):
         sent = call["prompt"].encode()
-        assert line["prompt_sha256"] == _sha(sent) and line["prompt_bytes"] == len(sent)
+        assert field_of(line, "prompt_sha256") == _sha(sent) and field_of(
+            line, "prompt_bytes"
+        ) == len(sent)
     refused = [one for one in _journal(ran.run_dir) if one["kind"] == "call_refused"]
     (refused_line,) = refused
     sent = first["prompt"].encode()
-    assert refused_line["prompt_sha256"] == _sha(sent)
-    assert refused_line["prompt_bytes"] == len(sent)
+    assert field_of(refused_line, "prompt_sha256") == _sha(sent)
+    assert field_of(refused_line, "prompt_bytes") == len(sent)
 
 
 def _journal(run_dir: Path) -> list[dict[str, object]]:
@@ -675,10 +692,14 @@ def test_a_failed_reviewed_decomposition_records_each_call_s_prompt(tmp_path: Pa
     (call,) = ran.script.calls
     sent = call["prompt"].encode()
     (proposed,) = [e for e in events(ran.run_dir) if e["kind"] == "plan_proposed"]
-    assert proposed["prompt_sha256"] == _sha(sent) and proposed["prompt_bytes"] == len(sent)
+    assert field_of(proposed, "prompt_sha256") == _sha(sent) and field_of(
+        proposed, "prompt_bytes"
+    ) == len(sent)
     (halt,) = [e for e in events(ran.run_dir) if e["kind"] == "halted"]
-    assert halt["prompt_sha256"] == _sha(sent)
-    assert [f["path"] for f in halt["planner_library"]] == [p.as_posix() for p in DESIGN_SET]
+    assert field_of(halt, "prompt_sha256") == _sha(sent)
+    assert [f["path"] for f in field_of(halt, "planner_library")] == [
+        p.as_posix() for p in DESIGN_SET
+    ]
 
 
 def test_a_round_that_ends_void_with_no_run_records_its_prompt_and_library_in_the_journal(
@@ -689,8 +710,10 @@ def test_a_round_that_ends_void_with_no_run_records_its_prompt_and_library_in_th
     (call,) = ran.script.calls
     sent = call["prompt"].encode()
     (ended,) = [one for one in _journal(ran.run_dir) if one["kind"] == "round_ended"]
-    assert ended["prompt_sha256"] == _sha(sent) and ended["prompt_bytes"] == len(sent)
-    held = ended["planner_library"]
+    assert field_of(ended, "prompt_sha256") == _sha(sent) and field_of(
+        ended, "prompt_bytes"
+    ) == len(sent)
+    held = field_of(ended, "planner_library")
     assert isinstance(held, list)
     assert [f["path"] for f in held] == [p.as_posix() for p in DESIGN_SET]
     for entry in held:

@@ -8,13 +8,13 @@ plan has it, is closed by a pass of the same directory after every other module.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
-from loop_fakes import FakeDispatcher, Rig
+from loop_fakes import FakeDispatcher, KilledError, Rig
 from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing import (
     INTEG,
     entry,
@@ -27,6 +27,7 @@ from test_a_queue_decision_acts_at_a_boundary import _layer
 
 from physgate.contracts.pairs import ContractPair
 from physgate.orchestrator.design_pairs import DesignPair
+from physgate.orchestrator.events import Event
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.record import DecompositionSummary
@@ -175,3 +176,20 @@ def resumed(rig: Rig, monkeypatch: pytest.MonkeyPatch, shape: Shape) -> str:
         return str(loop.resume().kind)
     finally:
         loop.close()
+
+
+def resumed_before(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch, shape: Shape, line: Callable[[Event], bool]
+) -> None:
+    """A fresh process takes the run over, killed before it writes the first line ``line`` picks."""
+    loop = rig.open()
+    killed = False
+    hooked(monkeypatch, loop, declared=shape.order, kill=lambda event, _: line(event))
+    _layer(loop)
+    try:
+        loop.resume()
+    except KilledError:
+        killed = True
+    finally:
+        loop.close()
+    assert killed, "the run ended without writing the line it was to be killed before"
