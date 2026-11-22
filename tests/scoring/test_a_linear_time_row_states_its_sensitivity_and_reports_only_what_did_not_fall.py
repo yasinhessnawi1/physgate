@@ -648,8 +648,10 @@ def test_a_row_of_a_refused_law_carries_its_label_too(
     monkeypatch.setattr(WholeDesignScenario, "_judged", refuse)
     record = _record(tmp_path, [HEADLINE, SPEED, PUSH], helpers._recorded_controller())
     rows = _rows(record)
-    assert rows[dynamic.STEADY_SPEED]["label"] == dynamic.LABEL
-    assert rows[dynamic.PUSH_PEAK_TILT]["label"] == dynamic.LABEL
+    # The key is asserted present before it is read: a row without it fails here, not on a lookup.
+    for name in (dynamic.STEADY_SPEED, dynamic.PUSH_PEAK_TILT):
+        assert "label" in rows[name], f"the refused row {name!r} carries no label"
+        assert rows[name]["label"] == dynamic.LABEL
     assert "label" not in rows["rate"]
 
 

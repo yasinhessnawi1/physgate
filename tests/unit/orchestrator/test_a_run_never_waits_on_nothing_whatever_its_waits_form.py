@@ -6,12 +6,15 @@ the plan orders designer first, random review verdicts that send subtasks to a p
 person who approves or rejects each item at random, signing what a module owes. The run is taken
 over after each decision. At every stop the run is not waiting on nothing while a subtask is still
 planned; no builder is dispatched before its designer merged; the record replays; and the run ends.
-A failure names its seed, and the seed alone remakes the plan.
+A failure names its seed, and the seed alone remakes the plan. Some of the seeds are plans that
+end in the wait with no item when the rule is not in force (the last row runs them so): without
+them the row would hold the rule only by the mark on the first line.
 """
 
 from __future__ import annotations
 
 import random
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +41,13 @@ from physgate import roles
 from physgate.orchestrator import record
 from physgate.orchestrator.queue import read_queue
 
-SEEDS = range(36)
+#: Seeds whose plan ends in a wait with no item open when the run is not started under the
+#: ``wait_cycle`` rule: the defect itself. Found by running seeds 0 to 329 with the mark off (13
+#: of the 330), and held honest by the last row below, which runs each with the mark off. Of the
+#: first 36 seeds only two (9 and 16) are among them; the rest fail the row on its closing check
+#: that the mark is there, and would pass a change that took the rule out of effect.
+DEADLOCKS_WITHOUT_THE_RULE = (9, 16, 70, 90, 106, 172, 212, 256, 274, 282, 288, 317, 325)
+SEEDS = sorted({*range(36), *DEADLOCKS_WITHOUT_THE_RULE})
 ROUNDS = 20
 POOL = (SIZING, CONTROL, FIRMWARE, ELECTRICAL)
 
@@ -89,10 +98,20 @@ def check_order(rows: list[dict[str, Any]], shape: Shape, said: str) -> None:
             assert merges[0] < starts[0], f"{said}: {builder} dispatched before {designer} merged"
 
 
-@pytest.mark.parametrize("seed", SEEDS)
-def test_a_random_plan_never_ends_in_a_wait_with_no_item_open(
-    seed: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@dataclass
+class Played:
+    """One seed's run: its plan, its record, where it ended, and the first stall it showed."""
+
+    said: str
+    shape: Shape
+    rows: list[dict[str, Any]]
+    step: str
+    #: Set to the first wait with no item open, where the run stopped in one.
+    stalled: str | None
+
+
+def play(seed: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Played:
+    """The run of ``seed``'s plan, a person deciding at random after each stop."""
     rng = random.Random(seed)
     shape = plan_of(rng)
     said = f"seed {seed}: order={shape.order} reads={shape.reads} design={shape.design}"
@@ -105,17 +124,37 @@ def test_a_random_plan_never_ends_in_a_wait_with_no_item_open(
     ]
     rig = shape.rig(tmp_path, verdicts)
     step = first_run(rig, monkeypatch, shape)
+    stalled: str | None = None
     for _ in range(ROUNDS):
         rows = lines(rig)
-        items = read_queue(rig.run_dir).open_items()
-        if step == "wait":
-            assert items, f"{said}: a wait with no item open, after {len(rows)} lines"
+        if step == "wait" and not read_queue(rig.run_dir).open_items():
+            stalled = f"{said}: a wait with no item open, after {len(rows)} lines"
+            break
         if step != "wait":
             break
         decisions(rng, rig.run_dir)
         step = resumed(rig, monkeypatch, shape)
-    rows = lines(rig)
-    assert step in ("done", "escalated"), f"{said}: ended as {step!r}"
-    assert refusal(rows) is None, said
-    check_order(rows, shape, said)
-    assert of(rows, "run_started")[0]["wait_cycle"] == "release"
+    return Played(said, shape, lines(rig), step, stalled)
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+def test_a_random_plan_never_ends_in_a_wait_with_no_item_open(
+    seed: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    played = play(seed, tmp_path, monkeypatch)
+    assert played.stalled is None, played.stalled
+    assert played.step in ("done", "escalated"), f"{played.said}: ended as {played.step!r}"
+    assert refusal(played.rows) is None, played.said
+    check_order(played.rows, played.shape, played.said)
+    assert of(played.rows, "run_started")[0]["wait_cycle"] == "release"
+
+
+@pytest.mark.parametrize("seed", DEADLOCKS_WITHOUT_THE_RULE)
+def test_each_seed_that_is_meant_to_catch_the_old_ending_ends_in_it_with_the_mark_off(
+    seed: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The seeds the row above is held to are honest: each stalls where the rule is not in force."""
+    monkeypatch.setattr(record, "WAIT_CYCLE", None)
+    played = play(seed, tmp_path, monkeypatch)
+    assert played.stalled is not None, played.said
+    assert "wait_cycle" not in of(played.rows, "run_started")[0]
