@@ -490,20 +490,13 @@ class SampledLaw(_Loop, law_module.Body):
     )
 
     #: Each number of the law as written in the text it was read from (:func:`parse_answer` sets
-    #: it), and each out-of-scope term that cannot affect the command and was set aside: neither is
-    #: a field of the answer.
+    #: it): not a field of the answer.
     _written: law_module.Written | None = PrivateAttr(default=None)
-    _set_aside: tuple[law_module.Outside, ...] = PrivateAttr(default=())
 
     @property
     def written(self) -> law_module.Written | None:
         """The numbers as written, where the answer was read from text; else ``None``."""
         return self._written
-
-    @property
-    def set_aside(self) -> tuple[law_module.Outside, ...]:
-        """The out-of-scope terms that cannot affect the command, taken out before judging."""
-        return self._set_aside
 
     @model_validator(mode="after")
     def _law_holds(self) -> SampledLaw:
@@ -529,7 +522,10 @@ class SampledLaw(_Loop, law_module.Body):
             raise ValueError(msg)
         for line in self.lines:
             for term in line.terms:
-                if not 0 < abs(term.number) <= LAW_MAGNITUDE:
+                # a term the scorer cannot take (marked) is judged on no number: its weight may be
+                # any, zero included; every other term's number is a scale, never zero
+                unjudged = term.of == law_module.OUTSIDE
+                if (term.number == 0 and not unjudged) or not abs(term.number) <= LAW_MAGNITUDE:
                     msg = (
                         f"line {line.name!r} has the number {_shown(term.number)}, "
                         f"outside 0 to {LAW_MAGNITUDE:g}"
@@ -837,52 +833,33 @@ class OutsideScope(TaskFormatError):  # noqa: N818 - a refusal by name, not an e
         self.name = name
 
 
-def _scoped(
-    document: dict[str, Any], where: str
-) -> tuple[
-    dict[str, Any],
-    dict[str, OutsideScope],
-    dict[str, tuple[law_module.Outside, ...]],
-    dict[str, Mapping[str, tuple[int, ...]]],
-]:
-    """The document with each law's out-of-scope terms sorted by whether they can matter.
+def _marked(document: dict[str, Any], where: str) -> tuple[dict[str, Any], dict[str, OutsideScope]]:
+    """The document with each law's terms the scorer cannot take marked, and the laws that have any.
 
-    Returns the document to validate (a term that cannot affect the command taken out, one that
-    can marked, so that every other check still runs on its law), the laws refused by name for a
-    term that can matter, by the field that holds them, the terms set aside, by field, and, by
-    field, where each term the law keeps stood in the document as written (the identity its
-    number is found by). Read from the document as written, since a schema would name only the
-    field it fails on. This is the one place that decides which terms are taken out.
+    Returns the document to validate (such a term marked, so that every other check still runs on
+    its law, and nothing taken out of it) and the laws refused by name for a term that cannot be
+    taken, by the field that holds them. Read from the document as written, since a schema would
+    name only the field it fails on.
     """
     probe = dict(document)
     refused: dict[str, OutsideScope] = {}
-    aside: dict[str, tuple[law_module.Outside, ...]] = {}
-    origin: dict[str, Mapping[str, tuple[int, ...]]] = {}
     for key in ("controller", "analysed_controller"):
         controller = document.get(key)
         if not (isinstance(controller, dict) and controller.get("structure") == "sampled_law"):
             continue
-        coefficients = controller.get("coefficients")
-        values = (
-            {n: m.get("value") for n, m in coefficients.items() if isinstance(m, dict)}
-            if isinstance(coefficients, dict)
-            else None
-        )
-        sorted_out = law_module.scoped(controller, values)
-        probe[key] = sorted_out.body
-        origin[key] = sorted_out.origin
-        if sorted_out.dead:
-            aside[key] = sorted_out.dead
-        if sorted_out.live:
-            first = sorted_out.live[0]
+        marked = law_module.mark(controller)
+        probe[key] = marked.body
+        if marked.outside:
+            first = marked.outside[0]
             msg = f"{key} is out of the scorer's reach: {first.code}: {first.detail}"
             refused[key] = OutsideScope(msg, name=first.code, where=where)
-    return probe, refused, aside, origin
+    return probe, refused
 
 
 #: The refusals of a number that a float does not hold as the text wrote it.
 UNDERFLOWS = "number_underflows"
 OVERFLOWS = "number_overflows"
+NOT_A_NUMBER = "number_is_not_a_number"
 
 
 def _decimals(text: str, document: Mapping[str, Any], where: str) -> dict[str, Any]:
@@ -919,6 +896,11 @@ def _unrepresentable(value: object, what: str) -> str | None:
         as_float = float(value)
     except OverflowError:
         as_float = math.inf
+    if math.isnan(as_float):
+        return (
+            f"{NOT_A_NUMBER}: {what} is written as {shown}, which is not a number; "
+            "a number of a law is one a float holds"
+        )
     if not math.isfinite(as_float):
         return (
             f"{OVERFLOWS}: {what} is written as {shown}, which is infinite as a float; "
@@ -942,7 +924,8 @@ def _refuse_unrepresentable(decimals: Mapping[str, Any], where: str) -> None:
     number, the period.
 
     Raises:
-        TaskFormatError: ``number_underflows`` or ``number_overflows``, saying where.
+        TaskFormatError: ``number_underflows``, ``number_overflows`` or ``number_is_not_a_number``,
+            saying where.
     """
     for key in ("controller", "analysed_controller"):
         controller = decimals.get(key)
@@ -970,19 +953,13 @@ def _refuse_unrepresentable(decimals: Mapping[str, Any], where: str) -> None:
                 raise TaskFormatError(msg, where=where)
 
 
-def _attach(
-    answer: Answer,
-    decimals: Mapping[str, Any],
-    aside: dict[str, tuple[law_module.Outside, ...]],
-    origin: Mapping[str, Mapping[str, tuple[int, ...]]],
-) -> Answer:
-    """Give each sampled law of ``answer`` its numbers as the text wrote them, and what went.
+def _attach(answer: Answer, decimals: Mapping[str, Any]) -> Answer:
+    """Give each sampled law of ``answer`` its numbers as the text wrote them.
 
     The numbers come from the same text read again with decimals kept as decimals, so that what
     is decided on the law's structure is decided on ``0.1`` and not on the bits of its binary
-    form. Each is the number of a term the validated law keeps, found by the line's name and the
-    term's own place in the text as written (``origin``, from the one decision of which terms
-    are taken out), never by position in what is scored.
+    form. Nothing is taken out of a law, so each number is found by its line's name and the term's
+    own place in the line.
     """
     if not isinstance(answer, WholeRunV3):
         return answer
@@ -992,8 +969,7 @@ def _attach(
             continue
         as_written = decimals.get(key)
         if isinstance(as_written, dict):
-            controller._written = law_module.written_from(as_written, origin.get(key))  # noqa: SLF001
-        controller._set_aside = aside.get(key, ())  # noqa: SLF001
+            controller._written = law_module.written_from(as_written)  # noqa: SLF001
     return answer
 
 
@@ -1054,22 +1030,20 @@ def _parse(
         return _validate(model, text, where), None
     decimals = _decimals(text, document, where)
     _refuse_unrepresentable(decimals, where)
-    probe, refused, aside, origin = _scoped(document, where)
-    if probe == document:
-        return _attach(_validate(model, text, where), decimals, {}, origin), None
-    # A law's out-of-scope term that cannot affect the command is taken out and the law judged as
-    # it is. One that can matter is a refusal by name, but only for an answer that is otherwise
-    # valid: the rest (every name declared, the units of every line that can be checked, the
-    # settings) is validated first, each refused term marked, so no other fault is hidden behind it.
-    answer = _validate(model, json.dumps(probe), where)
+    probe, refused = _marked(document, where)
     if not refused:
-        return _attach(answer, decimals, aside, origin), None
+        return _attach(_validate(model, text, where), decimals), None
+    # A law with a term the scorer cannot take is refused by name, but only for an answer that is
+    # otherwise valid: the rest (every name declared, the units of every line that can be checked,
+    # the settings) is validated first, each such term marked, so no other fault is hidden behind
+    # it. Nothing is taken out of the law.
+    _validate(model, json.dumps(probe), where)
     if "controller" in refused:
         raise refused["controller"]
     if not tolerate_analysed:
         raise refused["analysed_controller"]
     rest = {k: v for k, v in probe.items() if k != "analysed_controller"}
-    return _attach(_validate(model, json.dumps(rest), where), decimals, aside, origin), refused[
+    return _attach(_validate(model, json.dumps(rest), where), decimals), refused[
         "analysed_controller"
     ]
 

@@ -182,14 +182,12 @@ class Export(BaseModel):
     supplied: dict[str, dict[str, float | int | str]] = {}
     #: Each mode the loop analysis will set aside (memory states, what feeds them, whether the
     #: command reads them, the note that a held state can grow in the firmware); the pin the
-    #: vectors achieve for each term and coefficient (the smallest relative change they notice);
-    #: and the out-of-scope terms that cannot affect the command, taken out of the law.
+    #: vectors achieve for each term and coefficient (the smallest relative change they notice).
     law_held_modes: tuple[dict[str, Any], ...] = ()
     #: The flag, by its name, where a mode set aside is fed by a signal and read by the command:
     #: such an answer is a class of its own (:data:`physgate.evaluation.whole.law.HELD_STATE_FLAG`).
     law_held_state_flags: tuple[str, ...] = ()
     law_pins: dict[str, dict[str, float | None]] = {}
-    law_set_aside: tuple[dict[str, Any], ...] = ()
 
 
 def _literal(model: type[BaseModel], field: str) -> Any:
@@ -665,11 +663,6 @@ def _export_law(
             conflicts=conflicts,
             **base,  # type: ignore[arg-type]
         )
-    # An out-of-scope term that has no weight with the graph's numbers cannot affect the command:
-    # it is set aside, and the law is judged as it is.
-    file = file.with_numbers(
-        {name: found[quantity][0] for name, quantity in file.coefficients.items()}
-    )
     settings = tuple(
         n
         for n, required in PARAMETERS_V3.items()
@@ -732,10 +725,6 @@ def _export_law(
         law_held_modes=result.held_modes,
         law_held_state_flags=result.held_state_flags,
         law_pins={key: pin.as_record() for key, pin in result.verified.pins.items()},
-        law_set_aside=tuple(
-            {"line": o.line, "term": o.index + 1, "code": o.code, "detail": o.detail}
-            for o in file.set_aside
-        ),
         **base,  # type: ignore[arg-type]
     )
     _write_new(((record_path(out), _record_bytes(export, out)), (out, raw)))
@@ -795,20 +784,21 @@ NON_INTERFACE_FLAG = "compute_delay_names_a_non_interface_quantity"
 
 def _compute_delay_flags(
     nodes: Mapping[str, dict[str, Any]], names: tuple[str, ...]
-) -> tuple[list[str], list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str], list[str]]:
     """What is wrong with where the compute delay comes from: the flags, and what they name.
 
     The compute delay has no catalogue name to hold a number against, so it is held to where it
     comes from. It is flagged when it does not include every time-valued quantity (a quantity in a
-    unit of time, not written by control) of every interface node of the run, whether the law
-    draws on that node or not: a bound stated by one node and left out of the sum is as much
-    left out as one of the node it draws on, and the answer says which. It is flagged too when it
-    draws on a quantity that no interface node, apart from control's own copy, states. Returns
-    ``(flags, left_out, not_the_interface's)``.
+    unit of time, not written by control) of each interface node it draws on: those left out are
+    named; and when it draws on a quantity that no interface node, apart from control's own copy,
+    states. The time-valued quantities of the other interface nodes are listed for information
+    and never flagged. Returns ``(flags, left_out, not_the_interface's, other_interface_times)``.
     """
     outside = sorted(n for n in names if not _interface_statements(nodes, n))
+    drawn = {node for n in names for node, _, _ in _interface_statements(nodes, n)}
     named = set(names)
     omitted: set[str] = set()
+    others: set[str] = set()
     for node_id in sorted(nodes):
         node = nodes[node_id]
         if node.get("kind") != INTERFACE_KIND:
@@ -817,11 +807,12 @@ def _compute_delay_flags(
             writer = quantity.get("written_by") or node.get("owner_role")
             time_valued = writer != CONTROL_ROLE and quantity["unit"] in TIME_UNITS
             if time_valued and quantity_name not in named:
-                omitted.add(quantity_name)
+                (omitted if node_id in drawn else others).add(quantity_name)
+    others -= omitted
     flags = [OMITS_FLAG] if omitted else []
     if outside:
         flags.append(NON_INTERFACE_FLAG)
-    return flags, sorted(omitted), outside
+    return flags, sorted(omitted), outside, sorted(others)
 
 
 def _timing(
@@ -843,9 +834,10 @@ def _timing(
     A copy of the interface's number in control's own node may be pointed at: it counts only if
     it equals the interface's. The compute delay has no catalogue name, so it is held to where it
     comes from and flagged by name (:func:`_compute_delay_flags`): it must include every
-    time-valued quantity of every interface node of the run, and draw on no quantity that is not
-    the interface's; the flag is on the answer, never a refusal. Where the interface states
-    nothing, the answer is still exported, with the no-statement flag.
+    time-valued quantity of every interface node it draws on, and draw on no quantity that is not
+    the interface's; the flag is on the answer, never a refusal. The time quantities of the other
+    interface nodes are listed in the record under ``other_interface_times``, for information.
+    Where the interface states nothing, the answer is still exported, with the no-statement flag.
 
     Known difference: the named structures of version 2 read ``sensor_delay``, ``compute_delay``
     and ``command_limit`` by name from any node, unchecked against the interface; version 2 keeps
@@ -894,11 +886,12 @@ def _timing(
                 total = sum(max(v for _, v, u in s if u == "s") for s in stated)
                 node = ", ".join(sorted({n for s in stated for n, _, _ in s}))
                 held = {"name": "+".join(names), "node": node, "value": total}
-            flags, omitted, outside = _compute_delay_flags(nodes, names)
+            flags, omitted, outside, others = _compute_delay_flags(nodes, names)
             extra = {
                 "flags": flags,
                 "omitted_interface_times": omitted,
                 "not_the_interface_s": outside,
+                "other_interface_times": others,
             }
         else:
             rates = [s for s in _interface_statements(nodes, PERIOD_REFERENCE_NAME) if s[2] == "Hz"]
@@ -1030,7 +1023,6 @@ def _record_bytes(export: Export, out: Path) -> bytes:
         "law_held_modes",
         "law_held_state_flags",
         "law_pins",
-        "law_set_aside",
     }
     left = set() if export.structure == LAW_STRUCTURE else law_fields
     found = export.model_dump(mode="json", exclude={"sha256", "missing", *left})

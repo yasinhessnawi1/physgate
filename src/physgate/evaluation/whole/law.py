@@ -32,14 +32,15 @@ the test vectors carry the converted numbers, so a wrong counts-to-rad conversio
 transcription is invisible to them. The export's record says so beside the settings it reads.
 
 A design that needs a signal outside the list (an accelerometer's tilt, say) is out of the
-scorer's scope, refused by name (``out_of_scope``) and never scored as a fail, *if that term can
-matter*: scope is decided on what the law computes, so a term of weight 0 or in a line nothing
-the command reaches reads is taken out, and the law judged as it is (:func:`scoped`). A law
-refused for scope has every other check run on it first (every name declared, the units of every
-line that can be checked, the settings, the timing), and any other fault is the ordinary fail:
-a scope refusal never covers an invalid answer. It does cover an answer that is valid and would
-fail: a law with a live term the scorer cannot take is not judged, whatever else it would have
-scored, and a dead term is never such a ground.
+scorer's scope, refused by name (``out_of_scope``) and never scored as a fail. Nothing is taken out
+of a law before it is judged: a term the scorer cannot take, of any weight (zero included), in any
+line (read by the command or not), makes the law unscored, but only after every other check has
+run on it (:func:`mark`): every name declared, the units of every line that can be checked, the
+settings, the timing. Any other fault is the ordinary fail, so a scope refusal never covers an
+invalid answer. It does cover an answer that is valid and would fail: a law with a term the scorer
+cannot take is not judged, whatever else it would have scored. A term of weight zero on a signal
+the scorer does take stays in the law as a zero, and a line or a memory state nothing reads is
+judged like any other (a state doubling every update is unstable).
 
 **What a stable verdict says, and what it does not.** Stable means stable with the wheels
 returning. A memory state that integrates the wheel angle, the wheel speed or the command scores
@@ -72,7 +73,7 @@ import json
 import math
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
 from fractions import Fraction
 from typing import Annotated, Any, Literal
@@ -228,9 +229,6 @@ class Body(_Frozen):
 
 #: What a term's ``of`` may be written as: a bare name, or ``previous.`` or ``line.`` and a name.
 _OF = re.compile(r"(?:(previous|line)\.)?([a-z][a-z0-9_]*)")
-#: A name a term reads as a line or a memory state, wherever it stands in what was written: how a
-#: term that is not one variable is still seen to reach a line.
-_REFERENCE = re.compile(r"\b(previous|line)\.([a-z][a-z0-9_]*)")
 #: What the variable of a term that no linear law over the closed list can be is replaced by once
 #: it has been named, so that every other check can run on the rest of the law: it is no
 #: variable, and a law holding it is never evaluated.
@@ -281,188 +279,52 @@ def _is_number(value: object) -> bool:
     return isinstance(value, int | float | Decimal) and not isinstance(value, bool)
 
 
-def _zero_weight(term: Mapping[str, Any], values: Mapping[str, object] | None) -> bool:
-    """Whether ``term`` as written has no weight: its number or a coefficient of it is 0."""
-    number = term.get("number", 1)
-    if _is_number(number) and number == 0:
-        return True
-    coefficients = term.get("coefficients")
-    if values is None or not isinstance(coefficients, list):
-        return False
-    return any(
-        isinstance(c, str) and _is_number(values.get(c)) and values[c] == 0 for c in coefficients
-    )
-
-
 @dataclass(frozen=True)
-class Scoped:
-    """A law's document with its out-of-scope terms sorted by whether they can matter.
+class Marked:
+    """A law's document with each term the scorer cannot take marked, and where they are.
 
-    ``body`` is the document with each ``dead`` term taken out and each ``live`` one's variable
-    replaced by :data:`OUTSIDE`; ``live`` terms reach the command (or a memory state the command
-    reads) with a weight, ``dead`` ones cannot affect it.
+    ``body`` is the document with the variable of each such term replaced by :data:`OUTSIDE`, so
+    that every other check can run on the whole law and one fault elsewhere is still found;
+    nothing is taken out of it. ``outside`` lists the marked terms, in the order of the document.
     """
 
     body: dict[str, Any]
-    live: tuple[Outside, ...]
-    dead: tuple[Outside, ...]
-    #: For each line of ``body``, the place in the document as written of each term it keeps, in
-    #: order: a term's identity, which survives a term taken out before it.
-    origin: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
+    outside: tuple[Outside, ...]
 
 
-def _identity(raw: Mapping[str, Any]) -> dict[str, tuple[int, ...]]:
-    """Each line of ``raw`` with every term at its own place: nothing was taken out."""
-    return {
-        x["name"]: tuple(range(len(x["terms"])))
-        for x in raw.get("lines") or ()
-        if isinstance(x, dict)
-        and isinstance(x.get("name"), str)
-        and isinstance(x.get("terms"), list)
-    }
+def mark(raw: object) -> Marked:
+    """Find the terms of the document ``raw`` that no linear law over the closed list can be.
 
-
-def scoped(raw: object, values: Mapping[str, object] | None = None) -> Scoped:
-    """Sort the out-of-scope terms of the document ``raw`` by whether they can matter.
-
-    A term is out of scope when no linear law over the closed list of signals can be one (not
-    one variable: ``nonlinear``; a signal outside the list: ``out_of_scope``). The scope is
-    decided on what the law computes, so such a term that cannot affect the command is not a
-    ground for refusing it. It cannot when its weight is 0 (its number is 0, or a coefficient it
-    multiplies is, ``values`` giving each coefficient's number where they are known) or when
-    its line is read by nothing the command reaches (not the command, not read by a live term,
-    not the next value of a memory state a live term reads). A dead term of a live line is taken
-    out of it; a dead term in a line nothing live reads takes the whole line out, and with it
-    whatever else only that line gave meaning to (another unread line that reads it, a memory
-    state taking its next value from it): none of them can affect the command. A dead term that is
-    the only one of a live line cannot be taken out (the line would be empty), and counts as live.
+    A term is out of scope when it is not one variable (``nonlinear``) or reads a signal outside
+    the closed list (``out_of_scope``), whatever its weight, and wherever it stands: no term, line
+    or memory state is taken out of the law, and none is judged by whether the command reaches it.
 
     Looks at the document as written, before a schema reads it, so a term that tries a function, a
     product, or a signal outside the list is named for what it is. Nothing here raises.
     """
     if not isinstance(raw, dict) or not isinstance(raw.get("lines"), list):
-        return Scoped(raw if isinstance(raw, dict) else {}, (), (), {})
-    lines = [x for x in raw["lines"] if isinstance(x, dict) and isinstance(x.get("name"), str)]
-    named: dict[str, list[Any]] = {
-        x["name"]: x["terms"] for x in lines if isinstance(x.get("terms"), list)
-    }
-    found: dict[tuple[str, int], Outside] = {}
-    for name, terms in named.items():
-        for at, term in enumerate(terms):
-            outside = _outside({"name": name}, term, at)
-            if outside is not None:
-                found[(name, at)] = outside
-    if not found:
-        return Scoped(raw, (), (), _identity(raw))
-    states = raw.get("memory")
-    memory: dict[str, Any] = {
-        m["name"]: m.get("next")
-        for m in (states if isinstance(states, list) else ())
-        if isinstance(m, dict) and isinstance(m.get("name"), str)
-    }
-    live_lines = _live_lines(named, memory, raw.get("command"), values)
-    dead = {
-        key
-        for key in found
-        if key[0] not in live_lines
-        or (isinstance(named[key[0]][key[1]], dict) and _zero_weight(named[key[0]][key[1]], values))
-    }
-    gone, gone_states = _unmeant(named, memory, live_lines, {n for n, _ in dead} - live_lines, dead)
-    out_lines: list[Any] = []
-    set_aside: list[Outside] = []
-    live: list[Outside] = []
-    origin: dict[str, tuple[int, ...]] = {}
+        return Marked(raw if isinstance(raw, dict) else {}, ())
+    found: list[Outside] = []
+    lines: list[Any] = []
     for item in raw["lines"]:
-        label = item.get("name") if isinstance(item, dict) else None
-        if not isinstance(label, str) or label not in named:
-            out_lines.append(item)
-            continue
-        if label in gone:
-            set_aside.extend(
-                found[(label, at)] for at in range(len(named[label])) if (label, at) in found
-            )
+        terms = item.get("terms") if isinstance(item, dict) else None
+        if not (isinstance(item, dict) and isinstance(item.get("name"), str)) or not isinstance(
+            terms, list
+        ):
+            lines.append(item)
             continue
         kept: list[Any] = []
-        places: list[int] = []
-        others = sum(1 for at in range(len(named[label])) if (label, at) not in dead)
-        for at, term in enumerate(named[label]):
-            if (label, at) in dead and others:
-                set_aside.append(found[(label, at)])
-                continue
-            if (
-                (label, at) not in found
-                and others > 1
-                and _reads_what_went(term, gone, gone_states)
-            ):
-                # a term of weight 0 that read a line or a state taken out: it has nothing to read
-                continue
-            if (label, at) in found:
-                live.append(found[(label, at)])
-                kept.append(_marked(term))
-            else:
+        for at, term in enumerate(terms):
+            outside = _outside(item, term, at)
+            if outside is None:
                 kept.append(term)
-            places.append(at)
-        origin[label] = tuple(places)
-        out_lines.append({**item, "terms": kept})
-    body = {**raw, "lines": out_lines}
-    if "memory" in raw and isinstance(raw["memory"], list):
-        body["memory"] = [
-            m
-            for m in raw["memory"]
-            if not (
-                isinstance(m, dict) and isinstance(m.get("name"), str) and m["name"] in gone_states
-            )
-        ]
-    return Scoped(body, tuple(live), tuple(set_aside), origin)
-
-
-def _reads_what_went(term: object, lines: set[str], states: set[str]) -> bool:
-    return any(
-        (kind == "line" and r in lines) or (kind == "previous" and r in states)
-        for kind, r in _references(term)
-    )
-
-
-def _unmeant(
-    named: Mapping[str, list[Any]],
-    memory: Mapping[str, Any],
-    live_lines: set[str],
-    start: set[str],
-    dead: set[tuple[str, int]],
-) -> tuple[set[str], set[str]]:
-    """The lines and memory states that go with the lines ``start``, which are taken out whole.
-
-    A memory state goes when it takes its next value from a line that goes; a line nothing live
-    reads goes when it reads a line or a state that goes, for its terms would name what is no
-    more. A line the command reaches goes only when nothing of it is left: every term of it is one
-    that cannot affect the command (``dead``) or reads what went, and one of them reads what went.
-    Such a line is 0 at every update (its terms were weightless, the one that read what went
-    being a term of weight 0), the term of any line that reads it reads nothing and goes too, and
-    a state that takes it as its next value is 0 after one update and sets no pole: judged as the
-    law it is without them. A live line with a dead term alone in it is not such a line: it is a
-    term that can matter.
-    """
-    lines, states = set(start), set()
-    changed = True
-    while changed:
-        changed = False
-        for state, following in memory.items():
-            if state not in states and isinstance(following, str) and following in lines:
-                states.add(state)
-                changed = True
-        for name, terms in named.items():
-            if name in lines:
-                continue
-            if name in live_lines:
-                reads = [_reads_what_went(term, lines, states) for term in terms]
-                left = [(name, at) not in dead and not read for at, read in enumerate(reads)]
-                if any(reads) and not any(left):
-                    lines.add(name)
-                    changed = True
-            elif any(_reads_what_went(term, lines, states) for term in terms):
-                lines.add(name)
-                changed = True
-    return lines, states
+            else:
+                found.append(outside)
+                kept.append(_marked(term))
+        lines.append({**item, "terms": kept})
+    if not found:
+        return Marked(raw, ())
+    return Marked({**raw, "lines": lines}, tuple(found))
 
 
 def _marked(term: Mapping[str, Any]) -> dict[str, Any]:
@@ -470,61 +332,12 @@ def _marked(term: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in term.items() if key in Term.model_fields} | {"of": OUTSIDE}
 
 
-def _references(term: object) -> list[tuple[str, str]]:
-    """The lines and memory states ``term`` reads, as ``(kind, name)``, even if it is nonlinear."""
-    if not isinstance(term, dict) or not isinstance(term.get("of"), str):
-        return []
-    return [(kind, name) for kind, name in _REFERENCE.findall(term["of"])]
-
-
-def _live_lines(
-    named: Mapping[str, list[Any]],
-    memory: Mapping[str, Any],
-    command: object,
-    values: Mapping[str, object] | None,
-) -> set[str]:
-    """The lines whose value can reach the command, through weights that are not 0."""
-    live: set[str] = set()
-    todo = [command] if isinstance(command, str) else []
-    live.update(todo)
-    states: set[str] = set()
-    while todo:
-        for term in named.get(todo.pop(), ()):
-            if not isinstance(term, dict) or _zero_weight(term, values):
-                continue
-            for kind, reading in _references(term):
-                if kind == "previous" and reading not in states:
-                    states.add(reading)
-                    following = memory.get(reading)
-                    if isinstance(following, str) and following not in live:
-                        live.add(following)
-                        todo.append(following)
-                elif kind == "line" and reading not in live:
-                    live.add(reading)
-                    todo.append(reading)
-    return live
-
-
-def scope(raw: object) -> None:
-    """Refuse by name what no linear law over the closed list of signals can be.
-
-    The first term of the document that is out of scope and that can matter (see
-    :func:`scoped`, judged on the document alone: a zero weight needs the numbers).
-
-    Raises:
-        LawRefused: ``nonlinear``, or ``out_of_scope``.
-    """
-    live = scoped(raw).live
-    if live:
-        raise LawRefused(live[0].code, live[0].detail)
-
-
 def check(body: Body, units: Mapping[str, str]) -> None:
     """Hold ``body`` to its own names, its order and its units, ``units`` the coefficients'.
 
     ``units`` maps each coefficient name the law may use to its unit; ``period`` is added.
 
-    A term whose variable is :data:`OUTSIDE` (named out of scope by :func:`scoped`) has its
+    A term whose variable is :data:`OUTSIDE` (named out of scope by :func:`mark`) has its
     coefficients checked as declared and nothing more: it has no unit to balance.
 
     Raises:
@@ -543,7 +356,7 @@ def check(body: Body, units: Mapping[str, str]) -> None:
             for name in term.per:
                 parts.append((_known(coefficient_units, name, line.name), -1))
             if term.of == OUTSIDE:
-                # Named out of scope (see :func:`scoped`): its variable has no unit to check,
+                # Named out of scope (see :func:`mark`): its variable has no unit to check,
                 # and nothing else about it is left unchecked above.
                 continue
             parts.append((_variable(term.of, memory, lines, line.name), 1))
@@ -785,35 +598,26 @@ class Written:
     so that a decision on the law's structure is made on ``0.1`` and ``0.9`` and not on the bits
     of their binary forms.
 
-    A term's number is found by its identity, not by its position in the law that is scored: the
-    line's name and the term's own place in the text as written (the place does not move when a
-    term before it is taken out, :func:`scoped`). ``numbers`` is keyed by ``(line name, place)`` and
-    holds only the terms the law keeps; ``origin`` gives, for each line of the law, the place of
-    each of its terms in order. :func:`check_written` holds the two to the law, one to one.
+    Nothing is taken out of a law, so a term's number is found by its line's name and the term's
+    own place in the line, the same in the text as written and in the law that is scored.
+    ``numbers`` is keyed by ``(line name, place)``; :func:`check_written` holds it to the law, one
+    to one.
     """
 
     coefficients: Mapping[str, Fraction]
     numbers: Mapping[tuple[str, int], Fraction]
-    origin: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
 
     def number(self, line: str, at: int) -> Fraction | None:
         """The number written for the ``at``-th term of the law's line ``line``, if there is one."""
-        places = self.origin.get(line)
-        if places is None or not 0 <= at < len(places):
-            return None
-        return self.numbers.get((line, places[at]))
+        return self.numbers.get((line, at))
 
 
-def written_from(
-    document: Mapping[str, Any], origin: Mapping[str, tuple[int, ...]] | None = None
-) -> Written:
+def written_from(document: Mapping[str, Any]) -> Written:
     """The numbers of the law ``document`` states, read from a document parsed with ``Decimal``.
 
-    ``document`` is a controller's or a body's JSON as written (nothing taken out of it), parsed
-    with ``parse_float=Decimal``, so the text ``0.1`` is the decimal ``0.1``. ``origin`` is where
-    each term the law keeps stands in it (:attr:`Scoped.origin`): only those terms' numbers are
-    taken, each by its place; with none given, every term of every line is kept. What is not a
-    number there is left out.
+    ``document`` is a controller's or a body's JSON as written, parsed with
+    ``parse_float=Decimal``, so the text ``0.1`` is the decimal ``0.1``. Every term of every line
+    has its number. What is not a number there is left out.
     """
     coefficients: dict[str, Fraction] = {}
     for name, measure in (document.get("coefficients") or {}).items():
@@ -822,22 +626,17 @@ def written_from(
     period = document.get("period")
     if isinstance(period, dict) and _is_number(period.get("value")):
         coefficients[PERIOD] = exact(period["value"])
-    kept = _identity(document) if origin is None else origin
-    terms_of = {
-        x["name"]: x["terms"]
-        for x in document.get("lines") or ()
-        if isinstance(x, dict)
-        and isinstance(x.get("name"), str)
-        and isinstance(x.get("terms"), list)
-    }
     numbers: dict[tuple[str, int], Fraction] = {}
-    for name, places in kept.items():
-        terms = terms_of.get(name, [])
-        for place in places:
-            term = terms[place] if 0 <= place < len(terms) else None
+    for line in document.get("lines") or ():
+        terms = line.get("terms") if isinstance(line, dict) else None
+        if not (isinstance(line, dict) and isinstance(line.get("name"), str)) or not isinstance(
+            terms, list
+        ):
+            continue
+        for at, term in enumerate(terms):
             if isinstance(term, dict) and _is_number(term.get("number", 1)):
-                numbers[(name, place)] = exact(term.get("number", 1))
-    return Written(coefficients, numbers, dict(kept))
+                numbers[(line["name"], at)] = exact(term.get("number", 1))
+    return Written(coefficients, numbers)
 
 
 def _agrees(written: Fraction, number: float | int) -> bool:
@@ -851,10 +650,9 @@ def _agrees(written: Fraction, number: float | int) -> bool:
 def check_written(body: Body, values: Mapping[str, float], period: float, written: Written) -> None:
     """Hold the numbers as written to the law, one to one, before anything is decided on them.
 
-    Every line of the law has its places and no other line has any; each of its terms has one
-    place, none shared, and one number at it, and no number is held for a place that is no term;
-    each number is the very number the law was validated with (read as a float, the decimal is
-    the float); each coefficient the law uses has its number, and the period; and no coefficient
+    Every term of the law has one number at its place and no number is held for a place that is no
+    term; each number is the very number the law was validated with (read as a float, the decimal
+    is the float); each coefficient the law uses has its number, and the period; and no coefficient
     is held that the law does not have. Anything else is a decision that would be made on
     another law's numbers, and nothing is decided.
 
@@ -865,20 +663,13 @@ def check_written(body: Body, values: Mapping[str, float], period: float, writte
     def refuse(what: str) -> LawRefused:
         return LawRefused("written_numbers_do_not_match", f"the numbers as written: {what}")
 
-    if set(written.origin) != {line.name for line in body.lines}:
-        raise refuse("the lines they are held for are not the law's lines")
     wanted: set[tuple[str, int]] = set()
     for line in body.lines:
-        places = written.origin[line.name]
-        if len(places) != len(line.terms) or len(set(places)) != len(places):
-            raise refuse(
-                f"line {line.name!r} has {len(line.terms)} terms, not {len(places)} places"
-            )
-        for place, term in zip(places, line.terms, strict=True):
+        for place, term in enumerate(line.terms):
             wanted.add((line.name, place))
             number = written.numbers.get((line.name, place))
             if number is None or not _agrees(number, term.number):
-                raise refuse(f"line {line.name!r}, the term written at {place + 1}, has no number")
+                raise refuse(f"line {line.name!r}, the term at {place + 1}, has no number")
     if set(written.numbers) != wanted:
         raise refuse("a number is held for a term the law does not have")
     if set(written.coefficients) - {PERIOD} != set(values):
@@ -1506,45 +1297,13 @@ class LawFile(Body):
     coefficients: dict[Name, Name] = Field(max_length=MAX_COEFFICIENTS)
     vectors: tuple[Vector, ...] = Field(min_length=1, max_length=MAX_VECTORS)
 
-    #: The file as read, before any term was set aside, and the out-of-scope terms that matter
-    #: (``outside``, each marked) and those set aside (``set_aside``): see :func:`scoped`.
-    _document: dict[str, Any] = PrivateAttr(default_factory=dict)
+    #: The terms of the file the scorer cannot take, each marked in the law (:func:`mark`).
     _outside: tuple[Outside, ...] = PrivateAttr(default=())
-    _set_aside: tuple[Outside, ...] = PrivateAttr(default=())
 
     @property
     def outside(self) -> tuple[Outside, ...]:
-        """The terms out of scope that can matter, still in the law marked :data:`OUTSIDE`."""
+        """The terms out of scope, still in the law marked :data:`OUTSIDE`."""
         return self._outside
-
-    @property
-    def set_aside(self) -> tuple[Outside, ...]:
-        """The out-of-scope terms that cannot affect the command, taken out of the law."""
-        return self._set_aside
-
-    def with_numbers(self, values: Mapping[str, float]) -> LawFile:
-        """The file with each out-of-scope term of no weight, now the numbers are known, set aside.
-
-        ``values`` gives each coefficient's number by the law's own name. A term of weight 0, or in
-        a line only such terms reach, cannot affect the command.
-        """
-        sorted_out = scoped(self._document, values)
-        if len(sorted_out.live) == len(self._outside):
-            return self
-        body = Body.model_validate_json(
-            json.dumps(
-                {
-                    k: sorted_out.body[k]
-                    for k in ("memory", "lines", "command")
-                    if k in sorted_out.body
-                }
-            )
-        )
-        return _with_scope(
-            self.model_copy(update={"memory": body.memory, "lines": body.lines}),
-            self._document,
-            sorted_out,
-        )
 
     @model_validator(mode="after")
     def _bounded_vectors(self) -> LawFile:
@@ -1564,19 +1323,11 @@ class LawFile(Body):
         return tuple(sorted(names))
 
 
-def _with_scope(file: LawFile, document: dict[str, Any], sorted_out: Scoped) -> LawFile:
-    file._document = document  # noqa: SLF001 - private state of the model, set where it is made
-    file._outside = sorted_out.live  # noqa: SLF001
-    file._set_aside = sorted_out.dead  # noqa: SLF001
-    return file
-
-
 def parse_file(raw: bytes, *, defer_scope: bool = False) -> LawFile:
     """``raw`` as a law file, or refused by name.
 
-    Out-of-scope terms that cannot affect the command are set aside (:func:`scoped`, judged on the
-    file alone). One that can is a refusal by name, unless ``defer_scope``: then the file is
-    returned with the term marked, and the caller runs every other check before refusing.
+    A term out of scope (:func:`mark`) is a refusal by name, unless ``defer_scope``: then the file
+    is returned with the term marked, and the caller runs every other check before refusing.
 
     Raises:
         LawRefused: ``malformed`` (not JSON, not the schema, too large), ``nonlinear`` or
@@ -1589,15 +1340,15 @@ def parse_file(raw: bytes, *, defer_scope: bool = False) -> LawFile:
         document = json.loads(text)
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise LawRefused("malformed", "the law file is not JSON") from exc
-    sorted_out = scoped(document)
-    if sorted_out.live and not defer_scope:
-        raise LawRefused(sorted_out.live[0].code, sorted_out.live[0].detail)
-    changed = sorted_out.live or sorted_out.dead
+    marked = mark(document)
+    if marked.outside and not defer_scope:
+        raise LawRefused(marked.outside[0].code, marked.outside[0].detail)
     try:
-        file = LawFile.model_validate_json(json.dumps(sorted_out.body) if changed else text)
+        file = LawFile.model_validate_json(json.dumps(marked.body) if marked.outside else text)
     except ValidationError as exc:
         raise LawRefused("malformed", exc.errors()[0]["msg"]) from exc
-    return _with_scope(file, document, sorted_out)
+    file._outside = marked.outside  # noqa: SLF001 - private state of the model, set where it is made
+    return file
 
 
 #: The largest law file read: 256 KiB, well past the reference law's few kilobytes.

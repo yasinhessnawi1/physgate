@@ -22,25 +22,29 @@ not searched, so a margin that dips between corners is not seen.
 spec could not be judged; ``pass`` only when every headline spec passes. ``unscored`` is never
 ``fail``. An answer that is not a whole-run answer fails, with its reason; it is never an
 error of the scorer. A sampled law with a term that is not linear (``nonlinear``) or reads a
-signal outside the closed list (``out_of_scope``) is the exception, but only if that term can
-affect the command: a term of weight 0, or in a line nothing the command reads reads, is taken
-out and the law judged without it (the record lists what was set aside). A law with such a term
-that can matter cannot be judged, so it is ``unscored`` with a ``refusal`` of that name, never a
-fail, and only after every other check has run on it: a fault anywhere else in the answer
-(a name not declared, a unit that does not balance, a setting, a zero divisor) is the ordinary
-fail, so a scope refusal never covers an invalid answer. It does cover an answer that is valid and
-would fail: a law with a live term the scorer cannot take is not judged, whatever else it would
-have scored (an unstable law with one more term of any weight on a signal outside the list is
-``unscored``, not ``fail``); a dead term is never such a ground. ``unscored`` is never a pass and
-stays in the denominator, so nothing is bought by it. Nor is an answer the analysis
-cannot compute with, or one whose analysis would cost more than :data:`MAX_WORK`: each fails as a
-named ``refusal``, the work bound decided before any of the work is done. The ways an answer ends
-``unscored`` are exactly: a law with a live term out of scope in the primary controller; a
-headline row that cannot be judged (a dynamic metric, criterion 19 with no analysed controller or
-a different structure, an analysed law out of scope or with other lines or coefficients, corners
-that disagree, so a law that is unstable at one corner and not another can end there); and a law
-whose written numbers do not correspond to the law scored (an internal fault of the scorer,
-``written_numbers_do_not_match``).
+signal outside the closed list (``out_of_scope``) is the exception: nothing is taken out of a law
+before it is judged, so such a term, of any weight (zero included) and in any line (read by the
+command or not), leaves the law unjudged. It is ``unscored`` with a ``refusal`` of that name, never
+a fail, and only after every other check has run on it: a fault anywhere else in the answer (a
+name not declared, a unit that does not balance, a setting, a zero divisor, a name that is not
+plain ASCII) is the ordinary fail, so a scope refusal never covers an invalid answer. It does cover
+an answer that is valid and would fail: a law with a term the scorer cannot take is not judged,
+whatever else it would have scored (an unstable law with one more term of any weight on a signal
+outside the list is ``unscored``, not ``fail``). ``unscored`` is never a pass and stays in the
+denominator, so nothing is bought by it. Nor is an answer the analysis cannot compute with, or one
+whose analysis would cost more than :data:`MAX_WORK`: each fails as a named ``refusal``, the work
+bound decided before any of the work is done. The ways an answer ends ``unscored`` are exactly: a
+law with a term out of scope in the primary controller; and a headline row that cannot be judged
+(a dynamic metric, criterion 19 with no analysed controller or a different structure, an analysed
+law out of scope or with other lines or coefficients, corners that disagree, so a law that is
+unstable at one corner and not another can end there).
+
+**A scorer fault is an outcome of its own** (:data:`SCORER_FAULT`): a law whose written numbers do
+not correspond to the law scored (``written_numbers_do_not_match``) is a defect of the scorer, not
+a verdict on a design and not a refusal for a design's own reason. The record's ``outcome`` and
+the verdict of each of its rows say ``scorer_fault``, never ``pass``, ``fail`` or ``unscored``, so
+that a count of it can stop an evaluation instead of being averaged with them (the tiers' probe
+refuses an outcome that is none of its own, so such a score stops there).
 
 **The plant judged on.** The scenario judges on a frozen plant (one of
 :data:`~physgate.evaluation.whole.plant.FROZEN_PLANTS`, by digest) unless it is told it judges a
@@ -93,6 +97,8 @@ from physgate.evaluation.whole.plant import (
 
 Kind = Literal["static", "computed", "dynamic"]
 Verdict = Literal["pass", "fail", "unscored"]
+#: The outcome (and the verdict of every row) of a score the scorer itself got wrong.
+SCORER_FAULT = "scorer_fault"
 
 #: Every metric the scenario computes: its unit and its class.
 METRICS: dict[str, tuple[str, Kind]] = {
@@ -325,10 +331,26 @@ class WholeDesignScenario:
             return self._judged(record, read)
         except law_module.LawRefused as exc:
             # The law's own numbers do not correspond to the law that is scored (a fault of the
-            # scorer's, not of the design): no verdict, refused by name, never a pass.
-            record.pop("specs", None)
-            record.update(refusal={"name": exc.code, "reason": str(exc)}, specs=[])
-            record.update(outcome="unscored")
+            # scorer's, not of the design): no verdict on the design, and an outcome of its own,
+            # so that it is counted apart and never averaged with a pass, a fail or an unscored.
+            reason = str(exc)
+            record.update(
+                refusal={"name": exc.code, "reason": reason},
+                specs=[
+                    {
+                        "name": spec.name,
+                        "metric": spec.metric,
+                        "kind": METRICS[spec.metric][1],
+                        "counts": spec.counts,
+                        "composes": list(spec.composes),
+                        "verdict": SCORER_FAULT,
+                        "measured": None,
+                        "reason": reason,
+                    }
+                    for spec in self._task.specs
+                ],
+                outcome=SCORER_FAULT,
+            )
             return record
 
     def _judged(self, record: dict[str, Any], read: Answer) -> dict[str, Any]:
@@ -524,8 +546,7 @@ def _law_record(law: SampledLaw) -> dict[str, Any]:
     The signals it reads (a law that reads the true tilt is judged as if tilt were measured
     directly, as the named state feedback is); each mode the stability test sets aside, with the
     memory states in it, what feeds them and whether the command reads them, and the note that a
-    held state is bounded in the model and not in the firmware; and each out-of-scope term that
-    cannot affect the command, taken out before judging.
+    held state is bounded in the model and not in the firmware.
     """
     values = {name: float(m.value) for name, m in law.coefficients.items()}
     modes = law_module.held_report(law, values, period=float(law.period.value), written=law.written)
@@ -533,10 +554,6 @@ def _law_record(law: SampledLaw) -> dict[str, Any]:
         **_flags(law, modes),
         "law_signals": list(law_module.signals_read(law)),
         "held_modes": [mode.as_record() for mode in modes],
-        "set_aside": [
-            {"line": o.line, "term": o.index + 1, "code": o.code, "detail": o.detail}
-            for o in law.set_aside
-        ],
     }
 
 
