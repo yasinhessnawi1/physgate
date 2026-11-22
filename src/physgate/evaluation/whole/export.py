@@ -188,6 +188,10 @@ class Export(BaseModel):
     #: such an answer is a class of its own (:data:`physgate.evaluation.whole.law.HELD_STATE_FLAG`).
     law_held_state_flags: tuple[str, ...] = ()
     law_pins: dict[str, dict[str, float | None]] = {}
+    #: For a law refused for a term out of scope: the lines the vectors could not pin (the lines
+    #: that hold one, and the lines that only feed or read them); every other line was held to the
+    #: vectors, and a fault there is the vector refusal.
+    law_unpinned_lines: tuple[str, ...] = ()
 
 
 def _literal(model: type[BaseModel], field: str) -> Any:
@@ -684,6 +688,7 @@ def _export_law(
             status="law_unverified",
             law_reason=exc.code,
             law_detail=exc.detail,
+            law_unpinned_lines=exc.lines,
             conflicts=conflicts,
             **base,  # type: ignore[arg-type]
         )
@@ -947,8 +952,9 @@ def _law_controller(
 
     Every check that can run on a law runs before the law is refused for a term out of scope, so
     that term is never the cover for another fault: the timing against the interface, a coefficient
-    that divides by zero, the units of every line, and only then the scope. A law with such a term
-    cannot be evaluated, so its vectors are not.
+    that divides by zero, the units of every line, the vectors on every line that holds no such
+    term (and no line that reads one), and only then the scope. A line that holds one cannot be
+    evaluated and is not pinned; the refusal names the lines left unpinned.
 
     Raises:
         law_module.LawRefused: the units do not balance, the timing is not the interface's, a term
@@ -964,8 +970,6 @@ def _law_controller(
     if divisors:
         raise law_module.zero_refusal(divisors[0])
     law_module.check(file, {name: m["unit"] for name, m in coefficients.items()})
-    if file.outside:
-        raise law_module.LawRefused(file.outside[0].code, file.outside[0].detail)
     period = float(timing["period"]["value"])
     verified = law_module.verify(
         file,
@@ -979,6 +983,14 @@ def _law_controller(
             else supplied["pwm_full_scale"][0]
         ),
     )
+    if file.outside:
+        # Every line that holds no marked term was held to the vectors above; the lines that do
+        # (and the lines that only feed them) cannot be pinned, and the refusal says which.
+        raise law_module.LawRefused(
+            file.outside[0].code,
+            file.outside[0].detail,
+            lines=law_module.unpinned(file, file.vectors),
+        )
     body = file.model_dump(
         mode="json", include={"memory", "lines", "command"}, exclude_defaults=True
     )
@@ -1023,6 +1035,7 @@ def _record_bytes(export: Export, out: Path) -> bytes:
         "law_held_modes",
         "law_held_state_flags",
         "law_pins",
+        "law_unpinned_lines",
     }
     left = set() if export.structure == LAW_STRUCTURE else law_fields
     found = export.model_dump(mode="json", exclude={"sha256", "missing", *left})

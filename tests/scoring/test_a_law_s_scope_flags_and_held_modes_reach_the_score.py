@@ -55,22 +55,25 @@ def _record(tmp_path: Path, controller: dict[str, Any], **document: Any) -> dict
 
 # ── a scope refusal speaks only for an otherwise valid answer, and a dead term is no ground ──
 
-DEAD = [
-    pytest.param(lambda: _scratch_line("accelerometer_tilt"), id="out_of_scope_line"),
-    pytest.param(lambda: _scratch_line("tilt_rate*wheel_angle"), id="nonlinear_line"),
-    pytest.param(lambda: _scratch_line("tilt*tilt_rate", "k_u"), id="a_dead_tilt_times_rate"),
+#: Each dead term's line, the one refusal code it is named by, and a test id.
+_DEAD_TERMS = [
+    ("out_of_scope_line", lambda: _scratch_line("accelerometer_tilt"), "out_of_scope"),
+    ("nonlinear_line", lambda: _scratch_line("tilt_rate*wheel_angle"), "nonlinear"),
+    ("a_dead_tilt_times_rate", lambda: _scratch_line("tilt*tilt_rate", "k_u"), "nonlinear"),
 ]
+DEAD = [pytest.param(make, id=name) for name, make, _ in _DEAD_TERMS]
+DEAD_BY_CODE = [pytest.param(make, code, id=name) for name, make, code in _DEAD_TERMS]
 
 
-@pytest.mark.parametrize("dead", DEAD)
+@pytest.mark.parametrize(("dead", "code"), DEAD_BY_CODE)
 def test_an_unstable_law_with_a_term_out_of_scope_in_a_line_nothing_reads_is_unscored(
-    tmp_path: Path, dead: Any
+    tmp_path: Path, dead: Any, code: str
 ) -> None:
     controller = _unstable(helpers._recorded_controller())
     controller["lines"].insert(0, dead())
     record = _record(tmp_path, controller)
     assert record["outcome"] == "unscored", record
-    assert record["refusal"]["name"] in {"out_of_scope", "nonlinear"}
+    assert record["refusal"]["name"] == code
     assert record["specs"] == []
 
 

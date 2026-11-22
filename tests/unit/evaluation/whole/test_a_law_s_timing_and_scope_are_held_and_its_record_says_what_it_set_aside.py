@@ -671,6 +671,7 @@ def test_the_record_carries_the_pin_each_term_and_coefficient_achieves(tmp_path:
     } <= set(pins)
     assert sum(1 for key in pins if key.startswith("term ")) == 14
     for key, pin in pins.items():
+        assert pin["smallest"] is not None, key
         assert 0.0 < pin["smallest"] <= law_module.PIN_RELATIVE, key
         assert pin["up"] is not None and pin["down"] is not None
     # the loosest pin is the position gain's, about one per cent: the one the margins need told
@@ -703,6 +704,7 @@ def test_the_record_of_a_law_that_holds_a_mode_lists_it(tmp_path: Path) -> None:
         interface=INTERFACE,
     )
     assert record.status == "exported", (record.law_reason, record.law_detail)
+    assert len(record.law_held_modes) == 1
     (mode,) = record.law_held_modes
     assert mode["memory_states"] == ["angle"]
     assert mode["involves_wheel_angle"] is True
@@ -795,3 +797,21 @@ def _leak_free_incremental() -> dict[str, Any]:
         state = {"angle": following["angle"], "applied": counts / 400.0}
     document["vectors"] = [{"name": "mixed", "rows": rows}]
     return document
+
+
+def test_a_quantity_stated_in_a_node_the_delay_draws_on_and_in_another_is_listed_once_as_omitted(
+    tmp_path: Path,
+) -> None:
+    """``computation_delay_bound`` is in the drawn node (and left out) and in an undrawn one too."""
+    document = helpers._file()
+    document["compute_delay"] = {"quantity": "update_lateness_bound"}
+    interface = {
+        **INTERFACE,
+        "drive.train": {"duty_cycle": (0.9425, "1"), "computation_delay_bound": (0.003, "s")},
+    }
+    record, controller, _ = _exported(tmp_path, document, interface=interface)
+    assert controller["compute_delay_omitted"] == ["computation_delay_bound"]
+    assert record.law_timing["compute_delay"]["omitted_interface_times"] == [
+        "computation_delay_bound"
+    ]
+    assert _others(record) == [], "left out of the delay, so not also listed as information"

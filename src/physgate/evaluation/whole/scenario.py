@@ -554,6 +554,9 @@ def _law_record(law: SampledLaw) -> dict[str, Any]:
         **_flags(law, modes),
         "law_signals": list(law_module.signals_read(law)),
         "held_modes": [mode.as_record() for mode in modes],
+        "unit_circle": law_module.unit_circle(
+            law, values, period=float(law.period.value), written=law.written
+        ).as_record(),
     }
 
 
@@ -572,6 +575,10 @@ def _unstable_reason(nominal_corner: _Corner, at_nominal: float, values: list[fl
         where += " and at the nominal values"
     clause = f"; the closed loop is unstable {where}, and an unstable loop has no margin"
     loop = nominal_corner.loop
+    if loop is not None and loop.law is not None and loop.law.circle.unstable:
+        clause += (
+            "; " + loop.law.circle.reason() + ", so the loop is unstable whatever a float says"
+        )
     if loop is not None and loop.law is None and loop.distance == 0.0:
         clause += (
             "; with no distance gain nothing holds the travel, so the plant's travel stays a "

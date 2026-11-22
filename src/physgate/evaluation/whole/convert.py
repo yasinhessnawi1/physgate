@@ -56,7 +56,9 @@ class LinearLaw:
     the wheels' angle and speed relative to the body, each in SI. The memory is each state's
     value before the update, in the law's own order. ``held`` are the modes the law holds at
     exactly 1 by its own lines (:func:`physgate.evaluation.whole.law.held_modes`), each the wheel
-    angle then the memory.
+    angle then the memory. ``circle`` counts what the same exact arithmetic finds at exactly 1
+    (not set aside) and at exactly -1: either above zero and the loop is unstable at every plant
+    point and gain, whatever its floating-point eigenvalues say.
     """
 
     a: tuple[tuple[float, ...], ...]
@@ -64,6 +66,7 @@ class LinearLaw:
     c: tuple[float, ...]
     d: tuple[float, ...]
     held: tuple[tuple[float, ...], ...] = ()
+    circle: law_module.UnitCircle = law_module.UnitCircle(0, 0)
 
     @property
     def states(self) -> int:
@@ -144,7 +147,7 @@ def _law_to_si(controller: SampledLaw) -> SiLoop:
     period = float(controller.period.value)
     values = {name: float(measure.value) for name, measure in controller.coefficients.items()}
     a, b, c, d = law_module.linear(controller, values, period=period)
-    held = law_module.held_modes(controller, values, period=period, written=controller.written)
+    decision = law_module.decide(controller, values, period=period, written=controller.written)
     return SiLoop(
         incremental=False,
         angle=0.0,
@@ -157,7 +160,7 @@ def _law_to_si(controller: SampledLaw) -> SiLoop:
         sensor_delay=float(controller.sensor_delay.value),
         compute_delay=float(controller.compute_delay.value),
         factors=(),
-        law=LinearLaw(a=a, b=b, c=c, d=d, held=held),
+        law=LinearLaw(a=a, b=b, c=c, d=d, held=decision.modes, circle=decision.circle),
     )
 
 

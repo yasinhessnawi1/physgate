@@ -709,4 +709,4 @@ def test_a_variable_with_a_trailing_newline_is_not_one_variable() -> None:
     next(x for x in document["lines"] if x["name"] == "command")["terms"][0]["of"] = "tilt\n"
     with pytest.raises(_law().LawRefused) as caught:
         _law().parse_file(json.dumps(document).encode())
-    assert caught.value.code == "nonlinear"
+    assert caught.value.code == "malformed"  # a bad spelling of a name, not an expression

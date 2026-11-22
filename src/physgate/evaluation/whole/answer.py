@@ -524,7 +524,7 @@ class SampledLaw(_Loop, law_module.Body):
             for term in line.terms:
                 # a term the scorer cannot take (marked) is judged on no number: its weight may be
                 # any, zero included; every other term's number is a scale, never zero
-                unjudged = term.of == law_module.OUTSIDE
+                unjudged = term.of is None
                 if (term.number == 0 and not unjudged) or not abs(term.number) <= LAW_MAGNITUDE:
                     msg = (
                         f"line {line.name!r} has the number {_shown(term.number)}, "
@@ -833,27 +833,31 @@ class OutsideScope(TaskFormatError):  # noqa: N818 - a refusal by name, not an e
         self.name = name
 
 
-def _marked(document: dict[str, Any], where: str) -> tuple[dict[str, Any], dict[str, OutsideScope]]:
+def _marked(
+    document: dict[str, Any], where: str
+) -> tuple[dict[str, Any], dict[str, OutsideScope], dict[str, tuple[law_module.Outside, ...]]]:
     """The document with each law's terms the scorer cannot take marked, and the laws that have any.
 
     Returns the document to validate (such a term marked, so that every other check still runs on
-    its law, and nothing taken out of it) and the laws refused by name for a term that cannot be
-    taken, by the field that holds them. Read from the document as written, since a schema would
-    name only the field it fails on.
+    its law, and nothing taken out of it), the laws refused by name for a term that cannot be
+    taken, by the field that holds them, and each such law's marked terms. Read from the document
+    as written, since a schema would name only the field it fails on.
     """
     probe = dict(document)
     refused: dict[str, OutsideScope] = {}
+    found: dict[str, tuple[law_module.Outside, ...]] = {}
     for key in ("controller", "analysed_controller"):
         controller = document.get(key)
         if not (isinstance(controller, dict) and controller.get("structure") == "sampled_law"):
             continue
         marked = law_module.mark(controller)
         probe[key] = marked.body
+        found[key] = marked.outside
         if marked.outside:
             first = marked.outside[0]
             msg = f"{key} is out of the scorer's reach: {first.code}: {first.detail}"
             refused[key] = OutsideScope(msg, name=first.code, where=where)
-    return probe, refused
+    return probe, refused, found
 
 
 #: The refusals of a number that a float does not hold as the text wrote it.
@@ -1030,14 +1034,15 @@ def _parse(
         return _validate(model, text, where), None
     decimals = _decimals(text, document, where)
     _refuse_unrepresentable(decimals, where)
-    probe, refused = _marked(document, where)
+    probe, refused, found = _marked(document, where)
     if not refused:
         return _attach(_validate(model, text, where), decimals), None
     # A law with a term the scorer cannot take is refused by name, but only for an answer that is
     # otherwise valid: the rest (every name declared, the units of every line that can be checked,
     # the settings) is validated first, each such term marked, so no other fault is hidden behind
     # it. Nothing is taken out of the law.
-    _validate(model, json.dumps(probe), where)
+    marked_answer = _validate(model, json.dumps(probe), where, outside=_places(found))
+    _require_marks(marked_answer, found, where)
     if "controller" in refused:
         raise refused["controller"]
     if not tolerate_analysed:
@@ -1048,9 +1053,39 @@ def _parse(
     ]
 
 
-def _validate(model: type[WholeRun] | type[WholeRunV3], text: str, where: str) -> Answer:
+def _places(found: Mapping[str, tuple[law_module.Outside, ...]]) -> frozenset[tuple[str, int]]:
+    """Every place, in either law, where the scorer found a term it cannot take."""
+    return frozenset((o.line, o.index) for outside in found.values() for o in outside)
+
+
+def _require_marks(
+    answer: Answer, found: Mapping[str, tuple[law_module.Outside, ...]], where: str
+) -> None:
+    """Hold each law's marked terms to the places the scorer found them, one to one.
+
+    Raises:
+        TaskFormatError: a term holds no variable, or a key a term does not have, where the scorer
+            found no term out of scope (a text's own ``null`` for a variable).
+    """
+    for key, outside in found.items():
+        law = getattr(answer, key, None)
+        if isinstance(law, SampledLaw):
+            try:
+                law_module.require_marks(law, outside)
+            except law_module.LawRefused as exc:
+                msg = f"the answer is not a whole-run answer: {exc}"
+                raise TaskFormatError(msg, where=where) from exc
+
+
+def _validate(
+    model: type[WholeRun] | type[WholeRunV3],
+    text: str,
+    where: str,
+    *,
+    outside: frozenset[tuple[str, int]] = frozenset(),
+) -> Answer:
     try:
-        return model.model_validate_json(text)
+        return model.model_validate_json(text, context={"outside": outside})
     except ValidationError as exc:
         first = exc.errors()[0]
         reason = (

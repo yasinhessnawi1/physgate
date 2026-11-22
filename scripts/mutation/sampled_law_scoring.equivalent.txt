@@ -1,0 +1,19 @@
+Mutants of sampled_law_scoring.json judged equivalent and removed from it.
+
+A mutant stays in the list only if some row can tell it from the source. The entry below
+changes no behaviour a run can reach; it says why, from the code, and what would make it
+reachable. A change to the source named here means the argument is to be read again.
+
+an_analysed_law_with_another_fault_is_tolerated
+  file: src/physgate/evaluation/whole/answer.py, `_parse`, the answer read without its analysed law
+  old:  `    rest = {k: v for k, v in probe.items() if k != "analysed_controller"}\n`
+  new:  `    rest = {k: v for k, v in document.items() if k != "analysed_controller"}\n`
+  `probe` is `dict(document)` with, for each sampled law, the key replaced by `mark(law).body`.
+  This line is reached only when the primary `controller` is not refused, so `mark` found no
+  term out of scope in it; `mark` then returns its argument itself (`Marked(raw, ())`, or `{}`
+  for a document that is no dict, which a law holding `"structure": "sampled_law"` is). So
+  `probe["controller"] is document["controller"]`, and every other key of `probe` is the
+  document's own. `rest` is then the same mapping whichever it is made from, and only
+  `analysed_controller`, which both drop, differs. It would stop being equivalent if `mark`
+  returned a changed copy of a law with nothing out of scope, or if `_marked` changed another
+  key than the two laws'.

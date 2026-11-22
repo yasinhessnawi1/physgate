@@ -58,7 +58,7 @@ def test_a_term_out_of_scope_in_a_line_nothing_reads_is_found_and_the_line_stays
     marked = _law().mark(_doc([("unread", [_term(of), _term("tilt")])]))
     assert _where(marked) == ["unread:0"]
     assert [x["name"] for x in marked.body["lines"]] == ["unread", "command"]
-    assert [t["of"] for t in marked.body["lines"][0]["terms"]] == [_law().OUTSIDE, "tilt"]
+    assert [t["of"] for t in marked.body["lines"][0]["terms"]] == [None, "tilt"]
 
 
 @pytest.mark.parametrize("number", [0.0, 5e-324, 1e-9, 3.0])
@@ -78,16 +78,15 @@ def test_a_term_in_a_line_the_command_reads_is_found_and_its_variable_is_marked(
     document["lines"][-1]["terms"].append(_term("line.a", "g"))
     marked = _law().mark(document)
     assert _where(marked) == ["a:0"]
-    assert marked.body["lines"][0]["terms"][0]["of"] == _law().OUTSIDE
+    assert marked.body["lines"][0]["terms"][0]["of"] is None
 
 
-def test_a_term_with_an_extra_key_is_nonlinear_and_keeps_only_a_term_s_own_keys_once_marked() -> (
-    None
-):
+def test_a_term_with_an_extra_key_is_nonlinear_and_keeps_every_key_it_was_written_with() -> None:
     document = _doc([("a", [_term("tilt", extra="sin")])])
     marked = _law().mark(document)
     assert [o.code for o in marked.outside] == ["nonlinear"]
-    assert set(marked.body["lines"][0]["terms"][0]) == {"sign", "coefficients", "of"}
+    assert set(marked.body["lines"][0]["terms"][0]) == {"sign", "coefficients", "of", "extra"}
+    assert marked.body["lines"][0]["terms"][0]["extra"] == "sin"
 
 
 def test_every_term_of_every_line_is_found_in_the_order_written() -> None:

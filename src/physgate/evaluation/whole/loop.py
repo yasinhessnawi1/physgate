@@ -46,9 +46,12 @@ fed from the command with a gain of ``1e-6``, is not held, whatever other coeffi
 A memory that merely follows the wheel angle (a backward-difference speed with no position gain,
 a washout, a position gain of zero) holds a mode at 1 that is the travel itself: the wheels do not
 return, nothing is set aside, and the loop is unstable. So is a law that reads the wheel angle
-nowhere, whether or not it also has an inert state. Every other pole is judged by the one stated
-rule: the closed loop is stable when its spectral radius is below 1 by at least
-:data:`STABILITY_EPSILON`.
+nowhere, whether or not it also has an inert state. A mode at exactly 1 that is not set aside, and
+a mode at exactly -1 (which never is), are decided exactly on the law's numbers as written and are
+unstable outright (:class:`~physgate.evaluation.whole.law.UnitCircle`), whatever a floating-point
+eigenvalue comes out as; every other pole, a point on the unit circle other than 1 and -1 included,
+is judged by the one stated rule: the closed loop is stable when its spectral radius is below 1 by
+at least :data:`STABILITY_EPSILON`.
 
 **Margins.** With the controller's command multiplied by a gain ``κ`` before the plant, the
 closed loop is stable for ``κ`` in an interval about 1 when the design is stable at all. The
@@ -81,6 +84,7 @@ import numpy as np
 from scipy.linalg import expm
 
 from physgate.evaluation.whole.convert import LinearLaw, SiLoop
+from physgate.evaluation.whole.law import UnitCircle
 from physgate.evaluation.whole.plant import bodies, motor
 
 Matrix = Any  # a numpy float array; numpy's own types do not survive mypy --strict here
@@ -103,7 +107,8 @@ LOWEST_FREQUENCY = 1e-4
 #: unstable, however large another coefficient is. Where the rounding is larger than this (with a
 #: coefficient near the bound of 1e6 the rounding of the eigenvalues can reach 1e-10, which is
 #: why the answer bounds a coefficient) a loop within that rounding of the unit circle can be
-#: called either: the verdict is exact only outside it.
+#: called either: the verdict is exact only outside it, except at 1 and -1, which a sampled law's
+#: exact arithmetic decides without a float (the circle count of the law).
 STABILITY_EPSILON = 1e-12
 #: A fraction of a period below this is no fraction at all.
 FRACTION_EPSILON = 1e-12
@@ -274,6 +279,8 @@ class System:
     period: float
     neutral: Matrix | None = None
     held: Matrix | None = None
+    #: A sampled law's exact eigenvalues at 1 (not set aside) and -1; see ``unit_circle``.
+    unit_circle: UnitCircle = UnitCircle(0, 0)
 
 
 def leak_free(loop: SiLoop) -> bool:
@@ -326,6 +333,10 @@ def stable(system: System, gain: float) -> bool:
     column for ``θ̂`` is that mode, the matrix's column there is the unit vector, and the
     other poles are those of what remains.
     """
+    if system.unit_circle.unstable:
+        # An eigenvalue of exactly 1 (not set aside) or of exactly -1, decided exactly on the
+        # law's numbers as written, whatever the floating-point eigenvalue comes out as.
+        return False
     matrix = closed(system, gain)
     if system.held is not None:
         # The held modes span an invariant subspace at 1: in an orthonormal basis that starts
@@ -500,6 +511,7 @@ def _system(values: dict[str, float], loop: SiLoop) -> System:
             dc=dc,
             period=loop.period,
             held=_held_columns(loop.law, ap.shape[0], values["wheel_radius"]),
+            unit_circle=loop.law.circle,
         )
     neutral = _neutral(loop, ap.shape[0], ap.shape[0] + ac.shape[0])
     return System(
