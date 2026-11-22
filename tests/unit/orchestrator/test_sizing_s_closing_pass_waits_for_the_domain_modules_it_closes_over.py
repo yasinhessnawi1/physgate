@@ -339,6 +339,45 @@ def test_a_chain_of_builders_on_a_module_waiting_for_the_closing_pass_is_not_wai
     assert closing_wait.pending(state, "zc") == []
 
 
+def test_mutual_readers_hold_each_other_for_nothing_so_the_one_that_can_go_is_waited_for() -> None:
+    """Mutual readers hold nothing: the closing pass waits for the one that can go.
+
+    ``a`` and ``b`` read from each other. ``b`` builds the design of ``d``, which waits for the
+    closing pass, so ``b`` cannot go on before it and the closing pass does not wait for it.
+    ``a`` is not held on ``b``, as the producer wait lets two readers of each other go (a hold
+    between them would be a wait that nobody can end), so ``a`` runs before the closing pass and
+    the closing pass waits for ``a`` alone.
+    """
+    state = stub(
+        {"z0": "done", "d": "waiting", "a": "planned", "b": "planned", "zc": "planned"},
+        designers={"b": "d"},
+    )
+    state.contract_pairs = [
+        SimpleNamespace(
+            producer=SimpleNamespace(subtask_id="b"), consumer=SimpleNamespace(subtask_id="a")
+        ),
+        SimpleNamespace(
+            producer=SimpleNamespace(subtask_id="a"), consumer=SimpleNamespace(subtask_id="b")
+        ),
+    ]
+    assert closing_wait.pending(state, "zc") == ["a"]
+    assert closing_wait.waits(state, "zc")
+
+
+def test_a_reader_of_a_module_that_cannot_move_is_not_waited_for_if_it_is_not_read_back() -> None:
+    """The same plan with ``a`` reading ``b`` only: ``a`` is held on ``b``, not waited for."""
+    state = stub(
+        {"z0": "done", "d": "waiting", "a": "planned", "b": "planned", "zc": "planned"},
+        designers={"b": "d"},
+    )
+    state.contract_pairs = [
+        SimpleNamespace(
+            producer=SimpleNamespace(subtask_id="b"), consumer=SimpleNamespace(subtask_id="a")
+        )
+    ]
+    assert closing_wait.pending(state, "zc") == []
+
+
 def test_a_module_with_a_person_is_waited_for_and_one_whose_item_was_decided_is_not() -> None:
     assert closing_wait.pending(stub({"z0": "done", "a": "escalated", "zc": "planned"}), "zc") == [
         "a"
