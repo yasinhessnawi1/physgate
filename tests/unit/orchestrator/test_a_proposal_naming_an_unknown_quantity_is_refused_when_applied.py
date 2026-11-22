@@ -131,7 +131,7 @@ def test_a_proposal_naming_a_misspelt_relation_quantity_is_refused_naming_both(
 
 
 @pytest.mark.parametrize(
-    "name", ["motor_current", "no_load_current", "idle_current", "max", "dry_mass"]
+    "name", ["motor_current", "standby_current", "idle_current", "max", "dry_mass"]
 )
 def test_a_different_name_is_read_and_written(
     repo: tuple[Path, str], tmp_path: Path, name: str

@@ -507,6 +507,7 @@ def test_the_schema_holds_the_list_only_when_the_run_asks() -> None:
         assert rest == off
 
 
+@pytest.mark.usefixtures("no_law_table")
 def test_a_run_that_does_not_ask_is_sent_what_it_was_sent_before() -> None:
     # Held to the seeded reference's digests, recorded before the switch existed.
     from off_identity_rig import BRIEF as REFERENCE_BRIEF

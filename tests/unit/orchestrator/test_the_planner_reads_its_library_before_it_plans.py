@@ -417,23 +417,24 @@ def test_the_module_names_the_markers_it_writes() -> None:
 
 #: The prompt a run sends for this brief, taken over the real library as it is promoted: each
 #: moves, by design, when a text of the design role's set is promoted again, and is then re-taken
-#: here with the texts' own record.
+#: here with the texts' own record. The laws' added template text moved each by the same
+#: 2,635 bytes (twelve catalogue names, two kind labels, the peak-stall clause, the laws paragraph).
 PROMPT_PINS: dict[tuple[tuple[str, ...], bool], tuple[int, str]] = {
     (("control", "electrical", "firmware"), False): (
-        45036,
-        "0935759eb78268586670243c21750f86373c1398ea3227c1ce21062f12c0dd03",
+        47671,
+        "c3fe8e63226e81567a12dc5ac8e49c724ad976c6db3abf24f1b5a61a2cb8d165",
     ),
     (("control", "electrical", "firmware"), True): (
-        45750,
-        "fcaaf98711b01a39d1855c916f803ba9c4660bf8b2715a3fadd93010c7a690b6",
+        48385,
+        "eca1c24718aab32a043bb8cad5e67b4836b1fb8cb3fa7b23473db493350e5e9c",
     ),
     (("control", "firmware", "integration", "sizing"), False): (
-        45892,
-        "c304820660a2e2e969c4254d339f9412f8ba2eddeee98ad296bb4cec749770fa",
+        48527,
+        "fe1405e204a0c432b13bd2c26f19405e9e46c78578d8e8b6f03141d41c642d14",
     ),
     (("electrical",), False): (
-        45017,
-        "a388197c4ef9c9d944f4197944db659336980ee34794b57ec989518db7d55a35",
+        47652,
+        "98126a09351221078dae090d066e5c9dc79608d414d917e5d22028ce3ee5b136",
     ),
 }
 

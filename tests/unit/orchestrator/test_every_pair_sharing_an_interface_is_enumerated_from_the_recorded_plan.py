@@ -52,6 +52,10 @@ from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.replay import RunState
 from physgate.orchestrator.run_config import ModelStrings
 
+#: The bytes pinned here are the prompt with no law in the table: a promoted law adds its
+#: own paragraph, which the law prompt's tests pin against the table in this checkout.
+pytestmark = pytest.mark.usefixtures("no_law_table")
+
 BOTH = ("control", "firmware", "integration", "sizing")
 DOMAINS = ("control", "firmware")
 SEED = 7
@@ -80,15 +84,23 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 #: and eefbf4fe50d6...; before the widening: 08a7e77a7464... and b26536a34818...; before
 #: those two sentences: f56406956965... and 1a3802deb6f1..., in this order.
 INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
+#: Since the law library's rows (07.11.2026), the catalogue sentence also holds their twelve names
+#: and two kind labels. Before those rows: f42a779e91ee... and 4faaf7ada5eb..., in this order.
+#: Since check 4 gained the peak headroom (07.11.2026), the relations sentence holds its statement
+#: too; with the rows and the peak headroom, before the sentence on how a unit is spelt:
+#: 58ac53907fa6... and 1545282914c0..., in this order;
+#: with the rows alone: 144a71155f84... and 6808f856328d..., in this order.
 #: Before the designer's node was said to be named by its module and a module's own limits to stay
 #: off the interface nodes: 02021140dcf2... and f3717294a8ce....
 #: Before a criterion's measurable checks named no instrument the environment may lack:
 #: bbf7b8f3427d... and f0cefb5fb842....
+#: Master's text without the law library's rows and the peak headroom (21.11.2026): 215bb9b26499...
+#: and ec4de60564d1..., in this order.
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "215bb9b264993bafcfb04f5cfe0ef155130892c8834ff2088d6226e4db4d67ec"
+        "7c2f57e91e6aa4d3acb4881719f0d1129f0d36f3653483719ccab0c4fcf912dc"
     ),
-    BOTH: "ec4de60564d1bc0c41b16c0107af3caa6aefdd8f11a87b1d199a3cb3f543cb9b",
+    BOTH: "aabad78a5baf147e4052a005a224ea720064a74ecc03f2cd69b09f954c1858c1",
 }
 
 

@@ -23,6 +23,7 @@ from typing import Literal
 from physgate.gate import (
     check_conservation,
     check_equilibrium,
+    check_laws,
     check_magnitude,
     check_power,
     check_propagation,
@@ -37,10 +38,13 @@ OnFailure = Literal["block", "warn"]
 
 #: ARCH-080's "runs at" and "on failure" columns: units and magnitude per subtask;
 #: equilibrium, power, conservation and thermal per module; power, thermal and
-#: propagation per run (the system). Thermal warns at module and blocks at
-#: integration. Propagation runs only there: what changed together is known only
-#: once the attempts have been applied, and a change's cross-domain targets are
-#: other roles' nodes, which no single attempt can rewrite.
+#: propagation per run (the system); the closed-form laws per module and per run.
+#: Thermal warns at module and blocks at integration. Propagation runs only there:
+#: what changed together is known only once the attempts have been applied, and a
+#: change's cross-domain targets are other roles' nodes, which no single attempt can
+#: rewrite. A law blocks where this table says the laws check blocks and only once the
+#: law is out of probation: the runner reads that half from the law table, so a law
+#: cannot soften its own consequence either.
 ARCH_080: Mapping[CheckName, Mapping[Scope, OnFailure]] = MappingProxyType(
     {
         "units": MappingProxyType({"subtask": "block"}),
@@ -50,6 +54,7 @@ ARCH_080: Mapping[CheckName, Mapping[Scope, OnFailure]] = MappingProxyType(
         "conservation": MappingProxyType({"module": "block"}),
         "thermal": MappingProxyType({"module": "warn", "system": "block"}),
         "propagation": MappingProxyType({"system": "block"}),
+        "laws": MappingProxyType({"module": "block", "system": "block"}),
     }
 )
 
@@ -102,4 +107,5 @@ REGISTRY: tuple[RegisteredCheck, ...] = (
     RegisteredCheck(name="conservation", run=check_conservation.run),
     RegisteredCheck(name="thermal", run=check_thermal.run),
     RegisteredCheck(name="propagation", run=check_propagation.run),
+    RegisteredCheck(name="laws", run=check_laws.run),
 )

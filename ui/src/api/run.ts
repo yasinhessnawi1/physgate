@@ -323,7 +323,7 @@ export function tokens(value: unknown): Tokens {
   };
 }
 
-/** The physics gate's seven checks, by the names its records use; a test holds this to the schema. */
+/** The physics gate's eight checks, by the names its records use; a test holds this to the schema. */
 export const CHECK_NAMES = [
   "units",
   "magnitude",
@@ -332,6 +332,7 @@ export const CHECK_NAMES = [
   "conservation",
   "thermal",
   "propagation",
+  "laws",
 ] as const;
 export type CheckName = (typeof CHECK_NAMES)[number];
 
@@ -348,7 +349,7 @@ export interface GateCheck {
   readonly subtask: string;
   readonly attempt: number | null;
   readonly name: CheckName;
-  /** The check's number in the architecture's list, 1 to 7, as recorded. */
+  /** The check's number in the architecture's list, 1 to 8, as recorded. */
   readonly check: number | null;
   readonly ts: string | null;
   readonly scope: string;

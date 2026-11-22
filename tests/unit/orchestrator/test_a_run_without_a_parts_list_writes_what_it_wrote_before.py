@@ -39,7 +39,7 @@ def test_the_reference_covers_what_a_run_sends_and_writes() -> None:
 # The reference was recorded before the sign-off rule table existed, and its run plans a control
 # module: held to those bytes, the run starts as one recorded before the table, which owes no
 # sign-off and writes no line of it. The same run twice, below, runs with the rule in force.
-@pytest.mark.usefixtures("before_the_sign_off_rule")
+@pytest.mark.usefixtures("before_the_sign_off_rule", "no_law_table")
 def test_the_seeded_run_leaves_the_bytes_recorded_before_the_switch(tmp_path: Path) -> None:
     now = reference(tmp_path)
     changed = sorted(

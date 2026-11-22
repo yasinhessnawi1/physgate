@@ -8,7 +8,9 @@ from physgate.gate import registry
 from physgate.gate.registry import CADENCE, REGISTRY, TIGHTENED, RegisteredCheck
 from physgate.orchestrator.protocols import CHECK_NUMBERS, CheckName, Scope
 
-#: ARCH-080, transcribed: "runs at" and "on failure" for each of the seven checks.
+#: ARCH-080, transcribed: "runs at" and "on failure" for each of the eight checks. A law's own
+#: failure blocks only where this table says the laws check blocks and the law itself is out of
+#: probation; the runner reads the second half from the law table, never from the check.
 ARCH_080: dict[CheckName, dict[Scope, str]] = {
     "units": {"subtask": "block"},
     "magnitude": {"subtask": "block"},
@@ -17,6 +19,7 @@ ARCH_080: dict[CheckName, dict[Scope, str]] = {
     "conservation": {"module": "block"},
     "thermal": {"module": "warn", "system": "block"},
     "propagation": {"system": "block"},
+    "laws": {"module": "block", "system": "block"},
 }
 
 
@@ -70,4 +73,4 @@ def test_the_order_check_sees_a_repeat_and_a_check_out_of_sequence() -> None:
 
 
 def test_a_registered_check_knows_its_number() -> None:
-    assert [fixed(name).number for name in ARCH_080] == [1, 2, 3, 4, 5, 6, 7]
+    assert [fixed(name).number for name in ARCH_080] == [1, 2, 3, 4, 5, 6, 7, 8]

@@ -25,6 +25,7 @@ from physgate.gate.catalogue import (
 )
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
+from physgate.gate.laws import load_laws
 from physgate.orchestrator.protocols import PowerDetails, Scope
 
 STORE = "electrical.battery"
@@ -58,9 +59,9 @@ def test_the_store_classes_are_part_of_the_catalogue_digest(
 ) -> None:
     import physgate.gate.catalogue as catalogue
 
-    before = catalogue_digest()
+    before = catalogue_digest(load_laws())
     monkeypatch.setattr(catalogue, "STORE_CLASSES", STORE_CLASSES[:-1])
-    assert catalogue_digest() != before
+    assert catalogue_digest(load_laws()) != before
 
 
 @pytest.mark.parametrize("scope", ["module", "system"])

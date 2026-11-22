@@ -38,6 +38,10 @@ from physgate.orchestrator.decompose import (
     relations_sentence,
 )
 
+#: The bytes pinned here are the prompt with no law in the table: a promoted law adds its
+#: own paragraph, which the law prompt's tests pin against the table in this checkout.
+pytestmark = pytest.mark.usefixtures("no_law_table")
+
 BRIEF = "Build a robot."
 
 #: The schema every run was sent before the two roles were planned for.
@@ -79,19 +83,29 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: before that sentence: ca0317a59ce7..., 8abeae4b5f23... and 44175ad46745...; before the
 #: widening, since 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
 #: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
+#: Since the law library's rows (07.11.2026), the catalogue sentence also holds their twelve names
+#: and two kind labels (charge capacity, duration), and every other byte is as above
+#: (test_the_law_library_s_names_reach_the_prompt_and_nothing_else). Before those rows:
+#: c14dba963d6c..., ad94ba0d6bbe... and d713661a9904..., in this order. Since check 4 gained the
+#: peak headroom (07.11.2026), the relations sentence holds its statement too. With the rows and the
+#: peak headroom, before the sentence on how a unit is spelt: 56526c8ddda3..., f93071084230... and
+#: f8040260bc86..., in this order; with the rows alone: 48f1f778de09..., 777b1e121b63... and
+#: 44c5f7c626eb..., in this order.
 #: Before the designer's node was said to be named by its module and a module's own limits to stay
 #: off the interface nodes: 5ad250714df6..., 5b92ffb708ee... and cd26dec56241....
 #: Before a criterion's measurable checks named no instrument the environment may lack:
 #: db3460bb33af..., 54927b0efe85... and 7cefa8af5171....
+#: Master's text without the law library's rows and the peak headroom (21.11.2026): 0855254a3312...,
+#: 0a3dc6ded3ef... and 6733365870b1..., in this order.
 PROMPT_SHA256 = {
-    ("control", "firmware"): "0855254a33127995ced0fb1e81ab4474895a4ab5d553888cf6349e3d04a49e3d",
-    ("electrical",): "0a3dc6ded3ef651ceed802c9a415b787402edd70ff855a9c006eb1bd93354072",
+    ("control", "firmware"): "511c57222aad8b517f0d72f79c7f42711765f8936ad883f306872d58d60ad4b4",
+    ("electrical",): "121035d07f4c78d5b47aebe20b28a0f757f0760778c651a5e74462c3d70139d2",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "6733365870b192d21e3c5fae4e55df1b956296ab2f421fa1991a05db097a4c35",
+    ): "19d1f93164e4c3c5c54da49c8941499f96527bcd52c919d06a59eed9905bf790",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.

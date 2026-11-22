@@ -13,9 +13,10 @@ record it as unchecked rather than dropping it.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from fractions import Fraction
+from types import MappingProxyType
 from typing import Literal
 
 from physgate.gate.catalogue import (
@@ -86,6 +87,70 @@ Factor = TermRef | Product | Scaled
 
 
 @dataclass(frozen=True)
+class RelationInputs:
+    """The quantity names one relation reads, every form of it together, and its comparator."""
+
+    names: frozenset[str]
+    comparator: Literal["<=", "=="]
+
+
+#: Every relation the checks form, by the names it reads and its comparator: the catalogue's
+#: relations, held to what :func:`instances` reads by a test over a graph that forms them all,
+#: and the equilibrium check's readings, which the relation names below the catalogue's list.
+#: A law is refused when its names and its comparator are one of these: laws add relations,
+#: they never count one the checks already judge a second time.
+RELATION_INPUTS: Mapping[str, RelationInputs] = MappingProxyType(
+    {
+        "power_budget": RelationInputs(frozenset({"power_draw", "power_supply"}), "<="),
+        "supply_covered": RelationInputs(frozenset({"power_supply", "power_draw"}), "<="),
+        "source_rating": RelationInputs(
+            frozenset({"power_supply", "max_discharge_power", "rated_output_power", "power_draw"}),
+            "<=",
+        ),
+        "current_limit": RelationInputs(frozenset({"stall_current", "current_limit"}), "<="),
+        "peak_current_limit": RelationInputs(
+            frozenset({"peak_stall_current", "current_limit"}), "<="
+        ),
+        "discharge_rate": RelationInputs(
+            frozenset({"max_discharge_power", "energy_capacity"}), "<="
+        ),
+        "mass_sum": RelationInputs(frozenset({"mass"}), "=="),
+        "energy_balance": RelationInputs(
+            frozenset({"input_power", "output_power", "heat_dissipation"}), "=="
+        ),
+        "heat_budget": RelationInputs(
+            frozenset({"heat_dissipation", "heat_rejection_capacity"}), "<="
+        ),
+        "junction_limit": RelationInputs(
+            frozenset(
+                {"ambient_temperature", "thermal_resistance", "heat_dissipation", "max_temperature"}
+            ),
+            "<=",
+        ),
+        # The equilibrium check's readings, which no catalogue relation states.
+        "torque_unit": RelationInputs(
+            frozenset({"torque_peak", "reaction_moment", "gear_ratio", "external_gear_ratio"}),
+            "==",
+        ),
+        "carrier": RelationInputs(frozenset({"supported_mass", "mass"}), "=="),
+        "mount_balance": RelationInputs(
+            frozenset(
+                {
+                    "support_position",
+                    "mount_position",
+                    "reaction_force",
+                    "reaction_moment",
+                    "load_force",
+                    "mass",
+                }
+            ),
+            "==",
+        ),
+    }
+)
+
+
+@dataclass(frozen=True)
 class Instance:
     """One relation at one place in the graph: ``sum(left) op sum(right)``."""
 
@@ -129,6 +194,17 @@ def _bounded(view: GraphView, node_id: str) -> bool:
     return any(
         t in view.nodes and _has(view, t, "current_limit") for t in view.nodes[node_id].constrains
     )
+
+
+#: The stalls held to a current limit, each with the relation that holds it: the stall the design
+#: sizes for, at the command limit's duty, and the peak, at full duty, which a driver's peak
+#: rating and a fuse are judged against. Both are taken at the supply's highest voltage. The
+#: peak's relation forms only where a node holds the peak, so a graph without it forms what it
+#: formed before.
+STALLS: tuple[tuple[str, str], ...] = (
+    ("stall_current", "current_limit"),
+    ("peak_stall_current", "peak_current_limit"),
+)
 
 
 def instances(view: GraphView) -> list[Instance]:
@@ -194,42 +270,43 @@ def instances(view: GraphView) -> list[Instance]:
                     ),
                 )
             )
-        if "current_limit" in q:
-            found.extend(
-                Instance(
-                    relation=RELATIONS["current_limit"],
-                    subject=node_id,
-                    left=(consumer,),
-                    op="<=",
-                    right=(TermRef(node_id, "current_limit"),),
+        for stall, headroom in STALLS:
+            if "current_limit" in q:
+                found.extend(
+                    Instance(
+                        relation=RELATIONS[headroom],
+                        subject=node_id,
+                        left=(consumer,),
+                        op="<=",
+                        right=(TermRef(node_id, "current_limit"),),
+                    )
+                    for consumer in _members(view, node_id, stall)
                 )
-                for consumer in _members(view, node_id, "stall_current")
-            )
-        if "stall_current" in q and "current_limit" in q:
-            # A node holding both is held to its own limit: a consumer aggregated with the
-            # supply that carries it, which its stall must not overrun either.
-            found.append(
-                Instance(
-                    relation=RELATIONS["current_limit"],
-                    subject=node_id,
-                    left=(TermRef(node_id, "stall_current"),),
-                    op="<=",
-                    right=(TermRef(node_id, "current_limit"),),
+            if stall in q and "current_limit" in q:
+                # A node holding both is held to its own limit: a consumer aggregated with the
+                # supply that carries it, which its stall must not overrun either.
+                found.append(
+                    Instance(
+                        relation=RELATIONS[headroom],
+                        subject=node_id,
+                        left=(TermRef(node_id, stall),),
+                        op="<=",
+                        right=(TermRef(node_id, "current_limit"),),
+                    )
                 )
-            )
-        elif "stall_current" in q and not _bounded(view, node_id):
-            # A stall current no limit bounds, on its node or on a node its edges name, is
-            # kept with the limit missing, so it is recorded as unchecked, never passed.
-            found.append(
-                Instance(
-                    relation=RELATIONS["current_limit"],
-                    subject=node_id,
-                    left=(TermRef(node_id, "stall_current"),),
-                    op="<=",
-                    right=(),
-                    missing=("current_limit",),
+            elif stall in q and not _bounded(view, node_id):
+                # A stall no limit bounds, on its node or on a node its edges name, is kept
+                # with the limit missing, so it is recorded as unchecked, never passed.
+                found.append(
+                    Instance(
+                        relation=RELATIONS[headroom],
+                        subject=node_id,
+                        left=(TermRef(node_id, stall),),
+                        op="<=",
+                        right=(),
+                        missing=("current_limit",),
+                    )
                 )
-            )
         members = _members(view, node_id, "mass")
         if node.kind == "module" and members:
             found.append(
