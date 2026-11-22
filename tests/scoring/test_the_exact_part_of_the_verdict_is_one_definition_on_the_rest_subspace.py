@@ -114,7 +114,8 @@ def _chained(
     if read_by_command:
         terms.append(_term(f"previous.{last}", "read"))
         coefficients["read"] = helpers._m(1e-3, "1")
-    return helpers._law(terms, coefficients, memory, lines)
+    built: dict[str, Any] = helpers._law(terms, coefficients, memory, lines)
+    return built
 
 
 def _stable_at(controller: dict[str, Any], values: dict[str, float]) -> bool:
