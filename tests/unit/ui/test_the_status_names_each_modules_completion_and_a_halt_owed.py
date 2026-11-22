@@ -258,4 +258,5 @@ def test_the_status_serves_whether_an_escalated_end_is_for_the_sign_offs_alone(
     # The key itself, as the page reads it: an absent key reads as "not said", the old reading.
     found = served(live, recorded)
     assert found["next_step"]["kind"] == "escalated"
+    assert "ends_on_sign_offs_alone" in found, sorted(found)
     assert found["ends_on_sign_offs_alone"] is ENDED_ESCALATED[recorded]

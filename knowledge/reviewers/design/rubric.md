@@ -418,6 +418,25 @@ are judged by reading like the rest.
   cat. 2). Where the plan has no such list, this item passes on that point and the missing
   allocation is recorded as `noted`, as PA-8 says: never a `fail`.
 
+- **PS-37. A system behaviour is allocated to every link that produces it.** Applies when the brief
+  holds a requirement that names what the built system does (a speed driven at, a push recovered
+  from). Read the plan for each link: who commands or supplies the input, from what source, with
+  what value and unit; the law that follows it; the code that applies it, reading the same value;
+  and a check across the links, named in the specification of the module that closes the chain
+  under a heading for it, or stated as not shown with the reason. A requirement whose only
+  allocation is to the module that analyses it, with no module that produces the command or input
+  on the system built, fails. One recorded as not allocated passes only if the brief itself leaves
+  its producer to a person, with the reason (PS-23's wording); one a module of the plan could
+  produce fails. The module that applies the value must be one whose built program reads it (§12,
+  §1; cat. 2).
+- **PS-38. A module that drives a motor is given the values of its safety checks.** Applies when a
+  module's specification has it drive a motor. Its specification states, each with a value and a
+  source (or an estimate marked to be resolved, with who resolves it): the stale-command timeout
+  (in ms) or a watchdog requirement; the count or time of a sensor fault during operation; the driver's
+  state while the processor is in reset, with its source; the bus time-out; the sensor's filter
+  bandwidth and delay (the plan's value, the one control and firmware use), or that it is not settable. One absent, or a value with neither a source nor
+  a mark, fails; a check the run cannot show is recorded as not shown (§13, §8; cat. 2).
+
 ### Records and magnitudes (what the automated checks also cover)
 
 - **PS-32. Units.** Every number in the plan carries its unit, the unit fits the quantity, and a
@@ -455,6 +474,11 @@ are judged by reading like the rest.
   looser than its parent (skill; §10).
 - **PP-13. Operating conditions left out.** Look at each specification's conditions. Counts when the
   ranges or load cases its module must meet are absent (skill; §11).
+- **PP-14. A behaviour shown by analysis only.** Look at each requirement that names what the built
+  system does. Counts when it is allocated to the analysing module and to no module that produces
+  it (skill; §12).
+- **PP-15. A safety check with no value.** Look at each motor-driving module's specification.
+  Counts when a check of §13 is absent or has no value (skill; §13).
 
 ## 4. Reward-hacking indicators
 
@@ -503,4 +527,4 @@ of the brief is not an indicator against the plan.
   and the plan fails the corresponding rule when judged by reading; without that reasoning, at most
   `noted`.
 
-<!-- 5e187a25826b912dff8323a610df30a1 -->
+<!-- 68fb59fe6627e25f46b8dc208cd1fcbd -->

@@ -569,6 +569,26 @@ def _tool(tmp: Path, tool: str, tool_input: dict[str, Any], cwd: str | None = No
     return "allow" if decision.allow else decision.reason
 
 
+#: The run environment's simulator runs the firmware it is given and reaches no board: a run of
+#: it passes, as a build does, and an upload or a device beside it is refused all the same.
+SIMULATED = [
+    "avrsim --version",
+    "avrsim check --scenario modules/firmware/scenario.json",
+    "avrsim run --elf build/balboa/firmware.elf --scenario scenario.json --out trace.jsonl",
+    "pio run && avrsim run --elf build/balboa/firmware.elf --scenario s.json --out t.jsonl",
+    "cd modules/firmware && avrsim run --elf f.elf --scenario s.json --out t.jsonl | tail -1",
+    "/opt/env/avrsim/bin/avrsim run --elf f.elf --scenario s.json --out t.jsonl",
+    "timeout 300 avrsim run --elf f.elf --scenario upload.json --out t.jsonl",
+    # The build directory as the session's wiring names it, a word only running decides.
+    'avrsim run --elf "$PLATFORMIO_BUILD_DIR/balboa/firmware.elf" --scenario s.json --out t.jsonl',
+]
+SIMULATED_UPLOADS = [
+    "avrsim run --elf f.elf --scenario s.json --out t.jsonl && pio run -t upload",
+    "avrsim --version; avrdude -p atmega32u4 -c avr109 -U flash:w:firmware.hex",
+    "avrsim check --scenario s.json || pio device monitor",
+    "sh -c 'avrsim --version && pio run -t upload'",
+]
+
 # ---- the shell --------------------------------------------------------------------------
 
 
@@ -590,6 +610,22 @@ def test_a_program_named_at_run_time_is_told_to_be_named_in_the_command_s_words(
 @pytest.mark.parametrize("command", NOT_UPLOADS, ids=NOT_UPLOADS)
 def test_a_build_and_text_that_names_an_upload_pass(tmp_path: Path, command: str) -> None:
     assert _shell(tmp_path, command) == "allow"
+
+
+@pytest.mark.parametrize("command", SIMULATED, ids=SIMULATED)
+def test_a_run_on_the_simulator_passes(tmp_path: Path, command: str) -> None:
+    assert _shell(tmp_path, command) == "allow"
+
+
+@pytest.mark.parametrize("command", SIMULATED_UPLOADS, ids=SIMULATED_UPLOADS)
+def test_an_upload_beside_a_simulator_run_is_still_refused(tmp_path: Path, command: str) -> None:
+    assert _shell(tmp_path, command) == H.UPLOAD
+
+
+def test_a_device_named_to_the_simulator_is_refused_as_any_device(tmp_path: Path) -> None:
+    reason = _shell(tmp_path, "avrsim run --elf /dev/ttyACM0 --scenario s.json --out t.jsonl")
+    assert reason != "allow"
+    assert reason != H.UPLOAD
 
 
 @pytest.mark.parametrize("command", FLASHERS, ids=FLASHERS)

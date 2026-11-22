@@ -23,7 +23,7 @@ import hashlib
 import os
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
@@ -38,6 +38,8 @@ from physgate.orchestrator.decompose import (
     Outcome,
     ReplanFindings,
     canary_in_findings,
+    library_files,
+    planner_prompt,
     replan_findings,
     replan_prompt,
     require_startable,
@@ -61,6 +63,7 @@ from physgate.orchestrator.events import (
     DecompositionRetried,
     DesignUnavailable,
     Event,
+    PlannerFile,
     PlanProposed,
     Sha256,
 )
@@ -166,6 +169,15 @@ class RoundEnded(_Line):
     call_ended: Timestamp
     review_started: Timestamp | None
     elapsed: Elapsed
+    #: What the round's call was sent: its prompt's sha256 and byte length, and the library files
+    #: it read; each left out of a line written before they were recorded.
+    prompt_sha256: Sha256 | None = Field(default=None, exclude_if=lambda v: v is None)
+    prompt_bytes: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    planner_library: tuple[PlannerFile, ...] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
 
 class CallRefused(_Line):
@@ -183,6 +195,11 @@ class CallRefused(_Line):
     detail: str
     call_ended: Timestamp
     retry_session_id: NonEmptyStr
+    #: The refused call's prompt, by sha256 and byte length; left out as above.
+    prompt_sha256: Sha256 | None = Field(default=None, exclude_if=lambda v: v is None)
+    prompt_bytes: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
 
 class RoundsEnded(_Line):
@@ -496,6 +513,8 @@ def _one_round(
                 detail=outcome.detail,
                 call_ended=call_ended[0],
                 retry_session_id=again,
+                prompt_sha256=outcome.prompt_sha256,
+                prompt_bytes=outcome.prompt_bytes,
             ),
         )
         workdir = retry_dir(loop.run_dir, k)
@@ -506,6 +525,7 @@ def _one_round(
             prompt,
             refused,
             parts=loop.config.parts_on_hand == "on",
+            library=loop.planner_files,
         )
         outcome = loop.make_call(
             brief, workdir=workdir, prompt=told, session_id=again, accept_misorder=True
@@ -581,6 +601,8 @@ class _Loop:
     make_call: MakeCall
     #: The attempt's start on the monotonic clock.
     origin: float
+    #: The files the planner reads, read once before any call; ``None`` for a run with none.
+    planner_files: Mapping[Path, bytes] | None = None
 
     def now(self) -> tuple[str, float]:
         """The wall-clock time, and the seconds since the attempt began on the monotonic clock."""
@@ -631,15 +653,36 @@ def decompose_in_rounds(
         OrchestratorError: the call, the review or the start raised it; the journal's terminal
             line names it, and no run is started.
     """
+    # Before any call: the files the planner reads, refused as a run's library is where one is
+    # missing, a link, empty or over the ceiling, so a call is never made on a library it cannot
+    # read. Every call of the run is then sent this one reading: the first, a re-plan, the retry.
+    built = planner_prompt(
+        brief,
+        sorted(config.models.roles),
+        parts=config.parts_on_hand == "on",
+        skills=config.skills,
+        library=library,
+        token_ceiling=config.token_ceiling,
+    )
+    files = built.files
+    opening = None if files is None else built.text
     if reviewing is None:  # one call, no review, nothing journalled
         outcome = make_call(
-            brief, workdir=round_dir(run_dir, 1), prompt=None, session_id=str(uuid.uuid4())
+            brief, workdir=round_dir(run_dir, 1), prompt=opening, session_id=str(uuid.uuid4())
         )
         retried: tuple[RetriedCall, ...] = ()
         if outcome.cause == RETRIED_CAUSE:
             # Its output refused by its schema: the call is made once more, and both recorded.
             spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
-            retried = (RetriedCall(round=1, call=spent, detail=outcome.detail or RETRIED_CAUSE),)
+            retried = (
+                RetriedCall(
+                    round=1,
+                    call=spent,
+                    detail=outcome.detail or RETRIED_CAUSE,
+                    prompt_sha256=outcome.prompt_sha256,
+                    prompt_bytes=outcome.prompt_bytes,
+                ),
+            )
             outcome = make_call(
                 brief,
                 workdir=retry_dir(run_dir, 1),
@@ -647,9 +690,10 @@ def decompose_in_rounds(
                 prompt=retry_prompt(
                     brief,
                     sorted(config.models.roles),
-                    None,
+                    opening,
                     outcome,
                     parts=config.parts_on_hand == "on",
+                    library=files,
                 ),
                 session_id=str(uuid.uuid4()),
                 accept_misorder=True,
@@ -662,10 +706,19 @@ def decompose_in_rounds(
             library=library,
             brief=brief,
             retried=retried,
+            planner_files=files,
         )
         return RoundsOutcome(found, outcome.ok, outcome.cause, outcome.detail, None)
     loop = _Loop(
-        config, run_dir, target_repo, library, reviewing, check, make_call, time.monotonic()
+        config,
+        run_dir,
+        target_repo,
+        library,
+        reviewing,
+        check,
+        make_call,
+        time.monotonic(),
+        planner_files=files,
     )
     if isinstance(reviewing[0], RecordsSpawns):
         # The review's spawn is on no run record before the opening: it is written beside the
@@ -677,7 +730,7 @@ def decompose_in_rounds(
     earlier: list[EarlierRound] = []
     proposals: list[Proposal] = []
     retried_calls: list[RetriedCall] = []
-    prompt: str | None = None
+    prompt: str | None = opening
     k = 0
     while True:
         k += 1
@@ -736,6 +789,9 @@ def decompose_in_rounds(
                     review_started=review_began,
                     ended=done,
                 ),
+                prompt_sha256=outcome.prompt_sha256,
+                prompt_bytes=outcome.prompt_bytes,
+                planner_library=library_files(files) if files else None,
             ),
         )
         # The round's end is journalled with what its review came to: its record goes now.
@@ -746,7 +802,13 @@ def decompose_in_rounds(
                 session_id=refused_first.session_id, usage=refused_first.usage
             )
             retried_calls.append(
-                RetriedCall(round=k, call=spent_first, detail=refused_first.detail or RETRIED_CAUSE)
+                RetriedCall(
+                    round=k,
+                    call=spent_first,
+                    detail=refused_first.detail or RETRIED_CAUSE,
+                    prompt_sha256=refused_first.prompt_sha256,
+                    prompt_bytes=refused_first.prompt_bytes,
+                )
             )
             proposals.append(
                 Proposal(
@@ -760,6 +822,8 @@ def decompose_in_rounds(
                     ended=ran.refused_ended,
                     review_started=None,
                     review_ended=None,
+                    prompt_sha256=refused_first.prompt_sha256,
+                    prompt_bytes=refused_first.prompt_bytes,
                 )
             )
         proposals.append(
@@ -775,6 +839,8 @@ def decompose_in_rounds(
                 ended=call_ended,
                 review_started=review_started,
                 review_ended=ended if review_started is not None else None,
+                prompt_sha256=outcome.prompt_sha256,
+                prompt_bytes=outcome.prompt_bytes,
             )
         )
         follows = what_follows(ending, last=k == last, holds=config.design_review != "observe")
@@ -794,6 +860,7 @@ def decompose_in_rounds(
                 plan,
                 ran.findings,
                 parts=config.parts_on_hand == "on",
+                library=files,
             )
             continue
         if follows in ("void", "replan"):
@@ -814,6 +881,7 @@ def decompose_in_rounds(
                 refused=refused,
                 proposals=tuple(proposals),
                 retried=tuple(retried_calls),
+                planner_files=files,
             )
         except OrchestratorError as exc:
             loop.end(k, "void", "infrastructure", _cause(exc), str(exc))

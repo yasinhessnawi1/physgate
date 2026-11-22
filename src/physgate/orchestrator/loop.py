@@ -40,6 +40,12 @@ from physgate.orchestrator.arbitration import (
     dispute_standing,
 )
 from physgate.orchestrator.budget import ATTEMPT_LIMIT, infra_retry_delay
+from physgate.orchestrator.carried import (
+    CLOSING_RECORD_PATH,
+    closing_record,
+    ids_missing,
+    shown_name,
+)
 from physgate.orchestrator.change_sets import change_history, integration_history
 from physgate.orchestrator.common import PLANNED_ID_MAX_LENGTH, SUBTASK_PATTERN, utc_now
 from physgate.orchestrator.completion import sign_off_open
@@ -175,7 +181,7 @@ from physgate.orchestrator.managed import (
     stricter_only,
     traffic_change,
 )
-from physgate.orchestrator.merge import merge_message
+from physgate.orchestrator.merge import MODULE_FILE_BYTES, merge_message
 from physgate.orchestrator.parts_write import (
     TakenPart,
     blocked_parts,
@@ -2801,14 +2807,22 @@ class Loop:
         self._stage(subtask_id, attempt, "implement")
         # Only the cross-nodes owner's opening pass follows its interfaces.
         follows = self.state.follows(subtask_id) if role in owners_of("cross_nodes") else None
-        check = self._sign_off_refusal(
-            self._recordable(
-                subtask_id,
-                attempt,
-                self._changes.check(
-                    subtask_id, session.attempt_commit, role, series=session.series, follows=follows
-                ),
-            )
+        check = self._decisions_refusal(
+            subtask_id,
+            session.attempt_commit,
+            self._sign_off_refusal(
+                self._recordable(
+                    subtask_id,
+                    attempt,
+                    self._changes.check(
+                        subtask_id,
+                        session.attempt_commit,
+                        role,
+                        series=session.series,
+                        follows=follows,
+                    ),
+                )
+            ),
         )
         self._emit(
             ProposalsChecked(
@@ -3134,6 +3148,12 @@ class Loop:
             return False
         if not self._run_branch_holds(subtask_id, checked):
             return False
+        # The merge of integration's attempt writes the closing record of the decisions a person
+        # took, built from the log alone: replay rebuilds the same bytes. None, no file.
+        closing = (
+            closing_record(self.state) if subtask_id == self.state.completion_subtask else None
+        )
+        extra = {"records": {CLOSING_RECORD_PATH: closing}} if closing is not None else {}
         try:
             if changes.followed:
                 # The merge commit rewrites each followed interface's contract file, so every
@@ -3141,11 +3161,11 @@ class Loop:
                 contracts = contracts_of([Node.model_validate(e.after) for e in changes.followed])
                 merge_commit = self._merger.merge(
                     subtask_id, attempt, checked, merge_text, reopen=sub.reopens,
-                    contracts=contracts,
+                    contracts=contracts, **extra,
                 )  # fmt: skip
             else:
                 merge_commit = self._merger.merge(
-                    subtask_id, attempt, checked, merge_text, reopen=sub.reopens
+                    subtask_id, attempt, checked, merge_text, reopen=sub.reopens, **extra
                 )
         except (MergeConflictError, MergeRefusedError) as exc:
             cause: IncidentCause = (
@@ -3674,6 +3694,47 @@ class Loop:
         unhalted = state.halted is None and not state.halt_owed()
         if unhalted and state.sign_off_due is None and state.sign_off_after is not None:
             self._raise_sign_offs()
+
+    def _decisions_refusal(self, subtask_id: str, commit: str, check: ChangeCheck) -> ChangeCheck:
+        """``check``, or the refusal of an integration attempt that leaves a carried item id out.
+
+        Integration's issued state names each decision a person took with a note as an open point
+        of the design, by the item's id. The files of its module directory, as the attempt's commit
+        holds them, must hold each id as written, in the limits statement; the ids missing are
+        named. A file an earlier pass wrote and this one left alone counts. A sign-off is carried
+        and is not asked for. Nothing else of its wording is checked here: its reviewer reads the
+        same record. In either mode.
+        """
+        if check.refused_by is not None or subtask_id != self.state.completion_subtask:
+            return check
+        module_dir = self.state.subtasks[subtask_id].plan.module_dir
+        missing = ids_missing(self.state, self._merger.module_text(commit, module_dir))
+        if not missing:
+            return check
+        named = ", ".join(missing)
+        reason = (
+            f"the completion check: the attempt leaves out the id of {len(missing)} decision"
+            f"{'' if len(missing) == 1 else 's'} a person took, each an open point of the design: "
+            f"{named}. Write each id whole in the limits statement under {module_dir}/, with what "
+            "the decision means for the design."
+        )
+        unread = self._merger.module_unread(commit, module_dir)
+        if unread:
+            reason += (
+                f" The check did not read {len(unread)} file{'' if len(unread) == 1 else 's'} "
+                f"under {module_dir}/ over the bound of {MODULE_FILE_BYTES} bytes: "
+                f"{', '.join(shown_name(name) for name in unread)}; an id written there is not "
+                "counted."
+            )
+        return check.model_copy(
+            update={
+                "refused_by": "declaration",
+                "reason": reason,
+                "subject": DECLARATION_PATH,
+                "declaration": None,
+                "disputes": (),
+            }
+        )
 
     def _sign_off_refusal(self, check: ChangeCheck) -> ChangeCheck:
         """``check``, or the declaration's refusal where it names a module whose sign-off is owed.

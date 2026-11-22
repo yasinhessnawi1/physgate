@@ -353,18 +353,28 @@ class Merger(Protocol):
         message: str,
         reopen: int = 0,
         contracts: Mapping[str, str] | None = None,
+        records: Mapping[str, str] | None = None,
     ) -> str:
         """Merge exactly ``attempt_commit`` and return the merge commit.
 
         Idempotent: a merge already made is returned, not redone. Refuses a commit
         that is no longer what the subtask's branch points at. ``contracts`` are interface
         contract files, by path, the merge commit writes with these bytes: the revisions the
-        attempt followed.
+        attempt followed. ``records`` is the closing record the merge of integration's attempt
+        writes (``carried.CLOSING_RECORD_PATH``), by path, with the bytes given.
         """
         ...
 
     def artefact_diff(self, attempt_commit: str) -> str:
         """The attempt's diff against where it started, for a person to read."""
+        ...
+
+    def module_text(self, attempt_commit: str, module_dir: str) -> str:
+        """Every file under ``module_dir`` as ``attempt_commit`` holds it, as one text."""
+        ...
+
+    def module_unread(self, attempt_commit: str, module_dir: str) -> tuple[str, ...]:
+        """The files under ``module_dir`` that ``module_text`` left out for their size, by name."""
         ...
 
     def review_base(self, attempt_commit: str) -> str:

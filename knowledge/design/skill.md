@@ -19,6 +19,31 @@
 3. Read the table back from the other side: each module criterion has a row, or is marked derived
    with its reason (§1).
 
+## Procedure: the chain behind a system behaviour
+
+For each requirement that names what the built system does (a speed it drives at, a push it
+recovers from), one row per link (§12):
+
+| Requirement | Link | Module | Quantity, value, unit | Where it comes from | Criterion that applies or shows it |
+|---|---|---|---|---|---|
+| e.g. "drives at 1.2 m/s" | source of the speed command | the module that commands it | speed command, 1.2 m/s | the brief's figure, on the node both read | the built program applies it, by the means the environment provides |
+| e.g. "drives at 1.2 m/s" | speed command applied | the implementing module (firmware) | speed command, a firmware constant, 1.2 m/s | equal to the speed reference on control's node | its built program applies the value read from the node |
+
+1. Fill every link from the source of the command to the plant. A link with no module is a missing
+   producer: allocate it, or record the requirement as not allocated only where the brief leaves
+   that link to a person (§12, §1).
+2. The module that closes the chain gets a heading "System checks" in its specification, with the
+   quantity integration compares across the links and the check it runs, or the statement that it
+   is not shown in this run (§12).
+
+## Procedure: the safety values a motor-driving module needs
+
+For the module that drives the motors, write each with a value and source in its specification
+(§13): the stale-command timeout (a time, in ms) or the watchdog requirement; the count N or time T of a sensor
+fault during operation; the driver's state while the processor is in reset, with the board's
+document; the bus time-out; the sensor's filter bandwidth and delay (the plan's value), or that it is not settable.
+A value the plan cannot source is an estimate to be resolved, with who resolves it (§8).
+
 ## Procedure: finding the interfaces
 
 1. Write the modules as rows and columns of a square table; in each cell, what the row's module
@@ -64,6 +89,10 @@
 
 ## Antipatterns
 
+- **A behaviour shown by analysis only.** The requirement is allocated to the module that models
+  it, and no module produces it on the system built (§12).
+- **A safety check with no value.** The module is left to choose a timeout, a fault count or a
+  reset state, or to leave the check out (§13).
 - **A requirement of the brief with no home.** Dropped in decomposition, it is never built and
   never checked (§1).
 - **A criterion with no parent.** Unrequested work, or a derived requirement whose reason is lost

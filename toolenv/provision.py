@@ -5,9 +5,9 @@ Run it outside every session, with the network, once per machine:
     python3 toolenv/provision.py --dest /abs/path/new-env [--cache /abs/path/cache]
 
 Every download is held to a digest recorded before it was fetched: the interpreter by uv's own
-table, each wheel by ``uv.lock``, Node by ``pins.json``, each npm package by the server's
-``package-lock.json``, and each PlatformIO package by its registry's checksum at the pinned
-version. Every file is copied into the destination, never linked to a cache: a file with a
+table, each wheel by ``uv.lock``, Node by ``pins.json``, each npm package by the server's or the
+simulator's ``package-lock.json``, and each PlatformIO package by its registry's checksum at the
+pinned version. Every file is copied into the destination, never linked to a cache: a file with a
 second name outside the environment could be changed through that name, unseen by anything
 that guards the environment's own paths. The result is one directory:
 
@@ -17,13 +17,15 @@ that guards the environment's own paths. The result is one directory:
     platformio/         PlatformIO's package store (platform, toolchain, framework, library)
     node/               the pinned Node release
     platformio-server/  the PlatformIO tool server, installed from its npm lock
+    avrsim/             the AVR simulator rig (``avrsim``), on avr8js installed from its npm lock
     servers/            this repository's own tool servers
     provisioned.json    what was built, and what the self-check measured
 
 It ends by checking itself offline (the libraries import at their pins and compute, a firmware
-fixture builds with every download refused, the PlatformIO server answers), and leaves every
-file read-only. The harness measures the result before a run may use it; this script only
-builds it. It runs on any Python 3.12 and imports nothing from the harness.
+fixture builds with every download refused, the PlatformIO server answers, and two firmware
+fixtures run on the simulator to their known answers), and leaves every file read-only. The
+harness measures the result before a run may use it; this script only builds it. It runs on any
+Python 3.12 and imports nothing from the harness.
 """
 
 from __future__ import annotations
@@ -79,6 +81,75 @@ void loop() {
   delay(10);
 }
 """
+#: The simulator's timing fixture: a 100 Hz update paced by millis(), reading the inertial
+#: sensor's WHO_AM_I over the bus, writing and reading back CTRL2_G, and printing the encoders'
+#: counts on USART1 every quarter second.
+TIMING_MAIN = """#include <Arduino.h>
+#include <Wire.h>
+#include <Balboa32U4.h>
+Balboa32U4Encoders encoders;
+static uint8_t whoami;
+static uint8_t ctrl2g;
+static uint16_t updates;
+static uint8_t readRegister(uint8_t reg) {
+  Wire.beginTransmission(0x6B);
+  Wire.write(reg);
+  Wire.endTransmission();
+  Wire.requestFrom((uint8_t)0x6B, (uint8_t)1);
+  return Wire.available() ? Wire.read() : 0;
+}
+extern "C" __attribute__((noinline, used)) void update() {
+  whoami = readRegister(0x0F);
+  updates++;
+  if (updates % 25 == 0) {
+    Serial1.print(F("W:"));
+    Serial1.print(whoami, HEX);
+    Serial1.print(F(" G:"));
+    Serial1.print(ctrl2g, HEX);
+    Serial1.print(F(" L:"));
+    Serial1.print(encoders.getCountsLeft());
+    Serial1.print(F(" R:"));
+    Serial1.println(encoders.getCountsRight());
+  }
+}
+void setup() {
+  Serial1.begin(115200);
+  Wire.begin();
+  Wire.beginTransmission(0x6B);
+  Wire.write(0x11);
+  Wire.write(0x58);
+  Wire.endTransmission();
+  ctrl2g = readRegister(0x11);
+  encoders.init();
+}
+void loop() {
+  static uint32_t next = 0;
+  uint32_t now = millis();
+  if ((int32_t)(now - next) >= 0) {
+    next += 10;
+    update();
+  }
+}
+"""
+#: Board time for each fixture. The sketch starts 65 ms after power-on (the fuses' start-up
+#: time) and the Arduino core then waits some 10 ms for the PLL before setup(), so the first
+#: updates come back to back; the timing fixture runs two seconds so that its mean period is the
+#: 10 ms schedule within the tolerance. Its wheels turn for half a second from 0.2 s, once
+#: encoders.init() has run (+5 and -2.5 motor revolutions a second, 12 counts each), so the
+#: counts it prints after that are known exactly: +30 and -15.
+BALBOA_SCENARIO = {"avrsim_scenario": 1, "duration_s": 1.0}
+TIMING_SCENARIO = {
+    "avrsim_scenario": 1,
+    "duration_s": 2.0,
+    "encoders": {
+        "left_rev_s": [[0, 0], [0.2, 0], [0.2001, 5], [0.7, 5], [0.7001, 0]],
+        "right_rev_s": [[0, 0], [0.2, 0], [0.2001, -2.5], [0.7, -2.5], [0.7001, 0]],
+    },
+    "probes": [{"symbol": "update", "period_s": 0.01}],
+}
+#: How far a measured period may lie from the nominal one.
+PERIOD_TOLERANCE = 0.01
+
 #: What the self-check asks the libraries: their versions, a margin and a MuJoCo step.
 LIBRARY_CHECK = """
 import importlib.metadata as m, json
@@ -312,6 +383,90 @@ def make_read_only(root: Path) -> None:
             path.chmod(stat.S_IMODE(path.lstat().st_mode) & ~0o222)
 
 
+# ---- the AVR simulator ------------------------------------------------------------------------
+
+#: The simulator's directory beside this script, and what is copied from it.
+AVRSIM = "avrsim"
+_AVRSIM_FILES = ("package.json", "package-lock.json", "bin/avrsim")
+
+
+def avrsim_files(toolenv: Path = HERE) -> list[str]:
+    """The simulator's files, relative to its directory: package, lock, launcher, sources."""
+    sources = sorted(path.name for path in (toolenv / AVRSIM / "src").glob("*.js"))
+    return [*_AVRSIM_FILES, *(f"src/{name}" for name in sources)]
+
+
+def built_from(toolenv: Path = HERE) -> list[str]:
+    """Every file of this directory the environment is built from, as provisioned.json names it."""
+    own = [
+        "pyproject.toml",
+        "uv.lock",
+        "pins.json",
+        SESSION_FILE,
+        "platformio-server/package-lock.json",
+    ]
+    return [*own, *(f"{AVRSIM}/{name}" for name in avrsim_files(toolenv))]
+
+
+def copy_avrsim(dest: Path) -> None:
+    """Copy the simulator's package, lock, launcher and sources in; the launcher executable."""
+    for name in avrsim_files():
+        target = dest / AVRSIM / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(HERE / AVRSIM / name, target)
+        target.chmod(0o755 if name.startswith("bin/") else 0o644)
+
+
+def _within(found: object, nominal: float) -> bool:
+    return isinstance(found, int | float) and abs(found - nominal) <= PERIOD_TOLERANCE * nominal
+
+
+def _dig(summary: Mapping[str, object], *path: str) -> object:
+    found: object = summary
+    for key in path:
+        found = found.get(key) if isinstance(found, dict) else None
+    return found
+
+
+def avrsim_answers(balboa: Mapping[str, object], timing: Mapping[str, object]) -> dict[str, object]:
+    """The fixtures' known answers from the two runs' summaries; stop if any is not the known one.
+
+    The motors fixture drives Timer1 as ``Balboa32U4Motors`` does: OC1A at 20 kHz (800 cycles of
+    16 MHz) with ICR1 at 400. The timing fixture reads WHO_AM_I (0x69) and CTRL2_G back (0x58),
+    counts the encoders' injected edges (+30 and -15) and enters its update every 10 ms.
+    """
+    period = _dig(balboa, "pwm", "PB5", "period_cycles", "mean")
+    if not _within(period, 800):
+        raise ProvisionError(f"the simulator's OC1A period is {period!r}, not 800 cycles (20 kHz)")
+    icr1 = _dig(balboa, "timer1", "icr1")
+    if icr1 != 400:
+        raise ProvisionError(f"the simulator's ICR1 is {icr1!r}, not 400")
+    text = _dig(timing, "usart1", "text")
+    lines = [line for line in str(text or "").splitlines() if line]
+    expected = "W:69 G:58 L:30 R:-15"
+    if not lines or lines[-1] != expected:
+        raise ProvisionError(f"the timing fixture printed {lines[-1:]!r}, not {expected!r}")
+    if _dig(timing, "imu", "registers_written", "CTRL2_G") != 0x58:
+        raise ProvisionError("the timing fixture's CTRL2_G write was not seen on the bus")
+    counts = _dig(timing, "encoders", "counts")
+    if counts != {"left": 30, "right": -15}:
+        raise ProvisionError(f"the simulator injected encoder counts {counts!r}, not +30 and -15")
+    update = _dig(timing, "probes", "update", "period_cycles", "mean")
+    entries = _dig(timing, "probes", "update", "entries")
+    if not _within(update, 160_000) or not isinstance(entries, int) or entries < 99:
+        raise ProvisionError(
+            f"the update ran {entries!r} times every {update!r} cycles, not 100 Hz"
+        )
+    return {
+        "oc1a_frequency_hz": _dig(balboa, "pwm", "PB5", "frequency_hz"),
+        "icr1": icr1,
+        "who_am_i": "69",
+        "ctrl2_g": "58",
+        "encoder_counts": counts,
+        "update_period_cycles": update,
+    }
+
+
 # ---- the build --------------------------------------------------------------------------------
 
 
@@ -379,6 +534,16 @@ def _server(dest: Path, cache: Path, work: Path) -> None:
     run(npm_ci_argv(dest / "node" / "bin" / "npm", cache), env, cwd=server)
 
 
+def _avrsim(dest: Path, cache: Path, work: Path) -> None:
+    copy_avrsim(dest)
+    env = {
+        **base_environment(work),
+        "PATH": f"{dest / 'node' / 'bin'}:/usr/bin:/bin",
+        "npm_config_update_notifier": "false",
+    }
+    run(npm_ci_argv(dest / "node" / "bin" / "npm", cache), env, cwd=dest / AVRSIM)
+
+
 def _own_servers(dest: Path) -> list[str]:
     (dest / "servers").mkdir()
     copied = []
@@ -410,31 +575,64 @@ def _check_libraries(dest: Path, pins: Mapping[str, object], work: Path) -> dict
     return dict(found)
 
 
-def _check_build(dest: Path, work: Path) -> dict[str, int]:
+def _build_fixture(dest: Path, work: Path, name: str, main: str) -> tuple[str, Path]:
+    """Build a firmware fixture offline; PlatformIO's output and the ELF it built."""
     core = work / "pio-core"
-    core.mkdir()
-    # The store is read-only, and PlatformIO takes lock files beside each store, so the
-    # build's core directory is its own and links into the store.
-    for name in ("platforms", "packages", "lib"):
-        (core / name).symlink_to(dest / "platformio" / name)
-    sketch = work / "sketch"
+    if not core.exists():
+        core.mkdir()
+        # The store is read-only, and PlatformIO takes lock files beside each store, so the
+        # build's core directory is its own and links into the store.
+        for store in ("platforms", "packages", "lib"):
+            (core / store).symlink_to(dest / "platformio" / store)
+    sketch = work / name
     (sketch / "src").mkdir(parents=True)
     (sketch / "platformio.ini").write_text(FIXTURE_INI, encoding="utf-8")
-    (sketch / "src" / "main.cpp").write_text(FIXTURE_MAIN, encoding="utf-8")
+    (sketch / "src" / "main.cpp").write_text(main, encoding="utf-8")
     env = pio_environment(core, work, offline=True) | {
-        "PLATFORMIO_BUILD_DIR": str(work / "build"),
-        "PLATFORMIO_WORKSPACE_DIR": str(work / "workspace"),
+        "PLATFORMIO_BUILD_DIR": str(work / f"{name}-build"),
+        "PLATFORMIO_WORKSPACE_DIR": str(work / f"{name}-workspace"),
         "PLATFORMIO_CACHE_DIR": str(work / "pio-cache"),
     }
     out = run([str(dest / "venv" / "bin" / "pio"), "run"], env, cwd=sketch)
+    if (sketch / ".pio").exists():
+        raise ProvisionError(f"the offline {name} build built into the module")
+    return out, work / f"{name}-build" / "balboa" / "firmware.elf"
+
+
+def _check_build(dest: Path, work: Path) -> tuple[dict[str, int], Path]:
+    out, elf = _build_fixture(dest, work, "sketch", FIXTURE_MAIN)
     sizes: dict[str, int] = {}
     for line in out.splitlines():
         for label in ("RAM", "Flash"):
             if line.startswith(f"{label}:") and "used " in line:
                 sizes[f"{label.lower()}_used_bytes"] = int(line.split("used ")[1].split()[0])
-    if len(sizes) != 2 or (sketch / ".pio").exists():
-        raise ProvisionError("the offline firmware build gave no size, or built into the module")
-    return sizes
+    if len(sizes) != 2:
+        raise ProvisionError("the offline firmware build gave no size")
+    return sizes, elf
+
+
+def _simulate(
+    dest: Path, work: Path, name: str, elf: Path, scenario: Mapping[str, object]
+) -> dict[str, object]:
+    """Run one fixture on the environment's simulator from an empty environment at the root."""
+    path = work / f"{name}.json"
+    path.write_text(json.dumps(scenario), encoding="utf-8")
+    argv = [str(dest / AVRSIM / "bin" / AVRSIM), "run", "--elf", str(elf), "--scenario", str(path),
+            "--out", str(work / f"{name}.jsonl")]  # fmt: skip
+    summary = json.loads(run(argv, base_environment(work), cwd=Path("/")))
+    if not isinstance(summary, dict):
+        raise ProvisionError(f"the simulator's {name} run gave no summary")
+    return summary
+
+
+def _check_avrsim(dest: Path, work: Path, balboa_elf: Path) -> dict[str, object]:
+    version = run(
+        [str(dest / AVRSIM / "bin" / AVRSIM), "--version"], base_environment(work), cwd=Path("/")
+    )
+    _, timing_elf = _build_fixture(dest, work, "timing", TIMING_MAIN)
+    balboa = _simulate(dest, work, "balboa", balboa_elf, BALBOA_SCENARIO)
+    timing = _simulate(dest, work, "timing", timing_elf, TIMING_SCENARIO)
+    return {"version": version.strip(), **avrsim_answers(balboa, timing)}
 
 
 def _check_server(dest: Path, work: Path) -> str:
@@ -533,6 +731,7 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
         run([str(python), "-I", "-m", "compileall", "-q", "-j0", stdlib.strip()], env)
         _platformio(dest, pins, work)
         _server(dest, cache, work)
+        _avrsim(dest, cache, work)
         servers = _own_servers(dest)
         session_file(dest)
         require_one_name_each(dest)
@@ -546,17 +745,15 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
             "python": str(python.relative_to(dest)),
             "node_archive_sha256": node_digest,
             "own_servers": servers,
-            "locks_sha256": {
-                name: sha256_of(HERE / name)
-                for name in ("pyproject.toml", "uv.lock", "pins.json", SESSION_FILE,
-                             "platformio-server/package-lock.json")
-            },
-            "self_check": {
-                "libraries": _check_libraries(dest, pins, work),
-                "firmware": _check_build(dest, work),
-                "platformio_server": _check_server(dest, work),
-            },
-        }  # fmt: skip
+            "locks_sha256": {name: sha256_of(HERE / name) for name in built_from()},
+        }
+        sizes, balboa_elf = _check_build(dest, work)
+        record["self_check"] = {
+            "libraries": _check_libraries(dest, pins, work),
+            "firmware": sizes,
+            "platformio_server": _check_server(dest, work),
+            "avrsim": _check_avrsim(dest, work, balboa_elf),
+        }
     written = dest / "provisioned.json"
     written.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     make_read_only(dest)
