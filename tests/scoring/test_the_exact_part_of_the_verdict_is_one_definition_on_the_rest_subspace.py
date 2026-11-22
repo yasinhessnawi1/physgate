@@ -156,6 +156,7 @@ def test_the_reviewer_s_three_state_law_names_the_reason_in_the_record(tmp_path:
     rows = {r["name"]: r for r in record["specs"]}
     assert rows["pm"]["verdict"] == "fail", rows["pm"]
     assert "exactly 1" in rows["pm"]["reason"], rows["pm"]["reason"]
+    assert "unit_circle" in record, sorted(record)
     assert record["unit_circle"] == {
         "at_one_not_set_aside": 1,
         "algebraic_at_one": 2,
@@ -359,6 +360,7 @@ def test_a_held_integrator_the_command_reads_behind_a_constant_state_is_unstable
     # The counts are the rest subspace's, not the loop's: s1 is set aside, the closed loop's
     # second eigenvalue at 1 is outside the subspace, and the verdict there comes from the float.
     record = scope._record(tmp_path, controller)
+    assert "unit_circle" in record, sorted(record)
     assert record["unit_circle"] == {
         "at_one_not_set_aside": 0,
         "algebraic_at_one": 1,
@@ -373,6 +375,7 @@ def test_the_same_shape_at_minus_one_is_unstable_everywhere(tmp_path: Path) -> N
     _unstable_everywhere(controller)
     # The count at -1 is zero on the rest subspace; the verdict comes from the float.
     record = scope._record(tmp_path, controller)
+    assert "unit_circle" in record, sorted(record)
     assert record["unit_circle"] == {
         "at_one_not_set_aside": 0,
         "algebraic_at_one": 0,

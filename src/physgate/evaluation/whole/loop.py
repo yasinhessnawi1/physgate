@@ -59,7 +59,8 @@ a set-aside mode included (the count at -1 is the dimension of a kernel, the ind
 eigenvectors). **What is judged in floating point** is every mode that moves the plant, and a mode
 at exactly 1 or -1 that is reached only through the plant or through a state the command reads (a
 held integrator the command reads, fed by a constant state nothing feeds): such a mode lies outside
-the rest subspace, and its error is below 1e-15 where measured. An eigenvalue exactly on the unit
+the rest subspace. For the shape named here and its amplified variants the error measured is below
+1e-15; that is no bound for every mode outside the rest subspace. An eigenvalue exactly on the unit
 circle there is included, and so is anything within
 :data:`STABILITY_EPSILON` of the circle, by the one stated rule: the closed loop is stable when its
 spectral radius, after exactly the modes set aside are taken out, is below 1 by at least

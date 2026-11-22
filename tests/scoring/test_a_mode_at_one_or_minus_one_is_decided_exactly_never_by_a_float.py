@@ -119,6 +119,7 @@ def test_the_reviewer_s_law_is_a_fail_with_the_exact_reason_named_in_the_record(
     assert rows["pm"]["verdict"] == "fail", rows["pm"]
     assert "unstable" in rows["pm"]["reason"]
     assert "exactly 1" in rows["pm"]["reason"], rows["pm"]["reason"]
+    assert "unit_circle" in record, sorted(record)
     assert record["unit_circle"] == {
         "at_one_not_set_aside": 1,
         "algebraic_at_one": 1,
@@ -202,6 +203,7 @@ def test_a_coupled_pair_at_exactly_minus_one_is_a_fail_with_the_exact_reason_nam
     rows = {r["name"]: r for r in record["specs"]}
     assert rows["pm"]["verdict"] == "fail", rows["pm"]
     assert "exactly -1" in rows["pm"]["reason"], rows["pm"]["reason"]
+    assert "unit_circle" in record, sorted(record)
     assert record["unit_circle"] == {
         "at_one_not_set_aside": 0,
         "algebraic_at_one": 0,
