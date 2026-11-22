@@ -84,7 +84,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
     AfterValidator,
@@ -516,6 +516,12 @@ class SampledLaw(_Loop, law_module.Body):
                 self, values, period=float(self.period.value), written=self._written
             )
         return self._decision
+
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
+        """A copy, which decides afresh: a kept decision is of the original's numbers."""
+        copied = super().model_copy(update=update, deep=deep)
+        copied._decision = None  # noqa: SLF001
+        return copied
 
     @model_validator(mode="after")
     def _law_holds(self) -> SampledLaw:

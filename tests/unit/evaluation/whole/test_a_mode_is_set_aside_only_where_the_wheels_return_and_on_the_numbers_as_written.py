@@ -302,3 +302,21 @@ def test_an_answer_whose_law_divides_by_a_zero_is_a_named_fault_not_an_exception
         pytest.fail(f"{type(exc).__name__} escaped: {exc}")
     else:
         pytest.fail("the answer was read")
+
+
+# ── a copy of a law with other numbers decides on its own numbers, never on the original's ──
+
+
+def test_a_copy_of_a_law_with_a_changed_coefficient_gives_the_decision_of_its_own_numbers() -> None:
+    parsed = _answer().parse_answer(_bytes(_controller_with_split_pole("0.9", "0.1")))
+    # A law without the text it was read from, so that a changed number is read as it is.
+    law = type(parsed.controller).model_validate(parsed.controller.model_dump())
+    before = law.decision()
+    assert (before.circle.algebraic_at_one, before.circle.set_aside) == (1, 1)
+    coefficients = dict(law.coefficients)
+    coefficients["first"] = type(coefficients["first"]).model_validate({"value": 0.8, "unit": "1"})
+    copy = law.model_copy(update={"coefficients": coefficients})
+    after = copy.decision()
+    assert after is not before
+    assert (after.circle.algebraic_at_one, after.circle.set_aside) == (0, 0)
+    assert law.decision() is before

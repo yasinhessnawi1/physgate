@@ -61,20 +61,24 @@ loop's eigenvalues are the update's own. On it, the algebraic multiplicity of th
 chain of integrators counted link by link, not only its eigenvector) is compared with the number of
 independent modes the set-aside rule sets aside, and if it is larger the law is unstable outright,
 at every plant point and every gain, whatever the floating-point eigenvalue comes out as; any
-eigenvalue of exactly -1 there (never set aside) makes the law unstable outright too.
+eigenvalue of exactly -1 there (never set aside; counted as the dimension of the kernel of the
+update plus the identity, the independent eigenvectors) makes the law unstable outright too.
 
 What is judged in floating point is everything that moves the plant: every mode outside the rest
 subspace, an eigenvalue exactly on the unit circle there included (at 1, at -1 or anywhere else),
 and any eigenvalue within 1e-12 of the circle anywhere, each by the one stated rule, a spectral
 radius below 1 by :data:`~physgate.evaluation.whole.loop.STABILITY_EPSILON` (1e-12), after exactly
-the modes the rule sets aside are taken out (the rule's choice is not changed by the count). So a
-position gain of the right sign at 1e-9 scores stable, while none and the wrong sign do not, and an
-eigenvalue of ``1 - 1e-9`` is inside. The decision depends on the law's numbers alone, so it is made
-once per answer, not per plant point. Every number of a law is a number a float holds as it is
-written (one that underflows, written as a nonzero that reads as zero, or overflows is refused by
-name), and is written with at most 15 significant digits: a held state is decided on the decimals as
-written, and two spellings of one float past 15 digits can be decided differently, always towards
-unstable.
+the modes the rule sets aside are taken out (the rule's choice is not changed by the count). The
+exact part covers the rest subspace and nothing more: a mode at exactly 1 or -1 that is reached
+only through the plant, or through a state the command reads (a held integrator the command reads,
+fed by a constant state nothing feeds, say), lies outside it and is judged in floating point, where
+the largest error measured is 1e-15. So a position gain of the right sign at 1e-9 scores stable,
+while none and the wrong sign do not, and an eigenvalue of ``1 - 1e-9`` is inside. The decision
+depends on the law's numbers alone, so it is made once per answer, not per plant point. Every number
+of a law is a number a float holds as it is written (one that underflows, written as a nonzero that
+reads as zero, or overflows is refused by name), and is written with at most 15 significant digits:
+a held state is decided on the decimals as written, and two spellings of one float past 15 digits
+can be decided differently, always towards unstable.
 
 **The coefficients** are named by the design, each ``{value, unit}`` as the graph holds it. The
 reserved name ``period`` is the loop's own period, in s. Units are checked line by line: every
@@ -855,7 +859,9 @@ def _rest_subspace(held: _Held, body: Body) -> tuple[int, int]:
     (the unobservable subspace of the pair), found exactly. It is closed under the update, and on
     it the closed loop's own update is this one and nothing else. The multiplicity of 1 is the
     dimension of the kernel of ``(update - I)^d`` on it (``d`` its dimension), and the count at -1
-    the dimension of the kernel of ``update + I`` on it.
+    the dimension of the kernel of ``update + I`` on it: the number of independent eigenvectors at
+    -1, not an algebraic multiplicity (a chain at -1 counts once, however long). Nothing outside
+    the rest subspace is counted here; a mode at exactly 1 or -1 there is left to the float.
     """
     n = len(body.memory)
     wheel = n + LOOP_SIGNALS.index("wheel_angle")
@@ -958,10 +964,12 @@ class UnitCircle:
     ``algebraic_at_one`` is the algebraic multiplicity of the eigenvalue 1 on the rest subspace
     (:func:`_rest_subspace`), ``set_aside`` the number of independent modes the set-aside rule sets
     aside (:func:`held_modes`), and ``at_one`` their difference: the eigenvalues of exactly 1 left
-    in the loop. ``at_minus_one`` is the count at exactly -1 there, which is never set aside.
+    in the loop. ``at_minus_one`` is the dimension of the kernel of the update plus the identity
+    on that subspace (the independent eigenvectors at exactly -1, not their multiplicity: a chain
+    counts once), never set aside.
     Either of ``at_one`` and ``at_minus_one`` above zero is an eigenvalue of the closed loop that
     is exactly on the unit circle at every plant point and every gain: the law is unstable,
-    whatever a float says.
+    whatever a float says. The counts are those of the rest subspace only.
     """
 
     at_one: int

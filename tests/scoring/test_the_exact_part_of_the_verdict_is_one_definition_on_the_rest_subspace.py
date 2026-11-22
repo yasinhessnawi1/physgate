@@ -302,3 +302,81 @@ def test_an_inert_state_at_one_is_set_aside_and_its_margins_equal_the_earlier_on
     circle = _circle(controller)
     assert circle.at_one == 0
     _stable_everywhere(controller)
+
+
+# ── the stated limit: a mode at exactly 1 or -1 that is reached only through another state ──
+#
+# The exact part is the rest subspace. A held integrator the command reads (``s1``), fed by a
+# constant state nothing feeds (``s2``), puts an exact eigenvalue at 1 (or -1) in the closed
+# loop that is not on the rest subspace: the command sees ``s2`` one step later. It is judged in
+# floating point, where the largest error measured is 1e-15, so the laws score unstable, and the
+# record's counts are the ones the rest subspace gives, not a statement about the whole loop.
+
+
+def _read_through_a_state(*, minus: bool) -> dict[str, Any]:
+    """``s1' = s1 + 0.1*s2 + 0.1*tilt_rate``, ``s2' = s2``, the command reads ``0.1*s1``.
+
+    With ``minus``: ``s1' = 0.5*s1 + s2``, ``s2' = -s2`` (nothing feeds ``s2``, no tilt rate).
+    """
+    coefficients = dict(helpers._good_coefficients(RADIUS))
+    coefficients["read"] = helpers._m(0.1, "1")
+    memory = [
+        {"name": "s1", "unit": "1", "next": "s1_now"},
+        {"name": "s2", "unit": "1", "next": "s2_now"},
+    ]
+    if minus:
+        coefficients["half"] = helpers._m(0.5, "1")
+        coefficients["neg"] = helpers._m(-1.0, "1")
+        s1 = [_term("previous.s1", "half"), _term("previous.s2")]
+        s2 = [_term("previous.s2", "neg")]
+    else:
+        coefficients["couple"] = helpers._m(0.1, "1")
+        coefficients["feed"] = helpers._m(0.1, "s/rad")
+        s1 = [
+            _term("previous.s1"),
+            _term("previous.s2", "couple"),
+            _term("tilt_rate", "feed"),
+        ]
+        s2 = [_term("previous.s2")]
+    lines = [
+        {"name": "s1_now", "unit": "1", "terms": s1},
+        {"name": "s2_now", "unit": "1", "terms": s2},
+    ]
+    terms = [
+        *helpers._no_travel_terms(),
+        _term("wheel_angle", "distance_gain"),
+        _term("previous.s1", "read"),
+    ]
+    built: dict[str, Any] = helpers._law(terms, coefficients, memory, lines)
+    return built
+
+
+def test_a_held_integrator_the_command_reads_behind_a_constant_state_is_unstable_everywhere(
+    tmp_path: Path,
+) -> None:
+    controller = _read_through_a_state(minus=False)
+    _unstable_everywhere(controller)
+    # The counts are the rest subspace's, not the loop's: s1 is set aside, the closed loop's
+    # second eigenvalue at 1 is outside the subspace, and the verdict there comes from the float.
+    record = scope._record(tmp_path, controller)
+    assert record["unit_circle"] == {
+        "at_one_not_set_aside": 0,
+        "algebraic_at_one": 1,
+        "set_aside": 1,
+        "at_minus_one": 0,
+    }
+    assert record["outcome"] == "fail"
+
+
+def test_the_same_shape_at_minus_one_is_unstable_everywhere(tmp_path: Path) -> None:
+    controller = _read_through_a_state(minus=True)
+    _unstable_everywhere(controller)
+    # The count at -1 is zero on the rest subspace; the verdict comes from the float.
+    record = scope._record(tmp_path, controller)
+    assert record["unit_circle"] == {
+        "at_one_not_set_aside": 0,
+        "algebraic_at_one": 0,
+        "set_aside": 0,
+        "at_minus_one": 0,
+    }
+    assert record["outcome"] == "fail"

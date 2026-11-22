@@ -55,8 +55,12 @@ the law's own. On it, in exact arithmetic on the law's numbers as written
 (:class:`~physgate.evaluation.whole.law.UnitCircle`), the algebraic multiplicity of the eigenvalue
 1 against the number of modes set aside, and any eigenvalue of exactly -1: either one makes the law
 unstable outright, whatever a floating-point eigenvalue comes out as, a chain of integrators behind
-a set-aside mode included. **What is judged in floating point** is every mode that moves the plant,
-an eigenvalue exactly on the unit circle there included, and anything within
+a set-aside mode included (the count at -1 is the dimension of a kernel, the independent
+eigenvectors). **What is judged in floating point** is every mode that moves the plant, and a mode
+at exactly 1 or -1 that is reached only through the plant or through a state the command reads (a
+held integrator the command reads, fed by a constant state nothing feeds): such a mode lies outside
+the rest subspace, and its error is below 1e-15 where measured. An eigenvalue exactly on the unit
+circle there is included, and so is anything within
 :data:`STABILITY_EPSILON` of the circle, by the one stated rule: the closed loop is stable when its
 spectral radius, after exactly the modes set aside are taken out, is below 1 by at least
 :data:`STABILITY_EPSILON`.
@@ -117,7 +121,8 @@ LOWEST_FREQUENCY = 1e-4
 #: why the answer bounds a coefficient) a loop within that rounding of the unit circle can be
 #: called either: the verdict is exact only outside it, except for what a sampled law's exact
 #: arithmetic decides without a float on its rest subspace (the eigenvalue 1 beyond the modes set
-#: aside, and any -1: the circle count of the law).
+#: aside, and any -1: the circle count of the law); a mode at exactly 1 or -1 outside that subspace
+#: is judged by the float.
 STABILITY_EPSILON = 1e-12
 #: A fraction of a period below this is no fraction at all.
 FRACTION_EPSILON = 1e-12
@@ -288,8 +293,9 @@ class System:
     period: float
     neutral: Matrix | None = None
     held: Matrix | None = None
-    #: A sampled law's exact eigenvalues at 1 beyond the modes set aside, and at -1, on its rest
-    #: subspace; see ``unit_circle``.
+    #: A sampled law's exact eigenvalues at 1 beyond the modes set aside, and the dimension of the
+    #: kernel at -1 (independent eigenvectors, not a multiplicity), on its rest subspace only;
+    #: see ``unit_circle``.
     unit_circle: UnitCircle = UnitCircle(0, 0)
 
 
