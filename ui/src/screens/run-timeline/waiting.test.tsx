@@ -54,6 +54,8 @@ const RELEASED = {
   ended_unmerged: released("ended_unmerged"),
   waits_for_closing_pass: released("waits_for_closing_pass"),
   mutual_readers: released("mutual_readers"),
+  producer_waits_for_reader: released("producer_waits_for_reader"),
+  producer_held_for_good: released("producer_held_for_good"),
 };
 
 const LINES = [...PLANNED, HELD, ...Object.values(RELEASED)];
@@ -88,6 +90,14 @@ describe("a held dispatch says what it waits for, and its release says why it wa
     [
       "mutual_readers",
       "Subtask 2 is not held: it and Subtask 1 read from each other, so it runs while Subtask 1 is with a person",
+    ],
+    [
+      "producer_waits_for_reader",
+      "Subtask 2 released: Subtask 1 waits for it, so it cannot end first, and it runs without it",
+    ],
+    [
+      "producer_held_for_good",
+      "Subtask 2 released: Subtask 1 is held for good and never ends, so it runs without it",
     ],
   ] as const)("released as %s", (outcome, says) => {
     const row = rowOfLine(RELEASED[outcome]);

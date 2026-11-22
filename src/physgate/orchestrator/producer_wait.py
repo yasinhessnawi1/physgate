@@ -13,6 +13,10 @@ merge, or waits for sizing's closing pass, which comes after the subtask; the re
 which, so a reader tells "waited, then ran without it" from "ran before it". Two subtasks that read
 from each other are never held, and a line says so.
 
+A run started under the ``wait_cycle`` mark also lets a hold go when its producer can never end
+before the held subtask runs: it waits, through builder and reader holds, for that subtask, or is
+a builder held for good (:mod:`physgate.orchestrator.wait_cycle`).
+
 Only in a run that acts on decisions and records its pairs: a run that records only never takes
 a decision, so a producer in the queue has ended there, and a run without pairs has no recorded
 relation. A run recorded before these lines existed has none of them, and replays as it did; a
@@ -32,6 +36,9 @@ if TYPE_CHECKING:
     from physgate.orchestrator.events import Envelope
     from physgate.orchestrator.replay import RunState
 
+#: The two outcomes of the ``wait_cycle`` rule (:mod:`physgate.orchestrator.wait_cycle`).
+CYCLE_OUTCOMES = ("producer_waits_for_reader", "producer_held_for_good")
+
 #: What a subtask's dispatch is turned into: a line to write first, or passed over.
 Gated = Literal["hold", "release", "held"]
 
@@ -48,6 +55,11 @@ class Waits:
     open: dict[tuple[str, str], DispatchHeld] = field(default_factory=dict)
     mutual: set[tuple[str, str, str]] = field(default_factory=set)
     strict: bool = False
+    #: ``True`` once the run's first line says it started under the ``wait_cycle`` rule: a hold
+    #: on a producer that can never end before the reader runs is let go, on a line of its own.
+    cycle: bool = False
+    #: Each (reader, producer, attempts on record) that rule let go: one line per dispatch.
+    let_go: set[tuple[str, str, int]] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -57,6 +69,11 @@ class _Owed:
     item_id: str
     interfaces: tuple[str, ...] = ()
     outcome: ReleasedHow | None = None
+
+
+def let_go_key(state: RunState, reader: str, producer: str) -> tuple[str, str, int]:
+    """The dispatch of ``reader`` the cycle rule let go of ``producer``: once per dispatch."""
+    return (reader, producer, len(state.subtasks[reader].attempts))
 
 
 def _applies(state: RunState) -> bool:
@@ -143,9 +160,14 @@ def _owed(state: RunState, subtask_id: str) -> _Owed | Literal["held"] | None:
     Every open hold is let go first, in the order written; while one stays open the subtask is
     passed over. A further hold is looked for only once none is open.
     """
+    from physgate.orchestrator.wait_cycle import letting_go  # noqa: PLC0415 - it reads this module
+
+    cycle = state.producer_waits.cycle
     holds = [h for (d, _), h in state.producer_waits.open.items() if d == subtask_id]
     for hold in holds:
         how = released_how(state, hold.producer)
+        if how is None and cycle:
+            how = letting_go(state, hold.producer, subtask_id)
         if how is not None:
             return _Owed("release", hold.producer, hold.item_id, outcome=how)
     if holds:
@@ -159,6 +181,12 @@ def _owed(state: RunState, subtask_id: str) -> _Owed | Literal["held"] | None:
             if (subtask_id, producer, item) in state.producer_waits.mutual:
                 continue
             return _Owed("release", producer, item, outcome="mutual_readers")
+        if cycle:
+            if let_go_key(state, subtask_id, producer) in state.producer_waits.let_go:
+                continue
+            how = letting_go(state, producer, subtask_id)
+            if how is not None:
+                return _Owed("release", producer, item, outcome=how)
         return _Owed("hold", producer, item, interfaces=pair.interfaces)
     return None
 
@@ -242,6 +270,9 @@ def take(state: RunState, event: DispatchHeld | DispatchReleased) -> str | None:
         return "a release names another producer, item or outcome than the record owes"
     if event.outcome == "mutual_readers":
         state.producer_waits.mutual.add((subtask_id, event.producer, event.item_id))
+    elif event.outcome in CYCLE_OUTCOMES:
+        state.producer_waits.let_go.add(let_go_key(state, subtask_id, event.producer))
+        state.producer_waits.open.pop((subtask_id, event.producer), None)
     else:
         del state.producer_waits.open[(subtask_id, event.producer)]
     return None

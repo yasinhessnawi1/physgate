@@ -262,11 +262,15 @@ def test_a_reader_of_a_builder_held_for_good_does_not_hold_the_closing_pass(
     decide(rig.run_dir, "reject", "no value is chosen")
     drive(rig)
     state = state_of(rig)
-    assert merged(rig) == [Z0, ZC], {s: v.status for s, v in state.subtasks.items()}
-    # What a hold on a builder held for good has always ended in (the old order ended there
-    # too, after the closing pass had merged first): a wait on the held reader, no item open.
-    step = state.next_step()
-    assert (step.kind, step.subtask_id) == ("wait", MM)
+    # The hold on a builder held for good is let go: the reader runs without it, then the closing
+    # pass. What this hold used to end in, a wait on the held reader with no item open, was the
+    # defect (a producer that never ends), not a rule this row meant to pin.
+    assert merged(rig) == [Z0, MM, ZC], {s: v.status for s, v in state.subtasks.items()}
+    assert state.subtasks[FW].status == "planned"
+    released = [e for e in events_of(rig) if e.kind == "dispatch_released"]
+    assert (MM, FW, "producer_held_for_good") in [
+        (e.subtask_id, e.producer, e.outcome) for e in released
+    ]
     assert open_items(rig) == []
     assert refusal(events_of(rig)) is None
 

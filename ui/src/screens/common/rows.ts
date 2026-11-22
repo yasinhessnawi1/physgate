@@ -617,6 +617,10 @@ function releasedWords(
       return `${subtask} released: ${producer} waits for sizing's closing pass, which comes after it`;
     case "mutual_readers":
       return `${subtask} is not held: it and ${producer} read from each other, so it runs while ${producer} is with a person`;
+    case "producer_waits_for_reader":
+      return `${subtask} released: ${producer} waits for it, so it cannot end first, and it runs without it`;
+    case "producer_held_for_good":
+      return `${subtask} released: ${producer} is held for good and never ends, so it runs without it`;
   }
 }
 
