@@ -16,8 +16,8 @@ the names the owner approved for the laws drafted next, which are guarded before
 is written, nothing else.
 
 Widening the guarded names must not refuse a name a real plan wrote. Every name written in the
-practice set and in the G11 runs that left a graph is held unrefused, by the catalogue's rule
-and by the hooks' own spelling of it.
+practice set and in the real runs of the reference brief that left a graph is held unrefused,
+by the catalogue's rule and by the hooks' own spelling of it.
 """
 
 from __future__ import annotations
@@ -194,7 +194,7 @@ def _quantity_names(value: Any) -> Iterator[str]:
 
 
 def real_names() -> set[str]:
-    """Every quantity name the practice set and G11 runs 2 and 4 wrote."""
+    """Every quantity name the practice set and two real runs of the reference brief wrote."""
     names: set[str] = set()
     for path in [PRACTICE / "base.json", *sorted((PRACTICE / "artefacts").glob("*.json"))]:
         names.update(_quantity_names(json.loads(path.read_text())))

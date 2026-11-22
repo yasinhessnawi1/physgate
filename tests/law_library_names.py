@@ -65,8 +65,9 @@ LEFT_OUT = (
     "charge",
 )
 
-#: The real values written under the new exact names, by the practice set and G11 run 4 (its
-#: committed fixtures), each (name, value, unit): every one must pass its new kind.
+#: The real values written under the new exact names, by the practice set and the fourth real run
+#: of the reference brief (its committed fixtures), each (name, value, unit): every one must pass
+#: its new kind.
 REAL_VALUES: tuple[tuple[str, float | int, str], ...] = (
     ("charge_capacity", 2200, "mA*h"),
     ("counts_per_motor_revolution", 12, "dimensionless"),

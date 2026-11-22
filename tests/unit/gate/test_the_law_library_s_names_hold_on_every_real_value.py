@@ -2,10 +2,10 @@
 
 A new exact name is refused when a value under it is not its kind's, so a name that a real plan
 already writes must take every value that plan wrote: otherwise the row fails a correct design
-the day it lands. The real plans are the practice set and G11 runs 2 and 4, through their
-committed fixtures. Fifteen distinct values sit under seven of the new names (run 4's rated stall
-currents, overall gear ratio and wheel no-load speed; the practice set's encoder counts, no-load
-current and pack charge); the other five names reach no real plan yet.
+the day it lands. The real plans are the practice set and the second and fourth real runs of the
+reference brief, through their committed fixtures. Fifteen distinct values sit under seven of the
+new names (run 4's rated stall currents, overall gear ratio and wheel no-load speed; the practice
+set's encoder counts, no-load current and pack charge); the other five names reach no real plan yet.
 
 Each new name the laws will read also joins the names the hooks guard, so a misspelling of it is
 refused at write time. That must not refuse a name a real plan wrote (the 245 names the relation
@@ -69,7 +69,7 @@ def real_values() -> set[tuple[str, float | int, str]]:
 
 
 def real_names() -> set[str]:
-    """Every quantity name the practice set and G11 runs 2 and 4 wrote."""
+    """Every quantity name the practice set and two real runs of the reference brief wrote."""
     names = {name for name, _ in _practice()}
     names |= {r["name"] for r in json.loads((HERE / "run4" / "values.json").read_text())}
     names |= set(json.loads((HERE / "run2" / "names.json").read_text()))
