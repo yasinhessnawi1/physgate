@@ -665,8 +665,11 @@ class KilledAfterMerge(FakeMerger):
         message: str,
         reopen: int = 0,
         contracts: Mapping[str, str] | None = None,
+        records: Mapping[str, str] | None = None,
     ) -> str:
-        commit = super().merge(subtask_id, attempt, attempt_commit, message, reopen, contracts)
+        commit = super().merge(
+            subtask_id, attempt, attempt_commit, message, reopen, contracts, records
+        )
         if subtask_id == self.kill:
             self.kill = None
             self.moved = True

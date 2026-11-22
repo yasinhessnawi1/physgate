@@ -129,7 +129,7 @@ fired, not that the application is making progress. Kick it only when every task
 alive has given some sign of forward progress since the last kick, so that one task dying still
 results in a reset [pattern documented consistently in embedded watchdog practice, e.g. Interrupt
 (Memfault), "A Guide to Watchdog Timers for Embedded Systems," and the "Better Embedded System SW"
-series on proper watchdog use].
+series on proper watchdog use]. A watchdog is also what bounds a hung loop (§13).
 
 **Judgement-only.**
 
@@ -202,3 +202,44 @@ as met, and never as failed. A "not shown" for what a provided simulator, analys
 host compiler does measure is not a reason: that evidence is owed.
 
 **Judgement-only** — no check reads where evidence came from; the reviewer does.
+
+## 13. Every way control can be lost has a motor-off path, and its value comes from the plan
+
+A program that drives motors has five ways to lose control, each needing a path that puts the motor
+outputs in their off state and a value that says when. The path is the module's whether or not the
+specification gives the value; the value is the plan's (design standards §13).
+
+1. *A stale command.* A loop that hangs holds the last command, and a check that runs only inside
+   that loop never sees it: the detection is independent of the loop. The ATmega32U4's watchdog in
+   System Reset mode, with a time-out from 16 ms to 8 s, "is typically used to prevent system
+   hang-up in case of runaway code" [Microchip, *ATmega16U4/ATmega32U4 datasheet*, Atmel-7766J,
+   2016, §8.9], kicked only on evidence of progress (§9). Where a bound under 16 ms is given, a
+   timer interrupt that turns the outputs off is another route, named.
+2. *A sensor fault during operation.* The count N or time T (the plan's, or the work's own value,
+   named as such, below) turns the motors off at the first occurrence, and the fault at power-up is
+   a separate path.
+3. *Reset.* The outputs are written off before the PWM timer or the driver enable starts, and
+   nothing enables them before the loop has run once. While a reset is active the port pins are
+   tri-stated [ibid., §10.2.1], so what the driver sees then is the board's, not the firmware's to
+   source: the work cites the plan's statement of it, or records it as not given.
+4. *The bus.* Every wait has a bound and a failure path (§1; Holzmann, 2006, rule 2), with the
+   time-out from the specification, or the work's own value, named as such (below).
+5. *The sensor's filter.* The plan owns the filter's bandwidth and delay (design standards §13) and
+   control uses them; firmware checks that the configured setting gives the value the plan and
+   control used, from the sensor's document, and records any difference with the figure's source.
+   Where the maker gives the digital filter no setting apart from the output data rate and the power
+   mode, as for the LSM6DS33 gyroscope (60.2 Hz at 208 Hz in normal mode, 66.7 Hz in
+   high-performance mode, which the reset state of G_HM_MODE selects [STMicroelectronics, *AN4682*,
+   DocID027736 Rev 1, §2.7, Tables 13 and 14]; the output data rate itself resets to power-down and
+   must be set, register CTRL2_G of the LSM6DS33 datasheet), the work says it is not settable,
+   states the mode its code leaves selected, and compares the figure with half the rate the samples
+   are used at and with ten times the plant's unstable pole.
+
+Where the specification gives a value, the program uses exactly it. Where it gives none, the program
+still has the path, with the strictest value the work can meet (off at the first occurrence, the
+shortest bound the timing allows); the work names it as its own choice, not a sourced one, and
+reports the value as an input the specification did not give. The board's state in reset is not a
+value the work chooses: where the plan gives none, the work records it as not given. It does not
+leave the path out for want of a value, and does not present the choice as sourced.
+
+**Judgement-only** — no check reads a motor-off path; the reviewer reads the code.

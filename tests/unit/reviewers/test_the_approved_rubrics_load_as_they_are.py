@@ -60,6 +60,9 @@ APPROVED = {
             # A criterion with a stated bound that cannot be met together with the rest is
             # recorded, not a reason to reject; a maker's tolerance counts only when quoted.
             ("final_v10", "78b93a5ba5859d4a6bf49f71613ecee419431e9536978780e6352330f31e2f2f", 59),
+            # Each end of an estimate's range has a basis; the gyro filter's delay counts in the
+            # margins; a request to a value's owner is recorded, not a block.
+            ("final_v11", "f6780011d87ff623afa151dc75be3b3fd7b3f02d654d8d26d1ca7c56f637ebae", 59),
         ),
         ("A", "D", "S", "R"),
     ),
@@ -84,6 +87,9 @@ APPROVED = {
             # The tools the run provides: a test is judged on what the environment records, and what
             # it cannot show is stated as not shown, not owed.
             ("final_v9", "d3614df90d0b7dfdae6d0b2f8067dcce7bb0d4dd81a2b3083dc44005a0af4597", 54),
+            # The five safety inputs a plan did not give are the work's own choice when named as
+            # such, and go to integration; the gyro filter's delay is stated.
+            ("final_v10", "8cc808d4eb589ec9de1be948349e1568a6912daf79a88bbe34a7c9464fa3a316", 56),
         ),
         ("AC", "DS", "AP", "RH"),
     ),
@@ -121,7 +127,12 @@ APPROVED = {
         ("MA", "MS", "MP", "MH"),
     ),
     "integration": (
-        (("final", "68b7b1ac4af9f821078c18891729b055ee086fc285a6ddefb5c498192fac198e", 57),),
+        (
+            ("final", "68b7b1ac4af9f821078c18891729b055ee086fc285a6ddefb5c498192fac198e", 57),
+            # The chain behind each system requirement, and the open items sizing and control
+            # recorded for integration to carry.
+            ("final_v2", "c8e139babf35a3da8b85f5a57df704ed5c50887f668f626200354ae6bb458641", 61),
+        ),
         ("IA", "IS", "IP", "IH"),
     ),
     "design": (
@@ -135,6 +146,9 @@ APPROVED = {
             # What the run can measure is named as the environment provides it; a criterion naming
             # an instrument that is not recorded fails.
             ("final_v4", "16a09143f343af7e0b36247ab5939879bd1564abeeba3189b367b86db7f1b1e9", 66),
+            # The chain behind a system behaviour and the five safety inputs a plan must give, each
+            # with its producer and implementing module.
+            ("final_v5", "c8489e1b1d7a1573cffd14cfffc08302b0649c1fefb84eab010ffd3e2003d1a8", 70),
         ),
         ("PA", "PS", "PP", "PH"),
     ),
@@ -149,6 +163,9 @@ APPROVED = {
             # A solid-cylinder rotor bound is a basis only with the bore sourced or with room left
             # in the motor's published mass for what else it holds.
             ("final_v4", "c9f6c3aa46be8d8934786c3b79005e17442f9c8e4b3a9d6e580de6dfc984c508", 68),
+            # Each end of a TBR range has a basis; a conflict a person decided is noted, and the
+            # closing pass records only a conflict a domain's change made new.
+            ("final_v5", "98ee3fc3735d03b534094ed1e3199aa6c950cbe91f855d10e111df93b3f74ee9", 68),
         ),
         ("SA", "SS", "SP", "SH"),
     ),

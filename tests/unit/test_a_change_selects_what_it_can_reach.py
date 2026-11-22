@@ -85,7 +85,7 @@ def test_shared_fixtures_the_environment_or_a_deleted_module_select_everything(
         "tests/integration/hooks/anything.py",
         "experiments/R-OP-01/README.md",
         "desktop/src-tauri/src/main.rs",
-        "src/physgate/knowledge/ceiling.py",
+        "src/physgate/bypass_corpus.py",
     ],
 )
 def test_the_ui_gate_is_skipped_only_for_a_change_that_cannot_reach_it(changed: str) -> None:
@@ -108,7 +108,7 @@ def test_the_ui_gate_is_skipped_only_for_a_change_that_cannot_reach_it(changed: 
     ],
 )
 def test_the_ui_gate_runs_for_a_change_that_can_reach_it(changed: str) -> None:
-    reason = affected.ui_affected(["src/physgate/knowledge/ceiling.py", changed])
+    reason = affected.ui_affected(["src/physgate/bypass_corpus.py", changed])
     assert reason is not None
     assert changed in reason
 

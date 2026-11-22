@@ -13,7 +13,11 @@ the run's event log alone, before integration's session is spawned (ARCH-051):
 - the system requirements the plan allocates to integration, with the brief's own words for each
   one the plan gives by number, so a bare number never stands for a requirement;
 - where any is owed, each module whose person's sign-off is owed (ARCH-130), which integration
-  does not declare complete. A state with none owed has no such section, and keeps its bytes.
+  does not declare complete. A state with none owed has no such section, and keeps its bytes;
+- where a person approved or chose with a note on a module's queue item, each such decision as an
+  open point of the design (``carried``): the item's id and kind, the verb, who decided, whether
+  it acted, and the note, a person's words, quoted as JSON in a fenced record. A state with none
+  has no such section, and keeps its bytes.
 
 **It is state, never a message** (ARCH-040). Quoting a string keeps it from making a heading, not
 from carrying an instruction, so the document renders nothing but:
@@ -59,6 +63,7 @@ from physgate.gate.catalogue import QUANTITIES
 from physgate.gate.units import UnitRefusedError, parse
 
 # Named here as well, where the rendering's other holds are: the replay holds the same.
+from physgate.orchestrator import carried
 from physgate.orchestrator.common import PLANNED_ID_MAX_LENGTH as PLANNED_ID_MAX_LENGTH
 from physgate.orchestrator.common import ROLE_PATTERN as ROLE_PATTERN
 from physgate.orchestrator.common import SUBTASK_PATTERN as SUBTASK_PATTERN
@@ -391,5 +396,10 @@ def issued_state(state: RunState) -> bytes:
     if owed:
         # Only where one is owed, so every state issued with none keeps its bytes.
         lines.extend(["", "## Owed sign-offs", "", *owed])
+    decided = carried.section(state)
+    if decided:
+        # Only where a person's note was taken on a module's item, so every state without one
+        # keeps its bytes. The notes are a person's words, fenced as a record.
+        lines.extend(["", f"## {carried.DECISIONS_SECTION}", "", *decided])
     text = "\n".join(piece for line in lines for piece in cut_line(line)) + "\n"
     return text.encode("utf-8")

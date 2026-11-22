@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from physgate.orchestrator.closing_wait import closing_waits
 from physgate.orchestrator.events import read_events
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.replay import RunState, replay
@@ -28,12 +29,12 @@ EXIT_WAITING_FOR_LIMIT = 75
 WAITING_FOR_LIMIT = "waiting_for_limit"
 
 
-def printed_step(kind: str, state: RunState) -> tuple[dict[str, str | None], int]:
+def printed_step(kind: str, state: RunState) -> tuple[dict[str, object], int]:
     """The step ``run`` and ``resume`` print for where the run stopped, and their exit status."""
     halted = state.halted
     if kind == "halted" and halted is not None and halted.reason == "usage_limit":
         limit = halted.usage_limit
-        printed: dict[str, str | None] = {
+        printed: dict[str, object] = {
             "step": WAITING_FOR_LIMIT,
             "limit_type": limit.limit_type if limit is not None else None,
             "resets": limit.resets if limit is not None else None,
@@ -42,6 +43,9 @@ def printed_step(kind: str, state: RunState) -> tuple[dict[str, str | None], int
         }
         return printed, EXIT_WAITING_FOR_LIMIT
     printed = {"step": kind}
+    # Sizing's closing pass held while a domain module has not settled, with the modules it
+    # waits for; left out where none is held, so every other step prints as it always has.
+    printed |= closing_waits(state)
     owed = state.sign_offs_open() if kind == "escalated" else []
     if owed:
         # Each module not complete for a person's sign-off, and the item that asks for it.

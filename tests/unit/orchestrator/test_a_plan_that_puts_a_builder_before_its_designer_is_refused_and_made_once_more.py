@@ -213,25 +213,30 @@ def misordered(monkeypatch: pytest.MonkeyPatch) -> str:
 
 
 def test_a_run_that_does_not_review_its_plan_records_the_refusal_and_tells_its_one_retry(
-    tmp_path: Path, misordered: str
+    tmp_path: Path, misordered: str, fixture_library: Path
 ) -> None:
     ran = replan_rig.decompose(tmp_path, "off", [replan_rig.Step(call=REFUSED), replan_rig.Step()])
     assert len(ran.script.calls) == 2 and ran.code == 0, ran.err
     _, second = ran.script.calls
-    _told(second["prompt"], decompose.prompt_for(replan_rig.BRIEF, ("electrical",)), misordered)
+    first = decompose.prompt_a_run_sends(
+        replan_rig.BRIEF, ("electrical",), library=fixture_library, token_ceiling=None
+    )
+    _told(second["prompt"], first, misordered)
     (retried,) = [e for e in replan_rig.events(ran.run_dir) if e["kind"] == "decomposition_retried"]
     assert retried["detail"] == misordered
 
 
 def test_a_reviewed_round_journals_the_refusal_and_tells_its_one_retry(
-    tmp_path: Path, misordered: str
+    tmp_path: Path, misordered: str, fixture_library: Path
 ) -> None:
     steps = [replan_rig.Step(call=REFUSED), replan_rig.Step(review="pass")]
     ran = replan_rig.decompose(tmp_path, "on", steps)
     assert len(ran.script.calls) == 2 and ran.code == 0, ran.err
     _told(
         ran.script.calls[1]["prompt"],
-        decompose.prompt_for(replan_rig.BRIEF, ("electrical",)),
+        decompose.prompt_a_run_sends(
+            replan_rig.BRIEF, ("electrical",), library=fixture_library, token_ceiling=None
+        ),
         misordered,
     )
     (refused,) = [one for one in replan_rig.journal(ran.run_dir) if one["kind"] == "call_refused"]

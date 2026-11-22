@@ -186,6 +186,7 @@ class Merging(FakeMerger):
         message: str,
         reopen: int = 0,
         contracts: Mapping[str, str] | None = None,
+        records: Mapping[str, str] | None = None,
     ) -> str:
         self.contracts.append(contracts)
         return super().merge(subtask_id, attempt, attempt_commit, message, reopen)

@@ -356,6 +356,7 @@ class FakeMerger:
         message: str,
         reopen: int = 0,
         contracts: Mapping[str, str] | None = None,
+        records: Mapping[str, str] | None = None,
     ) -> str:
         self.messages.append(message)
         self.reopens.append(reopen)
@@ -372,6 +373,12 @@ class FakeMerger:
 
     def review_base(self, attempt_commit: str) -> str:
         return "0" * 40
+
+    def module_text(self, attempt_commit: str, module_dir: str) -> str:
+        return f"attempt {attempt_commit[:8]}\n"
+
+    def module_unread(self, attempt_commit: str, module_dir: str) -> tuple[str, ...]:
+        return ()
 
     def artefact_diff(self, attempt_commit: str) -> str:
         return f"diff --git a/x b/x\n+ attempt {attempt_commit[:8]}\n"

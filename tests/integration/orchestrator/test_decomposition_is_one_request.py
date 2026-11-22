@@ -588,3 +588,38 @@ def test_a_unit_refused_again_by_the_retry_fails_the_run_with_nothing_stored(
     assert TokenAccount.from_events(events).decomposition_invocations() == 2
     assert TaskLedger(run_dir / "ledger.jsonl").read_all() == []
     assert not (run_dir / "store").exists()
+
+
+def test_the_prompt_a_call_was_sent_is_recorded_by_its_digest_and_length(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+    import subprocess
+
+    from physgate.orchestrator.decompose import PLANNER_LIBRARY_BEGIN
+
+    # What the binary is handed on its standard input is what the record's digest is of. The API
+    # stand-in sees only the model's turn, which the binary may re-frame, so the bytes are taken
+    # where the call hands them over: the call's own ``subprocess.run``, passed through.
+    handed: list[tuple[str, str | None]] = []
+    real = subprocess.run
+
+    def watching(argv: Any, **given: Any) -> Any:
+        if isinstance(given.get("input"), str) and PLANNER_LIBRARY_BEGIN in given["input"]:
+            handed.append((given["input"], given.get("encoding")))
+        return real(argv, **given)
+
+    monkeypatch.setattr(subprocess, "run", watching)
+    api, made, run_dir = _through_the_rounds(tmp_path, ["V"])
+    assert made.ok, made.detail
+    (request,) = api.requests
+    assert request.last_user.count(PLANNER_LIBRARY_BEGIN) == 1
+    (decomposed,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Decomposed)]
+    ((given, encoding),) = handed
+    assert isinstance(given, str) and encoding == "utf-8"
+    sent = given.encode("utf-8")
+    assert decomposed.prompt_sha256 == hashlib.sha256(sent).hexdigest()
+    assert decomposed.prompt_bytes == len(sent)
+    # The same prompt, up to the newline the binary may trim or add, is the model's turn.
+    assert request.last_user.rstrip("\n") == given.rstrip("\n")
+    assert decomposed.planner_library is not None

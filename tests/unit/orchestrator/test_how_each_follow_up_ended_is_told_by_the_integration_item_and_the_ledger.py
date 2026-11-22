@@ -132,12 +132,7 @@ def test_a_module_owed_edges_and_no_follow_up_is_named_as_owed_none(tmp_path: Pa
     rig.reviewer = FakeReviewer(verdicts=["pass"], results={2: blocked_review()})
     assert rig.gate is not None
     rig.gate.integration_verdict = "fail"
-    killed = ended(
-        rig,
-        plan=CLOSING,
-        kill=lambda e: e.kind == "stage_entered" and e.model_dump()["subtask_id"] == "zc",
-    )
-    assert killed == "killed"
+    assert ended(rig, plan=CLOSING) == "wait"  # the closing pass waits while s1 is with a person
     decide(rig.run_dir, "reject", "the pole is the one the linearisation gives")
     assert ended(rig, how=resume) == "escalated"
     assert follow_ups(events_of(rig)) == []
