@@ -284,7 +284,7 @@ CLOSING_WAIT: Literal["hold"] | None = "hold"
 
 #: The mark a run that acts on decisions writes on its first line: it started under the rule that
 #: a hold on a producer is let go when the producer cannot end before the held subtask runs.
-WAIT_CYCLE: Literal["release"] | None = "release"
+WAIT_CYCLE: Literal["release", "release_2"] | None = "release_2"
 
 #: The digest of the sign-off rule table's version every run started now writes on its first line.
 SIGN_OFF_RULES: str | None = CURRENT_SHA256

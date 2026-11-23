@@ -184,6 +184,7 @@ from physgate.orchestrator.queue import (
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
 from physgate.orchestrator.sign_off import RaisedSignOff, SignOffRules, known_rules
+from physgate.orchestrator.wait_cycle import never_ran
 from physgate.reviewers.scan import judged_attempts
 from physgate.roles import owners_of as _cross_owners
 from physgate.state.store import payload_digest
@@ -345,6 +346,7 @@ class Step:
         "hold",
         "release",
         "sign_off",
+        "unrun",
         "done",
     ]
     subtask_id: str | None = None
@@ -359,7 +361,7 @@ def at_a_boundary(step: Step) -> bool:
     takes decisions only where this holds, and the replay refuses one taken anywhere else. A hold
     or release line stands where its subtask's dispatch would: a boundary as that is.
     """
-    if step.kind in ("integrate", "done", "escalated", "wait", "hold", "release"):
+    if step.kind in ("integrate", "done", "unrun", "escalated", "wait", "hold", "release"):
         return True
     return step.kind == "attempt" and step.point == "resolve"
 
@@ -650,7 +652,8 @@ class RunState:
             self.acts = event.queue_decisions == "act"
             self.producer_waits.strict = event.producer_wait == "hold"
             self.closing_wait = event.closing_wait == "hold"
-            self.producer_waits.cycle = event.wait_cycle == "release"
+            self.producer_waits.cycle = event.wait_cycle in ("release", "release_2")
+            self.producer_waits.narrow = event.wait_cycle == "release_2"
             self.reviews_plan = event.design_review is not None
             self.holds_plan = self.reviews_plan and event.design_review != "observe"
             self.replans = replans(event.design_review or "off")
@@ -3018,7 +3021,10 @@ class RunState:
             if owed is not None:
                 return Step(kind="complete", subtask_id=owed)
         # A module whose sign-off is owed is not complete, and the run ends naming it (ARCH-130).
-        return Step(kind="escalated") if self.sign_offs_open() else Step(kind="done")
+        if self.sign_offs_open():
+            return Step(kind="escalated")
+        # A run started under ``release_2`` that acts ends naming the subtasks that never ran.
+        return Step(kind="unrun") if never_ran(self) else Step(kind="done")
 
     def _integration_blocked(self) -> bool:
         """The integration call ran and failed where a failure blocks."""

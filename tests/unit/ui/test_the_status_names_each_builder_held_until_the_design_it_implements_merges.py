@@ -51,7 +51,7 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
         assert held.first_run(rig, monkeypatch) == "wait"
         decide(rig.run_dir, "reject", "no attempt is left", item_id=held.drive_item(lines(rig)))
         reaccount(rig.run_dir)
-        assert held.resumed(rig, monkeypatch) == "done"
+        assert held.resumed(rig, monkeypatch) == "unrun"
         shutil.copytree(rig.run_dir, root / "ended")
         rig = held.rigged(base / "no-pairs")
         held.first_run(rig, monkeypatch, design=False)
@@ -92,7 +92,15 @@ def test_a_builder_whose_designer_ended_unmerged_is_served_held_with_no_item(liv
     assert found["held"] == [
         {"subtask_id": FW, "designer": DRIVE, "nodes": [LAW], "why": "ended_unmerged"}
     ]
-    assert found["next_step"]["kind"] == "done"
+    assert found["next_step"]["kind"] == "unrun"
+    # The list of what never ran is served only once the run has ended so.
+    assert [n["subtask_id"] for n in found["never_ran"]] == [FW]
+
+
+def test_a_run_still_waiting_serves_no_list_of_what_never_ran(live: Live) -> None:
+    found = served(live, "escalated")
+    assert found["next_step"]["kind"] == "wait"
+    assert found["never_ran"] == []
 
 
 def test_a_run_recorded_without_design_pairs_serves_no_hold(live: Live) -> None:

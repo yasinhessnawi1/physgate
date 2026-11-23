@@ -64,6 +64,7 @@ from test_design_pairs_are_read_from_the_plan_and_recorded_before_any_dispatch i
 
 from physgate import roles
 from physgate.contracts.pairs import ContractPair
+from physgate.orchestrator import record
 from physgate.orchestrator.design_pairs import DesignPair, plan_design_pairs, plan_mutual_namings
 from physgate.orchestrator.design_wait import held_builders, open_holds
 from physgate.orchestrator.events import read_events
@@ -72,6 +73,7 @@ from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.record import DecompositionSummary
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.usage_limit import UsageLimit
+from physgate.orchestrator.wait_cycle import never_ran
 from physgate.oslayer.probe import Present
 from physgate.state.store import journal_records_after
 
@@ -420,10 +422,15 @@ def test_two_modules_naming_each_other_s_node_hold_and_release_as_a_plain_pair_i
 
 # --- the designer ends without a merge: the builder stays held, and the run goes on -------------
 
+#: The run ends naming the module that never ran under ``release_2``, and ``done`` before it.
+ENDS = pytest.mark.parametrize(("mark", "end"), [("release_2", "unrun"), ("release", "done")])
 
+
+@ENDS
 def test_the_designer_ended_unmerged_and_the_builder_is_held_not_run_not_failed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    mark: str, end: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(record, "WAIT_CYCLE", mark)
     rig = rigged(tmp_path)
     assert first_run(rig, monkeypatch) == "wait"
     item = drive_item(lines(rig))
@@ -450,11 +457,16 @@ def test_the_designer_ended_unmerged_and_the_builder_is_held_not_run_not_failed(
     assert skipped["reason"] == "not_all_merged"
     assert skipped["subtasks"] == [DRIVE, FW]
     assert rows.index(holds[1]) < rows.index(skipped)
-    assert step == "done"
+    assert step == end
     state = replay(read_events(rig.run_dir / "events.jsonl"))
     assert state.subtasks[FW].status == "planned"
     assert [(h.subtask_id, h.why) for h in open_holds(state)] == [(FW, "ended_unmerged")]
     assert refusal(rows) is None
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    named = [n["subtask_id"] for n in never_ran(state)]
+    # Under ``release_2`` the run ends naming the builder that never ran; before it, it ended done.
+    assert named == ([] if end == "done" else [FW, THIRD][: len(named)]), named
+    assert bool(named) == (end == "unrun")
 
 
 def test_a_run_that_records_only_holds_the_builder_and_goes_on_to_its_integration_call(
@@ -536,9 +548,11 @@ def chain_run(
         loop.close()
 
 
+@ENDS
 def test_a_designer_ended_unmerged_holds_the_builder_of_its_builder_for_good_naming_the_chain(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    mark: str, end: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(record, "WAIT_CYCLE", mark)
     rig = chained(tmp_path)
     assert chain_run(rig, monkeypatch) == "wait"
     rows = lines(rig)
@@ -549,7 +563,7 @@ def test_a_designer_ended_unmerged_holds_the_builder_of_its_builder_for_good_nam
         (THIRD, "not_merged", None),
     ]
     decide(rig.run_dir, "reject", "no attempt is left", item_id=item)
-    assert chain_run(rig, monkeypatch, resume=True) == "done"
+    assert chain_run(rig, monkeypatch, resume=True) == end
     rows = lines(rig)
     holds = of(rows, "builder_held")
     # drive ended unmerged: fw is held for good, and so is third, on a line naming the chain.
@@ -569,6 +583,11 @@ def test_a_designer_ended_unmerged_holds_the_builder_of_its_builder_for_good_nam
     held_third = [h for h in held_builders(state)["held"] if h["subtask_id"] == THIRD]
     assert [h.get("chain") for h in held_third] == [(FW, DRIVE)]
     assert refusal(rows) is None
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    named = [n["subtask_id"] for n in never_ran(state)]
+    # Under ``release_2`` the run ends naming the builder that never ran; before it, it ended done.
+    assert named == ([] if end == "done" else [FW, THIRD][: len(named)]), named
+    assert bool(named) == (end == "unrun")
 
 
 def test_a_run_that_records_only_holds_a_chain_for_good_and_goes_on_to_its_integration_call(
@@ -752,14 +771,16 @@ def test_the_designer_s_fix_merges_and_only_then_is_the_builder_let_go(
     assert refusal(rows) is None
 
 
+@ENDS
 def test_a_fix_not_accepted_ends_the_designer_and_the_hold_says_so_with_no_item(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    mark: str, end: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(record, "WAIT_CYCLE", mark)
     rig = blocked_on_its_last_attempt(tmp_path, fix="fail")
     assert first_run(rig, monkeypatch) == "wait"
     item = drive_item(lines(rig))
     decide(rig.run_dir, "reject", "fix the law", item_id=item)
-    assert resumed(rig, monkeypatch) == "done"
+    assert resumed(rig, monkeypatch) == end
     rows = lines(rig)
     (ended,) = of(rows, "subtask_rejected", subtask_id=DRIVE)
     assert ended["by"] == "fix_not_accepted"
@@ -774,6 +795,11 @@ def test_a_fix_not_accepted_ends_the_designer_and_the_hold_says_so_with_no_item(
     (skipped,) = of(rows, "integration_gate_skipped")
     assert skipped["subtasks"] == [DRIVE, FW]
     assert refusal(rows) is None
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    named = [n["subtask_id"] for n in never_ran(state)]
+    # Under ``release_2`` the run ends naming the builder that never ran; before it, it ended done.
+    assert named == ([] if end == "done" else [FW, THIRD][: len(named)]), named
+    assert bool(named) == (end == "unrun")
 
 
 @BEFORE_THE_RULE

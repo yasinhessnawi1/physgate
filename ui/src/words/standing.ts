@@ -61,7 +61,7 @@ export function phaseOf(status: RunStatus): Phase {
   if (status.owedHalt !== null) return "halt-owed";
   if (status.halted !== null || status.kind === "halted")
     return status.halted?.reason === "usage_limit" ? "waiting-limit" : "halted";
-  if (status.kind === "done") return "done";
+  if (status.kind === "done" || status.kind === "unrun") return "done";
   // A run that records decisions acts on none: its escalated end waits on no one, and has ended.
   if (status.kind === "escalated" && status.acts === false) return "done";
   // Nor does one that acts and ended owing a sign-off whose item was decided: nothing can sign it.
@@ -165,6 +165,38 @@ export function endSentence(end: RunEnd): string {
   return "Ended.";
 }
 
+const RETRY = "its ordered retry never ran: ";
+
+/**
+ * How a run that ended with subtasks that never ran, or whose ordered retry never ran, says so,
+ * naming each and why.
+ */
+export function unrunWords(status: RunStatus): { sentence: string; detail: string } | null {
+  const never = status.neverRan ?? [];
+  if (status.kind !== "unrun" || never.length === 0) return null;
+  const names = namesWords(never.map((n) => n.subtask));
+  const retried = never.every((n) => n.why.startsWith(RETRY));
+  const which = retried
+    ? never.length === 1
+      ? "module's ordered retry never ran"
+      : "modules' ordered retries never ran"
+    : never.length === 1
+      ? "module never ran"
+      : "modules never ran";
+  const first = never[0]?.why ?? "";
+  const why = retried ? first.slice(RETRY.length) : first;
+  return {
+    sentence: `Ended: the ${names} ${which}${never.length === 1 ? `: ${why}` : ""}.`,
+    detail: never
+      .map((n) => {
+        const without =
+          n.ranWithout.length === 0 ? "" : `; ${namesWords(n.ranWithout)} merged without it`;
+        return `${moduleName(n.subtask)}: ${n.why}${without}`;
+      })
+      .join(". "),
+  };
+}
+
 /**
  * Where ``status``'s run stands, in words; ``end`` is how an ended run ended, read from its log and
  * queue (``runEnd``), or ``null`` when they were not read.
@@ -211,7 +243,10 @@ export function standingOf(status: RunStatus, end: RunEnd | null): Standing {
         sentence: "Halted: the harness recorded an incident; the run stops there.",
         detail: status.owedHalt === null ? null : `Halt owed · ${status.owedHalt.cause}`,
       };
-    case "done":
+    case "done": {
+      const unrun = unrunWords(status);
+      if (unrun !== null)
+        return { phase, word: "Ended", sentence: unrun.sentence, detail: unrun.detail };
       if (end === null) {
         const sentence =
           status.kind === "escalated" ? recordedEndSentence(status.signaturesOwed ?? []) : "Ended.";
@@ -223,6 +258,7 @@ export function standingOf(status: RunStatus, end: RunEnd | null): Standing {
         sentence: endSentence(end),
         detail: end.kind === "ended" ? runEndWords(end) : null,
       };
+    }
   }
 }
 

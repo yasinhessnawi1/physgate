@@ -213,6 +213,15 @@ export interface RunStatus {
    * Absent where the server did not say.
    */
   readonly endsOnSignaturesAlone?: boolean;
+  /**
+   * Each subtask that never ran, or whose ordered retry never ran, where the run ended as
+   * ``unrun``: why, and the readers that merged without it. Absent where the server did not say.
+   */
+  readonly neverRan?: readonly {
+    readonly subtask: string;
+    readonly why: string;
+    readonly ranWithout: readonly string[];
+  }[];
 }
 
 function moduleCompletion(value: unknown): ModuleCompletion {
@@ -291,6 +300,20 @@ export function runStatus(value: unknown): RunStatus {
           signaturesOpenToDecide: list(s.sign_offs_open_to_decide, "the sign-offs open").map((m) =>
             text(m, "a module"),
           ),
+        }),
+    ...(s.never_ran === undefined
+      ? {}
+      : {
+          neverRan: list(s.never_ran, "the subtasks that never ran").map((raw) => {
+            const n = object(raw, "a subtask that never ran");
+            return {
+              subtask: text(n.subtask_id, "a subtask id"),
+              why: text(n.why, "why it never ran"),
+              ranWithout: list(n.ran_without ?? [], "the readers that ran without it").map((r) =>
+                text(r, "a subtask id"),
+              ),
+            };
+          }),
         }),
     ...(s.ends_on_sign_offs_alone === undefined
       ? {}

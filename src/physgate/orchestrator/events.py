@@ -127,7 +127,12 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 #: ``parts_record_mismatch`` is the parts record that the release line named, built again from
 #: the plan and the released decisions at a dispatch or a review, and no longer the one it named.
 #: ``decisions_unreadable`` is a line of the decisions file the queue's reader refuses: the run
-#: halts on it, named by file and line, until a person mends the file.
+#: halts on it, named by file and line, until a person mends the file. ``no_progress`` is a hold or
+#: release line the loop was about to write again with no line of another kind between: the rule
+#: owes it again and nothing changes, so the run halts on it rather than writing it for ever.
+#: ``waits_on_nothing`` is a run started under ``release_2`` that reached a wait with no item open
+#: to a person: whatever the wait rules did, nothing is left to wait for, so it halts naming what is
+#: held on what.
 IncidentCause = Literal[
     "cross_role_write",
     "merge_conflict",
@@ -155,6 +160,8 @@ IncidentCause = Literal[
     "parts_record_mismatch",
     "decisions_unreadable",
     "run_records_changed",
+    "no_progress",
+    "waits_on_nothing",
 ]
 
 #: Why a run stopped short of the end of its plan.
@@ -254,9 +261,12 @@ class RunStarted(_Event):
     #: ``release`` in a run that acts on decisions and was started under the rule that a hold on
     #: a producer is let go when the producer cannot end before the held subtask runs (it waits,
     #: through a chain of builder and reader holds, for the held subtask itself, or is held for
-    #: good); replay refuses such a dispatch with no release line. Left out of every other run, so
+    #: good); replay refuses such a dispatch with no release line. ``release_2`` is the rule as
+    #: narrowed: a hold is only ever on a producer that is itself with a person, so no cycle of
+    #: subtasks can form and neither cycle release can be written; and a run that ends with a
+    #: subtask that never ran ends as ``unrun``, naming it. Left out of every other run, so
     #: a line written before the rule keeps its bytes and replays as it did.
-    wait_cycle: Literal["release"] | None = None
+    wait_cycle: Literal["release", "release_2"] | None = None
     #: The digest of the version of the sign-off rule table the run started under, written by
     #: code on every run started since the table existed, never by a parameter: which modules owe
     #: a person's sign-off before they are complete (ARCH-130). Left out of a run started before

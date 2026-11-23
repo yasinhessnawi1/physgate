@@ -43,6 +43,7 @@ from test_a_queue_decision_acts_at_a_boundary import _layer, decide
 from test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger import (
     _integration_item,
 )
+from wait_cycle_rig import under_release  # noqa: F401 - the fixture, by name
 
 from physgate import roles
 from physgate.contracts.pairs import ContractPair
@@ -190,6 +191,7 @@ def open_items(rig: Rig) -> list[str]:
     return [i.item_id for i in read_queue(rig.run_dir).open_items()]
 
 
+@pytest.mark.usefixtures("under_release")
 def test_the_closing_pass_waits_for_every_module_held_on_a_person_s_item(tmp_path: Path) -> None:
     rig = rigged(tmp_path)
     assert drive(rig, first=True) == "wait"
@@ -202,6 +204,7 @@ def test_the_closing_pass_waits_for_every_module_held_on_a_person_s_item(tmp_pat
     }
 
 
+@pytest.mark.usefixtures("under_release")
 def test_the_run_command_prints_the_closing_pass_it_holds_and_what_it_waits_for(
     tmp_path: Path,
 ) -> None:
@@ -220,6 +223,7 @@ def test_the_run_command_prints_the_closing_pass_it_holds_and_what_it_waits_for(
     assert printed_step(state.next_step().kind, state) == ({"step": "done"}, 0)
 
 
+@pytest.mark.usefixtures("under_release")
 def test_a_chain_that_ends_in_a_module_waiting_for_the_closing_pass_does_not_hold_it(
     tmp_path: Path,
 ) -> None:
@@ -252,6 +256,7 @@ def test_a_reader_of_a_module_waiting_for_the_closing_pass_runs_first_and_is_wai
     assert state.next_step().kind == "done"
 
 
+@pytest.mark.usefixtures("under_release")
 def test_a_reader_of_a_builder_held_for_good_does_not_hold_the_closing_pass(
     tmp_path: Path,
 ) -> None:
