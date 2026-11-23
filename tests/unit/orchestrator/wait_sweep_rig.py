@@ -44,7 +44,6 @@ from wait_cycle_rig import (
 
 from physgate.orchestrator import record
 from physgate.orchestrator.events import read_events
-from physgate.orchestrator.exceptions import RunStateError
 from physgate.orchestrator.queue import QueueItem, read_queue
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.wait_cycle import never_ran
@@ -52,7 +51,6 @@ from physgate.orchestrator.wait_cycle import never_ran
 POOL = (SIZING, CONTROL, FIRMWARE, ELECTRICAL, CONTROL2, FIRMWARE2)
 BASE = (SIZING, CONTROL, FIRMWARE, ELECTRICAL)
 ROUNDS = 30
-KNOWN_REOPEN_CRASH = "the known reopen crash"
 #: The ends a run may have: it is never left in a wait, a halt or a loop.
 ENDS = ("done", "escalated", "unrun")
 
@@ -209,15 +207,7 @@ def play(
     first = True
     for _ in range(ROUNDS * 3):
         kill_at = rng.randint(1, 40) if kills_wanted and rng.random() < 0.4 else None
-        try:
-            step = drive(rig, monkeypatch, shape, first=first, kill_at=kill_at)
-        except RunStateError as exc:
-            if "a reopen with no decision" not in str(exc):
-                raise
-            # Known, and not of the wait rules: a choice to reopen a module whose last attempt
-            # (a sign-off's fix) ended unmerged. The seed is set aside, not counted as a finding.
-            found, step = KNOWN_REOPEN_CRASH, "crashed"
-            break
+        step = drive(rig, monkeypatch, shape, first=first, kill_at=kill_at)
         first = False
         if step == "killed":
             kills += 1
@@ -234,8 +224,6 @@ def play(
 def check(played: Played, mark: str = "release_2") -> list[str]:
     """What is wrong with the run, in words; empty when it holds what a run must."""
     said, rows, wrong = played.said, played.rows, []
-    if played.found == KNOWN_REOPEN_CRASH:
-        return []  # set aside: no claim is made of this run
     if played.found is not None:
         wrong.append(f"{said}: {played.found}")
     if played.step not in ENDS:

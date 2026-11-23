@@ -49,6 +49,7 @@ from physgate import roles
 from physgate.contracts.pairs import ContractPair
 from physgate.orchestrator import closing_wait
 from physgate.orchestrator.design_pairs import DesignPair
+from physgate.orchestrator.design_wait import held_for_good
 from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.ports import ChangeCheck
 from physgate.orchestrator.queue import read_queue
@@ -130,10 +131,14 @@ READER = (
 )
 
 
-def begin(rig: Rig, *, reader: bool = False) -> Any:  # noqa: ANN401 - the loop
+BOTH = (PAIRS[0], READER[0], PAIRS[1])  # the builder's reader reads the chooser as well
+
+
+def begin(rig: Rig, *, reader: bool = False, reads_both: bool = False) -> Any:  # noqa: ANN401 - the loop
     """Sizing, the chooser, its builder, the builder's reader, the closing pass.
 
     With ``reader``, no builder: sizing, the chooser, a module that reads it, the closing pass.
+    With ``reads_both``, the builder's reader reads the chooser as well as the builder.
     """
     loop = rig.open()
     plan = [entry(Z0, "sizing", "modules/z0"), entry(U, "electrical", "modules/bus")]
@@ -152,7 +157,9 @@ def begin(rig: Rig, *, reader: bool = False) -> Any:  # noqa: ANN401 - the loop
             (InterfaceConsumers(interface="iface.bus", consumers=("mm",)),)
             if reader
             else (
-                InterfaceConsumers(interface="iface.bus", consumers=("fw",)),
+                InterfaceConsumers(
+                    interface="iface.bus", consumers=("fw", "mm") if reads_both else ("fw",)
+                ),
                 InterfaceConsumers(interface="iface.fw", consumers=("mm",)),
             )
         ),
@@ -161,7 +168,7 @@ def begin(rig: Rig, *, reader: bool = False) -> Any:  # noqa: ANN401 - the loop
                 '{"requirement": "1", "contributing": [{"module": "bus", "criterion": "1"}]}'
             ),
         ),
-        contract_pairs=READER if reader else PAIRS,
+        contract_pairs=READER if reader else BOTH if reads_both else PAIRS,
         design_pairs=None if reader else (DesignPair(designer=U, builder=FW, nodes=(LAW,)),),
     )
     loop.record.start(plan, decomposed=summary)
@@ -169,10 +176,10 @@ def begin(rig: Rig, *, reader: bool = False) -> Any:  # noqa: ANN401 - the loop
     return loop
 
 
-def drive(rig: Rig, *, first: bool = False, reader: bool = False) -> str:
+def drive(rig: Rig, *, first: bool = False, reader: bool = False, reads_both: bool = False) -> str:
     if not first:
         return resume(rig)
-    loop = begin(rig, reader=reader)
+    loop = begin(rig, reader=reader, reads_both=reads_both)
     try:
         return str(loop.run().kind)
     finally:
@@ -281,6 +288,37 @@ def test_a_reader_of_a_builder_held_for_good_does_not_hold_the_closing_pass(
     # What the run does next: nothing is left that any decision or any module can move, so it is
     # over, with the builder held for good never run (not a wait on it, which was the defect).
     assert state.next_step().kind == "done"
+
+
+def test_under_release_2_the_closing_pass_waits_for_a_reader_of_a_builder_held_for_good(
+    tmp_path: Path,
+) -> None:
+    # Under ``release_2`` a reader of a producer that cannot move is not held on it: it runs
+    # without it. So it is a module that can still move, and the closing pass, which reads the
+    # graph the reader's work goes into, waits for it, from the moment the producer is held for
+    # good until the reader has merged.
+    rig = rigged(tmp_path)
+    # The reader reads the chooser too, so it is held on the chooser's open item until it is
+    # decided, and has not run when its other producer, the builder, is held for good.
+    assert drive(rig, first=True, reads_both=True) == "wait"
+    decide(rig.run_dir, "reject", "no value is chosen")
+    drive(rig)
+    events = events_of(rig)
+    state = replay(events)
+    assert merged(rig) == [Z0, MM, ZC], {s: v.status for s, v in state.subtasks.items()}
+    assert state.producer_waits.narrow, "the run began under release_2"
+    # The log as it stood at the first line after which the builder is held for good (its
+    # designer ended): its reader has not run.
+    at = next(i for i in range(len(events)) if held_for_good(replay(events[: i + 1]), FW))
+    then = replay(events[: at + 1])
+    assert then.subtasks[FW].status == "planned" and then.subtasks[MM].status == "planned"
+    assert closing_wait.pending(then, ZC) == [MM], "the closing pass waits for the reader"
+    assert closing_wait.closing_waits(then) == {
+        "closing_waits": [{"subtask_id": ZC, "pending": [MM]}]
+    }
+    # Once the reader merged nothing is pending, and the closing pass goes ahead.
+    assert closing_wait.pending(state, ZC) == []
+    assert state.next_step().kind == "unrun", "and the builder held for good is named as never run"
 
 
 def test_a_module_merged_on_a_fix_a_person_ordered_is_owed_no_follow_up_and_the_run_ends_escalated(

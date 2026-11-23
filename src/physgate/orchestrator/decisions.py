@@ -241,14 +241,26 @@ def _arbitration_effect() -> tuple[WhyRecordOnly, OnReject]:
     return "source", "record_only"
 
 
+def reopenable(sub: SubtaskState) -> bool:
+    """Whether a reopen of ``sub`` can be carried out: it is done and its last attempt merged.
+
+    A reopen starts the next attempt from the merge the last attempt made. A module whose
+    sign-off fix ended unmerged, or whose follow-up did, stays ``done`` with an earlier merge
+    standing and has no merge on its last attempt, so nothing can be reopened from it.
+    """
+    return sub.status == "done" and bool(sub.attempts) and sub.attempts[-1].merged is not None
+
+
 def contract_choices(state: RunState, tested: ContractTested) -> dict[Position, ContractChoice]:
     """What choosing each position of the item for the failed result ``tested`` does.
 
     The chosen position's module stands. The other reopens when it alone deviates on the clauses
-    ruled for a person, its planning subtask is merged with an attempt or its one fix left, and
-    the integration call is not on the record: after it, nothing about a subtask but integration's
-    follows, and a completion could stand over the reopened module. Otherwise the choice records
-    only, for the reason the item states.
+    ruled for a person, its planning subtask is merged on its last attempt (:func:`reopenable`:
+    not one whose sign-off fix or follow-up ended unmerged, which keeps an earlier merge but has
+    none to reopen from) with an attempt or its one fix left, and the integration call is not on
+    the record: after it, nothing about a subtask but integration's follows, and a completion
+    could stand over the reopened module. Otherwise the choice records only, for the reason the
+    item states.
     """
     pair = tested.result.pair
     queued = {line.conflict for line in state.rulings_of(tested) if line.level == "queue"}
@@ -268,7 +280,11 @@ def contract_choices(state: RunState, tested: ContractTested) -> dict[Position, 
             why = "both"
         elif position in deviating:
             why = "deviates"
-        elif sub.status != "done" or state.integration is not None:
+        elif not reopenable(sub) or state.integration is not None:
+            # A module whose sign-off fix or follow-up ended unmerged is still ``done`` and that
+            # attempt is no ``fix`` attempt, but its last attempt has no merge to start another
+            # from: a reopen of it could not be carried out, so the item does not offer one (as a
+            # rejected sign-off, whose fix is not ordered for such a module either, does not).
             why = "closed"
         elif any(attempt.fix for attempt in sub.attempts) or last >= ATTEMPT_LIMIT:
             # A follow-up can merge on the subtask's last number though it is no fix.
@@ -759,6 +775,10 @@ def _contract_effect(
     except ValueError as exc:  # the writer refuses this line; one that reaches the file anyway
         raise QueueItemMismatchError(str(exc), item=item.item_id) from None
     reopens = _reopen_of(state, tested, resolution.position) if effect == "reopen" else None
+    if reopens is not None and not reopenable(state.subtasks[reopens]):
+        # The item never offers it (``contract_choices``); if a stale line still names one, it
+        # acts on nothing, so the loop is never ordered a reopen it cannot carry out.
+        return Taken(effect="none", acts=False, why_not=hold or "not_merged")
     too_long = reopens is not None and not _conform_fits(
         state, item.item_id, reopens, resolution.note
     )
@@ -939,6 +959,25 @@ def _conform_fits(state: RunState, item_id: str, subtask_id: str, note: str | No
     return fits_one_read(person_order_text(order))
 
 
+def _written_before_the_reopen_was_checked(
+    state: RunState, tested: ContractTested, event: DecisionTaken
+) -> bool:
+    """Whether ``event`` is a choice that ordered the reopen of a module that cannot take one.
+
+    Only a module of the item's pair, whose last attempt has no merge. Code that offered such a
+    choice wrote this line and the run then stopped on it for good; it is read, so that the run
+    can be resumed, and acts on nothing (``SubtaskState`` is never told to reopen).
+    """
+    pair = tested.result.pair
+    return (
+        event.verb == "choose"
+        and event.effect == "reopen"
+        and not event.order_too_long
+        and event.reopens in (pair.producer.subtask_id, pair.consumer.subtask_id)
+        and not reopenable(state.subtasks[event.reopens])
+    )
+
+
 def require_taken(state: RunState, event: DecisionTaken) -> None:
     """Refuse a ``decision_taken`` line this code could not have written after the lines before it.
 
@@ -960,12 +999,12 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
             msg = "a confirmation follows a held decision, once"
             raise ValueError(msg)
         # A sign-off item a later raise superseded while its decision was held, or whose fix the
-        # record no longer allows: what it showed is no longer true, so the confirmation of the
-        # same decision records only.
+        # record no longer allows, and a contract item another module's reopen superseded: what it
+        # showed is no longer true, so the confirmation of the same decision records only.
         lapsed = (
             event.item_id in state.sign_offs
             and sign_off_outcome(state, event.item_id, event.verb)[0] != earlier.effect
-        )
+        ) or (event.item_id in state.contract_items and event.item_id in state.superseded)
         if (event.verb, event.position, event.effect, event.decision_offset) != (
             earlier.verb,
             earlier.position,
@@ -1165,8 +1204,15 @@ def _require_contract_taken(state: RunState, event: DecisionTaken) -> None:
         effect, why = _effect_of(contract_consequence(state, tested), event.verb, event.position)
         if effect == "reopen":
             reopens = _reopen_of(state, tested, event.position)
-            if reopens is None or not _conform_fits(state, event.item_id, reopens, event.note):
+            if reopens is not None and not reopenable(state.subtasks[reopens]):
+                effect, why, reopens = "none", "not_merged", None
+            elif reopens is None or not _conform_fits(state, event.item_id, reopens, event.note):
                 effect, why, reopens = "none", "order_too_long", None
+        elif _written_before_the_reopen_was_checked(state, tested, event):
+            # A record the code before it made: the item offered the reopen of a module whose last
+            # attempt never merged, and the choice was taken as one. It reopened nothing then (the
+            # run stopped there) and reopens nothing now, but the line is the one that was written.
+            effect, why, reopens = "reopen", None, event.reopens
     held = event.why_not == "held_os_layer_off" and event.confirmed_by is None
     if (event.effect, event.reopens, event.order_too_long) != (
         effect,

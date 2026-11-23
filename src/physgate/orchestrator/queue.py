@@ -80,6 +80,7 @@ from physgate.orchestrator.events import (
     Position,
     SessionEnded,
     StageEntered,
+    SubtaskReopened,
     parse_events,
     read_jsonl,
 )
@@ -1424,8 +1425,12 @@ class ContractChoice:
 
     ``why``: ``reopen``, the other module alone deviates and has an attempt left; ``deviates``, the
     chosen module's own nodes break the contract; ``both``, both modules' do; ``spent``, the other
-    module has no attempt left; ``closed``, it is not merged now, or the integration call is on the
-    record. ``module`` and ``subtask`` are the other side's, ``attempt`` the one a reopen starts.
+    module has no attempt left; ``closed``, it cannot be reopened now, or the integration call is
+    on the record. A module cannot be reopened while it is not merged (planned, active, waiting,
+    escalated, rejected), and when it is done with an earlier merge standing but no merge on its
+    last attempt: a sign-off's fix or a follow-up ended unmerged, so no merge is left to start
+    another attempt from. ``module`` and ``subtask`` are the other side's, ``attempt`` the one a
+    reopen starts.
     """
 
     why: Literal["reopen", "deviates", "both", "spent", "closed"]
@@ -1465,7 +1470,11 @@ def _choice_words(choices: Mapping[Position, ContractChoice] | None) -> str:
         elif choice.why == "spent":
             words.append(f"{lead} records only: {other} has no attempt left.")
         else:
-            words.append(f"{lead} records only: {other} is not merged now, or integration ran.")
+            words.append(
+                f"{lead} records only: {other} cannot be reopened now (it is not merged, or its "
+                "last attempt did not merge: a sign-off's fix or a follow-up ended without one), "
+                "or integration ran."
+            )
     return " ".join(words)
 
 
@@ -1835,8 +1844,15 @@ def _taken_of(events: list[Event]) -> dict[str, dict[str, object]]:
     """Each decision the run took, by item: its effect, whether it acted, why not, who confirmed.
 
     A confirmation of a held decision replaces what the held line said, since it is what acted.
+    A decision that acts as a reopen and that no ``subtask_reopened`` line names says
+    ``reopened: false``: nothing is reopened on the record, because the run has not yet written
+    it or because a record an earlier version made ends at a reopen no module could take. The key
+    is left out of every other entry, so those keep their shape.
     """
     taken: dict[str, dict[str, object]] = {}
+    reopened = {
+        e.item_id for e in events if isinstance(e, SubtaskReopened) and e.item_id is not None
+    }
     for event in events:
         if isinstance(event, DecisionTaken):
             taken[event.item_id] = {
@@ -1846,6 +1862,8 @@ def _taken_of(events: list[Event]) -> dict[str, dict[str, object]]:
                 "confirmed_by": event.confirmed_by,
                 "order_too_long": event.order_too_long,
             }
+            if event.acts and event.effect == "reopen" and event.item_id not in reopened:
+                taken[event.item_id]["reopened"] = False
     return taken
 
 

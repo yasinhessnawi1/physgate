@@ -198,6 +198,19 @@ export function unrunWords(status: RunStatus): { sentence: string; detail: strin
 }
 
 /**
+ * What an escalated end that owes a sign-off says of the modules that never ran, or ``null``: the
+ * sign-off comes first, so the end is not ``unrun``, but a module never run is still named.
+ */
+export function neverRanDetail(status: RunStatus): string | null {
+  const never = status.neverRan ?? [];
+  if (status.kind !== "escalated" || never.length === 0) return null;
+  const which = never.length === 1 ? "module never ran" : "modules never ran";
+  return `Also, the ${namesWords(never.map((n) => n.subtask))} ${which}: ${never
+    .map((n) => `${moduleName(n.subtask)}: ${n.why}`)
+    .join(". ")}.`;
+}
+
+/**
  * Where ``status``'s run stands, in words; ``end`` is how an ended run ended, read from its log and
  * queue (``runEnd``), or ``null`` when they were not read.
  */
@@ -224,7 +237,7 @@ export function standingOf(status: RunStatus, end: RunEnd | null): Standing {
       };
     }
     case "waiting-person":
-      return { phase, word: null, sentence: WAITING_WORDS, detail: null };
+      return { phase, word: null, sentence: WAITING_WORDS, detail: neverRanDetail(status) };
     case "waiting-limit":
     case "halted": {
       const halt = status.halted;
@@ -233,7 +246,12 @@ export function standingOf(status: RunStatus, end: RunEnd | null): Standing {
         phase,
         word: null,
         sentence: HALT_SENTENCES[halt.reason] ?? `Halted: ${halt.reason.replace(/_/g, " ")}.`,
-        detail: phase === "waiting-limit" ? null : `${halt.reason}: ${halt.detail}`,
+        detail:
+          phase === "waiting-limit"
+            ? null
+            : halt.incident === undefined
+              ? `${halt.reason}: ${halt.detail}`
+              : `${halt.reason}: ${halt.detail.replace(/\.+$/, "")}. ${halt.incident.detail}`,
       };
     }
     case "halt-owed":
@@ -247,16 +265,18 @@ export function standingOf(status: RunStatus, end: RunEnd | null): Standing {
       const unrun = unrunWords(status);
       if (unrun !== null)
         return { phase, word: "Ended", sentence: unrun.sentence, detail: unrun.detail };
+      const left = neverRanDetail(status);
       if (end === null) {
         const sentence =
           status.kind === "escalated" ? recordedEndSentence(status.signaturesOwed ?? []) : "Ended.";
-        return { phase, word: null, sentence, detail: null };
+        return { phase, word: null, sentence, detail: left };
       }
+      const ended = end.kind === "ended" ? runEndWords(end) : null;
       return {
         phase,
         word: end.kind === "complete" ? "Complete" : "Ended",
         sentence: endSentence(end),
-        detail: end.kind === "ended" ? runEndWords(end) : null,
+        detail: ended === null ? left : left === null ? ended : `${ended} ${left}`,
       };
     }
   }
