@@ -63,6 +63,7 @@ from physgate.evaluation.observe.exceptions import ObserveError
 from physgate.gate.exceptions import GateError
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.state.exceptions import DesignStateError
+from physgate.state.schema import OPERATOR_MAX_LENGTH
 from physgate.ui import guard
 from physgate.ui.exceptions import (
     GuardRefusedError,
@@ -103,7 +104,7 @@ MAX_ACT_BODY = 16 * 1024
 REQUEST_TIMEOUT_S = 10.0
 
 #: The longest operator name taken at start.
-MAX_OPERATOR = 64
+MAX_OPERATOR = OPERATOR_MAX_LENGTH
 
 
 def require_operator(name: str | None) -> str | None:

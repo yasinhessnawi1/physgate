@@ -38,6 +38,8 @@ from pydantic import (
     Field,
     SerializerFunctionWrapHandler,
     StringConstraints,
+    TypeAdapter,
+    ValidationError,
     model_serializer,
     model_validator,
 )
@@ -174,6 +176,36 @@ def _is_a_name(operator: str) -> str:
     return operator
 
 
+#: The most characters the store takes in the name of the operator who decided a declared value.
+OPERATOR_MAX_LENGTH: Final = 64
+
+#: An operator's name as the store holds it: printable, not blank, and no longer than
+#: :data:`OPERATOR_MAX_LENGTH`. Whatever records that name before the store sees it uses this.
+OperatorName = Annotated[
+    str, StringConstraints(min_length=1, max_length=OPERATOR_MAX_LENGTH), AfterValidator(_is_a_name)
+]
+_OPERATOR_NAME: Final = TypeAdapter(OperatorName)
+
+
+def operator_problem(name: str) -> str | None:
+    """Why the store would refuse ``name`` as an operator's name, in plain words; ``None`` if not.
+
+    The same rule the store applies to a declared quantity's operator, so a caller can refuse a
+    name before anything is written that the store would refuse later.
+    """
+    if len(name) > OPERATOR_MAX_LENGTH:
+        return (
+            f"the name is {len(name)} characters long and the store takes at most "
+            f"{OPERATOR_MAX_LENGTH} in an operator's name: give a shorter one"
+        )
+    try:
+        _OPERATOR_NAME.validate_python(name)
+    except ValidationError as exc:
+        why = exc.errors()[0]["msg"].removeprefix("Value error, ")
+        return f"the store would refuse the operator's name: {why}"
+    return None
+
+
 class Declared(BaseModel):
     """The decision behind a quantity a person declared: a record, not a claim.
 
@@ -187,9 +219,7 @@ class Declared(BaseModel):
     #: A queue item's id is plain identifiers joined by hyphens, never a path.
     item_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,300}$")]
     decision_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-    operator: Annotated[
-        str, StringConstraints(min_length=1, max_length=64), AfterValidator(_is_a_name)
-    ]
+    operator: OperatorName
 
 
 class Quantity(BaseModel):
