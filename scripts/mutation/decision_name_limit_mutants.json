@@ -169,5 +169,22 @@
       "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/orch_helpers.py"
     ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/orchestrator/queue.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_decision_name_the_store_would_refuse_is_refused_when_the_decision_is_taken.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/parts_rig.py",
+      "tests/unit/orchestrator/plan_hold_rig.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
   }
 ]

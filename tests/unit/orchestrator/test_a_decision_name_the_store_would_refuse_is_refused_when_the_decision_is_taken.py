@@ -10,6 +10,7 @@ already on a record is read as before.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,15 @@ def _decided_by(run_dir: Path, item_id: str, name: str, position: str = "have") 
     )
 
 
+def _taken[T](take: Callable[[], T], name: str) -> T:
+    """What ``take`` gives, or an assertion that a name the store takes was refused."""
+    try:
+        return take()
+    except QueueError as exc:
+        msg = f"a name of {len(name)} characters was refused: {exc}"
+        raise AssertionError(msg) from None
+
+
 def _waiting(tmp_path: Path) -> Any:  # noqa: ANN401 - the rig, which holds the run's store
     the_rig = started(tmp_path / "run")
     assert again(the_rig) == "wait"
@@ -127,7 +137,7 @@ def test_a_name_of_the_stores_length_is_taken_and_one_character_more_is_refused(
     assert str(LIMIT) in str(refused.value) and str(LIMIT + 1) in str(refused.value)
     assert not (run_dir / "queue_decisions.jsonl").exists() or decisions_bytes(run_dir) == before
     assert _events_size(run_dir) == events
-    taken = _decided_by(run_dir, IDS[0], FITS)
+    taken = _taken(lambda: _decided_by(run_dir, IDS[0], FITS), FITS)
     assert taken.resolved_by == FITS
 
 
@@ -158,7 +168,7 @@ def test_a_free_text_decision_is_held_to_the_same_limit(tmp_path: Path) -> None:
     with pytest.raises(QueueError, match=str(LIMIT)):
         record_decision(run_dir, PLAIN, decision="approve", resolved_by=TOO_LONG)
     assert _decided(run_dir) == []
-    record_decision(run_dir, PLAIN, decision="approve", resolved_by=FITS)
+    _taken(lambda: record_decision(run_dir, PLAIN, decision="approve", resolved_by=FITS), FITS)
     assert _decided(run_dir) == [PLAIN]
 
 
@@ -168,7 +178,7 @@ def test_the_queues_own_resolve_is_held_to_the_same_limit(tmp_path: Path) -> Non
     with pytest.raises(QueueError, match=str(LIMIT)):
         queue.resolve(PLAIN, decision="approve", resolved_by=TOO_LONG)
     assert _decided(run_dir) == []
-    queue.resolve(PLAIN, decision="approve", resolved_by=FITS)
+    _taken(lambda: queue.resolve(PLAIN, decision="approve", resolved_by=FITS), FITS)
     assert _decided(run_dir) == [PLAIN]
 
 
@@ -223,7 +233,7 @@ def test_a_long_name_never_reaches_the_store_so_the_run_goes_on(tmp_path: Path) 
     run_dir = the_rig.run_dir
     with pytest.raises(QueueError):
         _decided_by(run_dir, IDS[0], TOO_LONG)
-    assert isinstance(_decided_by(run_dir, IDS[0], FITS), QueueResolution)
+    assert isinstance(_taken(lambda: _decided_by(run_dir, IDS[0], FITS), FITS), QueueResolution)
     assert isinstance(decide(run_dir, IDS[1], "find"), QueueResolution)
     assert isinstance(decide(run_dir, IDS[2], "find"), QueueResolution)
     step = signing(lambda: again(the_rig), run_dir)
@@ -322,14 +332,14 @@ def _free_text_by(tmp_path: Path, name: str) -> None:
 def test_the_limit_is_sixty_four_characters_written_out(tmp_path: Path) -> None:
     assert LIMIT == 64
     assert require_operator("o" * 64) == "o" * 64
-    _free_text_by(tmp_path / "fits", "o" * 64)
+    _taken(lambda: _free_text_by(tmp_path / "fits", "o" * 64), "o" * 64)
     with pytest.raises(QueueError):
         _free_text_by(tmp_path / "over", "o" * 65)
 
 
 def test_a_name_is_counted_in_characters_not_bytes(tmp_path: Path) -> None:
     assert len(("é" * 64).encode()) > 64
-    _free_text_by(tmp_path / "fits", "é" * 64)
+    _taken(lambda: _free_text_by(tmp_path / "fits", "é" * 64), "é" * 64)
     with pytest.raises(QueueError):
         _free_text_by(tmp_path / "over", "é" * 65)
 
@@ -341,7 +351,8 @@ def test_a_name_in_wide_characters_is_taken_at_sixty_four_and_refused_at_sixty_f
     run_dir = the_rig.run_dir
     with pytest.raises(QueueError):
         _decided_by(run_dir, IDS[0], "é" * 65)
-    assert _decided_by(run_dir, IDS[0], "é" * 64).resolved_by == "é" * 64
+    wide = "é" * 64
+    assert _taken(lambda: _decided_by(run_dir, IDS[0], wide), wide).resolved_by == wide
 
 
 def test_a_name_checked_first_answers_before_an_unknown_decided_or_stale_item(
@@ -413,7 +424,7 @@ def test_a_decision_with_a_name_of_sixty_four_characters_is_declared_under_that_
     tmp_path: Path,
 ) -> None:
     run_dir = listed(tmp_path / "run", item(MOTOR, 1, 2), item(IMU, 2, 2))
-    _decided_by(run_dir, IDS[0], "o" * 64)
+    _taken(lambda: _decided_by(run_dir, IDS[0], "o" * 64), "o" * 64)
     store = Store(tmp_path / "graph")
     answer = _declare_from(run_dir, store)
     assert (answer.accepted, answer.reason) == (True, None)
