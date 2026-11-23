@@ -251,7 +251,7 @@ export function standingOf(status: RunStatus, end: RunEnd | null): Standing {
             ? null
             : halt.incident === undefined
               ? `${halt.reason}: ${halt.detail}`
-              : `${halt.reason}: ${halt.detail}. ${halt.incident.detail}`,
+              : `${halt.reason}: ${halt.detail.replace(/\.+$/, "")}. ${halt.incident.detail}`,
       };
     }
     case "halt-owed":

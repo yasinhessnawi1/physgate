@@ -12,28 +12,35 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
 import pytest
-from loop_fakes import Rig
+from loop_fakes import FakeGate, FakeReviewer, Rig
+from orch_helpers import make_config
 from test_a_choice_on_a_failed_contract_reopens_the_other_module import choose, of
 from test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item import (
     lines,
     refusal,
 )
 from test_a_queue_decision_acts_at_a_boundary import decide
+from test_a_run_records_the_code_it_ran_on import checkout
 from wait_cycle_rig import CONTROL, FIRMWARE, Shape, first_run, resumed
 
 from physgate import roles
+from physgate.cli import main
+from physgate.orchestrator import cli as orchestrator_cli
 from physgate.orchestrator import decisions as deciding
 from physgate.orchestrator import record, replay
 from physgate.orchestrator.events import read_events
 from physgate.orchestrator.exceptions import RunStateError
-from physgate.orchestrator.queue import read_queue
+from physgate.orchestrator.queue import _taken_of, queue_listing, read_queue
+from physgate.orchestrator.run_config import harness_state, write_run_config
 
 SIGN_OFF = "run-1-SIGNOFF-drive-0a1b2c"
 FIRST, SECOND = "run-1-contract-1", "run-1-contract-1-r2"
+INTEGRATION = "integ"
 RECORDED = (
     Path(__file__).parent
     / "records_of_a_reopen_the_loop_could_not_carry_out"
@@ -97,7 +104,9 @@ def test_the_item_raised_after_the_fix_ended_offers_no_reopen_of_that_module(
     rig, _ = after_the_fix_ended(tmp_path, monkeypatch)
     assert offered(rig, SECOND) == {"producer": "record_only", "consumer": "record_only"}
     said = next(i for i in read_queue(rig.run_dir).items if i.item_id == SECOND).decision_required
-    assert "is not merged now" in said
+    # The words are true of a module whose earlier merge stands: not "not merged".
+    assert "cannot be reopened now" in said and "its last attempt did not merge" in said
+    assert "is not merged now" not in said
 
 
 def test_choosing_on_it_records_only_and_the_run_goes_on(
@@ -151,11 +160,22 @@ def test_a_reopen_the_loop_cannot_carry_out_is_recorded_as_acting_on_nothing(
         rig, shape = after_the_fix_ended(tmp_path, stale)
         assert offered(rig, SECOND)["producer"] == "reopen"
         choose(rig.run_dir, "producer", item_id=SECOND)
-        step = resumed(rig, stale, shape)
+        failure: Exception | None = None
+        step = ""
+        try:
+            step = resumed(rig, stale, shape)
+        except (ValueError, RunStateError) as exc:
+            failure = exc
         rows = lines(rig)
-        (taken,) = of(rows, "decision_taken", item_id=SECOND)
+        written = of(rows, "decision_taken", item_id=SECOND)
+        assert len(written) == 1, (
+            "the choice is written once, as a decision that acts on nothing; "
+            f"the run raised {failure!r} instead"
+        )
+        (taken,) = written
         assert (taken["effect"], taken["acts"], taken["why_not"]) == ("none", False, "not_merged")
         assert not of(rows, "subtask_reopened", item_id=SECOND)
+        assert failure is None, f"the run goes on after it: {failure!r}"
         assert step in ("done", "escalated", "unrun")
         assert refusal(rows) is None, "replay agrees with the run that wrote the line"
 
@@ -187,6 +207,9 @@ def signature(rows: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
 def test_a_run_that_ends_at_a_reopen_the_code_before_ordered_resumes_without_rewriting_a_line(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mark: str | None
 ) -> None:
+    # What replay does with a record that ends at such a line: a property of the replay rule. It is
+    # not a way to carry a run over from the code before; the real entry refuses other code (the
+    # last row), so no run is resumed on this code from a record that other code made.
     rig, shape = made_by_the_code_before(tmp_path, monkeypatch, choice=True)
     # The record made so is the one the unchanged sources made (the recorded one), line for line.
     rows = lines(rig)
@@ -217,7 +240,9 @@ def test_an_item_the_code_before_listed_with_the_reopen_halts_on_a_choice_of_it_
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mark: str | None
 ) -> None:
     # An item still open from before: what it says is not what the record gives now. The decision
-    # is refused under the cause every such item has, and nothing is reopened or raised.
+    # is refused under the cause every such item has, and nothing is reopened or raised. The halt
+    # is final: no command resolves it, and it needs a run continued on other code, which the
+    # real entry refuses (the last row). The item-against-record comparison is not relaxed.
     rig, shape = made_by_the_code_before(tmp_path, monkeypatch, choice=False)
     choose(rig.run_dir, "producer", item_id=SECOND)
     assert resumed(rig, monkeypatch, shape) == "halted"
@@ -262,8 +287,14 @@ def test_the_line_the_code_before_wrote_is_read_only_for_a_module_that_cannot_be
     # (the item offered none for it), so a line that orders one is not the line the code wrote.
     forged = [*rows[:-1], rows[-1] | {"reopens": FIRMWARE}]
     assert "other than the record allows" in (refusal(forged) or "")
-    # Nor is a line of another verb, or one that names a module outside the item's pair.
+    # Nor is a line that names a module outside the item's pair: one the run has and cannot
+    # reopen (integration's own subtask is planned), or one it does not have at all.
+    state = recorded_state()
+    assert INTEGRATION in state.subtasks and not deciding.reopenable(state.subtasks[INTEGRATION])
+    outside = refusal([*rows[:-1], rows[-1] | {"reopens": INTEGRATION}])
+    assert "other than the record allows" in (outside or ""), outside
     assert refusal([*rows[:-1], rows[-1] | {"reopens": "sz-6a7b8c"}]) is not None
+    # Nor is a line of another verb.
     assert refusal([*rows[:-1], rows[-1] | {"verb": "approve", "position": None}]) is not None
 
 
@@ -284,3 +315,72 @@ def test_a_module_is_reopenable_only_while_it_is_done_and_its_last_attempt_merge
     # ... or has no attempt at all.
     control.status, control.attempts = "done", []
     assert not deciding.reopenable(control)
+
+
+def test_a_module_whose_follow_up_ended_unmerged_is_not_offered_a_reopen_either() -> None:
+    # The follow-up the closing pass owes is the other way a module is left ``done`` with an
+    # earlier merge standing and none on its last attempt. Built by hand on the recorded state:
+    # control's last attempt, which ended unmerged, is read as the follow-up it ended instead of
+    # the sign-off fix, and the item is read again. (The random-plan rig
+    # reaches no such state, so it is built by hand.)
+    state = recorded_state()
+    tested = state.contract_items[SECOND]
+    control = state.subtasks[CONTROL]
+    assert control.sign_off_fixed is not None
+    control.followed_up = control.sign_off_fixed.model_copy(
+        update={"item_id": None, "shown_sha256": None, "cause": "follow_up"}
+    )
+    control.sign_off_fixed = None
+    assert replay.following_up(control) and not replay.sign_off_fixing(control)
+    assert control.status == "done" and control.attempts[0].merged is not None
+    assert not deciding.reopenable(control)
+    assert deciding.contract_choices(state, tested)["producer"].why == "closed"
+    # Its follow-up merged instead: the reopen is offered again.
+    control.attempts[-1].merged = control.attempts[0].merged
+    assert deciding.contract_choices(state, tested)["producer"].why == "reopen"
+
+
+def test_a_decision_that_acts_as_a_reopen_no_line_follows_is_listed_as_not_reopened(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mark: str | None
+) -> None:
+    # The record the code before made ends at the choice: no reopening is on it, and the listing
+    # says so, so that the page does not say a module was reopened.
+    taken = _taken_of(read_events(RECORDED))[SECOND]
+    assert (taken["effect"], taken["acts"], taken["reopened"]) == ("reopen", True, False)
+    # A reopen that was written is not marked, and every other decision keeps its shape.
+    rig, _ = after_the_fix_ended(tmp_path, monkeypatch)
+    decided: list[dict[str, Any]] = queue_listing(rig.run_dir)["decided"]  # type: ignore[assignment]
+    listed = {d["item_id"]: d["taken"] for d in decided}
+    assert listed[SIGN_OFF]["effect"] == "reopen" and "reopened" not in listed[SIGN_OFF]
+
+
+def test_a_record_made_by_other_code_is_not_continued_by_the_real_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # An item the code before listed with the reopen, and the halt on any decision on it, are
+    # states of that code's own runs. A run is continued only on the code it began on, so the
+    # real entry refuses one made by other code, before it reads or writes a line of its record.
+    harness = checkout(tmp_path / "harness")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    write_run_config(run_dir / "run.json", make_config(harness=harness_state(harness)))
+    made = RECORDED.read_bytes()
+    (run_dir / "events.jsonl").write_bytes(made)
+    (harness / "b.py").write_text(
+        "x = 2\n"
+    )  # this change: the code is no longer the one it began on
+    for args in (["add", "-A"], ["commit", "-q", "-m", "this change"]):
+        subprocess.run(["git", *args], cwd=harness, check=True)
+    monkeypatch.setattr(orchestrator_cli, "_harness_root", lambda: harness)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    registrations = orchestrator_cli.Registrations(
+        gate=FakeGate(), reviewers={"electrical": FakeReviewer()}
+    )
+    args = ["--run-dir", str(run_dir), "--target", str(tmp_path / "t")]
+    install = ["--install", str(tmp_path / "install"), "--review-root", str(tmp_path / "rs")]
+    assert main(["resume", *args, *install], registrations) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"] == "the harness checkout differs from the one this run recorded"
+    assert error["changed"] == "commit"
+    assert (run_dir / "events.jsonl").read_bytes() == made, "the record is not touched"

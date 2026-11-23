@@ -39,6 +39,7 @@ from physgate import roles
 from physgate.evaluation.per_role.arms.compare import ENDED_STEPS, harness_total
 from physgate.orchestrator import record
 from physgate.orchestrator.events import read_events
+from physgate.orchestrator.exceptions import RunStateError
 from physgate.orchestrator.queue import read_queue
 from physgate.orchestrator.replay import RunState, replay
 from physgate.orchestrator.wait_cycle import never_ran, never_ran_at
@@ -117,9 +118,20 @@ def test_a_decision_written_after_the_end_is_taken_at_the_unrun_step_and_the_run
     assert [i.item_id for i in read_queue(rig.run_dir).open_items()] == [SECOND]
     decide(rig.run_dir, "approve", "it is fine", item_id=SECOND)
     before = len(lines(rig))
-    assert resumed(rig, monkeypatch, shape) == "unrun"
+    failure: Exception | None = None
+    step = ""
+    try:
+        step = resumed(rig, monkeypatch, shape)
+    except (ValueError, RunStateError) as exc:
+        failure = exc
     rows = lines(rig)
-    (taken,) = of(rows, "decision_taken", item_id=SECOND)
+    written = of(rows, "decision_taken", item_id=SECOND)
+    assert len(written) == 1, (
+        "the decision is taken once, at the unrun step; "
+        f"the decisions written: {len(written)}, the run raised {failure!r}"
+    )
+    (taken,) = written
+    assert failure is None and step == "unrun", f"the run stays unrun: {step!r}, {failure!r}"
     # It was taken where the run had nothing else owed, and it acts on nothing: the item lapsed.
     assert rows.index(taken) >= before
     assert state_before(rig, "decision_taken", item_id=SECOND).next_step().kind == "unrun"

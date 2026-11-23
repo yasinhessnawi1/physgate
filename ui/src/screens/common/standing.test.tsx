@@ -231,6 +231,18 @@ describe("a halt on an incident says what the incident says", () => {
     expect(standingOf(halted, null).detail).toBe(`incident: waits_on_nothing. ${WAITS}`);
   });
 
+  it("joins them with one full stop where the halt's detail already ends in one", () => {
+    const stopped: RunStatus = {
+      ...halted,
+      halted: {
+        reason: "incident",
+        detail: "no_progress.",
+        incident: { cause: "no_progress", detail: "This halt is final." },
+      },
+    };
+    expect(standingOf(stopped, null).detail).toBe("incident: no_progress. This halt is final.");
+  });
+
   it("shows the cause alone for a halt that rests on no incident line it can name", () => {
     const bare = { reason: "incident", detail: "waits_on_nothing" };
     expect(standingOf({ ...halted, halted: bare }, null).detail).toBe("incident: waits_on_nothing");

@@ -279,6 +279,9 @@ export interface Taken {
   /** A reject that ended the subtask in place of the session it would order, because that
    * session's reviewer could not have read what it would be told whole. */
   readonly orderTooLong: boolean;
+  /** ``false`` where the decision acts as a reopen and no reopening of the module is on the
+   * record: the run has not written it yet, or a record an earlier version made ends there. */
+  readonly reopened?: boolean;
 }
 
 export interface Decided {
@@ -344,6 +347,9 @@ function taken(value: unknown): Taken | null {
     whyNot: optionalText(t.why_not, "why a decision did not act"),
     confirmedBy: optionalText(t.confirmed_by, "who confirmed a decision"),
     orderTooLong: flag(t.order_too_long, "whether a reject's order was too long to review"),
+    ...(t.reopened === undefined
+      ? {}
+      : { reopened: flag(t.reopened, "whether the module was reopened") }),
   };
 }
 
