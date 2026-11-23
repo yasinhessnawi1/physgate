@@ -234,8 +234,15 @@ def test_a_signal_the_schema_adds_is_not_written_until_it_is_described(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(law_module.SIGNALS, "accelerometer", "m/s**2")
-    with pytest.raises(form.FormError, match="signals"):
+    try:
         form.render_answer_form()
+    except form.FormError as refusal:
+        assert "signals" in str(refusal)
+    except KeyError as missing:
+        msg = f"the block read a meaning for {missing} where it should have refused the signal"
+        raise AssertionError(msg) from missing
+    else:
+        pytest.fail("the block was written with a signal it has no description of")
 
 
 def test_a_field_the_schema_adds_is_not_written_until_it_is_placed(

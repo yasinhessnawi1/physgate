@@ -40,6 +40,7 @@ def test_the_example_itself_is_read_without_a_refusal_and_without_a_term_out_of_
 
 @pytest.mark.parametrize(("key", "case"), ALL, ids=IDS)
 def test_an_answer_built_to_break_one_rule_is_read_as_the_block_says(key: str, case: Case) -> None:
+    assert case.changed, f"{case.label}: the edit found its text in the example not exactly once"
     rule = RULES[key]
     refusal = _read(case)
     if case.parse == "parses":
