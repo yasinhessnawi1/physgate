@@ -13,9 +13,20 @@ merge, or waits for sizing's closing pass, which comes after the subtask; the re
 which, so a reader tells "waited, then ran without it" from "ran before it". Two subtasks that read
 from each other are never held, and a line says so.
 
-A run started under the ``wait_cycle`` mark also lets a hold go when its producer can never end
-before the held subtask runs: it waits, through builder and reader holds, for that subtask, or is
-a builder held for good (:mod:`physgate.orchestrator.wait_cycle`).
+A run started under the ``wait_cycle`` mark ``release`` also lets a hold go when its producer can
+never end before the held subtask runs: it waits, through builder and reader holds, for that
+subtask, or is a builder held for good (:mod:`physgate.orchestrator.wait_cycle`).
+
+A run started under ``release_2`` holds a reader only on a producer that is itself escalated with
+its item undecided, never on one merely blocked behind such a producer. Every wait then ends in a
+person or in a subtask that can run, so no cycle of subtasks can form by construction. Under it
+the lines ``dispatch_released`` with ``producer_waits_for_reader`` and ``producer_held_for_good``
+can no longer be written, and no hold names an item that is not its producer's own (the
+``mutual_readers`` and ``merged``, ``ended_unmerged`` and ``waits_for_closing_pass`` releases are
+as before). A held-for-good builder is planned, never escalated, so no reader is ever held on one.
+The cost: a reader of a producer blocked behind a person may run on the plan's interface values
+and meet a contract failure later. A run recorded under ``release`` or with no mark replays as it
+always did, cycle releases included.
 
 Only in a run that acts on decisions and records its pairs: a run that records only never takes
 a decision, so a producer in the queue has ended there, and a run without pairs has no recorded
@@ -58,6 +69,9 @@ class Waits:
     #: ``True`` once the run's first line says it started under the ``wait_cycle`` rule: a hold
     #: on a producer that can never end before the reader runs is let go, on a line of its own.
     cycle: bool = False
+    #: ``True`` once the first line says ``release_2``: a hold is only ever on a producer that is
+    #: itself with a person (:func:`root_item`), and the run's end names what never ran.
+    narrow: bool = False
     #: Each (reader, producer, attempts on record) that rule let go: one line per dispatch.
     let_go: set[tuple[str, str, int]] = field(default_factory=set)
 
@@ -116,13 +130,16 @@ def waiting_item(state: RunState, producer: str) -> str | None:
 def root_item(state: RunState, producer: str, seen: frozenset[str] = frozenset()) -> str | None:
     """The undecided item ``producer`` waits on, directly or through a chain; ``None`` if none.
 
+    In a run started under ``release_2`` only directly: a producer merely blocked behind one that
+    is with a person holds nobody, so every wait ends in a person or in a subtask that can run.
+
     Directly: it is escalated and its item undecided. Through a chain: its next dispatch is due
     and a subtask it reads from waits so, at any depth, so it would be held itself; the item is
     the one at the chain's root, which a person can act on. Two subtasks that read from each other
     are never held, so a link between them is not followed, and no subtask is visited twice.
     """
     item = waiting_item(state, producer)
-    if item is not None:
+    if item is not None or state.producer_waits.narrow:
         return item
     if not dispatch_due(state, producer) or producer in seen:
         return None
@@ -166,7 +183,7 @@ def _owed(state: RunState, subtask_id: str) -> _Owed | Literal["held"] | None:
     holds = [h for (d, _), h in state.producer_waits.open.items() if d == subtask_id]
     for hold in holds:
         how = released_how(state, hold.producer)
-        if how is None and cycle:
+        if how is None and cycle and not state.producer_waits.narrow:
             how = letting_go(state, hold.producer, subtask_id)
         if how is not None:
             return _Owed("release", hold.producer, hold.item_id, outcome=how)
@@ -181,7 +198,7 @@ def _owed(state: RunState, subtask_id: str) -> _Owed | Literal["held"] | None:
             if (subtask_id, producer, item) in state.producer_waits.mutual:
                 continue
             return _Owed("release", producer, item, outcome="mutual_readers")
-        if cycle:
+        if cycle and not state.producer_waits.narrow:
             if let_go_key(state, subtask_id, producer) in state.producer_waits.let_go:
                 continue
             how = letting_go(state, producer, subtask_id)

@@ -84,6 +84,7 @@ from physgate.orchestrator.queue import (
 from physgate.orchestrator.replay import RunState, recorded_ledger, replay
 from physgate.orchestrator.run_config import RunBounds, load_run_config
 from physgate.orchestrator.trajectory import read_sealed
+from physgate.orchestrator.wait_cycle import never_ran
 from physgate.state.schema import validate_node
 from physgate.state.store import (
     JOURNAL_NAME,
@@ -427,6 +428,9 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             # call failed and its item is open to a person as well.
             "ends_on_sign_offs_alone": state.ends_on_sign_offs_alone(),
             "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
+            # Each subtask that never ran, where the run ended as ``unrun``: why, and the readers
+            # that merged without it. Empty for every other run.
+            "never_ran": never_ran(state),
             # Each builder held while the module whose design it implements has not merged.
             "held": held_builders(state).get("held", []),
             # Each closing pass held while a domain module has neither merged nor ended without

@@ -9,7 +9,7 @@ the ``wait_cycle`` mark the hold on a producer that waits, through a chain of bu
 holds, for the reader itself is let go (``producer_waits_for_reader``, and where none stood none is
 written), and so is a hold on a builder held for good (``producer_held_for_good``). A true wait,
 on a producer that waits for a person only, still holds, and a run recorded before the mark
-replays as it did.
+replays as it did. Every row here starts its run under the mark ``release``.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ from wait_cycle_rig import (
     first_run,
     resumed,
     resumed_before,
+    under_release,  # noqa: F401 - the fixture, by name
 )
 
 from physgate import roles
@@ -47,7 +48,10 @@ from physgate.orchestrator.queue import read_queue
 from physgate.orchestrator.replay import replay
 
 #: A row about the waits, not about the sign-off a merge owes: the run starts before that rule.
-pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule")
+#: These rows are the rule as marked ``release``: the cycle releases, before they were narrowed
+#: (the rule a run is started under now, ``release_2``, is in
+#: ``test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py``).
+pytestmark = pytest.mark.usefixtures("before_the_sign_off_rule", "under_release")
 
 INTEG = "integ"
 #: The real run: control reads firmware's interface (recorded first) and sizing's; firmware reads

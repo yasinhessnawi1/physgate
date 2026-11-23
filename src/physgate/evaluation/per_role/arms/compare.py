@@ -264,7 +264,7 @@ class ComparisonError(PerRoleError):
 
 #: The steps a run stands at, replayed from its log, once the loop has nothing left to do:
 #: every session and every review it started has ended, and each stream was scanned as it did.
-ENDED_STEPS = frozenset({"done", "halted", "escalated"})
+ENDED_STEPS = frozenset({"done", "unrun", "halted", "escalated"})
 
 
 def next_step(events: Sequence[Event]) -> str:

@@ -150,3 +150,47 @@ describe("the screens say a run appears stopped, as an inference with the last r
     expect(words).toBe(`No activity at attempt 1 since ${since}; the run appears to have stopped`);
   });
 });
+
+describe("a run that ended with a module that never ran names it", () => {
+  const unrun: RunStatus = {
+    ...attempting(MINUTE),
+    kind: "unrun",
+    subtask: null,
+    neverRan: [
+      {
+        subtask: "fw-3d4e5f",
+        why: "its designer drive-0a1b2c ended without a merge",
+        ranWithout: ["el-4a5b6c"],
+      },
+    ],
+  };
+
+  it("reads as ended, not as going or waiting", () => {
+    expect(phaseOf(unrun)).toBe("done");
+    expect(inProgress(unrun)).toBe(false);
+  });
+
+  it("says which module never ran and why, and what merged without it", () => {
+    const standing = standingOf(unrun, null);
+    expect(standing.word).toBe("Ended");
+    expect(standing.sentence).toBe(
+      "Ended: the fw module never ran: its designer drive-0a1b2c ended without a merge.",
+    );
+    expect(standing.detail).toBe(
+      "fw: its designer drive-0a1b2c ended without a merge; el merged without it",
+    );
+  });
+
+  it("is read from the route's never_ran list", () => {
+    const read = runStatus({
+      next_step: { kind: "unrun", subtask_id: null, attempt: null, point: null },
+      halted: null,
+      owed_halt: null,
+      completion: { owner: false, modules: [] },
+      never_ran: [{ subtask_id: "fw-3d4e5f", why: "its designer ended", ran_without: [] }],
+    });
+    expect(read.neverRan).toEqual([
+      { subtask: "fw-3d4e5f", why: "its designer ended", ranWithout: [] },
+    ]);
+  });
+});

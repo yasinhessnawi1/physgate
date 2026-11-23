@@ -622,6 +622,9 @@ class Loop:
         #: Whether this process has recorded the environment its sessions run in.
         self._environment_recorded = False
         self._follow_ups_checked = False  # held to the journal once in this process
+        #: The last line the wait-line guard saw written and the signatures of the hold and
+        #: release lines of the streak it ends (:meth:`_wait_line`).
+        self._wait_streak: tuple[int, set[str]] = (-1, set())
         self.record = RunRecord(config, self.run_dir, clock=clock)
         self.state = self.record.state
         self.log = self.record.log
@@ -1159,6 +1162,7 @@ class Loop:
         first = self.state.next_step().kind
         if first not in (
             "done",
+            "unrun",
             "halted",
             "escalated",
             "integrate",
@@ -1187,7 +1191,7 @@ class Loop:
                 continue
             if self._at_a_boundary(step) and self._take_decisions():
                 continue  # what a decision did changes what comes next
-            if step.kind in ("done", "halted", "escalated", "wait"):
+            if step.kind in ("done", "unrun", "halted", "escalated", "wait"):
                 if self._decisions_refused_at_the_end():
                     continue  # the run halts on it: that is the step it ends on
                 self.record.hold_plan()  # a decompose killed before it listed the plan's item
@@ -1217,7 +1221,7 @@ class Loop:
                 self._raise_sign_offs()
                 continue
             if step.kind in ("hold", "release"):
-                self._emit(wait_line(self.state, step.subtask_id or "", self._env()))
+                self._wait_line(step)
                 continue
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"
@@ -1261,6 +1265,28 @@ class Loop:
                 )
             elif self._roles_built():
                 self._attempt(step.subtask_id, step.attempt, step.point or "resolve")
+
+    def _wait_line(self, step: Step) -> None:
+        """Write the hold or release line the record owes, unless it only repeats the streak.
+
+        The wait lines change nothing but the open, let-go and mutual sets, so a sound rule never
+        owes the same line twice with no line of another kind between. One that does is a loop
+        with no end: the run halts on an incident naming the step, and writes no more of them.
+        """
+        line = wait_line(self.state, step.subtask_id or "", self._env())
+        last = self.log.events[-1].seq if self.log.events else -1
+        seen_at, seen = self._wait_streak
+        if seen_at != last:
+            seen = set()  # a line of another kind came between: a new streak
+        signature = line.model_dump_json(exclude={"seq", "ts"})
+        if signature in seen:
+            what = f"{step.kind} for {step.subtask_id} ({line.kind})"
+            detail = f"the {what} is owed again with no line of another kind written between"
+            self._wait_streak = (-1, set())
+            self._incident(None, "no_progress", detail)  # no attempt is in progress to name
+            return
+        self._emit(line)
+        self._wait_streak = (self.log.events[-1].seq, seen | {signature})
 
     def _roles_built(self) -> bool:
         """Whether every role the plan still names can be dispatched; otherwise the run halts.

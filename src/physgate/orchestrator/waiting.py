@@ -8,7 +8,9 @@ on. It exits :data:`EXIT_WAITING_FOR_LIMIT`. A resume asked before then is refus
 anything is stopped, written or started, with the same step and instant on standard error and
 the same exit status, so a script can wait and try again. A run that ends escalated with a
 person's sign-off owed (ARCH-130) names each such module and its latest item under
-``sign_offs_owed``. Every other step prints and exits as before.
+``sign_offs_owed``. A run started under ``wait_cycle: release_2`` that ends with subtasks that
+never ran prints the step ``unrun``, with each such subtask under ``never_ran`` (why, and the
+readers that merged without it), and exits 1. Every other step prints and exits as before.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from physgate.orchestrator.events import read_events
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.replay import RunState, replay
 from physgate.orchestrator.usage_limit import resume_after, resume_refusal
+from physgate.orchestrator.wait_cycle import never_ran
 
 #: The exit status of ``run`` and ``resume`` for a run waiting for the account's usage limit,
 #: halted on it or refused a resume before it may go on: try again after ``resume_after``.
@@ -46,6 +49,9 @@ def printed_step(kind: str, state: RunState) -> tuple[dict[str, object], int]:
     # Sizing's closing pass held while a domain module has not settled, with the modules it
     # waits for; left out where none is held, so every other step prints as it always has.
     printed |= closing_waits(state)
+    if kind == "unrun":
+        # A run that ended with subtasks that never ran says which, why, and what ran without them.
+        printed["never_ran"] = never_ran(state)
     owed = state.sign_offs_open() if kind == "escalated" else []
     if owed:
         # Each module not complete for a person's sign-off, and the item that asks for it.

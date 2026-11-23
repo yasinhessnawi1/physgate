@@ -18,6 +18,12 @@ does not apply) one whose designer is with a person. A producer that waits for s
 pass is not held for good: it is let go by its own rule and comes back after the closing pass. A
 wait on a person's item (a queue item, a sign-off, parts) ends in a person, never in a subtask, so
 it is no link of a chain; nor is sizing's closing pass, which no pair or design names.
+
+A run started under ``release_2`` has none of this: it holds a reader only on a producer that is
+itself with a person, so no cycle can form and neither outcome can be owed (a builder held for
+good is planned, never escalated, so no hold is ever open on one). :func:`letting_go` answers
+``None`` there. What it adds is the end: :func:`never_ran` names the subtasks that never ran, and
+the run ends as ``unrun`` instead of ``done``.
 """
 
 from __future__ import annotations
@@ -78,8 +84,45 @@ def reaches(state: RunState, start: str, target: str) -> bool:
 
 def letting_go(state: RunState, producer: str, reader: str) -> ReleasedHow | None:
     """How ``reader``'s hold on ``producer`` is let go by this rule now; ``None`` if it stands."""
+    if state.producer_waits.narrow:
+        return None
     if reaches(state, producer, reader):
         return "producer_waits_for_reader"
     if design_wait.held_for_good(state, producer):
         return "producer_held_for_good"
     return None
+
+
+def never_ran(state: RunState) -> list[dict[str, object]]:
+    """The subtasks of a run that acts, started under ``release_2``, that never ran.
+
+    A subtask left ``planned`` with no attempt when nothing else is owed (integration's own
+    subtask is the call's consequence, not a module, and is not named): a builder held for good.
+    Each with why, in the record's words, and the readers that merged without it. Empty in a run
+    that records only and in one started under the earlier rules, which end ``done`` as before.
+    """
+    if not (state.producer_waits.narrow and state.acts):
+        return []
+    found: list[dict[str, object]] = []
+    for subtask_id in state.integrated():
+        sub = state.subtasks[subtask_id]
+        if sub.status != "planned" or sub.attempts:
+            continue
+        held = next((h for (b, _), h in state.design_waits.open.items() if b == subtask_id), None)
+        if held is None:
+            why = "it was never dispatched"
+        elif held.why == "designer_held":
+            chain = ", ".join(held.chain or (held.designer,))
+            why = f"it is held for good through {chain}, none of which can merge"
+        elif held.why == "ended_unmerged":
+            why = f"its designer {held.designer} ended without a merge"
+        else:
+            why = f"its designer {held.designer} had not merged"
+        ran_without = [
+            p.consumer.subtask_id
+            for p in state.contract_pairs or ()
+            if p.producer.subtask_id == subtask_id
+            and state.subtasks[p.consumer.subtask_id].status == "done"
+        ]
+        found.append({"subtask_id": subtask_id, "why": why, "ran_without": ran_without})
+    return found

@@ -26,6 +26,7 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
 from test_a_queue_decision_acts_at_a_boundary import _layer
 
 from physgate.contracts.pairs import ContractPair
+from physgate.orchestrator import record
 from physgate.orchestrator.design_pairs import DesignPair
 from physgate.orchestrator.events import Event
 from physgate.orchestrator.loop import Loop
@@ -43,13 +44,49 @@ ACTS = {
 #: the order of their modules' names, put firmware's interface before sizing's, as a real run's.
 SIZING, CLOSING = "sz-6a7b8c", "sz-c-9d0e1f"
 CONTROL, FIRMWARE, ELECTRICAL = "drive-0a1b2c", "fw-3d4e5f", "el-4a5b6c"
+#: A second module of the control and of the firmware role, for plans with many readers.
+CONTROL2, FIRMWARE2 = "drive2-1a2b3c", "fw2-9a8b7c"
 ROLE_OF = {
     SIZING: ("sizing", "sz"),
     CONTROL: ("control", "drive"),
     FIRMWARE: ("firmware", "fw"),
     ELECTRICAL: ("electrical", "el"),
+    CONTROL2: ("control", "drive2"),
+    FIRMWARE2: ("firmware", "fw2"),
 }
 NAMES = ("control", "electrical", "firmware", "sizing", "integration")
+
+
+#: The most lines one process of a rig's run writes before the rig calls it a loop with no end.
+#: The longest run of the wait rows writes a few hundred; a stuck loop writes without limit.
+LINE_LIMIT = 2000
+
+
+def bounded(loop: Loop, limit: int = LINE_LIMIT) -> Loop:
+    """``loop``, whose writes are counted: past ``limit`` lines in one process, an assertion fails.
+
+    The loop's own guard halts a wait line owed again; this bound is the rig's, so that a loop
+    that spins another way fails a row as an assertion and never hangs it.
+    """
+    written = [0]
+    emit = loop._emit  # noqa: SLF001 - the rig counts what the loop writes
+
+    def counted(event: Event) -> None:
+        written[0] += 1
+        assert written[0] <= limit, (
+            f"the loop wrote {written[0]} lines in one process and is not going to stop; "
+            f"the last was {event.kind!r}"
+        )
+        emit(event)
+
+    loop._emit = counted  # type: ignore[method-assign]  # noqa: SLF001
+    return loop
+
+
+@pytest.fixture
+def under_release(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The run starts under the mark ``release``: the cycle rule before it was narrowed."""
+    monkeypatch.setattr(record, "WAIT_CYCLE", "release")
 
 
 def module_of(subtask_id: str) -> str:
@@ -157,7 +194,7 @@ class Shape:
 
 def first_run(rig: Rig, monkeypatch: pytest.MonkeyPatch, shape: Shape) -> str:
     """The first process, until it stops: the step it stopped at."""
-    loop = rig.open()
+    loop = bounded(rig.open())
     hooked(monkeypatch, loop, declared=shape.order)
     shape.begin(loop)
     _layer(loop)
@@ -169,7 +206,7 @@ def first_run(rig: Rig, monkeypatch: pytest.MonkeyPatch, shape: Shape) -> str:
 
 def resumed(rig: Rig, monkeypatch: pytest.MonkeyPatch, shape: Shape) -> str:
     """A fresh process takes the run over; the step it stopped at."""
-    loop = rig.open()
+    loop = bounded(rig.open())
     hooked(monkeypatch, loop, declared=shape.order)
     _layer(loop)
     try:
@@ -182,7 +219,7 @@ def resumed_before(
     rig: Rig, monkeypatch: pytest.MonkeyPatch, shape: Shape, line: Callable[[Event], bool]
 ) -> None:
     """A fresh process takes the run over, killed before it writes the first line ``line`` picks."""
-    loop = rig.open()
+    loop = bounded(rig.open())
     killed = False
     hooked(monkeypatch, loop, declared=shape.order, kill=lambda event, _: line(event))
     _layer(loop)

@@ -35,6 +35,7 @@ from wait_cycle_rig import (
     Shape,
     first_run,
     resumed,
+    under_release,  # noqa: F401 - the fixture, by name
 )
 
 from physgate import roles
@@ -137,6 +138,7 @@ def play(seed: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Played:
     return Played(said, shape, lines(rig), step, stalled)
 
 
+@pytest.mark.usefixtures("under_release")
 @pytest.mark.parametrize("seed", SEEDS)
 def test_a_random_plan_never_ends_in_a_wait_with_no_item_open(
     seed: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
