@@ -32,10 +32,13 @@ from sign_off_rig import signing
 from physgate.cli import main
 from physgate.orchestrator.events import read_events
 from physgate.orchestrator.exceptions import QueueError
+from physgate.orchestrator.parts_write import parts_payload
 from physgate.orchestrator.queue import (
     ApprovalQueue,
+    PersonDecision,
     QueueItem,
     QueueResolution,
+    ShownItem,
     read_queue,
     record_decision,
 )
@@ -76,7 +79,7 @@ def _waiting(tmp_path: Path) -> Any:  # noqa: ANN401 - the rig, which holds the 
 def _item_run(tmp_path: Path) -> Path:
     """A run whose one open item is a plain approval, which free text decides."""
     run_dir = tmp_path / "queue"
-    run_dir.mkdir()
+    run_dir.mkdir(parents=True)
     ApprovalQueue(run_dir / "queue.jsonl").add(
         QueueItem(
             item_id=PLAIN,
@@ -305,3 +308,112 @@ def test_a_record_that_holds_a_long_name_replays_to_the_state_it_always_did(
         "sizing.control_motor_left",
     ]
     assert replay(read_events(run_dir / "events.jsonl")).parts_landed == state.parts_landed
+
+
+# -- the number, the characters it counts, and the order of the refusals -------------------
+
+
+def _free_text_by(tmp_path: Path, name: str) -> None:
+    record_decision(_item_run(tmp_path), PLAIN, decision="approve", resolved_by=name)
+
+
+def test_the_limit_is_sixty_four_characters_written_out(tmp_path: Path) -> None:
+    assert LIMIT == 64
+    assert require_operator("o" * 64) == "o" * 64
+    _free_text_by(tmp_path / "fits", "o" * 64)
+    with pytest.raises(QueueError):
+        _free_text_by(tmp_path / "over", "o" * 65)
+
+
+def test_a_name_is_counted_in_characters_not_bytes(tmp_path: Path) -> None:
+    assert len(("é" * 64).encode()) > 64
+    _free_text_by(tmp_path / "fits", "é" * 64)
+    with pytest.raises(QueueError):
+        _free_text_by(tmp_path / "over", "é" * 65)
+
+
+def test_a_name_in_wide_characters_is_taken_at_sixty_four_and_refused_at_sixty_five(
+    tmp_path: Path,
+) -> None:
+    the_rig = _waiting(tmp_path)
+    run_dir = the_rig.run_dir
+    with pytest.raises(QueueError):
+        _decided_by(run_dir, IDS[0], "é" * 65)
+    assert _decided_by(run_dir, IDS[0], "é" * 64).resolved_by == "é" * 64
+
+
+def test_a_name_checked_first_answers_before_an_unknown_decided_or_stale_item(
+    tmp_path: Path,
+) -> None:
+    run_dir = _item_run(tmp_path)
+    record_decision(run_dir, PLAIN, decision="approve", resolved_by="yasin")
+    for item_id in ("nowhere", PLAIN):
+        with pytest.raises(QueueError, match=str(LIMIT)):
+            record_decision(run_dir, item_id, decision="approve", resolved_by=TOO_LONG)
+    stale = ShownItem(item_sha256="0" * 64, trajectories=())
+    other = _item_run(tmp_path / "other")
+    with pytest.raises(QueueError, match=str(LIMIT)):
+        record_decision(
+            other,
+            PLAIN,
+            person=PersonDecision(verb="approve", note=None),
+            resolved_by=TOO_LONG,
+            shown=stale,
+        )
+
+
+@pytest.mark.parametrize("name", [" ", "two\nlines", TOO_LONG])
+@pytest.mark.parametrize("how", ["free text", "reject"])
+def test_a_decision_that_declares_nothing_is_held_to_the_name_rule_too(
+    tmp_path: Path, name: str, how: str
+) -> None:
+    run_dir = _item_run(tmp_path)
+    shown_ = shown(run_dir, PLAIN)
+    with pytest.raises(QueueError):
+        if how == "free text":
+            record_decision(run_dir, PLAIN, decision="approve", resolved_by=name)
+        else:
+            said = PersonDecision(verb=how, note="no" if how == "reject" else None)  # type: ignore[arg-type]
+            record_decision(run_dir, PLAIN, person=said, resolved_by=name, shown=shown_)
+    assert _decided(run_dir) == []
+
+
+# -- the decision, then the declare it leads to, on the real store -------------------------
+
+
+def _declare_from(run_dir: Path, store: Store) -> Any:  # noqa: ANN401 - the store's answer
+    (_, decision), *_ = read_queue(run_dir).decisions
+    assert decision.parts is not None
+    payload = parts_payload(
+        MOTOR,
+        shared=False,
+        owner_role=MOTOR.role,
+        item_id=decision.item_id,
+        body=decision.parts,
+        operator=decision.resolved_by,
+        decided_ts="2026-11-12T10:00:00.000000Z",
+    )
+    assert payload is not None
+    return store.declare(payload, (decision.item_id,))  # type: ignore[attr-defined]
+
+
+def test_a_decision_with_a_name_the_store_refuses_is_never_recorded_so_nothing_is_declared(
+    tmp_path: Path,
+) -> None:
+    run_dir = listed(tmp_path / "run", item(MOTOR, 1, 2), item(IMU, 2, 2))
+    with pytest.raises(QueueError):
+        _decided_by(run_dir, IDS[0], "o" * 65)
+    assert _decided(run_dir) == []
+    assert b"o" * 65 not in decisions_bytes(run_dir)
+
+
+def test_a_decision_with_a_name_of_sixty_four_characters_is_declared_under_that_name(
+    tmp_path: Path,
+) -> None:
+    run_dir = listed(tmp_path / "run", item(MOTOR, 1, 2), item(IMU, 2, 2))
+    _decided_by(run_dir, IDS[0], "o" * 64)
+    store = Store(tmp_path / "graph")
+    answer = _declare_from(run_dir, store)
+    assert (answer.accepted, answer.reason) == (True, None)
+    held = store.read_node(MOTOR.node)
+    assert held["quantities"]["mass"]["declared"]["operator"] == "o" * 64
