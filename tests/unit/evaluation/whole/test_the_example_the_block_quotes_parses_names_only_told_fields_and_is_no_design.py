@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from answer_form_cases import example
+from answer_form_cases import block, example
 from pydantic import BaseModel
 
 import physgate.evaluation.whole.answer as answer_module
@@ -22,11 +22,13 @@ import physgate.evaluation.whole.form as form
 import physgate.evaluation.whole.law as law_module
 from physgate.evaluation.whole.answer import WholeRunV3, parse_answer
 
-BLOCK = form.render_answer_form()
-BEFORE_EXAMPLE = BLOCK.split("AN EXAMPLE OF THE FORM ONLY")[0]
 RECORDED = Path(__file__).with_name("recorded_law") / "law.json"
 #: The numbers the kit's requirements name, as this row states them, apart from the module.
 REQUIREMENT_NUMBERS = {99, 100, 101, 208, 1000, 1322, 1323, 1324, 19800, 20000, 20200, 400, 0.75}
+
+
+def _before_example() -> str:
+    return block().split("AN EXAMPLE OF THE FORM ONLY")[0]
 
 
 def _parsed() -> WholeRunV3:
@@ -79,7 +81,7 @@ def test_every_field_the_example_writes_is_one_the_block_names() -> None:
                 if field in getattr(m, "model_fields", {}) and m.__name__ != "BaseModel"
             )
             assert key not in form.NOT_TOLD and f"{owner}.{field}" not in form.NOT_TOLD, key
-            assert re.search(rf'(?<![A-Za-z0-9_])"?{field}"?(?![A-Za-z0-9_])', BEFORE_EXAMPLE), (
+            assert re.search(rf'(?<![A-Za-z0-9_])"?{field}"?(?![A-Za-z0-9_])', _before_example()), (
                 f"{key} is not named in the block"
             )
 
@@ -101,7 +103,7 @@ def test_the_example_is_no_design_to_copy() -> None:
     assert REQUIREMENT_NUMBERS.isdisjoint(named), sorted(REQUIREMENT_NUMBERS & set(named))
     for value in named:
         assert len(re.sub(r"[.-]|0+$", "", str(value)).strip("0")) <= 3, value
-    assert "not a design, not advice and not a starting point" in " ".join(BLOCK.split())
+    assert "not a design, not advice and not a starting point" in " ".join(block().split())
 
 
 def test_the_example_is_not_a_recorded_design_s_law() -> None:

@@ -4,7 +4,9 @@ A reader who has only the block must be able to follow it: for every rule it lis
 not judged, the answer here that breaks that rule and no other is read as the block says. The
 cases are written apart from the form module, from the committed example: a case is the example
 with one edit. Pure data and ``json``: it needs neither numpy nor the scorer, so the unit rows and
-the scoring rows share it.
+the scoring rows share it. Nothing here calls the code under test when the module is imported or
+a case list is built: ``changed`` says whether an edit found its text in the example, and the
+row that reads the case asserts it; :func:`block` is the block as a row reads it.
 
 ``parse`` says what reading the answer gives: ``refused`` (a failed answer), ``outside`` (a law
 the scorer cannot take: not judged) or ``parses`` (valid, and refused later by the scorer's own
@@ -14,6 +16,7 @@ work bound). ``outcome`` is what the scorer's record says.
 from __future__ import annotations
 
 import copy
+import functools
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -33,6 +36,29 @@ class Case:
     data: bytes
     parse: str
     outcome: str
+    changed: bool = True
+
+
+@functools.cache
+def _rendered() -> str:
+    from physgate.evaluation.whole import form
+
+    return form.render_answer_form()
+
+
+def block() -> str:
+    """The block a designer is told, written when a row asks and never at import or collection.
+
+    A block that cannot be written is a failed assertion of the row that asked, not an error of
+    the module that holds the row.
+    """
+    from physgate.evaluation.whole import form
+
+    try:
+        return _rendered()
+    except form.FormError as refusal:
+        msg = f"the block cannot be written from the schema: {refusal}"
+        raise AssertionError(msg) from refusal
 
 
 def example() -> dict[str, Any]:
@@ -62,8 +88,7 @@ def _refused(label: str, edit: Callable[[dict[str, Any]], None]) -> Case:
 
 def _text(label: str, old: str, new: str, parse: str = "refused", outcome: str = "fail") -> Case:
     text = json.dumps(example())
-    assert text.count(old) == 1, old
-    return Case(label, text.replace(old, new).encode(), parse, outcome)
+    return Case(label, text.replace(old, new).encode(), parse, outcome, text.count(old) == 1)
 
 
 def _put(path: tuple[str | int, ...], value: object) -> Callable[[dict[str, Any]], None]:
@@ -357,7 +382,6 @@ def accepted_gaps() -> list[Case]:
     """
     text = json.dumps(example())
     twice = '"version": 2, "version": 3'
-    assert text.count('"version": 3') == 1
     return [
         _text("a number of 16 significant digits", "0.8", "0.8000000000000001", "parses", "valid"),
         Case("two states marked applied", _edited(_two_applied), "parses", "valid"),
@@ -372,6 +396,7 @@ def accepted_gaps() -> list[Case]:
             text.replace('"version": 3', twice).encode(),
             "parses",
             "valid",
+            text.count('"version": 3') == 1,
         ),
     ]
 

@@ -80,6 +80,7 @@ def test_a_state_that_does_not_leak_is_flagged_and_one_that_leaks_is_not(tmp_pat
 def test_an_answer_built_to_break_one_rule_is_scored_as_the_block_says(
     tmp_path: Path, key: str, case: Case
 ) -> None:
+    assert case.changed, f"{case.label}: the edit found its text in the example not exactly once"
     rule = RULES[key]
     record = _record(tmp_path, case.data, _ONE_LOOP_ROW)
     assert record["outcome"] == case.outcome, record

@@ -16,7 +16,7 @@ import re
 from typing import Annotated, Literal
 
 import pytest
-from answer_form_cases import Case, accepted_gaps
+from answer_form_cases import Case, accepted_gaps, block
 from pydantic import StringConstraints
 from pydantic.fields import FieldInfo
 
@@ -24,8 +24,10 @@ import physgate.evaluation.whole.form as form
 import physgate.evaluation.whole.law as law_module
 from physgate.evaluation.whole.answer import parse_answer_scoped
 
-BLOCK = form.render_answer_form()
-ONE_LINE = " ".join(BLOCK.split())
+
+def _one_line() -> str:
+    return " ".join(block().split())
+
 
 #: Spellings found accepted by the parser, and found refused (the reviewer's, and the block's own).
 ACCEPTED = ["rad*s", "rad**2", "rad^2", "1/(rad*s)", "1/rad*s", "rad * s", "s**-1", "1/rad"]
@@ -38,7 +40,7 @@ REFUSED = ["rad s", "rad.s", "rad·s", "(rad*s)/rad", "2*rad", "rad ** 2", "(rad
 def test_a_name_that_may_hold_a_capital_is_told_to_hold_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert "one character of a-z then at most 31 characters of a-z, 0-9, _" in ONE_LINE
+    assert "one character of a-z then at most 31 characters of a-z, 0-9, _" in _one_line()
     monkeypatch.setattr(
         law_module,
         "Name",
@@ -57,7 +59,7 @@ def test_a_name_pattern_that_is_not_a_first_class_a_later_class_and_a_length_is_
 
 
 def test_a_sign_set_that_is_widened_is_told_widened(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert '"sign": the number 1 or -1,' in ONE_LINE
+    assert '"sign": the number 1 or -1,' in _one_line()
     field: FieldInfo = law_module.Term.model_fields["sign"]
     monkeypatch.setattr(field, "annotation", Literal[1, -1, 2])
     assert '"sign": the number 1, -1 or 2,' in " ".join(form.render_answer_form().split())
@@ -66,7 +68,10 @@ def test_a_sign_set_that_is_widened_is_told_widened(monkeypatch: pytest.MonkeyPa
 def test_the_reserved_name_s_unit_and_the_unit_symbols_are_read_from_the_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert "it is the period above, in s," in ONE_LINE and "The symbols are rad and s," in ONE_LINE
+    assert (
+        "it is the period above, in s," in _one_line()
+        and "The symbols are rad and s," in _one_line()
+    )
     monkeypatch.setitem(law_module.SIGNALS, "wheel_speed", "m/s")
     monkeypatch.setitem(form.SIGNAL_MEANINGS, "wheel_speed", "x")
     assert "The symbols are m, rad and s," in " ".join(form.render_answer_form().split())
@@ -88,7 +93,7 @@ def test_each_unit_the_block_shows_as_written_is_read_by_the_parser_and_is_in_th
     unit: str,
 ) -> None:
     assert _read(unit)
-    assert unit in BLOCK
+    assert unit in block()
 
 
 @pytest.mark.parametrize("unit", getattr(form, "UNIT_NOT_WRITTEN", ("<missing>",)))
@@ -96,13 +101,13 @@ def test_each_unit_the_block_shows_as_refused_is_refused_by_the_parser_and_is_in
     unit: str,
 ) -> None:
     assert not _read(unit)
-    assert unit in BLOCK
+    assert unit in block()
 
 
 def test_the_quotient_the_block_gives_as_an_example_is_read_as_it_says() -> None:
     long, short = getattr(form, "UNIT_QUOTIENT", ("<missing>", "<missing>"))
     assert law_module.dimension(long) == law_module.dimension(short) == (("rad", -1), ("s", 1))
-    assert f"{long} is {short}" in ONE_LINE
+    assert f"{long} is {short}" in _one_line()
 
 
 @pytest.mark.parametrize("unit", ACCEPTED)
@@ -122,7 +127,7 @@ def test_the_block_names_the_ways_a_unit_is_refused_that_the_parser_refuses_for(
         "a bracket anywhere else",
         "a space inside a power",
     ):
-        assert words in ONE_LINE
+        assert words in _one_line()
 
 
 def test_a_bracket_after_a_slash_is_the_one_bracket_the_parser_takes() -> None:
@@ -146,7 +151,7 @@ def test_a_bracket_after_a_slash_is_the_one_bracket_the_parser_takes() -> None:
     ],
 )
 def test_the_block_no_longer_says(words: str) -> None:
-    assert words not in ONE_LINE
+    assert words not in _one_line()
 
 
 @pytest.mark.parametrize(
@@ -176,11 +181,11 @@ def test_the_block_no_longer_says(words: str) -> None:
     ],
 )
 def test_the_block_says(words: str) -> None:
-    assert words in ONE_LINE
+    assert words in _one_line()
 
 
 def test_the_block_names_no_number_that_is_the_scorer_s_own_tolerance_for_a_held_state() -> None:
-    assert not re.search(r"1e-\d+|1 - 1e|0\.99999", BLOCK)
+    assert not re.search(r"1e-\d+|1 - 1e|0\.99999", block())
 
 
 @pytest.mark.parametrize("gap", accepted_gaps(), ids=lambda case: case.label)
@@ -188,5 +193,6 @@ def test_a_rule_the_block_states_and_the_scorer_does_not_refuse_is_never_listed_
     gap: object,
 ) -> None:
     assert isinstance(gap, Case)
+    assert gap.changed, f"{gap.label}: the edit found its text in the example not exactly once"
     parse_answer_scoped(gap.data)  # read, not refused
-    assert "any other breach" not in ONE_LINE and "rule stated above" not in ONE_LINE
+    assert "any other breach" not in _one_line() and "rule stated above" not in _one_line()

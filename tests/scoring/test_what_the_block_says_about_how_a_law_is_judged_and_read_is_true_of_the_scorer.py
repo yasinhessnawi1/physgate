@@ -340,6 +340,7 @@ def test_the_update_rate_and_the_period_are_two_statements_and_the_loop_is_at_th
 def test_a_rule_stated_and_not_refused_by_the_scorer_gives_a_valid_record(
     tmp_path: Path, case: Any
 ) -> None:
+    assert case.changed, f"{case.label}: the edit found its text in the example not exactly once"
     root = Path(os.path.realpath(tmp_path)) / "answers"
     root.mkdir()
     path = root / form.ANSWER_FILE
