@@ -192,8 +192,10 @@ def test_the_command_line_refuses_a_long_name_on_a_part_and_the_part_stays_open(
 ) -> None:
     run_dir = listed(tmp_path / "run", item(MOTOR, 1, 2), item(IMU, 2, 2))
     digest = read_queue(run_dir).digests[IDS[0]]
-    args = ("queue", "resolve", IDS[0], "--run-dir", str(run_dir), "--sha256", digest)
-    args += ("--choose", "find")
+    args = (
+        *("queue", "resolve", IDS[0], "--run-dir", str(run_dir), "--sha256", digest),
+        *("--choose", "find"),
+    )
     assert _main(*args, "--by", TOO_LONG) == 2
     assert _decided(run_dir) == []
     assert (
@@ -258,10 +260,10 @@ def test_the_store_itself_takes_a_name_the_queue_takes_and_refuses_one_it_refuse
     tmp_path: Path,
 ) -> None:
     store = Store(tmp_path / "graph")
-    refused = store.declare(_node_by(TOO_LONG), (IDS[0],))  # type: ignore[attr-defined]
+    refused = store.declare(_node_by(TOO_LONG), (IDS[0],))
     assert (refused.accepted, refused.reason) == (False, "declare_refused")
     assert store.head_revision() == 0
-    taken = store.declare(_node_by(FITS), (IDS[0],))  # type: ignore[attr-defined]
+    taken = store.declare(_node_by(FITS), (IDS[0],))
     assert taken.accepted
 
 
@@ -394,7 +396,7 @@ def _declare_from(run_dir: Path, store: Store) -> Any:  # noqa: ANN401 - the sto
         decided_ts="2026-11-12T10:00:00.000000Z",
     )
     assert payload is not None
-    return store.declare(payload, (decision.item_id,))  # type: ignore[attr-defined]
+    return store.declare(payload, (decision.item_id,))
 
 
 def test_a_decision_with_a_name_the_store_refuses_is_never_recorded_so_nothing_is_declared(
