@@ -668,5 +668,22 @@
       "tests/unit/evaluation/whole/answer_form_block.golden.txt",
       "tests/unit/evaluation/whole/recorded_law/law.json"
     ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
   }
 ]

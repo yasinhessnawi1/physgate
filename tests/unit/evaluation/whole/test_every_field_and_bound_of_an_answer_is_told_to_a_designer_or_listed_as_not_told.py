@@ -14,7 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from answer_form_cases import cases
+from answer_form_cases import block, cases
 
 import physgate.evaluation.whole.answer as answer_module
 import physgate.evaluation.whole.form as form
@@ -31,9 +31,14 @@ MODELS: tuple[Any, ...] = (
     law_module.Term,
     Measure,
 )
-BLOCK = form.render_answer_form()
-BEFORE_EXAMPLE = BLOCK.split("AN EXAMPLE OF THE FORM ONLY")[0]
-ONE_LINE = " ".join(BEFORE_EXAMPLE.split())
+
+
+def _before_example() -> str:
+    return block().split("AN EXAMPLE OF THE FORM ONLY")[0]
+
+
+def _one_line() -> str:
+    return " ".join(_before_example().split())
 
 
 def _fields() -> list[str]:
@@ -151,12 +156,12 @@ def test_every_field_is_told_or_listed_as_not_told() -> None:
 def test_each_told_field_is_named_in_the_block_and_each_not_told_one_is_not() -> None:
     for key in sorted(TOLD_FIELDS):
         name = key.split(".", 1)[1]
-        assert re.search(rf'(?<![A-Za-z0-9_])"?{name}"?(?![A-Za-z0-9_])', BEFORE_EXAMPLE), key
+        assert re.search(rf'(?<![A-Za-z0-9_])"?{name}"?(?![A-Za-z0-9_])', _before_example()), key
     for key in sorted(k for k in form.NOT_TOLD if k.split(".")[0] in {m.__name__ for m in MODELS}):
         if ":" in key:
             continue
         name = key.split(".", 1)[1]
-        assert re.search(rf"(?<![A-Za-z0-9_]){name}(?![A-Za-z0-9_])", BLOCK) is None, key
+        assert re.search(rf"(?<![A-Za-z0-9_]){name}(?![A-Za-z0-9_])", block()) is None, key
 
 
 def test_every_size_limit_a_model_puts_on_a_field_is_told_or_listed() -> None:
@@ -169,7 +174,7 @@ def test_every_size_limit_a_model_puts_on_a_field_is_told_or_listed() -> None:
         value = limits[key]
         if key.endswith("unit:max_length"):
             value = min(limits["Line.unit:max_length"], limits["Memory.unit:max_length"])
-        assert said(value) in ONE_LINE, key
+        assert said(value) in _one_line(), key
 
 
 def test_every_constant_that_bounds_an_answer_is_told_or_listed() -> None:
@@ -181,7 +186,7 @@ def test_every_constant_that_bounds_an_answer_is_told_or_listed() -> None:
     )
     assert set(TOLD_CONSTANTS) & set(form.NOT_TOLD) == set()
     for key, said in TOLD_CONSTANTS.items():
-        assert said(constants[key]) in ONE_LINE, key
+        assert said(constants[key]) in _one_line(), key
 
 
 def test_the_bounds_table_and_the_signal_list_are_told_or_listed() -> None:
@@ -191,9 +196,11 @@ def test_the_bounds_table_and_the_signal_list_are_told_or_listed() -> None:
     assert sorted(set(bounds) - TOLD_BOUNDS - not_told) == [], "a bound is placed nowhere"
     assert TOLD_BOUNDS & not_told == set()
     for key in sorted(TOLD_BOUNDS):
-        assert form._range(bounds[key]) in BEFORE_EXAMPLE, key  # noqa: SLF001
+        assert form._range(bounds[key]) in _before_example(), key  # noqa: SLF001
     for name, unit in law_module.SIGNALS.items():
-        line = next(ln for ln in BEFORE_EXAMPLE.splitlines() if ln.strip().startswith(name + " "))
+        line = next(
+            ln for ln in _before_example().splitlines() if ln.strip().startswith(name + " ")
+        )
         assert unit in line
     assert list(form.SIGNAL_MEANINGS) == list(law_module.SIGNALS)
 
@@ -213,7 +220,7 @@ def test_every_not_told_entry_is_of_something_the_schema_has_and_gives_its_reaso
 
 def test_every_refusal_name_the_scorer_gives_a_law_s_number_is_told_or_listed() -> None:
     assert "answer.NOT_A_NUMBER" in form.NOT_TOLD
-    assert answer_module.NOT_A_NUMBER not in BLOCK
+    assert answer_module.NOT_A_NUMBER not in block()
 
 
 # ── the rules the block lists, and a case for each ──────────────────────────────────────────────
@@ -227,7 +234,7 @@ def test_each_rule_the_block_lists_is_printed_and_has_cases_and_no_case_is_for_n
     for rule in rules:
         assert all(cases()[rule.key]), rule.key
         if rule.name is not None:
-            assert f"({rule.name})" in ONE_LINE, rule.key
+            assert f"({rule.name})" in _one_line(), rule.key
     assert set(form_names()) == {r.name for r in rules if r.name}
 
 
@@ -239,4 +246,4 @@ def form_names() -> list[str]:
 def test_a_rule_s_words_are_in_the_block(rule: str) -> None:
     both = {r.key: r for r in (*form.REFUSED, *form.NOT_JUDGED)}
     text = both[rule].text.split("$")[0].strip()
-    assert text in ONE_LINE or text.split(" (")[0] in ONE_LINE, rule
+    assert text in _one_line() or text.split(" (")[0] in _one_line(), rule
