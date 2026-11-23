@@ -1,0 +1,169 @@
+THE ANSWER
+
+Write one file, answer.json, in the directory you work in. It is UTF-8 JSON of at most 65536 bytes.
+It states the choices of your design: six settings and the control law your firmware runs. It holds
+no model of the robot. A fixed scorer computes every consequence itself, on a model of the kit that
+is not given to you. A requirement that depends on the robot's physics (a current, a margin) is
+judged over the stated tolerances and uncertainty of that model, not only at nominal values.
+
+Write exactly these four keys:
+  "form": "whole_run"
+  "version": 3
+  "controller": the law, below
+  "parameters": the six settings, below
+
+Every setting, every timing field and every coefficient is {"value": N, "unit": "U"}; a bare number
+there is refused. A number is a finite JSON number. For the settings and the timing fields, the unit
+is spelt exactly as given here; any other spelling of the same unit is refused. Units inside the law
+are written as UNITS IN THE LAW says. Write each number of a law with at most 15 significant digits.
+
+PARAMETERS (all six, each in its one unit, within its range)
+  update_rate                          Hz     from 1 to 1000
+  output_data_rate                     Hz     above 0 to 10000
+  gyro_full_scale                      deg/s  above 0 to 10000
+  pwm_frequency                        Hz     above 0 to 1000000
+  pwm_full_scale                       count  from 1 to 65535   (a whole number)
+  encoder_counts_per_wheel_revolution  count  above 0 to 1000000   (need not be whole)
+A setting the requirements above do not fix is still stated, within its range.
+
+CONTROLLER
+  "structure": "sampled_law"
+  "period": unit "s", from 0.001 to 1. The law runs once every period.
+  "command_limit": unit "1", above 0 to 1. A duty: the average motor voltage as a fraction of the
+      pack voltage; the command is held to [-command_limit, +command_limit].
+  "sensor_delay": unit "s", from 0 to 0.5. The measurements the law reads at an update were taken
+      this long before the update.
+  "compute_delay": unit "s", from 0 to 0.5. The command computed at an update reaches the motors
+      this long after it.
+  The two delays together span at most 50 periods.
+  State the delays your design has. They are taken as stated.
+  "coefficients": an object, name to {"value": N, "unit": "U"}. At most 32. A name is a lower-case
+      letter then at most 31 of a-z, 0-9, _ . A value's size is at most 1000000; 0 is allowed. Do
+      not declare "period": it is the period above, in s, and any term may use it.
+  "memory" (optional): a list of at most 8 states kept from one update to the next. Each is {"name":
+      ..., "unit": ..., "next": <name of a line>}. A state's value at the next update is the value
+      of the line "next" at this update, and that line's unit must be the state's. Add "applied":
+      true only on the one state that holds the command as applied; its "next" is then the command
+      line and its unit "1".
+  "lines": an ordered list of 1 to 32 lines. Each is {"name": ..., "unit": ..., "terms": [...]} with
+      1 to 16 terms. A line's value is the sum of its terms. A line may read only lines before it. A
+      state and a line are named as a coefficient is, each name once, and never as a signal below or
+      as "period".
+  A term: {"sign": 1 or -1, "number": N (optional, default 1), "coefficients": [names] (optional, at
+      most 4), "per": [names] (optional, at most 4), "of": <one variable>}. A term's sign and number
+      are plain JSON numbers. Its value = sign * number * (the coefficients multiplied) / (the "per"
+      coefficients multiplied) * the variable. "number" is never 0 and its size is at most 1000000:
+      to switch a term off give a coefficient the value 0. A "per" coefficient must not be 0.
+  "command": the name of the line that is the motor command. Its unit is "1".
+
+  The variable of a term, exactly one of:
+    tilt              rad   the body's tilt from vertical; positive leaning forward
+    tilt_rate         rad/s the tilt's rate (the gyro)
+    wheel_angle       rad   the mean of the two wheels' turn relative to the body; positive rolling
+                            forward
+    wheel_speed       rad/s the wheel angle's rate
+    wheel_reference   rad   the wheel angle the law holds; zero in the loop that is judged
+    previous.<state>  the value of a memory state before this update
+    line.<name>       the value of an earlier line this update
+
+UNITS IN THE LAW
+  The unit of a coefficient, a state or a line is written as products and quotients of unit
+  symbols with whole powers: rad, s, 1, 1/rad, s/rad, rad/s. Two writings with the same symbols
+  and powers are one unit. A state's or a line's unit is at most 40 characters. Every
+  term's coefficients, "per" coefficients and variable must multiply to the line's unit, and
+  the command's unit is "1". Use rad, never deg, in a law.
+
+WHAT IS JUDGED
+  The law, sampled at the period with the two delays, is closed around a linearised model of the
+  kit. The command limit, integer rounding, noise and sensor bias are not part of that analysis.
+  The loop must be stable with the wheels returning, not only the body upright. A memory state
+  that adds up the wheel angle, the wheel speed or the command (a counter, an odometer, an
+  anti-windup memory) makes the loop unstable even if nothing reads it; keep such memory out of the
+  law. A state that keeps its whole value from one update to the next (it does not leak), is fed
+  by the tilt, its rate or the reference, and is read by the command, is set aside in the stability
+  test, and the answer is flagged for it.
+
+WHAT IS REFUSED, AND WHAT IS NOT JUDGED
+  Where a name is given in brackets, the scorer reports the fault by that name.
+  Refused (a failed answer, with its reason):
+    - the file is not valid JSON, or is not UTF-8 text;
+    - the file is longer than 65536 bytes;
+    - the form or the version is not the one given above;
+    - a key given above, not marked optional, is missing;
+    - a key this form does not name (the scorer reads a few optional keys that a designer never
+      writes; any other is refused);
+    - a setting, a timing field or a coefficient that is not {"value": N, "unit": "U"}, or whose
+      number is not a finite JSON number;
+    - a setting or a timing field in any unit but the one given, however equivalent;
+    - a number outside its range;
+    - a setting that must be a whole number (pwm_full_scale) and is not;
+    - more coefficients, states, lines, terms or factors than the limits above;
+    - delays that together span more than 50 periods;
+    - a term's number of 0, or a number of a term or a coefficient larger than 1000000;
+    - a name used and not declared: a coefficient a term uses, or a state or a line it reads
+      (malformed);
+    - a line that reads a line after it (malformed);
+    - a state or a line named twice, or named as a signal or as period;
+    - a coefficient named period;
+    - a unit that is not written as the units rule above says;
+    - a term whose coefficients and variable do not multiply to its line's unit, or a state whose
+      unit is not its line's (units_do_not_balance);
+    - a command that is not a line in the unit 1;
+    - a state whose next is not the name of a line;
+    - a "per" coefficient whose value is 0 (zero_divisor);
+    - a number of a law (a coefficient, the period, a term's number) that reads as 0 as a float
+      though it is not written as 0 (number_underflows);
+    - a number of a law that is infinite as a float (number_overflows);
+    - a law too large to analyse (a long delay, many states and a short period each add to the work)
+      (work_bound);
+    - any other breach of a rule stated above.
+  Not judged (the answer counts as not passed, and stays in the count; it is never a failed
+  design):
+    - a term that is not one coefficient-weighted variable: a product of two variables, a function,
+      a comparison, or any key in a term that is not given above (nonlinear);
+    - a variable that is a well-formed lower-case name but not one of the signals above (an
+      accelerometer's reading, say) (out_of_scope).
+  A law is judged only if it is otherwise valid: a fault listed under refused, anywhere in the
+  answer, fails it whatever else it holds. Write only linear laws over the listed signals.
+
+AN EXAMPLE OF THE FORM ONLY
+  It shows the form and nothing else. Its numbers are arbitrary placeholders: it is not a design,
+  not advice and not a starting point, and it is not claimed to meet any requirement above.
+  {
+    "form": "whole_run",
+    "version": 3,
+    "controller": {
+      "structure": "sampled_law",
+      "period": {"value": 0.02, "unit": "s"},
+      "command_limit": {"value": 0.6, "unit": "1"},
+      "sensor_delay": {"value": 0.01, "unit": "s"},
+      "compute_delay": {"value": 0.004, "unit": "s"},
+      "coefficients": {
+        "leak": {"value": 0.8, "unit": "1"},
+        "k_angle": {"value": 1, "unit": "1/rad"},
+        "k_rate": {"value": 1, "unit": "s/rad"},
+        "k_wheel": {"value": 1, "unit": "1/rad"},
+        "k_speed": {"value": 1, "unit": "s/rad"}
+      },
+      "memory": [{"name": "tilt_est", "unit": "rad", "next": "tilt_est_now"}],
+      "lines": [
+        {"name": "tilt_est_now", "unit": "rad", "terms": [
+          {"sign": 1, "coefficients": ["leak"], "of": "previous.tilt_est"},
+          {"sign": 1, "coefficients": ["period"], "of": "tilt_rate"}]},
+        {"name": "command", "unit": "1", "terms": [
+          {"sign": 1, "coefficients": ["k_angle"], "of": "line.tilt_est_now"},
+          {"sign": 1, "coefficients": ["k_rate"], "of": "tilt_rate"},
+          {"sign": 1, "coefficients": ["k_wheel"], "of": "wheel_angle"},
+          {"sign": 1, "coefficients": ["k_speed"], "of": "wheel_speed"}]}
+      ],
+      "command": "command"
+    },
+    "parameters": {
+      "update_rate": {"value": 50, "unit": "Hz"},
+      "output_data_rate": {"value": 120, "unit": "Hz"},
+      "gyro_full_scale": {"value": 500, "unit": "deg/s"},
+      "pwm_frequency": {"value": 10000, "unit": "Hz"},
+      "pwm_full_scale": {"value": 255, "unit": "count"},
+      "encoder_counts_per_wheel_revolution": {"value": 512, "unit": "count"}
+    }
+  }

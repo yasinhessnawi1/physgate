@@ -1,0 +1,146 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
+  },
+  {
+    "name": "work_bound_name_changed",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "        \"work_bound\",",
+    "new": "        \"work_bound_exceeded\",",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
+  },
+  {
+    "name": "zero_divisor_name_changed",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "'a \"per\" coefficient whose value is 0', \"zero_divisor\")",
+    "new": "'a \"per\" coefficient whose value is 0', \"zero_divisors\")",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
+  },
+  {
+    "name": "units_name_changed",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "\"units_do_not_balance\",",
+    "new": "\"units_do_not_balances\",",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
+  },
+  {
+    "name": "underflow_name_changed",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "        answer_module.UNDERFLOWS,",
+    "new": "        \"number_zero\",",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
+  },
+  {
+    "name": "overflow_name_changed",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "        answer_module.OVERFLOWS,",
+    "new": "        \"number_infinite\",",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
+  },
+  {
+    "name": "not_judged_name_changed",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "accelerometer's reading, say)\",\n        \"out_of_scope\",",
+    "new": "accelerometer's reading, say)\",\n        \"out_of_range\",",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
+  },
+  {
+    "name": "nonlinear_name_changed",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "\"function, a comparison, or any key in a term that is not given above\",\n        \"nonlinear\",",
+    "new": "\"function, a comparison, or any key in a term that is not given above\",\n        \"not_linear\",",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
+  },
+  {
+    "name": "work_bound_constant_unlisted",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "\"scenario.MAX_WORK\": (",
+    "new": "\"scenario.MAX_WORKS\": (",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
+  }
+]
