@@ -96,6 +96,7 @@ from physgate.orchestrator.repair import Finding, Writer, held_line
 from physgate.orchestrator.sign_off import SignOffReject
 from physgate.orchestrator.trajectory import Seal, seal
 from physgate.reviewers.scan import ScanHit
+from physgate.state import operator_problem
 from physgate.state.exceptions import RecordMovedError
 from physgate.state.held_file import HeldFile
 from physgate.state.write_account import WriteAccount
@@ -2326,7 +2327,7 @@ def record_decision(
     Raises:
         QueueError: the item is not open (unknown, decided, or no queue at all), a file is not
             a plain file, a line is not one the writer could have written, or the decision is
-            not a record.
+            not a record, or the name it is taken by is one the design-state store would refuse.
         StaleViewError: the item is no longer as ``shown``.
     """
     queue_path = Path(run_dir) / QUEUE_NAME
@@ -2336,6 +2337,11 @@ def record_decision(
     if person is not None and shown is None:
         msg = "a decision with a verb is bound to the view it was taken on, and none was given"
         raise QueueError(msg, item=item_id)
+    # An empty name is the record's own refusal below. Any other the store would refuse is
+    # refused here: it goes onto every quantity the decision declares, and a line written
+    # first cannot be taken back.
+    if resolved_by and (problem := operator_problem(resolved_by)) is not None:
+        raise QueueError(problem, item=item_id)
     now = (clock or utc_now)()
     if person is None or shown_at is None or shown_at > now:
         shown_at = None

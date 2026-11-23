@@ -1,0 +1,173 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/orchestrator/queue.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_decision_name_the_store_would_refuse_is_refused_when_the_decision_is_taken.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/parts_rig.py",
+      "tests/unit/orchestrator/plan_hold_rig.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_name_check_is_never_made",
+    "file": "src/physgate/orchestrator/queue.py",
+    "old": "    if resolved_by and (problem := operator_problem(resolved_by)) is not None:",
+    "new": "    if resolved_by and (problem := None) is not None:",
+    "tests": [
+      "tests/unit/orchestrator/test_a_decision_name_the_store_would_refuse_is_refused_when_the_decision_is_taken.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/parts_rig.py",
+      "tests/unit/orchestrator/plan_hold_rig.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_name_one_past_the_limit_is_taken",
+    "file": "src/physgate/state/schema.py",
+    "old": "    if len(name) > OPERATOR_MAX_LENGTH:",
+    "new": "    if len(name) > OPERATOR_MAX_LENGTH + 1:",
+    "tests": [
+      "tests/unit/orchestrator/test_a_decision_name_the_store_would_refuse_is_refused_when_the_decision_is_taken.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/parts_rig.py",
+      "tests/unit/orchestrator/plan_hold_rig.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_name_at_the_limit_is_refused",
+    "file": "src/physgate/state/schema.py",
+    "old": "    if len(name) > OPERATOR_MAX_LENGTH:",
+    "new": "    if len(name) >= OPERATOR_MAX_LENGTH:",
+    "tests": [
+      "tests/unit/orchestrator/test_a_decision_name_the_store_would_refuse_is_refused_when_the_decision_is_taken.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/parts_rig.py",
+      "tests/unit/orchestrator/plan_hold_rig.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_limit_is_not_the_stores",
+    "file": "src/physgate/state/schema.py",
+    "old": "OPERATOR_MAX_LENGTH: Final = 64",
+    "new": "OPERATOR_MAX_LENGTH: Final = 65",
+    "tests": [
+      "tests/unit/orchestrator/test_a_decision_name_the_store_would_refuse_is_refused_when_the_decision_is_taken.py",
+      "tests/unit/state/test_a_declared_quantity_names_the_decision_that_made_it.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/parts_rig.py",
+      "tests/unit/orchestrator/plan_hold_rig.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_shape_of_the_name_is_not_checked",
+    "file": "src/physgate/state/schema.py",
+    "old": "        _OPERATOR_NAME.validate_python(name)",
+    "new": "        pass",
+    "tests": [
+      "tests/unit/orchestrator/test_a_decision_name_the_store_would_refuse_is_refused_when_the_decision_is_taken.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/parts_rig.py",
+      "tests/unit/orchestrator/plan_hold_rig.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_refusal_does_not_say_the_limit",
+    "file": "src/physgate/state/schema.py",
+    "old": "            f\"{OPERATOR_MAX_LENGTH} in an operator's name: give a shorter one\"",
+    "new": "            \"an operator's name: give a shorter one\"",
+    "tests": [
+      "tests/unit/orchestrator/test_a_decision_name_the_store_would_refuse_is_refused_when_the_decision_is_taken.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/parts_rig.py",
+      "tests/unit/orchestrator/plan_hold_rig.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_refusal_does_not_say_the_length_given",
+    "file": "src/physgate/state/schema.py",
+    "old": "            f\"the name is {len(name)} characters long and the store takes at most \"",
+    "new": "            \"the name is too long and the store takes at most \"",
+    "tests": [
+      "tests/unit/orchestrator/test_a_decision_name_the_store_would_refuse_is_refused_when_the_decision_is_taken.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/parts_rig.py",
+      "tests/unit/orchestrator/plan_hold_rig.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_page_server_takes_a_longer_operator",
+    "file": "src/physgate/ui/server.py",
+    "old": "MAX_OPERATOR = OPERATOR_MAX_LENGTH",
+    "new": "MAX_OPERATOR = OPERATOR_MAX_LENGTH + 1",
+    "tests": [
+      "tests/unit/orchestrator/test_a_decision_name_the_store_would_refuse_is_refused_when_the_decision_is_taken.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/parts_rig.py",
+      "tests/unit/orchestrator/plan_hold_rig.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_limit_counts_bytes",
+    "file": "src/physgate/state/schema.py",
+    "old": "    if len(name) > OPERATOR_MAX_LENGTH:",
+    "new": "    if len(name.encode()) > OPERATOR_MAX_LENGTH:",
+    "tests": [
+      "tests/unit/orchestrator/test_a_decision_name_the_store_would_refuse_is_refused_when_the_decision_is_taken.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/parts_rig.py",
+      "tests/unit/orchestrator/plan_hold_rig.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  }
+]
