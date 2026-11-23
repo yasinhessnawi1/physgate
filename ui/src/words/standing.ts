@@ -165,13 +165,26 @@ export function endSentence(end: RunEnd): string {
   return "Ended.";
 }
 
-/** How a run that ended with subtasks that never ran says so, naming each and why. */
+const RETRY = "its ordered retry never ran: ";
+
+/**
+ * How a run that ended with subtasks that never ran, or whose ordered retry never ran, says so,
+ * naming each and why.
+ */
 export function unrunWords(status: RunStatus): { sentence: string; detail: string } | null {
   const never = status.neverRan ?? [];
   if (status.kind !== "unrun" || never.length === 0) return null;
   const names = namesWords(never.map((n) => n.subtask));
-  const which = never.length === 1 ? "module never ran" : "modules never ran";
-  const why = never[0]?.why ?? "";
+  const retried = never.every((n) => n.why.startsWith(RETRY));
+  const which = retried
+    ? never.length === 1
+      ? "module's ordered retry never ran"
+      : "modules' ordered retries never ran"
+    : never.length === 1
+      ? "module never ran"
+      : "modules never ran";
+  const first = never[0]?.why ?? "";
+  const why = retried ? first.slice(RETRY.length) : first;
   return {
     sentence: `Ended: the ${names} ${which}${never.length === 1 ? `: ${why}` : ""}.`,
     detail: never

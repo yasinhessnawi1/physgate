@@ -181,6 +181,22 @@ describe("a run that ended with a module that never ran names it", () => {
     );
   });
 
+  it("says that a module's ordered retry never ran, where that is what happened", () => {
+    const retried: RunStatus = {
+      ...unrun,
+      neverRan: [
+        {
+          subtask: "fw-3d4e5f",
+          why: "its ordered retry never ran: its designer drive-0a1b2c ended without a merge",
+          ranWithout: [],
+        },
+      ],
+    };
+    expect(standingOf(retried, null).sentence).toBe(
+      "Ended: the fw module's ordered retry never ran: its designer drive-0a1b2c ended without a merge.",
+    );
+  });
+
   it("is read from the route's never_ran list", () => {
     const read = runStatus({
       next_step: { kind: "unrun", subtask_id: null, attempt: null, point: null },

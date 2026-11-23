@@ -58,7 +58,7 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
 )
 from test_a_queue_decision_acts_at_a_boundary import _layer, decide
 
-from physgate.orchestrator import closing_wait
+from physgate.orchestrator import closing_wait, record
 from physgate.orchestrator.events import read_events
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
@@ -184,16 +184,18 @@ def test_the_closing_pass_waits_while_control_is_with_a_person_and_runs_after_bo
 
 
 @BEFORE_THE_RULE
+@pytest.mark.parametrize(("mark", "end"), [("release_2", "unrun"), ("release", "done")])
 def test_a_module_that_ends_unmerged_on_a_reject_lets_the_closing_pass_run_without_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    mark: str, end: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(record, "WAIT_CYCLE", mark)
     rig = rigged(tmp_path, spent=True)
     assert run_until_it_waits(rig, monkeypatch) == "wait"
     rows = lines(rig)
     assert of(rows, "stage_entered", subtask_id=CLOSING) == []
     decide(rig.run_dir, "reject", "no attempt is left", item_id=drive_item(rows))
     reaccount(rig.run_dir)
-    assert go(rig, monkeypatch, first=False) == "done"
+    assert go(rig, monkeypatch, first=False) == end
     rows = lines(rig)
     # control and firmware ended without a merge, so nothing is waited for: the closing pass ran.
     assert of(rows, "merged", subtask_id=DRIVE) == of(rows, "merged", subtask_id=FW) == []
@@ -282,6 +284,7 @@ def stub(
     undecided: bool = True,
     items: dict[str, str | None] | None = None,
     closers: tuple[str, ...] = (),
+    narrow: bool = False,
 ) -> Any:  # noqa: ANN401 - a stand-in for the replayed state
     """A state of subtasks in plan order, the last of them sizing's closing pass.
 
@@ -314,6 +317,7 @@ def stub(
         completion_subtask=None,
         design_pairs=pairs or None,
         design_waits=SimpleNamespace(open={}),
+        producer_waits=SimpleNamespace(narrow=narrow),
         undecided=lambda _item: undecided,
         integrated=lambda: order,
     )
@@ -376,6 +380,21 @@ def test_a_reader_of_a_module_that_cannot_move_is_not_waited_for_if_it_is_not_re
         )
     ]
     assert closing_wait.pending(state, "zc") == []
+
+
+def test_under_release_2_a_reader_of_a_module_that_cannot_move_is_waited_for() -> None:
+    """The same plan under ``release_2``: ``a`` is held on nothing, so it can run."""
+    state = stub(
+        {"z0": "done", "d": "waiting", "a": "planned", "b": "planned", "zc": "planned"},
+        designers={"b": "d"},
+        narrow=True,
+    )
+    state.contract_pairs = [
+        SimpleNamespace(
+            producer=SimpleNamespace(subtask_id="b"), consumer=SimpleNamespace(subtask_id="a")
+        )
+    ]
+    assert closing_wait.pending(state, "zc") == ["a"]
 
 
 def test_a_module_with_a_person_is_waited_for_and_one_whose_item_was_decided_is_not() -> None:

@@ -101,6 +101,9 @@ ALLOWED_MODULES = {
     # The closing pass held while a domain module has not settled, as the run state it is given
     # holds it; it reads that state and nothing else.
     "physgate.orchestrator.closing_wait",
+    # The subtasks of a run that ended ``unrun`` that never ran, as the run state it is given holds
+    # them; it reads that state and nothing else.
+    "physgate.orchestrator.wait_cycle",
     # The attempts a subtask gets, sent beside the run's configuration: a constant, which the
     # event log's own model already imports.
     "physgate.orchestrator.budget",

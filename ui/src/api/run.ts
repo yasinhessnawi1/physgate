@@ -214,8 +214,8 @@ export interface RunStatus {
    */
   readonly endsOnSignaturesAlone?: boolean;
   /**
-   * Each subtask that never ran, where the run ended as ``unrun``: why, and the readers that
-   * merged without it. Absent where the server did not say.
+   * Each subtask that never ran, or whose ordered retry never ran, where the run ended as
+   * ``unrun``: why, and the readers that merged without it. Absent where the server did not say.
    */
   readonly neverRan?: readonly {
     readonly subtask: string;

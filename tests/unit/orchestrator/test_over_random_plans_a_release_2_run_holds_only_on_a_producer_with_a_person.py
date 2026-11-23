@@ -1,10 +1,12 @@
-"""Over random plans under ``release_2`` no wait forms a cycle: the property the narrowing rests on.
+"""Over random plans under ``release_2`` a hold opens only on a producer with a person.
 
 The plans, decisions and seeds are those of the row for the earlier rule (and its thirteen seeds
 that deadlock without any cycle rule). Under ``release_2`` every ``dispatch_held`` names the item
-of its producer's own escalation; neither cycle release is ever written; no run ends in a wait
-with no item open, loops, or dispatches a builder before its designer merged; a run ends ``unrun``
-exactly when a subtask never ran; and the record replays.
+of its producer's own escalation, and a cycle release is only ever written on a hold that is open;
+no run ends in a wait with no item open, loops, or dispatches a builder before its designer
+merged; a run ends ``unrun`` exactly when a subtask never ran; and the record replays. The plans
+here take no reopen, retry or fix: the row over random plans with those, and kills, is
+``test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing``.
 """
 
 from __future__ import annotations
@@ -41,7 +43,10 @@ def test_a_random_plan_under_release_2_holds_only_on_a_producer_with_a_person(
         escalated = [r["item_id"] for r in of(rows, "escalated", subtask_id=hold["producer"])]
         assert hold["item_id"] in escalated, f"{played.said}: a hold names another item"
         assert hold["producer"] in own
-    assert not [r for r in of(rows, "dispatch_released") if r["outcome"] in CYCLE_OUTCOMES]
+    opened = {(r["subtask_id"], r["producer"]) for r in of(rows, "dispatch_held")}
+    for released in of(rows, "dispatch_released"):
+        if released["outcome"] in CYCLE_OUTCOMES:
+            assert (released["subtask_id"], released["producer"]) in opened, played.said
     never_ran = [
         s
         for s in played.shape.order

@@ -130,6 +130,9 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 #: halts on it, named by file and line, until a person mends the file. ``no_progress`` is a hold or
 #: release line the loop was about to write again with no line of another kind between: the rule
 #: owes it again and nothing changes, so the run halts on it rather than writing it for ever.
+#: ``waits_on_nothing`` is a run started under ``release_2`` that reached a wait with no item open
+#: to a person: whatever the wait rules did, nothing is left to wait for, so it halts naming what is
+#: held on what.
 IncidentCause = Literal[
     "cross_role_write",
     "merge_conflict",
@@ -158,6 +161,7 @@ IncidentCause = Literal[
     "decisions_unreadable",
     "run_records_changed",
     "no_progress",
+    "waits_on_nothing",
 ]
 
 #: Why a run stopped short of the end of its plan.

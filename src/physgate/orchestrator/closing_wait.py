@@ -70,9 +70,10 @@ def _cannot_move(state: RunState, subtask_id: str, seen: frozenset[str] = frozen
 
     It waits for the closing pass itself; or it is planned or running and is held for good, or
     is held on what cannot go on: the designer whose design it builds, or a producer it reads
-    from that is still to run and cannot go on either. A producer that waits for the closing pass
-    lets its reader go (the reader is released, and runs), so it does not hold it. Two modules
-    that read from each other hold nothing, and no module is visited twice.
+    from that is still to run and cannot go on either (not in a run started under ``release_2``,
+    which holds no reader on a producer that is not with a person). A producer that waits for
+    the closing pass lets its reader go (the reader is released, and runs), so it does not hold
+    it. Two modules that read from each other hold nothing, and no module is visited twice.
     """
     sub = state.subtasks[subtask_id]
     if sub.status == "waiting":
@@ -85,6 +86,8 @@ def _cannot_move(state: RunState, subtask_id: str, seen: frozenset[str] = frozen
     if any(_cannot_move(state, pair.designer, beyond) for pair in _designers(state, subtask_id)):
         return True
     for pair in _reads_from(state, subtask_id):
+        if state.producer_waits.narrow:
+            break  # under ``release_2`` a reader of a producer that cannot move is not held on it
         producer = pair.producer.subtask_id
         if _mutual(state, subtask_id, producer):
             continue

@@ -1,11 +1,13 @@
 """Under ``wait_cycle: release_2`` a reader is held only on a producer that is itself with a person.
 
-A producer merely blocked behind one holds nobody, so every wait ends in a person or in a subtask
-that can run, and no cycle of subtasks can form. Neither cycle release
-(``producer_waits_for_reader`` or ``producer_held_for_good``) can be written or replayed. A
-builder held for good is planned, never escalated, so no reader is ever held on one. A run that
-acts and ends with a subtask that never ran ends as ``unrun``, naming it, why, and what merged
-without it; recorded under ``release`` or with no mark it ends as it always did.
+A producer merely blocked behind one holds nobody, so a hold never opens on a producer that waits
+for something. A cycle release (``producer_waits_for_reader`` or ``producer_held_for_good``) is
+written, and replays, only on a hold that is already open, after a person's decision took its
+producer out of ``escalated``: the rows for that are in
+``test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py``.
+A builder held for good is planned, never escalated, so no reader is held on one as a run
+begins. A run that acts and ends with a subtask that never ran ends as ``unrun``, naming it, why,
+and what merged without it; recorded under ``release`` or with no mark it ends as it always did.
 """
 
 from __future__ import annotations

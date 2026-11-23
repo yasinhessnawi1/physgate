@@ -286,6 +286,7 @@ from physgate.orchestrator.usage_limit import (
     stamped,
     with_instant,
 )
+from physgate.orchestrator.wait_cycle import held_on, items_open
 from physgate.reviewers.packet import fits_one_read, indicator_scan_runs, person_order_text
 from physgate.reviewers.scan import (
     REFUSED_NAMES,
@@ -1194,6 +1195,8 @@ class Loop:
             if step.kind in ("done", "unrun", "halted", "escalated", "wait"):
                 if self._decisions_refused_at_the_end():
                     continue  # the run halts on it: that is the step it ends on
+                if step.kind == "wait" and self._waits_on_nothing():
+                    continue  # the run halts on it: that is the step it ends on
                 self.record.hold_plan()  # a decompose killed before it listed the plan's item
                 self.record.hold_parts()  # and before it listed each part, or the plan's hold left
                 self._clean_up_worktrees()
@@ -1287,6 +1290,29 @@ class Loop:
             return
         self._emit(line)
         self._wait_streak = (self.log.events[-1].seq, seen | {signature})
+
+    def _waits_on_nothing(self) -> bool:
+        """A run started under ``release_2`` that waits with no item open halts, naming why.
+
+        Whatever the wait rules did, a wait with nothing for a person to decide can end by no one's
+        act, so the run does not print ``wait``: an incident names what is held on what, and the
+        halt follows. Final: a halt for an incident is never resumed (a person starts a new run
+        from the plan and reports this record). Runs recorded under ``release`` or with no mark
+        are left as they were. An item decided but held for an operator's confirmation is open.
+        """
+        state = self.state
+        if not (state.acts and state.producer_waits.narrow) or state.halted is not None:
+            return False
+        self.queue.refresh()
+        if self.queue.open_items() or items_open(state):
+            return False
+        held = "; ".join(held_on(state)) or "nothing is held"
+        detail = (
+            f"the run waits and no item is open to a person: {held}. This halt is final: the run "
+            "is not resumed; a person starts a new run from the plan and reports this record."
+        )
+        self._incident(None, "waits_on_nothing", detail)
+        return True
 
     def _roles_built(self) -> bool:
         """Whether every role the plan still names can be dispatched; otherwise the run halts.
