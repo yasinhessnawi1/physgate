@@ -214,6 +214,9 @@ def test_an_escalated_end_that_owes_a_sign_off_names_the_module_that_never_ran(
     assert [n["subtask_id"] for n in named] == [FIRMWARE2]
     printed, status = printed_step("escalated", state)
     assert status == 1
+    assert "never_ran" in printed, (
+        f"an escalated end that owes a sign-off prints the modules that never ran: {printed!r}"
+    )
     assert [n["subtask_id"] for n in printed["never_ran"]] == [FIRMWARE2]  # type: ignore[attr-defined]
     assert "sign_offs_owed" in printed
     # No other step names them: a run still going, or a done end, is as it was.

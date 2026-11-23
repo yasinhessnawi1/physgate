@@ -29,6 +29,7 @@ from physgate.contracts.pairs import ContractPair
 from physgate.orchestrator import record
 from physgate.orchestrator.design_pairs import DesignPair
 from physgate.orchestrator.events import Event
+from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.record import DecompositionSummary
@@ -213,6 +214,20 @@ def resumed(rig: Rig, monkeypatch: pytest.MonkeyPatch, shape: Shape) -> str:
         return str(loop.resume().kind)
     finally:
         loop.close()
+
+
+def resumed_expecting(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch, shape: Shape, expected: str
+) -> str:
+    """``resumed``, for a row that states what it expects of the run: a run that raises fails it.
+
+    A loop that raises while it writes a line (the record refuses it) has not ended as the row
+    expects; the row fails on that, with what it expected, rather than on the error itself.
+    """
+    try:
+        return resumed(rig, monkeypatch, shape)
+    except (ValueError, OrchestratorError) as exc:
+        raise AssertionError(f"{expected}; the run raised {exc!r} while it wrote a line") from exc
 
 
 def resumed_before(
