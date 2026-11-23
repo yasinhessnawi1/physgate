@@ -170,7 +170,12 @@ export interface ModuleCompletion {
 export interface RunStatus {
   readonly kind: string;
   readonly subtask: string | null;
-  readonly halted: { readonly reason: string; readonly detail: string } | null;
+  readonly halted: {
+    readonly reason: string;
+    readonly detail: string;
+    /** What the incident the halt rests on says: for a wait on nothing, what is held on what. */
+    readonly incident?: { readonly cause: string; readonly detail: string };
+  } | null;
   /** The incident on the record whose halt is owed, if any. */
   readonly owedHalt: { readonly cause: string; readonly subtask: string | null } | null;
   readonly completion: {
@@ -265,7 +270,21 @@ export function runStatus(value: unknown): RunStatus {
     halted:
       halted === null
         ? null
-        : { reason: text(halted.reason, "a halt reason"), detail: text(halted.detail, "a detail") },
+        : {
+            reason: text(halted.reason, "a halt reason"),
+            detail: text(halted.detail, "a detail"),
+            ...(halted.incident === undefined || halted.incident === null
+              ? {}
+              : {
+                  incident: (() => {
+                    const i = object(halted.incident, "the incident of a halt");
+                    return {
+                      cause: text(i.cause, "an incident cause"),
+                      detail: text(i.detail, "an incident detail"),
+                    };
+                  })(),
+                }),
+          },
     owedHalt:
       owed === null
         ? null

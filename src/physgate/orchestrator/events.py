@@ -914,6 +914,10 @@ DecisionEffect = Literal[
 #: values at: it merged on its last attempt number, or on a fix a person ordered earlier.
 #: Replay recomputes the reason, so a reject of such a module recorded under any other reason is
 #: refused; no run recorded before this reason carries a sign-off item, so none is.
+#: ``not_merged``: a choice on a contract item that named a module to reopen whose last attempt
+#: has no merge (a sign-off fix that ended unmerged), so no reopen can be carried out. The item
+#: does not offer such a choice; the reason is the second guard, so the run is never ordered what
+#: it cannot do.
 WhyNot = Literal[
     "record_only_source",
     "last_rejection_automated",
@@ -926,6 +930,7 @@ WhyNot = Literal[
     "superseded",
     "module_reopened",
     "no_attempt_left",
+    "not_merged",
 ]
 
 

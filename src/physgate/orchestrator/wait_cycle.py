@@ -137,6 +137,18 @@ def never_ran(state: RunState) -> list[dict[str, object]]:
     return found
 
 
+def never_ran_at(state: RunState, step: str) -> list[dict[str, object]]:
+    """What the end ``step`` names as never run.
+
+    At ``unrun``, and at an ``escalated`` end that owes a sign-off: that end comes before
+    ``unrun`` can, and would otherwise hide a module that never ran until the sign-off is
+    decided. Empty at every other step.
+    """
+    if step == "unrun" or (step == "escalated" and state.sign_offs_open()):
+        return never_ran(state)
+    return []
+
+
 def items_open(state: RunState) -> list[str]:
     """Every item a person can still act on, from the record: undecided, or held to be confirmed.
 

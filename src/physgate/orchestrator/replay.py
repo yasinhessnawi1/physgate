@@ -44,7 +44,12 @@ from physgate.orchestrator.common import (
     GateMode,
 )
 from physgate.orchestrator.completion import open_preconditions, sign_off_open
-from physgate.orchestrator.decisions import require_taken, sign_off_reject, values_chosen
+from physgate.orchestrator.decisions import (
+    reopenable,
+    require_taken,
+    sign_off_reject,
+    values_chosen,
+)
 from physgate.orchestrator.design_pairs import DesignPair, recorded_design_pairs_problem
 from physgate.orchestrator.design_wait import DesignWaits, gated, held_for_good, held_subtask
 from physgate.orchestrator.escalation import (
@@ -747,6 +752,12 @@ class RunState:
                 _refuse("an incident after a findings line is the next finding it names")
             self.findings_written += 1
         if isinstance(event, Incident):
+            if event.cause == "waits_on_nothing" and not self.producer_waits.narrow:
+                # Only a run that began under ``release_2`` (which only a run that acts is marked
+                # with) writes it; no earlier run did.
+                _refuse(
+                    "a wait with nothing to decide is an incident of a run under release_2 only"
+                )
             self.open_incidents.append(event)
         if isinstance(event, Incident) and event.subtask_id is None:
             opening = self.reviews_plan and self.design_review is None
@@ -2374,7 +2385,11 @@ class RunState:
         if event.acts and event.effect == "sign":
             self.signed.append(event.item_id)
         if event.acts and event.effect == "reopen":
-            self.pending_reopen = event
+            target = self.subtasks.get(event.reopens or "")
+            # An older record can end at a reopen of a module whose last attempt never merged: the
+            # run stopped there, unable to reopen it. It is read as a decision that acts on nothing.
+            if target is not None and reopenable(target):
+                self.pending_reopen = event
             return
         if not event.acts or event.subtask_id is None:
             return

@@ -848,7 +848,7 @@
   {
     "name": "the_never_ran_list_is_not_printed",
     "file": "src/physgate/orchestrator/waiting.py",
-    "old": "        printed[\"never_ran\"] = never_ran(state)",
+    "old": "        printed[\"never_ran\"] = named",
     "new": "        printed[\"never_ran\"] = []",
     "tests": [
       "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
@@ -1226,8 +1226,8 @@
   {
     "name": "the_status_route_prints_never_ran_in_a_run_still_going",
     "file": "src/physgate/ui/readers.py",
-    "old": "never_ran(state) if step.kind == \"unrun\" else []",
-    "new": "never_ran(state)",
+    "old": "never_ran_at(state, step.kind)",
+    "new": "never_ran_at(state, \"unrun\")",
     "tests": [
       "tests/unit/ui/test_the_status_names_each_builder_held_until_the_design_it_implements_merges.py"
     ],
@@ -1251,12 +1251,14 @@
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_a_run_that_ends_unrun_is_counted_decided_on_and_named_as_the_rules_say.py",
       "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_design_pairs_are_read_from_the_plan_and_recorded_before_any_dispatch.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_every_pair_sharing_an_interface_is_enumerated_from_the_recorded_plan.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/test_replay_refuses_a_wait_with_nothing_to_decide_in_a_run_that_could_not_write_it.py",
       "tests/unit/orchestrator/wait_cycle_rig.py",
       "tests/unit/orchestrator/wait_sweep_rig.py"
     ],

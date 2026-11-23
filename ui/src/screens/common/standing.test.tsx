@@ -9,6 +9,7 @@ import { statusWords } from "../home/Home";
 import { foldLedger, stateWords } from "../run-records/ledgerRows";
 import { inProgress } from "./runs";
 import { phaseOf, standingOf } from "../../words/standing";
+import { runEnd, unsignedEnd } from "../home/runEnd";
 import { dayAndMinute } from "../../words/runs";
 
 const LAST = "2026-11-16T20:08:34.910143Z";
@@ -208,5 +209,91 @@ describe("a run that ended with a module that never ran names it", () => {
     expect(read.neverRan).toEqual([
       { subtask: "fw-3d4e5f", why: "its designer ended", ranWithout: [] },
     ]);
+  });
+});
+
+describe("a halt on an incident says what the incident says", () => {
+  const WAITS =
+    "the run waits and no item is open to a person: fw is held on drive, which it reads from.";
+  const halted: RunStatus = {
+    ...attempting(MINUTE),
+    kind: "halted",
+    subtask: null,
+    halted: {
+      reason: "incident",
+      detail: "waits_on_nothing",
+      incident: { cause: "waits_on_nothing", detail: WAITS },
+    },
+  };
+
+  it("shows what is held on what, beside the cause", () => {
+    expect(phaseOf(halted)).toBe("halted");
+    expect(standingOf(halted, null).detail).toBe(`incident: waits_on_nothing. ${WAITS}`);
+  });
+
+  it("shows the cause alone for a halt that rests on no incident line it can name", () => {
+    const bare = { reason: "incident", detail: "waits_on_nothing" };
+    expect(standingOf({ ...halted, halted: bare }, null).detail).toBe("incident: waits_on_nothing");
+  });
+
+  it("is read from the route's halt, with its incident", () => {
+    const read = runStatus({
+      next_step: { kind: "halted", subtask_id: null, attempt: null, point: null },
+      halted: {
+        seq: 9,
+        reason: "incident",
+        detail: "waits_on_nothing",
+        incident: { cause: "waits_on_nothing", detail: WAITS },
+      },
+      owed_halt: null,
+      completion: { owner: false, modules: [] },
+    });
+    expect(read.halted?.incident).toEqual({ cause: "waits_on_nothing", detail: WAITS });
+    const none = runStatus({
+      next_step: { kind: "halted", subtask_id: null, attempt: null, point: null },
+      halted: { seq: 9, reason: "incident", detail: "no_progress", incident: null },
+      owed_halt: null,
+      completion: { owner: false, modules: [] },
+    });
+    expect(none.halted?.incident).toBeUndefined();
+  });
+});
+
+describe("an escalated end that owes a sign-off names the module that never ran", () => {
+  // As the route serves a run that acts: the sign-off is owed, and its item is decided or open.
+  const escalated = (open: readonly string[]): RunStatus => ({
+    ...attempting(MINUTE),
+    kind: "escalated",
+    subtask: null,
+    acts: true,
+    signaturesOwed: ["drive-0a1b2c"],
+    signaturesOpenToDecide: open,
+    endsOnSignaturesAlone: true,
+    neverRan: [
+      { subtask: "fw-3d4e5f", why: "its designer el-4a5b6c ended without a merge", ranWithout: [] },
+    ],
+  });
+  const WORDS = "Also, the fw module never ran: fw: its designer el-4a5b6c ended without a merge.";
+  const ended = (status: RunStatus) => runEnd([], 0, status.completion, null, unsignedEnd(status));
+
+  it("ends where no decision left can give the sign-off: its sentence, and the module", () => {
+    const status = escalated([]);
+    expect(phaseOf(status)).toBe("done");
+    const standing = standingOf(status, ended(status));
+    expect(standing.sentence).toContain("sign-off was not given");
+    expect(standing.detail).toContain("sign-off not given");
+    expect(standing.detail).toContain(WORDS);
+  });
+
+  it("waits for a person where the sign-off's item is open, and still names the module", () => {
+    const status = escalated(["drive-0a1b2c"]);
+    expect(phaseOf(status)).toBe("waiting-person");
+    expect(standingOf(status, null).detail).toBe(WORDS);
+  });
+
+  it("names nothing where no module never ran, or at a step that is not the escalated end", () => {
+    expect(standingOf({ ...escalated([]), neverRan: [] }, null).detail).toBeNull();
+    const done: RunStatus = { ...escalated([]), kind: "done", signaturesOwed: [] };
+    expect(standingOf(done, null).detail).toBeNull();
   });
 });

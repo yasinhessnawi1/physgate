@@ -71,6 +71,9 @@ def test_a_release_owed_again_halts_the_run_on_an_incident_that_names_the_step(
     assert incident["subtask_id"] is None
     assert "release for drive-0a1b2c" in incident["detail"]
     assert "dispatch_released" in incident["detail"]
+    # The halt is final, and it says what a person does: a new run, and this record reported.
+    assert "This halt is final: the run is not resumed" in incident["detail"]
+    assert "starts a new run from the plan and reports this record" in incident["detail"]
     assert of(rows, "halted")[0]["detail"].startswith("no_progress")
     assert rows.index(incident) == rows.index(released[0]) + 1
 

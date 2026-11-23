@@ -1284,7 +1284,11 @@ class Loop:
         signature = line.model_dump_json(exclude={"seq", "ts"})
         if signature in seen:
             what = f"{step.kind} for {step.subtask_id} ({line.kind})"
-            detail = f"the {what} is owed again with no line of another kind written between"
+            detail = (
+                f"the {what} is owed again with no line of another kind written between. This "
+                "halt is final: the run is not resumed; a person starts a new run from the plan "
+                "and reports this record."
+            )
             self._wait_streak = (-1, set())
             self._incident(None, "no_progress", detail)  # no attempt is in progress to name
             return

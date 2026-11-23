@@ -536,6 +536,9 @@ const NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
   module_reopened:
     "Recorded only: the module was reopened for its follow-up after the item was listed, so " +
     "the fix the item offered could no longer be ordered.",
+  not_merged:
+    "Recorded only: the module the choice would reopen has no merge on its last attempt, so " +
+    "nothing could be reopened.",
 };
 
 /** What a decision on a sign-off item did not do, where its words differ from another item's. */
