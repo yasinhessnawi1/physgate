@@ -186,6 +186,22 @@ def test_a_read_integrator_on_the_wheel_angle_is_not_refused_and_is_judged_on_it
 # ── the held state ──────────────────────────────────────────────────────────────────────────────
 
 
+def test_a_read_state_of_the_wheel_angle_with_a_leak_of_exactly_1_is_judged_and_not_reported_apart(
+    tmp_path: Path,
+) -> None:
+    doc = _sum_of("wheel_angle", "rad*s", 1.0, read=True)
+    doc["controller"]["coefficients"]["k_sum"] = _m(0.002, "1/(rad*s)")
+    record = _judge(tmp_path, doc)
+    assert record["answer_valid"] is True and "refusal" not in record
+    assert record["held_state_flags"] == []
+    assert _row(record)["measured"] is not None
+
+
+def test_a_state_fed_by_the_tilt_and_not_read_is_not_reported_apart(tmp_path: Path) -> None:
+    record = _judge(tmp_path, _unread_sum("tilt", "rad*s"))
+    assert record["answer_valid"] is True and record["held_state_flags"] == []
+
+
 def _held(leak: float) -> dict[str, Any]:
     """A tilt estimate from the rate with ``leak``, read by the command in place of the tilt."""
     doc = _sum_of("tilt_rate", "rad", leak, read=True)

@@ -83,7 +83,7 @@ def _read(unit: str) -> bool:
     return True
 
 
-@pytest.mark.parametrize("unit", form.UNIT_WRITTEN)
+@pytest.mark.parametrize("unit", getattr(form, "UNIT_WRITTEN", ("<missing>",)))
 def test_each_unit_the_block_shows_as_written_is_read_by_the_parser_and_is_in_the_block(
     unit: str,
 ) -> None:
@@ -91,7 +91,7 @@ def test_each_unit_the_block_shows_as_written_is_read_by_the_parser_and_is_in_th
     assert unit in BLOCK
 
 
-@pytest.mark.parametrize("unit", form.UNIT_NOT_WRITTEN)
+@pytest.mark.parametrize("unit", getattr(form, "UNIT_NOT_WRITTEN", ("<missing>",)))
 def test_each_unit_the_block_shows_as_refused_is_refused_by_the_parser_and_is_in_the_block(
     unit: str,
 ) -> None:
@@ -100,7 +100,7 @@ def test_each_unit_the_block_shows_as_refused_is_refused_by_the_parser_and_is_in
 
 
 def test_the_quotient_the_block_gives_as_an_example_is_read_as_it_says() -> None:
-    long, short = form.UNIT_QUOTIENT
+    long, short = getattr(form, "UNIT_QUOTIENT", ("<missing>", "<missing>"))
     assert law_module.dimension(long) == law_module.dimension(short) == (("rad", -1), ("s", 1))
     assert f"{long} is {short}" in ONE_LINE
 
@@ -156,7 +156,10 @@ def test_the_block_no_longer_says(words: str) -> None:
         "and that the command does not read makes the loop unstable",
         "A state the command reads is judged with the loop, like any other.",
         "A state that keeps its value exactly (a leak of exactly 1) is allowed where the loop "
-        "drives it back; the answer is then reported in a class of its own.",
+        "drives it back. If the tilt, its rate or the reference feeds such a state and the "
+        "command reads it, the answer is then reported in a class of its own.",
+        "since the last update, over the period; that needs a memory state holding the last "
+        "wheel_reference.",
         "A leak that is not exactly 1 but within a rounding error of it is judged unstable.",
         "A positive command drives the wheels forward: the wheel_angle and the wheel_speed "
         "increase",

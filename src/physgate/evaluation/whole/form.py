@@ -412,8 +412,9 @@ WHAT IS JUDGED
   odometer, an anti-windup memory) and that the command does not read makes the loop unstable; keep
   such a state out of the law. A state the command reads is judged with the loop, like any other.
   A state that keeps its value exactly (a leak of exactly 1) is allowed where the loop drives it
-  back; the answer is then reported in a class of its own. A leak that is not exactly 1 but within
-  a rounding error of it is judged unstable.
+  back. If the tilt, its rate or the reference feeds such a state and the command reads it, the
+  answer is then reported in a class of its own. A leak that is not exactly 1 but within a rounding
+  error of it is judged unstable.
 
 WHAT IS REFUSED, AND WHAT IS NOT JUDGED
   Where a name is given in brackets, the scorer reports the fault by that name.
@@ -713,7 +714,8 @@ def _signal_notes() -> str:
         f"reads {tilt} is judged as if it knew the tilt exactly.",
         f"A speed command appears as {reference}: an angle in rad that advances at the commanded "
         f"wheel speed in rad/s. A law that wants the commanded speed takes the change of "
-        f"{reference} since the last update, over the period.",
+        f"{reference} since the last update, over the period; that needs a memory state holding "
+        f"the last {reference}.",
     )
     return "\n".join(_wrap(note, "  ", "  ") for note in notes)
 
