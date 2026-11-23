@@ -23,7 +23,18 @@ kinds are not held that way and are read another way, each held by a row:
   the scorer; a row scores an answer built to break each rule and holds the name it reports to the
   one printed here;
 - the number of significant digits a law's numbers may carry (:data:`SIGNIFICANT_DIGITS`) is stated
-  in the law module's own text and held there by a row.
+  in the law module's own text and held there by a row. That is a tie to a sentence, not to
+  behaviour: the scorer accepts a number with more digits and decides it as written, so the block
+  asks for at most that many and never says more is refused;
+- the name's character classes and the set of a term's signs are read from the schema's own
+  pattern and ``Literal`` (:func:`_name_pattern`, :func:`_signs`), and the symbols of a unit from
+  the dimensions of the signals' units and the period's (:func:`_unit_symbols`).
+
+The block says only what the scorer does. It lists what is refused, each by a case that breaks
+that rule alone, and never claims that a rule it states is refused when it is not: a number with
+more significant digits, two states marked ``applied``, a sign written ``true`` and a key written
+twice are all read by the scorer today, so the block asks that they be written correctly and says
+nothing of a refusal (the scoring row that holds this is named in the tests).
 
 What is **not told** to a designer is listed, each with its reason, in :data:`NOT_TOLD`; a row
 holds every field and bound of the answer's models to being named in the block or listed there.
@@ -53,6 +64,22 @@ EXAMPLE_PATH = Path(__file__).with_name("answer_form_example.json")
 #: The most significant digits a law's numbers are written with (the law module's own statement:
 #: past it, two spellings of one float can be decided differently). Held to that text by a row.
 SIGNIFICANT_DIGITS = 15
+#: Spellings of a unit the block prints, each held by a row to the one parser the scorer reads a
+#: law's units with (:func:`physgate.evaluation.whole.law.dimension`): the written ones are read,
+#: the ones below them refused. A spelling printed here that the parser reads otherwise fails a row.
+UNIT_WRITTEN: tuple[str, ...] = ("rad*s", "rad**2", "s**-1", "s/rad", "1/(rad*s)")
+#: Each refused spelling, in the plain words the block gives it.
+_UNIT_REFUSED: tuple[tuple[str, str], ...] = (
+    ("a space or a dot between symbols", "rad s, rad.s"),
+    ("a number other than a leading 1", "2*rad"),
+    ("a bracket anywhere else", "(rad*s)/rad"),
+    ("a space inside a power", "rad ** 2"),
+)
+UNIT_NOT_WRITTEN: tuple[str, ...] = tuple(
+    spelling for _, spellings in _UNIT_REFUSED for spelling in spellings.split(", ")
+)
+#: Read by the parser as the block says: ``/`` divides by the one factor that follows it.
+UNIT_QUOTIENT: tuple[str, str] = ("1/rad*s", "s/rad")
 
 
 class FormError(Exception):
@@ -74,7 +101,10 @@ class Rule:
 
 #: What makes an answer refused: a failed answer, with its reason.
 REFUSED: tuple[Rule, ...] = (
-    Rule("not_json", "the file is not valid JSON, or is not UTF-8 text"),
+    Rule(
+        "not_json",
+        "the file is not valid JSON (a byte-order mark makes it not valid), or is not UTF-8 text",
+    ),
     Rule("too_long", "the file is longer than $max_bytes bytes"),
     Rule("wrong_form", "the form or the version is not the one given above"),
     Rule("missing_key", "a key given above, not marked optional, is missing"),
@@ -112,6 +142,8 @@ REFUSED: tuple[Rule, ...] = (
     ),
     Rule("later_line", "a line that reads a line after it", "malformed"),
     Rule("repeated_name", "a state or a line named twice, or named as a signal or as period"),
+    Rule("bad_name", "a name that does not follow the name rule above"),
+    Rule("bad_sign", "a term's sign that is not $signs"),
     Rule("period_declared", "a coefficient named period"),
     Rule("unit_not_a_unit", "a unit that is not written as the units rule above says"),
     Rule(
@@ -122,6 +154,11 @@ REFUSED: tuple[Rule, ...] = (
     ),
     Rule("command_not_a_line", "a command that is not a line in the unit 1"),
     Rule("state_without_line", "a state whose next is not the name of a line"),
+    Rule(
+        "applied_misplaced",
+        'a state marked "$Memory_applied" whose next is not the command line',
+        "malformed",
+    ),
     Rule("zero_divisor", 'a "per" coefficient whose value is 0', "zero_divisor"),
     Rule(
         "number_underflows",
@@ -245,13 +282,17 @@ NOT_TOLD: dict[str, str] = {
 
 #: What each signal is, in the words the block uses. Held to the schema's own list of signals.
 SIGNAL_MEANINGS: dict[str, str] = {
-    "tilt": "the body's tilt from vertical; positive leaning forward",
+    "tilt": "the body's true tilt from vertical; positive leaning forward",
     "tilt_rate": "the tilt's rate (the gyro)",
     "wheel_angle": (
-        "the mean of the two wheels' turn relative to the body; positive rolling forward"
+        "the mean of the two wheels' turn relative to the body (the encoders); positive rolling "
+        "forward"
     ),
-    "wheel_speed": "the wheel angle's rate",
-    "wheel_reference": "the wheel angle the law holds; zero in the loop that is judged",
+    "wheel_speed": "the wheel angle's rate (the encoders)",
+    "wheel_reference": (
+        "the wheel angle the law holds; it advances at the commanded wheel speed, and is zero "
+        "where no speed is commanded and in the loop whose stability is judged"
+    ),
 }
 
 #: What each told key of the answer is, where it is not a literal.
@@ -261,27 +302,40 @@ _KEY_PROSE: dict[str, str] = {
 }
 
 _INTRO = (
-    "Write one file, $answer_file, in the directory you work in. It is UTF-8 JSON of at most "
-    "$max_bytes bytes. It states the choices of your design: $setting_count settings and the "
-    "control law your firmware runs. It holds no model of the robot. A fixed scorer computes every "
-    "consequence itself, on a model of the kit that is not given to you. A requirement that "
-    "depends on the robot's physics (a current, a margin) is judged over the stated tolerances and "
-    "uncertainty of that model, not only at nominal values."
+    "Write one file, $answer_file, in the directory you work in. It is UTF-8 JSON, with no "
+    "byte-order mark, of at most $max_bytes bytes. It states the choices of your design: "
+    "$setting_count settings and the control law your firmware runs. It holds no model of the "
+    "robot. A fixed scorer computes every consequence itself, on a model of the kit that is not "
+    "given to you. A requirement that depends on the robot's physics (a current, a margin) is "
+    "judged over the stated tolerances and uncertainty of that model, not only at nominal values."
 )
 _NUMBERS = (
     'Every setting, every timing field and every coefficient is {"$Measure_value": N, '
     '"$Measure_unit": "U"}; a bare number there is refused. A number is a finite JSON number. For '
     "the settings and the timing fields, the unit is spelt exactly as given here; any other "
     "spelling of the same unit is refused. Units inside the law are written as UNITS IN THE LAW "
-    "says. Write each number of a law with at most $digits significant digits."
+    "says. Write each number of a law with at most $digits significant digits, and each key once."
+)
+
+_RATE = (
+    '"$update_rate_name" and the controller\'s "$SampledLaw_period" are two statements: each is '
+    "held to its own range, and nothing else ties one to the other."
+)
+_UNIT_RULES = (
+    "Two writings with the same symbols and powers are one unit. A state's or a line's unit is at "
+    'most $unit_length characters. Every term\'s coefficients, "$Term_per" coefficients and '
+    "variable must multiply to the line's unit, and the command's unit is \"1\". Use rad, never "
+    "deg, in a law."
 )
 
 _PARAGRAPHS: dict[str, str] = {
     "p_coefficients": (
         '"$SampledLaw_coefficients": an object, name to {"$Measure_value": N, "$Measure_unit": '
-        '"U"}. At most $max_coefficients. A name is a lower-case letter then at most $name_tail of '
-        "a-z, 0-9, _ . A value's size is at most $law_magnitude; 0 is allowed. Do not declare "
-        '"$reserved_name": it is the period above, in s, and any term may use it.'
+        '"U"}. At most $max_coefficients. A name is one character of $name_head then at most '
+        "$name_tail characters of $name_rest. A coefficient's name is its own: a state or a line "
+        "may bear the same name. A value's size is at most $law_magnitude; 0 is allowed. Do not "
+        'declare "$reserved_name": it is the period above, in $period_unit, and any term may use '
+        "it."
     ),
     "p_memory": (
         '"$SampledLaw_memory" (optional): a list of at most $max_memory states kept from one '
@@ -299,9 +353,10 @@ _PARAGRAPHS: dict[str, str] = {
         'as a signal below or as "$reserved_name".'
     ),
     "p_term": (
-        'A term: {"$Term_sign": 1 or -1, "$Term_number": N (optional, default $default_number), '
-        '"$Term_coefficients": [names] (optional, at most $max_factors), "$Term_per": [names] '
-        '(optional, at most $max_factors), "$Term_of": <one variable>}. A term\'s sign and number '
+        'A term: {"$Term_sign": the number $signs, "$Term_number": N (optional, default '
+        '$default_number), "$Term_coefficients": [names] (optional, at most $max_factors), '
+        '"$Term_per": [names] (optional, at most $max_factors), "$Term_of": <one variable>}. A '
+        "term's sign and number "
         "are plain JSON numbers. Its value = sign * number * (the coefficients multiplied) / "
         '(the "$Term_per" coefficients multiplied) * the variable. "$Term_number" is never 0 and '
         "its size is at most $law_magnitude: to switch a term off give a coefficient the value 0. "
@@ -328,12 +383,13 @@ $numbers
 PARAMETERS (all $setting_count, each in its one unit, within its range)
 $parameters
 A setting the requirements above do not fix is still stated, within its range.
+$rate
 
 CONTROLLER
   "$SampledLaw_structure": "$structure_value"
 $timing
   The two delays together span at most $delay_samples periods.
-  State the delays your design has. They are taken as stated.
+  State the delays your design has.
 $p_coefficients
 $p_memory
 $p_lines
@@ -342,29 +398,27 @@ $p_command
 
   The variable of a term, exactly one of:
 $signals
+$signal_notes
 
 UNITS IN THE LAW
-  The unit of a coefficient, a state or a line is written as products and quotients of unit
-  symbols with whole powers: rad, s, 1, 1/rad, s/rad, rad/s. Two writings with the same symbols
-  and powers are one unit. A state's or a line's unit is at most $unit_length characters. Every
-  term's coefficients, "$Term_per" coefficients and variable must multiply to the line's unit, and
-  the command's unit is "1". Use rad, never deg, in a law.
+$unit_grammar
+$unit_rules
 
 WHAT IS JUDGED
   The law, sampled at the period with the two delays, is closed around a linearised model of the
   kit. The command limit, integer rounding, noise and sensor bias are not part of that analysis.
-  The loop must be stable with the wheels returning, not only the body upright. A memory state
-  that adds up the wheel angle, the wheel speed or the command (a counter, an odometer, an
-  anti-windup memory) makes the loop unstable even if nothing reads it; keep such memory out of the
-  law. A state that keeps its whole value from one update to the next (it does not leak), is fed
-  by the tilt, its rate or the reference, and is read by the command, is set aside in the stability
-  test, and the answer is flagged for it.
+  The loop must be stable with the wheels returning, not only the body upright.
+  A memory state that adds up the wheel angle, the wheel speed or the command (a counter, an
+  odometer, an anti-windup memory) and that the command does not read makes the loop unstable; keep
+  such a state out of the law. A state the command reads is judged with the loop, like any other.
+  A state that keeps its value exactly (a leak of exactly 1) is allowed where the loop drives it
+  back; the answer is then reported in a class of its own. A leak that is not exactly 1 but within
+  a rounding error of it is judged unstable.
 
 WHAT IS REFUSED, AND WHAT IS NOT JUDGED
   Where a name is given in brackets, the scorer reports the fault by that name.
   Refused (a failed answer, with its reason):
 $refused
-    - any other breach of a rule stated above.
   Not judged (the answer counts as not passed, and stays in the count; it is never a failed
   design):
 $not_judged
@@ -496,6 +550,13 @@ def _told_settings() -> list[str]:
     return told
 
 
+def _told_setting(name: str, told: list[str]) -> str:
+    if name not in told:
+        msg = f"the block's text names the setting {name}, which it does not tell"
+        raise FormError(msg)
+    return name
+
+
 def _parameters(told: list[str]) -> str:
     whole = _whole_settings(told)
     width = max(len(n) for n in told)
@@ -591,18 +652,89 @@ def _count(n: int) -> str:
     return _WORDS.get(n, str(n))
 
 
-def _name_tail() -> str:
-    """The most characters a name has after its first letter, read from the schema's pattern."""
+def _name_pattern() -> tuple[str, str, str]:
+    """The character classes of a name's first and later characters and its tail length.
+
+    Read from the schema's own pattern; a pattern of another shape is a :class:`FormError`.
+    """
     rules: tuple[Any, ...] = getattr(law_module.Name, "__metadata__", ())
-    found = re.search(r"\{0,(\d+)\}", str(getattr(rules[0], "pattern", "")) if rules else "")
+    pattern = str(getattr(rules[0], "pattern", "")) if rules else ""
+    found = re.fullmatch(r"\^\[([^\]]+)\]\[([^\]]+)\]\{0,(\d+)\}\$", pattern)
     if found is None:
-        msg = "the schema's pattern for a name has no length"
+        msg = "the schema's pattern for a name is not a first class, a later class and a length"
         raise FormError(msg)
-    return found.group(1)
+    return found.group(1), found.group(2), found.group(3)
+
+
+def _class_words(chars: str) -> str:
+    """A pattern's character class as the block spells it: ``a-z0-9_`` as ``a-z, 0-9, _``."""
+    return ", ".join(re.findall(r"[A-Za-z0-9]-[A-Za-z0-9]|.", chars))
+
+
+def _signs() -> str:
+    """The values a term's sign may have, as the block says them: ``1 or -1``."""
+    values = [str(v) for v in get_args(law_module.Term.model_fields["sign"].annotation)]
+    if not values:
+        msg = "a term's sign is not a set of values"
+        raise FormError(msg)
+    return " or ".join([", ".join(values[:-1]), values[-1]] if len(values) > 1 else values)
+
+
+def _unit_symbols(period_unit: str) -> str:
+    """The unit symbols a law is written in: those of the signals' units and of the period."""
+    names = {
+        name
+        for unit in (*law_module.SIGNALS.values(), period_unit)
+        for name, _ in law_module.dimension(unit)
+    }
+    ordered = sorted(names)
+    if len(ordered) < 2:
+        return ", ".join(ordered)
+    return ", ".join(ordered[:-1]) + " and " + ordered[-1]
+
+
+def _signal(name: str) -> str:
+    if name not in law_module.SIGNALS:
+        msg = f"the block's notes name a signal the schema does not have: {name}"
+        raise FormError(msg)
+    return name
+
+
+def _signal_notes() -> str:
+    """What the signals' list does not say: their signs, what the tilt is, a speed command."""
+    wheel_angle, wheel_speed = _signal("wheel_angle"), _signal("wheel_speed")
+    tilt, tilt_rate = _signal("tilt"), _signal("tilt_rate")
+    reference = _signal("wheel_reference")
+    notes = (
+        f"A positive command drives the wheels forward: the {wheel_angle} and the {wheel_speed} "
+        f"increase under it. The {wheel_angle} is measured against the body, so the body leaning "
+        f"forward over wheels that stay put reads as a negative {wheel_angle}.",
+        f"No sensor of the kit gives the {tilt}: the gyro gives its rate ({tilt_rate}). A law that "
+        f"reads {tilt} is judged as if it knew the tilt exactly.",
+        f"A speed command appears as {reference}: an angle in rad that advances at the commanded "
+        f"wheel speed in rad/s. A law that wants the commanded speed takes the change of "
+        f"{reference} since the last update, over the period.",
+    )
+    return "\n".join(_wrap(note, "  ", "  ") for note in notes)
+
+
+def _unit_grammar(period_unit: str) -> str:
+    written = ", ".join(UNIT_WRITTEN)
+    refused = ", ".join(f"{words} ({spellings})" for words, spellings in _UNIT_REFUSED)
+    text = (
+        "The unit of a coefficient, a state or a line is a product of unit symbols with whole "
+        f"powers. The symbols are {_unit_symbols(period_unit)}, and 1 for none. Write a product "
+        f"with *, a quotient with /, a power with **: {written}. A bracket is allowed only after "
+        f"a /, to divide by a product. A / divides by the one factor that follows it, so "
+        f"{UNIT_QUOTIENT[0]} is {UNIT_QUOTIENT[1]}. A unit starts with a symbol or with 1. "
+        f"Refused: {refused}."
+    )
+    return _wrap(text, "  ", "  ")
 
 
 def _facts() -> _Facts:
     told = _told_settings()
+    period_unit = _timing_units()["period"]
     keys = _keys(_count(len(told)))
     facts: dict[str, str] = {}
     for model in _FIELD_MODELS:
@@ -621,7 +753,14 @@ def _facts() -> _Facts:
             "structure_value": _literal(answer_module.SampledLaw, "structure"),
             "delay_samples": _n(answer_module.MAX_DELAY_SAMPLES),
             "max_coefficients": _n(law_module.MAX_COEFFICIENTS),
-            "name_tail": _name_tail(),
+            "name_head": _class_words(_name_pattern()[0]),
+            "name_rest": _class_words(_name_pattern()[1]),
+            "name_tail": _name_pattern()[2],
+            "signs": _signs(),
+            "update_rate_name": _told_setting("update_rate", told),
+            "period_unit": period_unit,
+            "signal_notes": _signal_notes(),
+            "unit_grammar": _unit_grammar(period_unit),
             "law_magnitude": _n(answer_module.LAW_MAGNITUDE),
             "reserved_name": law_module.PERIOD,
             "max_memory": _n(law_module.MAX_MEMORY),
@@ -667,7 +806,15 @@ def render_answer_form() -> str:
             )
         facts["intro"] = _prose(_INTRO, facts)
         facts["numbers"] = _prose(_NUMBERS, facts)
-        facts["refused"] = _rules(REFUSED, facts, ";")
+        for key, text in (("rate", _RATE), ("unit_rules", _UNIT_RULES)):
+            facts[key] = textwrap.fill(
+                Template(text).substitute(facts),
+                width=100,
+                initial_indent="  ",
+                subsequent_indent="  ",
+                break_long_words=False,
+            )
+        facts["refused"] = _rules(REFUSED, facts, ".")
         facts["not_judged"] = _rules(NOT_JUDGED, facts, ".")
         facts["example"] = "\n".join(
             "  " + line if line else line for line in example_text().splitlines()

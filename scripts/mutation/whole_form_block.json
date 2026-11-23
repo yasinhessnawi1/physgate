@@ -206,8 +206,8 @@
   {
     "name": "name_length_off_by_one",
     "file": "src/physgate/evaluation/whole/form.py",
-    "old": "return found.group(1)",
-    "new": "return str(int(found.group(1)) - 1)",
+    "old": "return found.group(1), found.group(2), found.group(3)",
+    "new": "return found.group(1), found.group(2), str(int(found.group(3)) - 1)",
     "tests": [
       "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
       "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
@@ -257,8 +257,8 @@
   {
     "name": "signal_meaning_changed",
     "file": "src/physgate/evaluation/whole/form.py",
-    "old": "zero in the loop that is judged",
-    "new": "zero in every loop",
+    "old": "in the loop whose stability is judged",
+    "new": "in every loop",
     "tests": [
       "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
       "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
@@ -308,8 +308,8 @@
   {
     "name": "delays_sentence_lost",
     "file": "src/physgate/evaluation/whole/form.py",
-    "old": "  State the delays your design has. They are taken as stated.\n",
-    "new": "",
+    "old": "  State the delays your design has.\n",
+    "new": "  State the delays your design has. They are taken as stated.\n",
     "tests": [
       "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
       "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
@@ -536,6 +536,132 @@
       "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
       "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
       "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
+    "name": "name_pattern_allows_capitals",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "pattern=r\"^[a-z][a-z0-9_]{0,31}$\"",
+    "new": "pattern=r\"^[A-Za-z][A-Za-z0-9_]{0,31}$\"",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py",
+      "tests/unit/evaluation/whole/test_the_sentences_of_the_block_that_state_a_convention_are_read_from_the_schema_and_the_unit_parser.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
+    "name": "sign_set_widened",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    sign: Literal[1, -1]\n",
+    "new": "    sign: Literal[1, -1, 2]\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py",
+      "tests/unit/evaluation/whole/test_the_sentences_of_the_block_that_state_a_convention_are_read_from_the_schema_and_the_unit_parser.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
+    "name": "unit_grammar_takes_a_space_between_symbols",
+    "file": "src/physgate/unit_spelling.py",
+    "old": "(?:[ ]*\\*[ ]*{FACTOR}|[ ]*/",
+    "new": "(?:[ ]*\\*?[ ]*{FACTOR}|[ ]*/",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py",
+      "tests/unit/evaluation/whole/test_the_sentences_of_the_block_that_state_a_convention_are_read_from_the_schema_and_the_unit_parser.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
+    "name": "unit_quotient_example_wrong",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "UNIT_QUOTIENT: tuple[str, str] = (\"1/rad*s\", \"s/rad\")",
+    "new": "UNIT_QUOTIENT: tuple[str, str] = (\"1/rad*s\", \"1/rad/s\")",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py",
+      "tests/unit/evaluation/whole/test_the_sentences_of_the_block_that_state_a_convention_are_read_from_the_schema_and_the_unit_parser.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
+    "name": "unit_written_example_unread",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "UNIT_WRITTEN: tuple[str, ...] = (\"rad*s\",",
+    "new": "UNIT_WRITTEN: tuple[str, ...] = (\"rad s\",",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py",
+      "tests/unit/evaluation/whole/test_the_sentences_of_the_block_that_state_a_convention_are_read_from_the_schema_and_the_unit_parser.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
+    "name": "unit_refused_example_read",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "(\"a number other than a leading 1\", \"2*rad\"),",
+    "new": "(\"a number other than a leading 1\", \"1*rad\"),",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py",
+      "tests/unit/evaluation/whole/test_the_sentences_of_the_block_that_state_a_convention_are_read_from_the_schema_and_the_unit_parser.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
+    "name": "any_other_breach_claimed_again",
+    "file": "src/physgate/evaluation/whole/form.py",
+    "old": "    Rule(\"bad_name\", \"a name that does not follow the name rule above\"),",
+    "new": "    Rule(\"bad_name\", \"a name that does not follow the name rule above\"),\n    Rule(\"any_other\", \"any other breach of a rule stated above\"),",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py",
+      "tests/unit/evaluation/whole/test_the_sentences_of_the_block_that_state_a_convention_are_read_from_the_schema_and_the_unit_parser.py"
     ],
     "data": [
       "tests/unit/evaluation/whole/answer_form_cases.py",

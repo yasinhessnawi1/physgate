@@ -159,6 +159,12 @@ def cases() -> dict[str, list[Case]]:
         "not_json": [
             Case("not JSON", b"{not json", "refused", "fail"),
             Case("not UTF-8", b"\xff\xfe{}", "refused", "fail"),
+            Case(
+                "a byte-order mark",
+                b"\xef\xbb\xbf" + json.dumps(example()).encode(),
+                "refused",
+                "fail",
+            ),
         ],
         "too_long": [Case("padded past the limit", long_file, "refused", "fail")],
         "wrong_form": [
@@ -194,7 +200,7 @@ def cases() -> dict[str, list[Case]]:
         "unit_spelling": [
             _refused("update rate in 1/s", _put(("parameters", "update_rate", "unit"), "1/s")),
             _refused("period in seconds", _put(("controller", "period", "unit"), "sec")),
-            _refused("a limit in a percent", _put(("controller", "command_limit", "unit"), "%")),
+            _refused("a limit in a ratio", _put(("controller", "command_limit", "unit"), "ratio")),
             _refused(
                 "a scale in deg per s", _put(("parameters", "gyro_full_scale", "unit"), "deg/sec")
             ),
@@ -221,7 +227,6 @@ def cases() -> dict[str, list[Case]]:
             _refused("33 lines", _more_lines),
             _refused("17 terms", _more_terms),
             _refused("5 factors", _more_factors),
-            _refused("a name of 33 characters", _put(("controller", "command"), "c" * 33)),
         ],
         "delays_too_long": [
             _refused("60 periods of delay", _timing(0.001, 0.04, 0.02)),
@@ -259,6 +264,16 @@ def cases() -> dict[str, list[Case]]:
                 "a state named as the period", _put(("controller", "memory", 0, "name"), "period")
             ),
         ],
+        "bad_name": [
+            _refused("a capital in a name", _put(("controller", "command"), "Command")),
+            _refused("a digit first", _put(("controller", "command"), "1command")),
+            _refused("an underscore first", _put(("controller", "command"), "_command")),
+            _refused("a name of 33 characters", _put(("controller", "command"), "c" * 33)),
+        ],
+        "bad_sign": [
+            _refused("a sign of 2", _put(("controller", "lines", 1, "terms", 0, "sign"), 2)),
+            _refused("a sign of 0", _put(("controller", "lines", 1, "terms", 0, "sign"), 0)),
+        ],
         "period_declared": [
             _refused(
                 "a period among the coefficients",
@@ -290,6 +305,12 @@ def cases() -> dict[str, list[Case]]:
                 "a state that takes no line", _put(("controller", "memory", 0, "next"), "ghost")
             )
         ],
+        "applied_misplaced": [
+            _refused(
+                "an applied state whose next is not the command",
+                _put(("controller", "memory", 0, "applied"), True),
+            )
+        ],
         "zero_divisor": [_refused("a divisor of 0", _a_zero_divisor)],
         "number_underflows": [_text("a coefficient of 1e-400", "0.8", "1e-400")],
         "number_overflows": [_text("a coefficient of 1e999", "0.8", "1e999")],
@@ -312,6 +333,52 @@ def cases() -> dict[str, list[Case]]:
             _not_judged("a state named without its prefix", _a_term("tilt_est")),
         ],
     }
+
+
+def _two_applied(doc: dict[str, Any]) -> None:
+    doc["controller"]["memory"] += [
+        {"name": f"held{at}", "unit": "1", "next": "command", "applied": True} for at in (1, 2)
+    ]
+
+
+def _shared_name(doc: dict[str, Any]) -> None:
+    coefficients = doc["controller"]["coefficients"]
+    coefficients["tilt_est"] = coefficients.pop("leak")
+    doc["controller"]["lines"][0]["terms"][0]["coefficients"] = ["tilt_est"]
+
+
+def accepted_gaps() -> list[Case]:
+    """Answers that break a rule the block states, which the scorer reads without refusing.
+
+    The block says no more than the scorer does: it asks for these to be written correctly and
+    never says they are refused. Each gap is a follow-up for the scorer (refuse it, or leave it and
+    keep the block's wording); the rows that hold these to ``parses`` and to a valid record are
+    the ones to change when the scorer changes. ``outcome`` is the scorer's: ``valid``.
+    """
+    text = json.dumps(example())
+    twice = '"version": 2, "version": 3'
+    assert text.count('"version": 3') == 1
+    return [
+        _text("a number of 16 significant digits", "0.8", "0.8000000000000001", "parses", "valid"),
+        Case("two states marked applied", _edited(_two_applied), "parses", "valid"),
+        Case(
+            "a sign written true",
+            _edited(_put(("controller", "lines", 1, "terms", 0, "sign"), True)),
+            "parses",
+            "valid",
+        ),
+        Case(
+            "a key written twice (the last wins)",
+            text.replace('"version": 3', twice).encode(),
+            "parses",
+            "valid",
+        ),
+    ]
+
+
+def allowed() -> list[Case]:
+    """Answers the block says nothing against and the scorer reads as valid."""
+    return [Case("a coefficient named as a state", _edited(_shared_name), "parses", "valid")]
 
 
 def precedence() -> list[Case]:

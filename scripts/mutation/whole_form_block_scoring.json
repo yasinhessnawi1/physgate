@@ -142,5 +142,73 @@
       "src/physgate/evaluation/whole/plant_v0_draft.json",
       "src/physgate/evaluation/whole/plant_v0.json"
     ]
+  },
+  {
+    "name": "wheel_angle_reads_the_travel_alone",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    read[2, 0] = -r\n",
+    "new": "    read[2, 0] = 0.0\n",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py",
+      "tests/scoring/test_what_the_block_says_about_how_a_law_is_judged_and_read_is_true_of_the_scorer.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
+  },
+  {
+    "name": "drive_sign_flipped",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    drive = 2.0 * mo.torque_constant * mo.pack_voltage / mo.resistance",
+    "new": "    drive = -2.0 * mo.torque_constant * mo.pack_voltage / mo.resistance",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py",
+      "tests/scoring/test_what_the_block_says_about_how_a_law_is_judged_and_read_is_true_of_the_scorer.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
+  },
+  {
+    "name": "reference_is_a_signal_of_the_judged_loop",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "LOOP_SIGNALS = (\"tilt\", \"tilt_rate\", \"wheel_angle\", \"wheel_speed\")",
+    "new": "LOOP_SIGNALS = (\"tilt\", \"tilt_rate\", \"wheel_angle\", \"wheel_speed\", \"wheel_reference\")",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py",
+      "tests/scoring/test_what_the_block_says_about_how_a_law_is_judged_and_read_is_true_of_the_scorer.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
+  },
+  {
+    "name": "tilt_not_read_exactly",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    read = np.eye(4)\n",
+    "new": "    read = np.eye(4)\n    read[0, 0] = 0.5\n",
+    "tests": [
+      "tests/scoring/test_the_example_scores_without_a_refusal_and_each_rule_the_block_names_is_met_as_the_scorer_says.py",
+      "tests/scoring/test_what_the_block_says_about_how_a_law_is_judged_and_read_is_true_of_the_scorer.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "src/physgate/evaluation/whole/plant_v0.json"
+    ]
   }
 ]

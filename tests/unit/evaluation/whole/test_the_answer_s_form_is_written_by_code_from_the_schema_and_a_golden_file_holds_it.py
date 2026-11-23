@@ -210,15 +210,15 @@ def test_the_name_length_and_a_line_s_unit_length_are_read_from_the_schema(
     monkeypatch.setattr(
         law_module, "Name", Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,40}$")]
     )
-    assert "at most 40 of a-z" in form.render_answer_form()
+    assert "at most 40 characters of a-z" in " ".join(form.render_answer_form().split())
     monkeypatch.undo()
     field: FieldInfo = law_module.Line.model_fields["unit"]
     monkeypatch.setattr(field, "metadata", [MaxLen(41)])
-    block = form.render_answer_form()
+    block = " ".join(form.render_answer_form().split())
     assert "unit is at most 40 characters" in block  # the smaller of a line's and a state's
     state: FieldInfo = law_module.Memory.model_fields["unit"]
     monkeypatch.setattr(state, "metadata", [MaxLen(44)])
-    assert "unit is at most 41 characters" in form.render_answer_form()
+    assert "unit is at most 41 characters" in " ".join(form.render_answer_form().split())
 
 
 def test_the_timing_units_are_the_ones_the_schema_refuses_every_other_for() -> None:
