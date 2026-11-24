@@ -171,7 +171,7 @@ from physgate.oslayer.containment import (
     wrappers,
 )
 from physgate.oslayer.placement import machine_writable, placement_refusal
-from physgate.oslayer.probe import Absent, Present, judge_here
+from physgate.oslayer.probe import Absent, Present, claude_temp_dirs, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
 from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
@@ -2085,6 +2085,48 @@ class ClaudeDispatcher:
             recorded, self._tool_environment_scan, forbidden=self._forbidden()
         )
         return recorded
+
+    def regeneration_withheld(self) -> tuple[str, ...]:
+        """Every place the command that makes committed exports again may not read, each whole.
+
+        At least what every role session of the run is withheld, without reading any session's
+        files: a session's own directory is its user's to write by its end, and a resume judges
+        attempts whose sessions this process never installed. So each place a session's denials
+        lie in is named whole: the run's directory (every session's own directory and state, the
+        run's records, the place apart, the worktrees with their answer keys and reviewer trees),
+        the harness checkout, the hooks' installation, the target repository, the review root, the
+        held-out roots, the run's parameters file, the sessions' temporary directories and the
+        temporary directory every Claude Code session of the user shares. The command has no
+        worktree, so nothing inside them is opened again for it.
+
+        Raises:
+            ContainmentError: the run's records name no parameters file, so what its sessions
+                are withheld is not known; nothing is made again.
+        """
+        try:
+            withheld = withheld_paths(self._run.run_dir)
+        except RunStateError:
+            msg = (
+                "the run's records name no parameters file, so what its sessions are withheld "
+                "is not known and nothing is made again"
+            )
+            raise ContainmentError(msg) from None
+        places = [*self._forbidden_by_session(), *map(str, withheld)]
+        places += [str(self._review_root), *self._config.held_out, *claude_temp_dirs()]
+        return tuple(sorted(set(places)))
+
+    def _forbidden_by_session(self) -> list[str]:
+        """The places of :meth:`_forbidden` a session is withheld, the shared temporaries left out.
+
+        A temporary directory every session writes is none a session is withheld, and the
+        command's own folder is made in one.
+        """
+        writable = {os.path.realpath(place) for place in machine_writable()}
+        return [
+            str(place)
+            for place in self._forbidden().values()
+            if os.path.realpath(place) not in writable
+        ]
 
     def _contained_servers(
         self, installed: Installed, sdir: Path, own_temp: Path, env: dict[str, str]

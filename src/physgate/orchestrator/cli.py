@@ -1084,6 +1084,7 @@ def _drive_run(
                 store_root,
                 {e.subtask_id: e.module_dir for e in plan},
                 environment=dispatcher.held_tool_environment,
+                withheld=dispatcher.regeneration_withheld,
             ),
             merger=GitMerger(run, removal_timeout_s=REMOVAL_TIMEOUT_S),
             graph=keeper,

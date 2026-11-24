@@ -662,7 +662,8 @@ def test_with_no_wrapper_on_this_machine_the_regeneration_is_refused(tmp_path: P
 
     marker = tmp_path / "ran"
     for platform in ("linux", "sunos5"):
-        run = regeneration.contained_runner(platform=platform, bwrap=None)
+        # The withheld places given, so the refusal is the missing wrapper's.
+        run = regeneration.contained_runner(platform=platform, bwrap=None, withheld=lambda: ())
         with pytest.raises(ContainmentError):
             run([sys.executable, "-c", f"open({str(marker)!r}, 'w')"], tmp_path, {}, 5.0, [])
     assert not marker.exists()

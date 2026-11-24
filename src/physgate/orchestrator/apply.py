@@ -53,7 +53,7 @@ import hashlib
 import json
 import re
 import shutil
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
 from physgate import roles
@@ -589,19 +589,22 @@ class GitChangeChecker:
         *,
         environment: Callable[[], ToolEnvironment | None] | None = None,
         regenerate: Runner | None = None,
+        withheld: Callable[[], Sequence[str]] | None = None,
     ) -> None:
         """Check attempts of ``run`` against the canonical store at ``store_root``.
 
         ``environment`` holds the run's tool environment to its record and gives it (the
         dispatcher's, which holds it before every session), and ``regenerate`` runs the command
         that makes committed exports again (:mod:`physgate.orchestrator.derived`; by default
-        :func:`physgate.oslayer.regeneration.default_runner`, inside the tool containment).
+        :func:`physgate.oslayer.regeneration.default_runner`, inside the tool containment,
+        withheld every place ``withheld`` gives: the dispatcher's, at least what every role
+        session of the run is withheld; with none given, every regeneration is refused).
         """
         self._run = run
         self._store_root = store_root
         self._module_dirs = module_dirs
         self._environment = environment or (lambda: None)
-        self._regenerate = regenerate or default_runner()
+        self._regenerate = regenerate or default_runner(withheld=withheld)
 
     def check(
         self,
