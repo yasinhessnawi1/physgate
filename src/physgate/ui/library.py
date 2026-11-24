@@ -740,35 +740,40 @@ def _gate_digest(context: Context, library: Path) -> dict[str, Any]:
     """The digest a gate built from this library's law table stamps on every result, or why not.
 
     Read per request, as the bounds tables are, so a law promoted while the server runs is
-    seen at the next read. The table's bytes are judged and read here first; the gate's own
-    function then loads the same file, and what it loaded must be those bytes. A table that is
-    absent or does not load is a state with a sentence, never the catalogue's digest alone: no
-    gate is built from such a library, so no result carries any digest of it.
+    seen at the next read. Both files the gate's function reads, the table and its promotion
+    record, are first judged and read here as every library file is: no link, a regular file,
+    no larger than the cap, permitted, the file judged. Only then is the gate's own function
+    called on the same two paths, and what it loaded must be the table's bytes read here. A file
+    refused here, a table that is absent or does not load, and a record the function cannot
+    read are each a state with a sentence, never the catalogue's digest alone: no gate is built
+    from such a library, so no result carries any digest of it.
     """
     table = library.joinpath(*LAW_TABLE)
+    promotions = library / PROMOTIONS_NAME
     shown = _recorded(library, table)
+
+    def refused(reason: str) -> dict[str, Any]:
+        return {"state": "refused", "file": shown, "reason": reason}
+
     if _digester is None:
-        return {
-            "state": "refused",
-            "file": shown,
-            "reason": "this server was started without the gate's digest, so it shows none",
-        }
-    data = _read(context, library, table)
+        return refused("this server was started without the gate's digest, so it shows none")
+    read: dict[Path, bytes | None] = {}
+    for path in (table, promotions):
+        try:
+            read[path] = _read(context, library, path)
+        except GuardRefusedError:
+            raise
+        except UIError as exc:
+            # The reader's own sentence, which names no place on the machine.
+            return refused(f"{_recorded(library, path)} is not read: {exc}")
+    data = read[table]
     if data is None:
-        return {
-            "state": "refused",
-            "file": shown,
-            "reason": "this library holds no law table, so no gate is built from it",
-        }
+        return refused("this library holds no law table, so no gate is built from it")
     try:
-        digest = _digester(table, library / PROMOTIONS_NAME)
-    except GateError:
+        digest = _digester(table, promotions)
+    except (GateError, OSError, UnicodeDecodeError):
         # In the route's own words: the loader's message may name the table by its full path.
-        return {
-            "state": "refused",
-            "file": shown,
-            "reason": "the law table does not load, so no gate is built from it",
-        }
+        return refused("the law table does not load, so no gate is built from it")
     if digest.table_sha256 != hashlib.sha256(data).hexdigest():
         msg = "the file changed while it was read"
         raise UIError(msg, path=shown)
