@@ -16,12 +16,19 @@ marker, which shows the probe works.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from fake_messages_api import tool
-from os_layer_rig import MARKER, Layout, layer_here, make_layout, python, run_session
+
+# The OS layer's role-session rig, which the hook layer's own real-binary rows run on.
+HOOK_ROWS = Path(__file__).resolve().parents[1] / "hooks"
+if str(HOOK_ROWS) not in sys.path:
+    sys.path.insert(0, str(HOOK_ROWS))
+
+from fake_messages_api import tool  # noqa: E402
+from os_layer_rig import MARKER, Layout, layer_here, make_layout, python, run_session  # noqa: E402
 
 pytestmark = pytest.mark.integration
 
