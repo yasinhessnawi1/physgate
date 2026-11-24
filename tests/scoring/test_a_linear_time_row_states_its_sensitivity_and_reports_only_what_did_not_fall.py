@@ -612,6 +612,13 @@ def test_at_a_50_ms_period_the_peak_is_low_by_at_most_the_spacing_s_bound_agains
     bound = math.degrees(spacing**2 / 8 * acceleration)
     assert 0 < fine - reported <= bound, (fine - reported, bound)
     assert reported <= fine * (1.0 + 1e-9)
+    # and the measured figure of this one case, at the spacing as it is today
+    assert reported >= fine * (1.0 - PEAK_TOLERANCE)
+
+
+#: The reported peak against a fine propagation, relative: a measured figure of the one case
+#: above at today's output spacing, not a bound (a constructed law at 50 ms was seen at 9.1e-4).
+PEAK_TOLERANCE = 5e-4
 
 
 def test_the_push_row_says_how_low_a_sampled_peak_can_be_read(stable: Any) -> None:
