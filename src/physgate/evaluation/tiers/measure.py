@@ -195,9 +195,17 @@ def census(
     """
     from physgate.evaluation.baseline.runner import RunSet
     from physgate.evaluation.observe.manifest import manifest_id_of, read_run_events
-    from physgate.evaluation.tiers.exposure import exposed_versions, versions
+    from physgate.evaluation.tiers.exposure import exposed_versions, run_roots, versions
+    from physgate.evaluation.tiers.store import role_root
 
     known = versions(store, role)
+    # Where the earlier runs on the store lie, every role's: a counted run withheld each whole.
+    registered = {
+        str(root)
+        for each in get_args(Role)
+        if os.path.lexists(role_root(store, each))
+        for root in run_roots(store, each)
+    }
     if version not in known:
         raise _refuse("version_unknown", f"the role has no version {version[:8]}")
     if version in exposed_versions(store, role):
@@ -240,6 +248,12 @@ def census(
         if config.ablation or not (config.reportable and config.harness.clean):
             msg = f"{where} was not measured: an ablation run, not reportable, or not clean"
             raise _refuse("run_not_measured", msg)
+        if not registered <= set(config.withheld_whole):
+            msg = (
+                f"{where} did not withhold whole every run root of the store, where the earlier "
+                "runs on it lie: a run counted for a version withheld each of them"
+            )
+            raise _refuse("run_roots_not_withheld", msg)
         task = by_brief.get(config.brief_sha256)
         if task is None:
             raise _refuse("run_not_in_tier", f"{where} was given no task of the {tier} tier")

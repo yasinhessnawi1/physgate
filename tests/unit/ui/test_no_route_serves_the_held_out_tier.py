@@ -38,8 +38,9 @@ from physgate.ui.routes import Route
 REPO = Path(__file__).resolve().parents[3]
 RUN = "run-held"
 PRICES = "2026-09-27"
-#: The tier's fields in the record, each of which no answer may carry.
-TIER_FIELDS = ("held_out", "held_out_canaries", "held_out_sha256")
+#: The tier's fields in the record, each of which no answer may carry: with the run roots withheld
+#: whole beside it, where the earlier runs on the tier lie.
+TIER_FIELDS = ("held_out", "held_out_canaries", "held_out_sha256", "withheld_whole")
 #: One canary per held-out task: 32 hexadecimal characters, as the record's type requires.
 CANARIES = ("5e1d7a0c9b3f42e8a6c1d0f7b2e94a37", "c0ffee5a7d2b4e19a8f63c0d1e2b7a95")
 #: Routes this run has no record for: it made no later decomposition round, and its sessions
@@ -62,6 +63,8 @@ class World:
     runs: Path
     #: The held-out tier's roots, beside the root.
     roots: tuple[Path, ...]
+    #: The run roots withheld whole, where earlier runs on the tier lie.
+    whole: tuple[Path, ...]
     #: The fixture build.
     ui: Path
     #: The fixture library, so the library's routes have a record to serve too.
@@ -88,6 +91,7 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> World:
         QuantityRef(node_id="electrical.motor_driver", name="current_limit", value=2.5, unit="A"),
     )
     runs = base / "runs"
+    whole = (base / "older-runs-3a8f",)
     rig.fake_run(
         runs,
         RUN,
@@ -97,11 +101,13 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> World:
             "held_out": tuple(str(r) for r in roots),
             "held_out_canaries": CANARIES,
             "held_out_sha256": tuple(_digest(r.name) for r in roots),
+            "withheld_whole": tuple(str(r) for r in whole),
         },
     )
     return World(
         runs=runs,
         roots=roots,
+        whole=whole,
         ui=fake_ui(base / "checkout"),
         library=build_library(base / "checkout").root,
     )
@@ -111,12 +117,12 @@ def _tier_strings(world: World) -> list[str]:
     """Every string that names the tier, each asserted present in the run's record."""
     record = (world.runs / RUN / "run.json").read_text()
     names = [*CANARIES, *(_digest(r.name) for r in world.roots)]
-    for root in world.roots:
+    for root in (*world.roots, *world.whole):
         names += [str(root), os.path.realpath(root)]
     for name in names:
         assert name in record, f"the fixture's record no longer carries {name!r}"
     # A root's own name says where the tier lives as plainly as its whole path.
-    return [*names, *(r.name for r in world.roots)]
+    return [*names, *(r.name for r in (*world.roots, *world.whole))]
 
 
 def _serve(world: World, *targets: str) -> list[tuple[str, int, bytes]]:

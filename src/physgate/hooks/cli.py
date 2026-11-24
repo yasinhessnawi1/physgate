@@ -114,13 +114,16 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         action="append",
         default=[],
         help="a root withheld from the session whole, by rule, but for its worktree in its own "
-        "place there (--own-place): refused to every read and write on every layer, whatever is "
-        "made in it later; repeatable; given with --own-place only",
+        "place there (--own-place) where it holds the worktree: refused to every read and write "
+        "on every layer, whatever is made in it later; repeatable; a root holding the worktree "
+        "is given with --own-place, one holding none of the session's is withheld with nothing "
+        "opened",
     )
     p.add_argument(
         "--own-place",
-        help="the session's own place inside every --withheld-whole root: a real directory, "
-        "reached through no link, holding the worktree; given with --withheld-whole only",
+        help="the session's own place inside every --withheld-whole root that holds the "
+        "worktree: a real directory, reached through no link, holding the worktree; given only "
+        "with such a root",
     )
     p.add_argument(
         "--harness",
@@ -206,9 +209,20 @@ def _os_layer_refusal(args: argparse.Namespace) -> str | None:
 
     Without ``--os-layer-temp`` the settings carry no sandbox, so the OS layer is absent for
     that session. They are written only for a run whose recorded configuration passes the
-    check the run itself is held to at its configuration, run and resume.
+    check the run itself is held to at its configuration, run and resume. A raw session
+    withheld a root whole (a harness run's run roots, a blind check's store) is never written
+    without it: the hooks alone do not hold a root whole against a path a command builds as it
+    runs. A reviewer runs no command, so it needs none.
     """
-    if args.profile != "role" or args.os_layer_temp:
+    if args.os_layer_temp:
+        return None
+    if args.profile == "baseline" and args.withheld_whole:
+        return (
+            "a raw session withheld a root whole is installed only with the OS layer "
+            "(--os-layer-temp): the hooks alone do not hold a root whole against a path a "
+            "command builds as it runs"
+        )
+    if args.profile != "role":
         return None
     # Only here: the hook layer's own modules import nothing of the orchestrator.
     from physgate.orchestrator.exceptions import RunConfigError  # noqa: PLC0415
