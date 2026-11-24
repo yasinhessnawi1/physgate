@@ -331,6 +331,9 @@ class StandInDriver:
         record_params(call.run_dir, call.params)
         if n in self.killed_in_decompose:
             raise Killed
+        # The review root, recorded before the call as a measured run's decomposition records it
+        # (its plan is reviewed), so a later reader looks for its reviews where they are.
+        record_review_root(call.run_dir, review_root_path(call.review_root))
         fields = json.loads(call.params.read_bytes())
         fields.update(
             run_id=call.run_id,
@@ -392,7 +395,6 @@ class StandInDriver:
     def _in_rounds(self, n: int, call: Decompose, config: RunConfig, outcome: Outcome) -> None:
         """The decomposition as the command makes it with its plan reviewed: the core's rounds."""
         root = review_root_path(call.review_root)
-        record_review_root(call.run_dir, root)
         reviewer = PlanReview(self, n, root)
 
         def make_call(_brief: str, *, workdir: Path, session_id: str, **_given: Any) -> Outcome:  # noqa: ANN401

@@ -270,3 +270,19 @@ def test_a_decomposition_that_left_no_run_in_this_process_stops_the_round_for_a_
     assert status == "done"
     assert [(x["index"], x["attempt"]) for x in _ledger(rig) if x["kind"] == "left"] == [(0, 1)]
     assert _run_dirs(rig) == ["0000-2", "0001-1"]
+
+
+def test_a_run_in_a_trial_s_directory_that_is_not_the_trial_s_is_refused_before_it_is_driven(
+    tmp_path: Path,
+) -> None:
+    rig = make_rig(tmp_path)
+    with pytest.raises(Killed):
+        _round(rig, rig.driver(killed={1}))
+    record = rig.run_root / _place(rig).name / "0000-1" / "run.json"
+    fields = json.loads(record.read_bytes())
+    record.write_text(json.dumps({**fields, "run_id": "another-run"}))
+    later = rig.driver()
+    with pytest.raises(RoundError) as refused:
+        _round(rig, later, resume=True)
+    assert refused.value.context["refused_because"] == "run_not_the_trial_s"
+    assert later.drives == []
