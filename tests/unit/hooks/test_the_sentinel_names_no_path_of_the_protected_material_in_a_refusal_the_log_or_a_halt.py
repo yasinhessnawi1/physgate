@@ -18,6 +18,8 @@ import hashlib
 import json
 import os
 import re
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -361,6 +363,51 @@ def test_a_key_open_to_others_is_no_key(root: Path) -> None:
     _key_file(root).chmod(0o644)
     _, reason = _put_back_one(root, config)
     assert "labels.key" in reason and "(one-off key)" in reason, reason
+
+
+def test_a_key_with_a_second_name_is_no_key(root: Path) -> None:
+    """A second name is a way to read the key from somewhere else: such a key is not used."""
+    config = _config(root)
+    assert _check(root, config, "SessionStart") == "allow"
+    _key_file(root).write_text("ab" * 32)
+    _key_file(root).chmod(0o600)
+    os.link(_key_file(root), root / "key-elsewhere")
+    _, reason = _put_back_one(root, config)
+    assert "labels.key" in reason and "(one-off key)" in reason, reason
+
+
+def test_two_sessions_that_make_the_key_at_once_take_the_same_key(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The place is locked while the key is made: the second maker waits and reads the first's."""
+    real = os.urandom
+
+    def slow(n: int) -> bytes:
+        # Wide enough that, unlocked, a second maker meets the first's key half made.
+        time.sleep(0.05)
+        return real(n)
+
+    monkeypatch.setattr(os, "urandom", slow)
+    makers = 4
+    start = threading.Barrier(makers)
+    taken: list[bytes] = []
+    failed: list[BaseException] = []
+
+    def make() -> None:
+        start.wait()
+        try:
+            taken.append(sentinel.label_key(str(root / "apart")))
+        except BaseException as exc:  # noqa: BLE001 - every maker's failure is the row's
+            failed.append(exc)
+
+    threads = [threading.Thread(target=make) for _ in range(makers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert failed == [], failed
+    assert len(taken) == makers and len(set(taken)) == 1, taken
+    assert bytes.fromhex(_key_file(root).read_text()) == taken[0]
 
 
 def _whole_config(root: Path) -> SessionConfig:

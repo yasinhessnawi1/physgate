@@ -403,6 +403,30 @@
     ]
   },
   {
+    "name": "a_key_with_a_second_name_is_taken",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": " or held.st_nlink != 1:",
+    "new": ":",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "the_key_is_made_without_the_lock",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "        fcntl.flock(fd, fcntl.LOCK_EX)\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
     "name": "baseline_last",
     "file": "src/physgate/hooks/sentinel.py",
     "old": "",
