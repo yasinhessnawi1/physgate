@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 from fake_messages_api import tool
+from hook_session import volume_is_case_insensitive
 from os_layer_rig import MARKER, Layout, layer_here, make_layout, python, run_session
 
 from physgate.orchestrator.budget import classify_session_end
@@ -673,3 +674,158 @@ def test_nothing_a_command_starts_outlives_it(layout: Layout, *, reaper: bool) -
     size = log.stat().st_size
     time.sleep(1.0)
     assert log.stat().st_size == size
+
+
+# --- A file tool writes in the session's worktree and nowhere else. ---
+#
+# A file tool runs in the client's own process, so the OS layer does not judge where it writes:
+# the hook alone does, inside the layer and out of it. Each write below aims outside the
+# worktree at a place no rule names (a stand-in for the operator's home, another run's record,
+# the worktree's parent, the shared temporary directory) and is refused by the paths hook, with
+# the bytes there unchanged; the control in the worktree lands.
+
+#: A notebook a NotebookEdit can insert a cell into.
+NOTEBOOK = {
+    "cells": [
+        {
+            "cell_type": "code",
+            "id": "c1",
+            "metadata": {},
+            "outputs": [],
+            "source": ["x = 1"],
+            "execution_count": None,
+        }
+    ],
+    "metadata": {},
+    "nbformat": 4,
+    "nbformat_minor": 5,
+}
+OPERATOR_FILES = {
+    ".claude/settings.json": "{}\n",
+    "notes/existing.txt": "first line\n",
+    "notes/nb.ipynb": json.dumps(NOTEBOOK),
+}
+#: What the paths hook says of a write outside the worktree.
+OUTSIDE_WORDS = "file tools write only in its own worktree"
+
+
+def _outside_writes(layout: Layout) -> tuple[list[dict[str, object]], dict[int, str], str]:
+    """The steps, each write outside (by step number) with the file it would change, the control.
+
+    Every existing file is read first: the client refuses a write to a file the session has not
+    read before any hook runs, and the row would then prove nothing.
+    """
+    root = Path(os.path.realpath(layout.root))
+    operator = root / "operator"
+    for rel, content in OPERATOR_FILES.items():
+        (operator / rel).parent.mkdir(parents=True, exist_ok=True)
+        (operator / rel).write_text(content)
+    other = root / "other-run" / "events.jsonl"
+    other.parent.mkdir(parents=True)
+    other.write_text('{"another": "run"}\n')
+    worktree = Path(os.path.realpath(layout.worktree))
+    (worktree / "link-out").symlink_to(operator / "notes")
+    shared = Path(f"/tmp/pg-outside-write-{os.getpid()}-{time.monotonic_ns()}.txt")
+    p = str(operator)
+    steps: list[dict[str, object]] = [
+        tool("Write", file_path=f"{worktree}/inside.txt", content="in the worktree\n"),
+        tool("Write", file_path=f"{p}/.zshenv", content="echo planted\n"),
+        tool("Read", file_path=f"{p}/.claude/settings.json"),
+        tool("Write", file_path=f"{p}/.claude/settings.json", content='{"planted": true}\n'),
+        tool("Read", file_path=f"{p}/notes/existing.txt"),
+        tool("Edit", file_path=f"{p}/notes/existing.txt", old_string="first", new_string="x"),
+        tool("Read", file_path=f"{p}/notes/nb.ipynb"),
+        tool(
+            "NotebookEdit",
+            notebook_path=f"{p}/notes/nb.ipynb",
+            new_source="y = 2",
+            cell_type="code",
+            edit_mode="insert",
+            cell_id="c1",
+        ),
+        tool("Read", file_path=str(other)),
+        tool("Write", file_path=str(other), content="rewritten\n"),
+        tool("Write", file_path=f"{worktree}/../beside-the-worktree.txt", content="beside\n"),
+        tool("Write", file_path=f"{worktree}/link-out/through-a-link.txt", content="linked\n"),
+        tool("Write", file_path=str(shared), content="shared\n"),
+    ]
+    outside = {
+        2: f"{p}/.zshenv",
+        4: f"{p}/.claude/settings.json",
+        6: f"{p}/notes/existing.txt",
+        8: f"{p}/notes/nb.ipynb",
+        10: str(other),
+        11: str(worktree.parent / "beside-the-worktree.txt"),
+        12: f"{p}/notes/through-a-link.txt",
+        13: str(shared),
+    }
+    if volume_is_case_insensitive(root):
+        steps.append(
+            tool("Write", file_path=str(worktree).swapcase() + "/case.txt", content="case\n")
+        )
+        outside[len(steps)] = f"{worktree}/case.txt"
+    return steps, outside, f"{worktree}/inside.txt"
+
+
+def _bytes(path: str) -> str | None:
+    try:
+        return Path(path).read_text()
+    except OSError:
+        return None
+
+
+#: A raw baseline session, as the installer is asked for one: no role, no branch, no store.
+RAW_FIELDS = {"profile": "baseline", "role": None, "own_branch": None, "store_root": None}
+
+
+def _no_outside_write_lands(layout: Layout, *, layer: bool, raw: bool) -> None:
+    steps, outside, control = _outside_writes(layout)
+    before = {n: _bytes(path) for n, path in outside.items()}
+    try:
+        run = run_session(layout, steps, layer=layer, fields=RAW_FIELDS if raw else None)
+    finally:
+        after = {n: _bytes(path) for n, path in outside.items()}
+        Path(outside[13]).unlink(missing_ok=True)
+    told = run["told"]
+    assert isinstance(told, list)
+    assert _bytes(control) == "in the worktree\n", told[0]
+    log = layout.sdir / "state" / "hooks.log.jsonl"
+    refused = [
+        json.loads(line)
+        for line in (log.read_text().splitlines() if log.exists() else [])
+        if '"refuse"' in line
+    ]
+    for n, path in outside.items():
+        step = steps[n - 1]
+        # By the tool and where its path leads: the client adds its own defaults to a call's
+        # input (an Edit's ``replace_all``) and normalises a path (``..``) before the hook sees
+        # it, so the logged input is not the scripted one byte for byte.
+        key = "notebook_path" if step["tool"] == "NotebookEdit" else "file_path"
+        given = step["input"]
+        assert isinstance(given, dict)
+        by = [
+            e
+            for e in refused
+            if e.get("tool") == step["tool"]
+            and os.path.realpath(str((e.get("tool_input") or {}).get(key)))
+            == os.path.realpath(given[key])
+        ]
+        assert [e.get("hook") for e in by] == ["paths"], (n, step, refused)
+        assert OUTSIDE_WORDS in str(by[0].get("reason")), (n, by)
+        assert OUTSIDE_WORDS in str(told[n - 1]), (n, told[n - 1])
+        assert after[n] == before[n], (n, path, before[n], after[n])
+
+
+@pytest.mark.usefixtures("layer")
+@pytest.mark.parametrize("raw", [False, True], ids=["role", "raw"])
+def test_inside_the_layer_no_file_tool_write_outside_the_worktree_lands(
+    layout: Layout, *, raw: bool
+) -> None:
+    _no_outside_write_lands(layout, layer=True, raw=raw)
+
+
+@pytest.mark.parametrize("raw", [False, True], ids=["role", "raw"])
+def test_with_hooks_only_no_file_tool_write_outside_the_worktree_lands(
+    layout: Layout, *, raw: bool
+) -> None:
+    _no_outside_write_lands(layout, layer=False, raw=raw)

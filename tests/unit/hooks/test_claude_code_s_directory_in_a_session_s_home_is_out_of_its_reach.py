@@ -83,6 +83,16 @@ def _tool(config: SessionConfig, name: str, path: str) -> bool:
     return paths.pre_tool_use(hook_input, config).allow
 
 
+def _told(config: SessionConfig, name: str, path: str) -> str:
+    """What the paths hook tells a file tool's call: ``allow``, or the refusal."""
+    key = "notebook_path" if name == "NotebookEdit" else "file_path"
+    hook_input = HookInput.model_validate(
+        event(cwd=config.worktree, tool_name=name, tool_input={key: path, "content": "x"})
+    )
+    decision = paths.pre_tool_use(hook_input, config)
+    return "allow" if decision.allow else decision.reason
+
+
 def _shell(config: SessionConfig, command: str) -> bool:
     hook_input = HookInput.model_validate(bash(command, cwd=config.worktree))
     return shell_paths.pre_tool_use(hook_input, config).allow
@@ -254,7 +264,9 @@ def test_the_user_settings_file_in_it_is_still_a_root_of_its_own_and_a_change_is
 
 
 @pytest.mark.parametrize("profile", PROFILES)
-def test_the_rest_of_the_home_stays_the_session_s_own(base: Path, profile: str) -> None:
+def test_the_rest_of_the_home_is_not_held_as_claude_code_s_directory(
+    base: Path, profile: str
+) -> None:
     config = _config(base, profile)
     home = _home(base)
     beside = (
@@ -264,8 +276,10 @@ def test_the_rest_of_the_home_stays_the_session_s_own(base: Path, profile: str) 
         home / "work" / ".claude" / "skills" / "s" / "SKILL.md",
         home / ".cache" / "tool" / "index",
     )
-    refused = [str(p) for p in beside if not _tool(config, "Write", str(p))]
-    assert refused == []
+    # Not refused as Claude Code's directory: a file tool's write there meets only the rule that
+    # holds every file tool's write to the session's worktree, as anywhere outside it.
+    told = [_told(config, "Write", str(p)) for p in beside]
+    assert all(paths.OUTSIDE_THE_WORKTREE.format(tool="Write") == said for said in told), told
     if profile != "reviewer":
         # A reviewer reads by its allowance; for the others a read beside it is as before.
         assert [str(p) for p in beside if not _tool(config, "Read", str(p))] == []

@@ -487,7 +487,9 @@ def test_the_rest_of_a_role_s_home_is_not_protected_by_it(tmp_path: Path) -> Non
     config = build_config(_install(tmp_path, "role"), current_installation())
     target = tmp_path / "home" / "notes.txt"
     write = event(tool_name="Write", tool_input={"file_path": str(target), "content": "x\n"})
-    assert paths.pre_tool_use(HookInput.model_validate(write), config).allow
+    decision = paths.pre_tool_use(HookInput.model_validate(write), config)
+    # Not as git's user configuration: a file tool writes only in the session's worktree.
+    assert decision.reason == paths.OUTSIDE_THE_WORKTREE.format(tool="Write")
 
 
 @pytest.mark.parametrize("profile", ["reviewer", "orchestrator"])

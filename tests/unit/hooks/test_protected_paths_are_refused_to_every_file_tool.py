@@ -106,6 +106,8 @@ REFUSED = [
     ("@/outside/session/session-config.json", "settings and configuration"),
     ("@/outside/state/hooks.log.jsonl", "own records"),
     ("@/outside/home/.claude/settings.json", "Claude Code's own directory in this session's home"),
+    # Outside the worktree, where no rule names the path: a file tool writes only in the worktree.
+    ("@/elsewhere/scratch.txt", "file tools write only in its own worktree"),
 ]
 ALLOWED = [
     "src/physgate/electrical/driver.py",
@@ -114,7 +116,6 @@ ALLOWED = [
     "README.md",
     "experiments/R-NEW-01/notes.md",
     "experiments/R-NEW-02/plan.md",
-    "@/elsewhere/scratch.txt",
 ]
 
 
