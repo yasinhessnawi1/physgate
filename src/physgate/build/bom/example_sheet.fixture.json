@@ -1,0 +1,100 @@
+{
+ "header": {
+  "kind": "example fixture",
+  "statement": "An example price sheet for demonstration, not live distributor data. Every availability, price, order quantity, order multiple and lead time in it is an example value written by hand to show each verdict of the check; none was read from a distributor, and none is a price to rely on. A maker's part number is given only where the reference brief's plan names it.",
+  "written_for": "the node ids that recorded plans for the reference brief have given their parts; a plan that names its parts otherwise finds them not in the sheet",
+  "written_on": "2026-11-24"
+ },
+ "entries": [
+  {
+   "answers": [
+    "robot.gearmotor",
+    "part.gearmotor",
+    "balboa.gearmotor",
+    "parts.gearmotor_left",
+    "parts.gearmotor_right"
+   ],
+   "description": "50:1 Micro Metal Gearmotor HPCB 6V",
+   "maker": {"value": "Pololu", "source": {"kind": "read", "where": "the reference brief's plan, the part's label", "read_on": "2026-11-24"}},
+   "maker_part_number": {"value": "3073", "source": {"kind": "read", "where": "the reference brief's plan, the part's label", "read_on": "2026-11-24"}},
+   "facts": {
+    "availability": {"status": "in_stock", "source": {"kind": "example"}},
+    "unit_price": {"value": 250, "unit": "NOK", "source": {"kind": "example"}},
+    "minimum_order_quantity": {"value": 1, "unit": "1", "source": {"kind": "example"}},
+    "order_multiple": {"value": 1, "unit": "1", "source": {"kind": "example"}},
+    "lead_time_to_norway": {"value": 10, "unit": "d", "scope": "norway", "source": {"kind": "example"}}
+   }
+  },
+  {
+   "answers": [
+    "robot.wheel",
+    "part.wheel",
+    "part.wheels",
+    "balboa.wheels",
+    "parts.wheels"
+   ],
+   "description": "80 x 10 mm wheel pair",
+   "maker": {"value": "Pololu", "source": {"kind": "read", "where": "the reference brief's plan, the part's label", "read_on": "2026-11-24"}},
+   "maker_part_number": null,
+   "facts": {
+    "availability": {"status": "orderable", "source": {"kind": "example"}},
+    "unit_price": {"value": 120, "unit": "NOK", "source": {"kind": "example"}},
+    "minimum_order_quantity": {"value": 1, "unit": "1", "source": {"kind": "example"}},
+    "order_multiple": {"value": 1, "unit": "1", "source": {"kind": "example"}},
+    "lead_time_to_norway": {"value": 6, "unit": "week", "scope": "norway", "source": {"kind": "example"}}
+   }
+  },
+  {
+   "answers": [
+    "robot.gear_stage",
+    "part.gear_stage",
+    "balboa.gear_stage",
+    "parts.gear_stage"
+   ],
+   "description": "Balboa 45:21 plastic gear set",
+   "maker": {"value": "Pololu", "source": {"kind": "example"}},
+   "maker_part_number": null,
+   "facts": {
+    "availability": {"status": "in_stock", "source": {"kind": "example"}},
+    "unit_price": {"value": 60, "unit": "NOK", "source": {"kind": "example"}},
+    "minimum_order_quantity": {"value": 1, "unit": "1", "source": {"kind": "example"}},
+    "lead_time_to_norway": {"value": 2, "unit": "week", "scope": "norway", "source": {"kind": "example"}}
+   }
+  },
+  {
+   "answers": [
+    "robot.control_board",
+    "part.control_board",
+    "balboa.control_board",
+    "parts.control_board"
+   ],
+   "description": "Balboa 32U4 control board (ATmega32U4)",
+   "maker": {"value": "Pololu", "source": {"kind": "example"}},
+   "maker_part_number": null,
+   "facts": {
+    "availability": {"status": "in_stock", "source": {"kind": "example"}},
+    "unit_price": {"value": 900, "unit": "NOK", "source": {"kind": "example"}},
+    "minimum_order_quantity": {"value": 1, "unit": "1", "source": {"kind": "example"}},
+    "order_multiple": {"value": 1, "unit": "1", "source": {"kind": "example"}},
+    "lead_time_to_norway": {"value": 5, "unit": "d", "scope": "generic", "source": {"kind": "example"}}
+   }
+  },
+  {
+   "answers": [
+    "robot.encoders",
+    "part.encoders",
+    "balboa.encoders"
+   ],
+   "description": "Balboa magnetic quadrature encoders, 12 CPR",
+   "maker": {"value": "Pololu", "source": {"kind": "example"}},
+   "maker_part_number": null,
+   "facts": {
+    "availability": {"status": "orderable", "source": {"kind": "example"}},
+    "unit_price": {"value": 40, "unit": "NOK", "source": {"kind": "example"}},
+    "minimum_order_quantity": {"value": 25, "unit": "1", "source": {"kind": "example"}},
+    "order_multiple": {"value": 5, "unit": "1", "source": {"kind": "example"}},
+    "lead_time_to_norway": {"value": 4, "unit": "week", "scope": "norway", "source": {"kind": "example"}}
+   }
+  }
+ ]
+}
