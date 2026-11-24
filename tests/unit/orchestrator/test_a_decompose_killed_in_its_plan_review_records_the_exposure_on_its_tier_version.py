@@ -54,6 +54,10 @@ from physgate.evaluation.tiers.checks import CheckError  # noqa: E402
 from physgate.evaluation.tiers.exposure import ExposureError  # noqa: E402
 from physgate.evaluation.tiers.heldout import tier_digest  # noqa: E402
 from physgate.orchestrator import design_rounds, processes  # noqa: E402
+from physgate.orchestrator.decompose import start_run as real_start_run  # noqa: E402
+from physgate.orchestrator.decomposition_review import (  # noqa: E402
+    review_over as real_review_over,
+)
 from physgate.orchestrator.events import Incident  # noqa: E402
 from physgate.orchestrator.exceptions import HeldOutExposedError  # noqa: E402
 from physgate.orchestrator.protocols import MessageUsage  # noqa: E402
@@ -186,8 +190,6 @@ def test_a_decompose_killed_in_its_plan_review_marks_its_version_exposed_once_fo
 
 
 def _killed_before_its_opening(tier: OnTier, monkeypatch: pytest.MonkeyPatch) -> None:
-    start_run = design_rounds.start_run
-
     def dies_before_the_opening(*args: Any, **kwargs: Any) -> None:  # noqa: ANN401
         raise Stopped
 
@@ -199,7 +201,7 @@ def _killed_before_its_opening(tier: OnTier, monkeypatch: pytest.MonkeyPatch) ->
         _exit(tier.args, reviewer)
     assert stopped.type is Stopped
     # Put back by hand: undoing every patch would take the session's stand-in credential too.
-    monkeypatch.setattr(design_rounds, "start_run", start_run)
+    monkeypatch.setattr(design_rounds, "start_run", real_start_run)
     assert not (tier.run_dir / "run.json").exists()
 
 
@@ -402,8 +404,6 @@ JOURNAL = Path("decomposition", "rounds.jsonl")
 def test_a_kill_between_the_round_s_end_line_and_the_review_s_record_going_records_it_once(
     tier: OnTier, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    review_over = design_rounds.review_over
-
     def dies_as_the_record_goes(run_dir: Path) -> None:
         raise Stopped
 
@@ -414,7 +414,7 @@ def test_a_kill_between_the_round_s_end_line_and_the_review_s_record_going_recor
     with pytest.raises(Stopped):
         _exit(tier.args, reviewer)
     # Put back by hand: undoing every patch would take the session's stand-in credential too.
-    monkeypatch.setattr(design_rounds, "review_over", review_over)
+    monkeypatch.setattr(design_rounds, "review_over", real_review_over)
     # The journal's end line and the review's record both show it: one exposure, one key.
     assert (tier.run_dir / REVIEW_RECORD).is_file()
     assert "held_out_exposed" in (tier.run_dir / JOURNAL).read_text()
