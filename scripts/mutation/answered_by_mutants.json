@@ -1,0 +1,185 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/orchestrator/managed.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py"
+  ]
+ },
+ {
+  "name": "the_reading_keeps_the_notice",
+  "file": "src/physgate/orchestrator/managed.py",
+  "old": "    return sorted(set(answered) - {SYNTHETIC_MODEL})\n",
+  "new": "    return sorted(set(answered))\n",
+  "tests": [
+   "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py"
+  ]
+ },
+ {
+  "name": "the_reading_leaves_out_a_lookalike",
+  "file": "src/physgate/orchestrator/managed.py",
+  "old": "    return sorted(set(answered) - {SYNTHETIC_MODEL})\n",
+  "new": "    return sorted(m for m in set(answered) if \"synth\" not in m.lower())\n",
+  "tests": [
+   "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py"
+  ]
+ },
+ {
+  "name": "the_reading_leaves_out_by_prefix",
+  "file": "src/physgate/orchestrator/managed.py",
+  "old": "    return sorted(set(answered) - {SYNTHETIC_MODEL})\n",
+  "new": "    return sorted(m for m in set(answered) if not m.startswith(SYNTHETIC_MODEL))\n",
+  "tests": [
+   "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py"
+  ]
+ },
+ {
+  "name": "the_record_keeps_the_notice",
+  "file": "src/physgate/evaluation/per_role/arms/raw.py",
+  "old": "        \"answered_by\": answering_models(captured.answered),\n",
+  "new": "        \"answered_by\": sorted(captured.answered),\n",
+  "tests": [
+   "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py"
+  ]
+ },
+ {
+  "name": "the_pair_check_keeps_the_notice",
+  "file": "src/physgate/evaluation/per_role/arms/compare.py",
+  "old": "    answered = answering_models(read_captured(raw_dir / \"session\" / \"stdout.jsonl\").answered)\n",
+  "new": "    answered = sorted(read_captured(raw_dir / \"session\" / \"stdout.jsonl\").answered)\n",
+  "tests": [
+   "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py"
+  ]
+ },
+ {
+  "name": "the_pair_check_passes_a_session_no_model_answered",
+  "file": "src/physgate/evaluation/per_role/arms/compare.py",
+  "old": "    if answered != [pinned]:\n",
+  "new": "    if answered and answered != [pinned]:\n",
+  "tests": [
+   "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py"
+  ]
+ },
+ {
+  "name": "the_pair_check_passes_the_pin_among_others",
+  "file": "src/physgate/evaluation/per_role/arms/compare.py",
+  "old": "    if answered != [pinned]:\n",
+  "new": "    if pinned not in answered:\n",
+  "tests": [
+   "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py"
+  ]
+ },
+ {
+  "name": "the_role_session_keeps_the_notice",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "            echoed = answering_models(answered)\n",
+  "new": "            echoed = sorted(answered)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py"
+  ]
+ },
+ {
+  "name": "the_decomposition_keeps_the_notice",
+  "file": "src/physgate/orchestrator/decompose.py",
+  "old": "    models = answering_models(answered)\n",
+  "new": "    models = sorted(answered)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py"
+  ]
+ },
+ {
+  "name": "the_decomposition_passes_a_call_no_model_answered",
+  "file": "src/physgate/orchestrator/decompose.py",
+  "old": "    if models != [model]:\n",
+  "new": "    if models and models != [model]:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py"
+  ]
+ },
+ {
+  "name": "baseline_last",
+  "file": "src/physgate/orchestrator/managed.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py"
+  ]
+ }
+]
