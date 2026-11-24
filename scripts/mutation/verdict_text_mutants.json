@@ -12,7 +12,10 @@
       "tests/unit/reviewers/schema_subset.py",
       "tests/unit/reviewers/test_the_verdict_contract_is_the_rubric_s_own.py",
       "tests/integration/orchestrator/replayed/review_submission_control.json",
-      "tests/integration/orchestrator/replayed/review_submission_firmware.json"
+      "tests/integration/orchestrator/replayed/review_submission_firmware.json",
+      "tests/integration/orchestrator/replayed/review_submission_v3_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_firmware.json"
     ],
     "paths": [
       "knowledge"
@@ -43,7 +46,10 @@
       "tests/unit/reviewers/schema_subset.py",
       "tests/unit/reviewers/test_the_verdict_contract_is_the_rubric_s_own.py",
       "tests/integration/orchestrator/replayed/review_submission_control.json",
-      "tests/integration/orchestrator/replayed/review_submission_firmware.json"
+      "tests/integration/orchestrator/replayed/review_submission_firmware.json",
+      "tests/integration/orchestrator/replayed/review_submission_v3_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_firmware.json"
     ],
     "paths": [
       "knowledge"
@@ -62,7 +68,10 @@
       "tests/unit/reviewers/schema_subset.py",
       "tests/unit/reviewers/test_the_verdict_contract_is_the_rubric_s_own.py",
       "tests/integration/orchestrator/replayed/review_submission_control.json",
-      "tests/integration/orchestrator/replayed/review_submission_firmware.json"
+      "tests/integration/orchestrator/replayed/review_submission_firmware.json",
+      "tests/integration/orchestrator/replayed/review_submission_v3_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_firmware.json"
     ],
     "paths": [
       "knowledge"
@@ -93,7 +102,10 @@
       "tests/unit/reviewers/schema_subset.py",
       "tests/unit/reviewers/test_the_verdict_contract_is_the_rubric_s_own.py",
       "tests/integration/orchestrator/replayed/review_submission_control.json",
-      "tests/integration/orchestrator/replayed/review_submission_firmware.json"
+      "tests/integration/orchestrator/replayed/review_submission_firmware.json",
+      "tests/integration/orchestrator/replayed/review_submission_v3_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_firmware.json"
     ],
     "paths": [
       "knowledge"
@@ -112,7 +124,10 @@
       "tests/unit/reviewers/schema_subset.py",
       "tests/unit/reviewers/test_the_verdict_contract_is_the_rubric_s_own.py",
       "tests/integration/orchestrator/replayed/review_submission_control.json",
-      "tests/integration/orchestrator/replayed/review_submission_firmware.json"
+      "tests/integration/orchestrator/replayed/review_submission_firmware.json",
+      "tests/integration/orchestrator/replayed/review_submission_v3_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_firmware.json"
     ],
     "paths": [
       "knowledge"
