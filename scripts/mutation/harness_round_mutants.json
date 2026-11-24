@@ -945,9 +945,9 @@
  },
  {
   "name": "a_spend_on_no_end_line_is_read_as_spent",
-  "file": "src/physgate/evaluation/harness_round.py",
-  "old": "    return cause, (spent if started and started <= ended else \"unread\")",
-  "new": "    return cause, spent",
+  "file": "src/physgate/orchestrator/design_rounds.py",
+  "old": "    return (None if void is None else void.cause), (spent if started and started <= ended else None)",
+  "new": "    return (None if void is None else void.cause), spent",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py"
   ],
@@ -1701,7 +1701,7 @@
  },
  {
   "name": "a_refused_call_s_spend_is_not_counted",
-  "file": "src/physgate/evaluation/harness_round.py",
+  "file": "src/physgate/orchestrator/design_rounds.py",
   "old": "        if isinstance(line, RoundEnded | CallRefused):\n",
   "new": "        if isinstance(line, RoundEnded):\n",
   "tests": [

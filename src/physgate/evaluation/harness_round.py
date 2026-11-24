@@ -121,8 +121,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal, Protocol, get_args
 
-from pydantic import TypeAdapter, ValidationError
-
 from physgate.evaluation.baseline.record import VERSION_TIERS
 from physgate.evaluation.baseline.runner import RunSet
 from physgate.evaluation.observe.compare import DRIFT
@@ -172,15 +170,8 @@ from physgate.evaluation.tiers.task import (
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
-from physgate.orchestrator.decompose import ROUNDS_JOURNAL
 from physgate.orchestrator.decomposition_review import stop_left_review
-from physgate.orchestrator.design_rounds import (
-    CallRefused,
-    JournalLine,
-    RoundEnded,
-    RoundsEnded,
-    RoundStarted,
-)
+from physgate.orchestrator.design_rounds import journal_spend
 from physgate.orchestrator.events import Event, Halted, parse_events
 from physgate.orchestrator.exceptions import OrchestratorError, RunStateError
 from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
@@ -1249,7 +1240,6 @@ def _held_to(
 _PREPARED = frozenset({TARGET, REVIEW})
 #: What a decomposition writes before its call: the parameters' record, and the review root's.
 _BEFORE_THE_CALL = frozenset({PARAMS_RECORD, REVIEW_ROOT_RECORD})
-_JOURNAL: TypeAdapter[JournalLine] = TypeAdapter(JournalLine)
 
 
 def _never_dispatched(run_dir: Path) -> bool:
@@ -1337,27 +1327,11 @@ def _what_it_spent(run_dir: Path) -> tuple[str, int | Literal["unread"]]:
 
     The cause is the void the journal ended on, or ``killed`` where it ended on none. The spend
     is every call's and review's on the journal's end lines, or ``unread`` where a round has its
-    start line and no end line (or there is no journal), so a call's spend is on no record.
+    start line and no end line (or there is no journal), so a call's spend is on no record. Read
+    by the journal's own reader (:func:`journal_spend`), beside its writer.
     """
-    journal = run_dir / ROUNDS_JOURNAL
-    lines: list[JournalLine] = []
-    if journal.is_file() and not journal.is_symlink():
-        for raw in journal.read_bytes().splitlines():
-            try:
-                lines.append(_JOURNAL.validate_json(raw))
-            except ValidationError:
-                continue  # a line a kill cut off
-    void = next((x for x in lines if isinstance(x, RoundsEnded) and x.follows == "void"), None)
-    cause = KILLED if void is None else void.cause
-    started = {x.round for x in lines if isinstance(x, RoundStarted)}
-    ended = {x.round for x in lines if isinstance(x, RoundEnded)}
-    spent = 0
-    for line in lines:
-        if isinstance(line, RoundEnded | CallRefused):
-            spent += sum(m.usage.total() for m in line.usage)
-        if isinstance(line, RoundEnded) and line.review is not None:
-            spent += sum(m.usage.total() for m in line.review.usage)
-    return cause, (spent if started and started <= ended else "unread")
+    void, spent = journal_spend(run_dir)
+    return (KILLED if void is None else void), ("unread" if spent is None else spent)
 
 
 def _held(run_dir: Path) -> list[str]:

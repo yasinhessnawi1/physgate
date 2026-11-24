@@ -328,6 +328,35 @@ def _refused(run_dir: Path, k: int, check: str, cause: str = "record_missing") -
     return RunStateError(msg, run_dir=str(run_dir), round=str(k), cause=cause, check=check)
 
 
+def journal_spend(run_dir: Path) -> tuple[str | None, int | None]:
+    """How a decomposition's rounds ended and what they spent, read from its journal as it lies.
+
+    For a reader of a decomposition that left no run to replay: every line that parses, a line a
+    kill cut off left out. The cause of the void the journal ended on, or ``None`` where it ended
+    on none; and every call's and review's usage on its end lines (a call its schema refused
+    included), or ``None`` where a round has its start line and no end line, or there is no
+    journal, so a call's spend is on no record.
+    """
+    journal = run_dir / ROUNDS_JOURNAL
+    lines: list[JournalLine] = []
+    if journal.is_file() and not journal.is_symlink():
+        for raw in journal.read_bytes().splitlines():
+            try:
+                lines.append(_LINE.validate_json(raw))
+            except ValidationError:
+                continue  # a line a kill cut off
+    void = next((x for x in lines if isinstance(x, RoundsEnded) and x.follows == "void"), None)
+    started = {x.round for x in lines if isinstance(x, RoundStarted)}
+    ended = {x.round for x in lines if isinstance(x, RoundEnded)}
+    spent = 0
+    for line in lines:
+        if isinstance(line, RoundEnded | CallRefused):
+            spent += sum(m.usage.total() for m in line.usage)
+        if isinstance(line, RoundEnded) and line.review is not None:
+            spent += sum(m.usage.total() for m in line.review.usage)
+    return (None if void is None else void.cause), (spent if started and started <= ended else None)
+
+
 def read_journal(run_dir: Path, *, last: int, holds: bool = True) -> Journal:
     """The round journal, each line held to what the rounds write given every line before it.
 

@@ -227,11 +227,12 @@ def test_a_run_halted_on_the_usage_limit_waits_for_the_reset_and_its_resume_is_n
     log = rig.run_root / summary["round"] / "0000-1" / "events.jsonl"
     held = log.read_bytes()
     assert _halts(rig, "0000-1") == ["usage_limit"]
-    # The command refuses the resume before the reset, writing nothing: the round waits again.
+    # The core would refuse the resume before the reset: the round asks the core's own reading
+    # of the halt first, issues no resume and writes nothing, and waits again.
     again = rig.driver()
     status, _ = _round(rig, again, slept, resume=True)
     assert status == "waiting_for_limit"
-    assert [d.resume for d in again.drives] == [True] and log.read_bytes() == held
+    assert again.drives == [] and log.read_bytes() == held
     # Once the person says it reset (its reset was not read), the one resume goes on.
     after = rig.driver()
     status, _ = _round(rig, after, slept, resume=True, limit_reset=True)
