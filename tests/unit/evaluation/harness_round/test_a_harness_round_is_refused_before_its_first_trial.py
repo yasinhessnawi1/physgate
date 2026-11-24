@@ -38,12 +38,18 @@ def _score(_task: Any, _answer: Path) -> dict[str, Any]:  # noqa: ANN401
 
 def _refused(rig: Rig, **changes: Any) -> str:  # noqa: ANN401
     driver = rig.driver()
-    with pytest.raises(RoundError) as refused:
+    try:
         run_round(rig.inputs(**changes), driver=driver, scorer=_score, sleep=lambda _: None)
-    assert driver.decomposed == [] and driver.drives == []
+    except RoundError as exc:
+        reason = str(exc.context["refused_because"])
+    except Exception as exc:  # noqa: BLE001 - what stopped it instead is the row's failure
+        reason = f"stopped: {type(exc).__name__}"
+    else:
+        reason = "not refused"
+    assert driver.decomposed == [] and driver.drives == [], f"a trial was started ({reason})"
     assert not (rig.root / "out").exists()
     assert list(rig.run_root.iterdir()) == []
-    return str(refused.value.context["refused_because"])
+    return reason
 
 
 def _params(rig: Rig, change: Callable[[dict[str, Any]], None]) -> None:

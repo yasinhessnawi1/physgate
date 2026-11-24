@@ -77,6 +77,7 @@ def test_the_counting_rule_takes_each_tier_s_run_set_and_records_unchanged(
 ) -> None:
     rig, _, summary, _ = whole
     runs, trials = _set(rig, summary, tier)
+    assert runs.is_file() and trials.is_file(), f"the {tier} tier's set is not where it belongs"
     counted = census(rig.made.store, "control", rig.made.version, tier, runs, trials)
     assert counted.trials == 1 and len(counted.outcomes) == 8
     assert all(o.passes == 1 for o in counted.outcomes.values())

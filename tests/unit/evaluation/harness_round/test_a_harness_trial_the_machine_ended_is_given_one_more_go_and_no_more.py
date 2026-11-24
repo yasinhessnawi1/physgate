@@ -53,14 +53,18 @@ def _round(
     limit_reset: bool = False,
     trials: int = 1,
 ) -> Any:  # noqa: ANN401
-    return run_round(
-        rig.inputs(trials=trials),
-        driver=driver,
-        scorer=_score,
-        resume=resume,
-        limit_reset=limit_reset,
-        sleep=slept.append,
-    )
+    try:
+        return run_round(
+            rig.inputs(trials=trials),
+            driver=driver,
+            scorer=_score,
+            resume=resume,
+            limit_reset=limit_reset,
+            sleep=slept.append,
+        )
+    except RoundError as exc:
+        # Stopped where no row expects it: said as its status, so the row fails on its assertion.
+        return f"refused: {exc.context.get('refused_because')}", {}
 
 
 def _place(rig: Rig) -> Path:

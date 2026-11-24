@@ -860,10 +860,15 @@ def run_round(
         round_id, place = _found(out, withheld)
         lock, dead = _locked(place)
     else:
-        if os.path.lexists(out):
-            msg = "the round's output directory exists; each round gets a directory of its own"
-            raise _refuse("out_exists", msg, out=str(out))
         _require_clean(pins)
+        # Made before anything else, and only if it is not there: two rounds started into one
+        # output directory at once are one round and a refusal, and the refused one made nothing.
+        out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            out.mkdir(mode=0o700)
+        except FileExistsError:
+            msg = "the round's output directory exists; each round gets a directory of its own"
+            raise _refuse("out_exists", msg, out=str(out)) from None
         round_id = hashlib.sha256(os.urandom(32)).hexdigest()[:16]
         place = withheld / round_id
         withheld.mkdir(mode=0o700, exist_ok=True)
@@ -872,11 +877,6 @@ def run_round(
     claimed = [False]
     try:
         if not resume:
-            try:
-                out.mkdir(mode=0o700, parents=True)
-            except FileExistsError:
-                msg = "the round's output directory exists; each round gets a directory of its own"
-                raise _refuse("out_exists", msg, out=str(out)) from None
             # First, so a round killed at any later step is found again by its output directory.
             _write_whole(out / ROUND_RECORD, canonical_json({"format": 1, "round": round_id}))
         lines = _held_to(place, round_id, given, order, pins) if resume else []

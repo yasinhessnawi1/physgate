@@ -78,7 +78,10 @@ def _run_dirs(rig: Rig) -> list[str]:
 def unkilled(tmp_path_factory: pytest.TempPathFactory) -> tuple[list[str], int]:
     """What the round's ledger holds when nothing kills it: its kinds, line by line."""
     rig = make_rig(tmp_path_factory.mktemp("unkilled"))
-    _round(rig, rig.driver())
+    try:
+        _round(rig, rig.driver())
+    except Exception as exc:  # noqa: BLE001 - a round that stops is the rows' failure, not theirs
+        return [f"stopped: {type(exc).__name__}"], 0
     return [x["kind"] for x in _ledger(rig)], len(_ledger(rig))
 
 
@@ -205,6 +208,9 @@ def test_a_second_round_into_an_output_directory_that_exists_is_refused(tmp_path
         _round(rig, driver)
     assert refused.value.context["refused_because"] == "out_exists"
     assert driver.decomposed == []
+    # Nothing made beneath the withheld root either: no round's directory, no lock.
+    rounds = withheld_root(rig.made.store, "control") / HARNESS_ROUNDS
+    assert not rounds.exists() or list(rounds.iterdir()) == []
 
 
 def test_a_ledger_line_a_kill_cut_off_is_dropped_and_its_step_taken_again(tmp_path: Path) -> None:

@@ -32,10 +32,12 @@ after the registered delay, and if it ends so again it is ``unscored``, a fail f
 arm in a column of its own:
 
 - the harness arm, judged by the run's last end: the run stands halted because the
-  infrastructure was exhausted, the credential was refused, the OS layer was unavailable or
-  the account's usage limit was reached, or its one decomposition call ended on an API
-  error, a refused credential, an unavailable sandbox or the usage limit. A run that halted
-  so, was resumed, and then ended on its own is the harness's own end, not the machine's;
+  infrastructure was exhausted or the OS layer was unavailable, or its one decomposition call
+  ended on an API error or an unavailable sandbox. A run that halted so, was resumed, and then
+  ended on its own is the harness's own end, not the machine's. The account's usage limit and
+  a refused credential are among the machine's halts and causes too, but they are never a
+  trial's end: a round never assembles a run that stands at one, and resumes it, or decomposes
+  the trial afresh, once the limit resets or a person replaces the credential;
 - the raw arm: its session ended on an API error, a refused credential, an unavailable
   sandbox, or without a result or with an unexpected exit, unless the session was stopped
   by its own token cap or wall clock, which are the arm's spending, not the machine's.

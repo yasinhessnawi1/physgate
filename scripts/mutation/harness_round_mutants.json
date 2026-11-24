@@ -732,8 +732,8 @@
  {
   "name": "a_second_round_into_its_directory_is_not_refused",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "        if os.path.lexists(out):",
-  "new": "        if False:",
+  "old": "            out.mkdir(mode=0o700)\n",
+  "new": "            out.mkdir(mode=0o700, exist_ok=True)\n",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py"
   ],
