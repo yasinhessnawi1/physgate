@@ -4,11 +4,18 @@ The change check decides what is made again and what a difference means
 (:mod:`physgate.orchestrator.derived`); this module only starts the recorded command inside the
 wrapper this machine contains it with, and says how it ended: its exit code (``None`` when it ran
 out of time) and the end of what it wrote to its error stream, at most :data:`MAX_SAID_BYTES`.
-It names no tool: the argument list is the record's.
+The change check reads only the first: what the command wrote is under the control of whatever
+it ran, so nothing of it is quoted where a session, a reviewer or a person reads. It names no
+tool: the argument list is the record's.
 
 The command reads only the recorded roots (and the system's own places), writes only the folder
 made for the call, and has no network: on Linux bubblewrap, on macOS ``sandbox-exec`` with a
-profile generated for the call and written outside that folder.
+profile generated for the call and written outside that folder. It is withheld, each whole, every
+place it is given as withheld (the dispatcher's, at least what every role session of the run is
+withheld), wherever such a place lies inside what it reads; a runner given none refuses. When
+the wrapper's rules cannot be built, a place it reads lying inside a withheld one among the
+causes, the refusal says so by kind and names no place: a withheld place is the protected
+material's.
 
 The wrapper is named here, in code (:data:`WRAPPER`), and found on the orchestrator's own search
 path, on its absolute folders only: a relative folder resolves against the current directory,
@@ -106,21 +113,46 @@ def wrapper_on(search_path: str) -> str | None:
     return shutil.which(WRAPPER, path=os.pathsep.join(folders))
 
 
-def default_runner(*, platform: str = sys.platform, search_path: str | None = None) -> Runner:
+#: What gives the places a regeneration may not read, each whole, at the time it runs.
+Withheld = Callable[[], Sequence[str]]
+#: What a refusal says when the wrapper's rules cannot be built: never the containment's own
+#: words, which name the place a root of the command lies inside, a withheld one among them.
+UNCONTAINED = (
+    "the command cannot be contained as the session's policy says: a place it reads or runs "
+    "lies inside one withheld from the run's sessions, or cannot be written into the wrapper's "
+    "rules"
+)
+
+
+def default_runner(
+    *,
+    platform: str = sys.platform,
+    search_path: str | None = None,
+    withheld: Withheld | None = None,
+) -> Runner:
     """The change check's runner: :func:`contained_runner` with the wrapper this machine has.
 
-    ``search_path`` is the orchestrator's own (its ``PATH`` when ``None``).
+    ``search_path`` is the orchestrator's own (its ``PATH`` when ``None``); ``withheld`` gives
+    the places the command may not read (``None``: none are known, and every regeneration is
+    refused).
     """
     path = os.environ.get("PATH", "") if search_path is None else search_path
     found = wrapper_on(path) if platform.startswith("linux") else None
-    return contained_runner(platform=platform, bwrap=found)
+    return contained_runner(platform=platform, bwrap=found, withheld=withheld)
 
 
-def contained_runner(*, platform: str = sys.platform, bwrap: str | None = None) -> Runner:
+def contained_runner(
+    *,
+    platform: str = sys.platform,
+    bwrap: str | None = None,
+    withheld: Withheld | None = None,
+) -> Runner:
     """A runner that starts the command inside the tool containment.
 
     On Linux the wrapper at ``bwrap`` (``None``: there is none, and every regeneration is
-    refused); on macOS a generated Seatbelt profile.
+    refused); on macOS a generated Seatbelt profile. ``withheld`` gives the places the command
+    may not read, each whole, asked at every call (``None``: none are known, and every
+    regeneration is refused; an empty answer is a run that withholds nothing).
 
     The runner raises :class:`~physgate.oslayer.containment.ContainmentError` when the command
     cannot be contained here, then nothing was started; :class:`RegenerationBoundError` when
@@ -137,26 +169,34 @@ def contained_runner(*, platform: str = sys.platform, bwrap: str | None = None) 
     ) -> tuple[int | None, str]:
         profiles: str | None = None
         try:
+            if withheld is None:
+                msg = "no places withheld from the run's sessions are given to the regeneration"
+                raise ContainmentError(msg)
+            denied = tuple(withheld())
             if platform.startswith("linux"):
                 if bwrap is None:
                     msg = "no bubblewrap on this machine contains the regeneration"
                     raise ContainmentError(msg)
-                options = bwrap_args(read_denied=(), server_dir=str(work), read_roots=roots)
+                try:
+                    options = bwrap_args(read_denied=denied, server_dir=str(work), read_roots=roots)
+                except ContainmentError:
+                    raise ContainmentError(UNCONTAINED) from None
                 command = [bwrap, *options, "--", *argv]
             elif platform == "darwin":
-                profiles = tempfile.mkdtemp(prefix="physgate-derived-profile-")
-                profile = Path(profiles) / "regenerate.sb"
-                profile.write_text(
-                    seatbelt_profile(
-                        read_denied=(),
+                try:
+                    rules = seatbelt_profile(
+                        read_denied=denied,
                         server_dir=str(work),
                         devices=board_devices(platform),
                         command=argv[0],
                         exec_roots=roots,
                         read_roots=roots,
-                    ),
-                    encoding="utf-8",
-                )
+                    )
+                except ContainmentError:
+                    raise ContainmentError(UNCONTAINED) from None
+                profiles = tempfile.mkdtemp(prefix="physgate-derived-profile-")
+                profile = Path(profiles) / "regenerate.sb"
+                profile.write_text(rules, encoding="utf-8")
                 command = [SANDBOX_EXEC, "-f", str(profile), *argv]
             else:
                 msg = f"no wrapper contains the regeneration on {platform}"

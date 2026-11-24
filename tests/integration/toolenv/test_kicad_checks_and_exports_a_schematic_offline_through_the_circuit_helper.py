@@ -525,7 +525,8 @@ def _held(session: Session, base: str, commit: str) -> object:
     recorded = _recorded(*session.roots)
     held = derived.held_exports(
         repo, base, commit, "modules/board", environment=lambda: recorded,
-        runner=regeneration.default_runner(),
+        # Withheld the role's whole tree: the command reads the copied schematic alone.
+        runner=regeneration.default_runner(withheld=lambda: (str(session.module.parents[1]),)),
     )  # fmt: skip
     assert hasattr(held, "refusal"), "the check's result carries its refusal and its count"
     return held.refusal
@@ -608,7 +609,7 @@ def test_inside_the_wrapper_a_new_session_dies_with_the_regeneration(tmp_path: P
     assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
     wrapper = regeneration.wrapper_on(os.environ.get("PATH", ""))
     assert wrapper is not None, "no bubblewrap on this Linux machine's search path"
-    run = regeneration.contained_runner(platform=sys.platform, bwrap=wrapper)
+    run = regeneration.contained_runner(platform=sys.platform, bwrap=wrapper, withheld=lambda: ())
     marker = tmp_path / "outlived"
     # A grandchild in a session of its own: no group kill reaches it, and it keeps the error
     # stream open. The wrapper's namespace ends it with the program (--unshare-pid and

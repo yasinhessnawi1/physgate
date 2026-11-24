@@ -811,7 +811,9 @@ def checked_line(check: ChangeCheck) -> str:
         subtask_id="s1",
         attempt=1,
         checked_commit="0" * 40,
-        **check.model_dump(exclude={"declaration", "disputes", "series_checks", "proposed"}),
+        **check.model_dump(
+            exclude={"declaration", "disputes", "series_checks", "proposed", "exports"}
+        ),
     )
     return line.model_dump_json()
 
