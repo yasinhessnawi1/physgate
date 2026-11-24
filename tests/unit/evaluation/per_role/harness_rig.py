@@ -48,6 +48,7 @@ def loop_run(
     kill: str | None = None,
     decomposed: bool = False,
     verdicts: tuple[str, ...] = (),
+    halted_on: str | None = None,
     **config: Any,  # noqa: ANN401 - a run configuration's own fields
 ) -> Path:
     """A run of one control subtask, ``run_id`` ``r``, made by the loop in ``run_dir``.
@@ -56,13 +57,17 @@ def loop_run(
     the role session) or ``"review"`` (during its review), or ``None`` for a run that ends.
     ``decomposed`` records the run's decomposition line, as a run decomposed by its one call
     does. ``verdicts`` are the reviewer's, call by call; a pass after them. ``config``
-    replaces fields of the run's configuration.
+    replaces fields of the run's configuration. ``halted_on`` is an infrastructure cause the
+    first session ends on: with no retry scheduled the run halts on the machine, and a second
+    process resumes it once, as a person or a round driver would, and lets it end on its own.
     """
     run_dir.mkdir(parents=True)
     rig = Rig(
         run_dir,
         dispatcher=FakeDispatcher(
-            trajectories=run_dir / "sessions", kill_on=1 if kill == "session" else None
+            trajectories=run_dir / "sessions",
+            kill_on=1 if kill == "session" else None,
+            infra={} if halted_on is None else {1: halted_on},  # type: ignore[dict-item]
         ),
         reviewer=FakeReviewer(kill_on=1 if kill == "review" else None, verdicts=list(verdicts)),
         config_overrides={"run_id": "r", "models": CONTROL_MODELS, **config},
@@ -78,4 +83,10 @@ def loop_run(
             raise
     finally:
         loop.close()
+    if halted_on is not None:
+        loop = rig.open()
+        try:
+            loop.resume()
+        finally:
+            loop.close()
     return run_dir
