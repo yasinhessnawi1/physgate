@@ -165,12 +165,16 @@ def _admitted(trials: Trials) -> bool:
     """Whether the measured-run rule lets the earlier trial review under its review root.
 
     It is asked as the command asks it at the trial's ``run``, shown the review root it names.
-    Where a requirement is shown no review root, as before the change, nothing refuses one.
+    (Where a requirement was shown no review root, before the change, nothing refused one.)
     """
     harness = config(trials.task_b, trials.made, **_withheld(trials.made))
-    shown = {f.name for f in dataclasses.fields(RunFacts)}
-    given = {"review_root": trials.review_a} if "review_root" in shown else {}
-    facts = RunFacts(config=harness, os_layer=LAYER, shell_sessions=True, run_dir=trials.a, **given)
+    facts = RunFacts(
+        config=harness,
+        os_layer=LAYER,
+        shell_sessions=True,
+        run_dir=trials.a,
+        review_root=trials.review_a,
+    )
     return requirements.a_measured_run_withholds_every_run_root_whole(facts) is None
 
 

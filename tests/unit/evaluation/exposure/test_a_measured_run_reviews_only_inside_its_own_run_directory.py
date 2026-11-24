@@ -49,7 +49,7 @@ def _ask(run: RunConfig, run_dir: Path, review_root: Path | None, *, new_run: bo
             shell_sessions=True,
             new_run=new_run,
             run_dir=run_dir,
-            review_root=review_root,  # type: ignore[call-arg]
+            review_root=review_root,
         )
     except TypeError:
         pytest.fail("a requirement is not shown the run's review root (RunFacts.review_root)")
