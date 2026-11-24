@@ -63,8 +63,8 @@ claim.
   values*: with an issued specification, values that it states or that the design state it gives
   holds) fails, or when such a value lacks the source a check requires of it, whatever else that
   check uses: for example a declared loop period whose rate is below `20·p` with no
-  control-design analysis, or a fixed sensor rate or filter setting that fails DS-4(a) or the
-  `10·p` check. A check that uses any written value (a value the work chose, or a departure from
+  control-design analysis, or a fixed sensor rate or filter setting that fails DS-4(a) (save the
+  exception DS-4 states) or the `10·p` check. A check that uses any written value (a value the work chose, or a departure from
   the specification's value) is judged normally, and its failure is a finding instead. If there is
   no rejecting finding, the verdict is **`blocked`**: the work then goes to a human approval queue,
   and no repair is requested. Report any other findings as usual. If the review also has a rejecting
@@ -73,7 +73,7 @@ claim.
   input itself), and the work goes to the human approval queue only once the defect is all that
   remains. The reason: a missing input must never shield errors the implementer can fix, and the
   human queue should receive only work that is otherwise clean. This applies in particular to
-  DS-4 (`p`, a rate or filter value the specification fixes, or the control-design analysis that
+  DS-4 (save the exception DS-4 states; `p`, a rate or filter value the specification fixes, or the control-design analysis that
   must include a measured and handed-over delay), DS-10(a)–(d) (the recoverable tilt range, the
   stale-command timeout, the sensor-fault definition, the hardware off-state at reset), DS-12 (trip
   limits) and DS-16 (bus timeouts); DS-10, DS-12 and DS-16 record no such defect for a value the
@@ -157,7 +157,7 @@ claim.
     *Stand-in absences* below instead. A check that fails, or lacks a source it
     requires, using only given values is not charged to the revision, and the blocking rule for a
     value the specification fixes does not apply to it (including
-    DS-4's fixed-rate and filter sub-checks): record it as a non-blocking specification defect
+    DS-4's fixed-rate and filter sub-checks, save the exception DS-4 states): record it as a non-blocking specification defect
     naming the node, the check and the value. It never rejects and never makes the review
     **`blocked`**; the item is judged on what the revision wrote. A check that involves any value
     the revision wrote is judged normally, so a missed follow-up (a written value inconsistent with
@@ -287,7 +287,8 @@ method. When no specification is issued, AC-9 replaces AC-1's line per criterion
   simulation or a reasoning step. With no board in the run environment, a run on the simulator
   DS-29 accepts is an on-target run; with no simulator provided there is none, and what the run
   cannot show is judged as DS-29 says. A criterion written as a check by a model of the code is met
-  by the model, under DS-29's conditions.
+  by the model, under DS-29's conditions (with a simulator provided, DS-29 also records it as a
+  specification defect).
 - **AC-4. The evidence must be from the final code.** A test run counts only if it happened after
   the last edit to the files it covers. If the code changed after the last passing run, the
   criterion is unmet.
@@ -454,6 +455,14 @@ balances and follow-ups by reading, like every other item.
   uses only given values; see the verdict policy's *Given and written values*), or gives no source
   for a value (a) needs, record a blocking specification defect for that sub-check, not a finding.
   A finding applies when the work chose the value, or departs from the specification's value.
+  One exception, for (a) alone: where the issued specification fixes both the filter's bandwidth
+  and the rate the samples are used at, the bandwidth is at or above half the rate (so (a) is not
+  met), the firmware can change neither, and the specification gives the filter's delay to control
+  (DS-5): (a) is not held against the firmware. The item is `met` for it, which does not say (a)
+  holds; its evidence says "(a) not met, fixed by the specification", and one non-blocking
+  specification defect, opening "anti-aliasing not met", names the filter, the rate and the band
+  between half the rate and the bandwidth. The review accepts if nothing else rejects. Where the
+  firmware could have set a filter or a rate that meets (a) and did not, (a) is `unmet`.
 - **DS-5. Loop delay and jitter are stated, not assumed zero.** *Applies when* the diff changes the
   loop, its timer, an ISR or a priority. Interrupts and higher-priority work shift both the start
   time and the execution time of the control task. *Check:* the trajectory shows the loop's
@@ -555,7 +564,7 @@ balances and follow-ups by reading, like every other item.
   limit, stopping the loop, disconnecting or faulting the sensor, forcing a reset), and
   observations that the motor outputs went off; a trip not exercised is a finding. A trip
   condition the run's instruments cannot reach (for a model, a forced reset or a disconnected
-  sensor) is not shown, with the reason, and is not a finding; one the model can reach and the
+  sensor; for the simulator, an external reset) is not shown, with the reason, and is not a finding; one the model can reach and the
   work did not exercise is a finding.
 
 ### Memory, control flow and code structure
@@ -710,8 +719,27 @@ balances and follow-ups by reading, like every other item.
     where it names none, the provided one; the specification's silence is a non-blocking
     specification defect. The program built for the board by the target's compiler, run on that
     simulator, is an on-target run for AC-3, DS-5, DS-12 and AP-2, and its cycle counts, register
-    states and pin timings are measurements. A device model the work adds cites the datasheet for
-    each behaviour it models; one that does not is a finding. Where the run environment provides
+    states and pin timings are measurements. The provided simulator is `avrsim` where the run's tool
+    environment holds it: its summary in the trajectory carries the rig's versions (its `rig`
+    fields; `avrsim --version` prints them as a line) and the sha256 of the program and the
+    scenario, and the program's is the last build's (AC-4). Its figures are accepted as what they
+    are, labelled simulated on the target's instruction set with a model of the board, not measured
+    on a board; a figure given as measured on a board, or a record without the rig's versions or
+    either digest, is a finding. What the summary withholds (`timing_evaluable` or
+    `behaviour_evaluable` false, an `evidence_end`) or lists as `not_shown` is not shown, and is not
+    counted as met. A line the summary withholds because of what the work did is `unmet`, the
+    sub-check a finding; a criterion that asks for what the summary lists as `not_shown` is `not
+    evaluable`, a blocking specification defect naming the quantity. Where the criterion as issued
+    asks for a quantity the simulator measures (the update period and its lateness, the PWM
+    frequency and full scale at the pin, the encoder counting, the stop's timing and the motors' off
+    instant, the watchdog's period and reset) to be shown by test, demonstration or inspection, or
+    names no method, an analysis, a model of the code or "not shown" in its place leaves the line
+    `unmet`, and the sub-check a finding; a worst-case analysis beside a simulated figure is no
+    finding. Where the criterion as issued says "by analysis" or "by a model of the code", AC-5
+    holds the work to the criterion as issued, and the review reports a non-blocking specification
+    defect of the plan, naming the simulator. A
+    device model the work adds cites the datasheet for each behaviour it models; one that does not is
+    a finding. Where the run environment provides
     none, there is no on-target run: the evidence is the build with the target's compiler (DS-21),
     its size, a static analyser's run where the run environment provides one, and host-side tests
     of the logic and of the control law against the designer's coefficients where it provides a
@@ -745,7 +773,11 @@ balances and follow-ups by reading, like every other item.
     such an instrument is a non-blocking specification defect, not a finding. A "not shown"
     claimed for what the run can show (what a provided simulator, analyser or recorded host
     compiler measures, or what the model of the code shows) is
-    judged as usual: the line is *unmet*, the sub-check a finding.
+    judged as usual: the line is *unmet*, the sub-check a finding. With the simulator, what it
+    cannot show is its summary's `not_shown` (the loop closed, the input-to-output delay beyond a
+    bound, a sensor's noise and filter delay, the clock's tolerance, USB with a host, an external
+    reset) and the limits of a model of a board: the driver's electrical behaviour and what the
+    board's wiring sets. A criterion that asks for either is `not evaluable` as above.
 - **DS-30. Changed quantities are followed up across domains.** A changed quantity which
   constrains another part of the design has a follow-up or a non-empty stated reason. Judge both by
   reading: that the follow-up or the reason is there, and whether a stated reason actually holds;
@@ -874,4 +906,4 @@ policy).
   rather than the specification. *Confirmed when* that choice is in the delivered work; otherwise
   `noted`.
 
-<!-- 001a911d74e1ef26f3540c23deaf338d -->
+<!-- 1a9f87afcf9d3fe7adea10fae45ffafc -->

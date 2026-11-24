@@ -676,6 +676,14 @@ describe("a record", () => {
     );
   });
 
+  it("shows a file of the interpreter by a label, never by the recording machine's absolute path", async () => {
+    const host = await mount(`subtask=${S1}&attempt=3&record=step_nominal`);
+    const files = text(host.querySelector(".pg-sim-record-head")?.parentElement ?? host);
+    expect(files).toContain("<outside the run>/__init__.py");
+    expect(files).not.toContain("/usr/lib");
+    expect(text(host)).not.toMatch(/\s\/(usr|Users|home|opt)\//);
+  });
+
   it("draws one plot per unit, units in the titles, the chart hidden and its summary the server's numbers", async () => {
     const host = await mount(`subtask=${S1}&attempt=3&record=step_nominal`);
     const plots = [...host.querySelectorAll("figure.pg-plot")];

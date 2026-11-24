@@ -213,9 +213,9 @@ without doing the work.
      specification's value) is judged normally, and its failure is an ordinary finding.
    - **Blocking: a void allowance followed** (rule 5).
    - **Blocking: a criterion no design can meet at an end** (standards §7). Only a criterion with a
-     stated bound applies: the push, with sizing standards §12's bound, §12's inputs and the
+     stated bound, at a class 1 end (D35), applies: the push, with sizing standards §12's bound, §12's inputs and the
      delivered command limit, in control's plant at the end's values. Where it, or its D33 run,
-     fails at one of D35's estimate ends, the work shows that bound below 1 there, and no value
+     fails at one of D35's class 1 ends, the work shows that bound below 1 there, and no value
      another module owns, inside the bound its owner stated, would bring it to 1 or more (the work
      states each such value needed and whether it lies inside the owner's bound), the failure is
      not a rejecting finding at that end. Record one blocking specification defect for all
@@ -229,8 +229,17 @@ without doing the work.
      judges, the ends included. A conflict a person has decided (the issued
      specification or an order records it), or one sizing already recorded for the same criterion,
      is `noted` and not raised again.
+   - **A bound that only limits what is possible** (class 3, D35, standards §7). A criterion that
+     fails only at such a bound is not failed there and is not a conflict for a person. With the
+     work's statement of the numeric range the design holds over (D35's words: the widest over which the criteria hold, from a named sweep), of the sources it searched for a tolerance
+     and of the measurement that settles it, the criterion's line is `met` where it is met at every
+     case D35 judges, and the review reports one non-blocking specification defect, D35's own,
+     naming the quantity, the range held, the measurement and that the bound is no end; with
+     nothing else found the verdict is `accept`. A conflict the work recorded for such a bound is
+     `noted` and never blocks. A quantity a source states a tolerance or a spread for is not class
+     3: a criterion that fails at its class 1 end is `unmet`, and the claim is D35's finding.
    - **A request to a value's owner** (standards §7). Where a criterion fails at one of D35's
-     estimate ends, its bound is below 1 there (redone by reading), and a value another module owns
+     class 1 ends, its bound is below 1 there (redone by reading), and a value another module owns
      (sizing's command limit, say), inside the bound its owner stated, would bring it to 1 or more,
      the failure is neither a finding nor a blocking defect: it is a request. The work's record
      states it once: the criterion, each end, the value needed of each such quantity against the
@@ -629,7 +638,7 @@ findings and rule 7's non-blocking defects, and the verdict format.
   *Trigger: a plant parameter of the loop is an estimate with a range (a rotor inertia, a
   centre-of-mass height, a body inertia), or a maker's figure with a stated tolerance.*
   - The work computes the margins at the low end, the nominal value and the high end of each
-    such range, one at a time, with the others nominal, and prints a sweep across each range, one
+    range with a class 1 end, one at a time, with the others nominal, and prints a sweep across each range, one
     at a time (standards §7; Åström and Murray 2021, Ch. 13, "Modeling Uncertainty").
   - The design's margin, the one D8 and the specification's criterion judge, is the smallest over
     those cases and the sweeps. Judging the nominal case alone fails.
@@ -637,42 +646,58 @@ findings and rule 7's non-blocking defects, and the verdict format.
     combination that misses a criterion is not a finding, and leaving the combinations unjudged is
     not R3's shrunk parameter set. A supply voltage a criterion of the brief pins is held at that
     value, not spread.
-  - A criterion whose stated bound shows no law can meet it at an end is judged as policy rule 7's
+  - A criterion whose stated bound shows no law can meet it at a class 1 end is judged as policy rule 7's
     **A request to a value's owner** or **Blocking: a criterion no design can meet at an end**
     says: the work states the value each quantity another module owns would need there and whether
     it lies inside its owner's bound (standards §7); a failure with no such statement is `unmet`.
-  - A maker's stated tolerance on a figure it publishes (a no-load speed's ±20 %, a no-load
-    current's ±50 %), quoted from the maker's document in the quantity's source, is not an estimate
-    (standards §7); without that quote the range is an estimate. A friction taken from the maker's
-    no-load current is that figure, the work's own friction estimate is not. The figure is judged at its typical value,
-    and the work records the results at the tolerance's ends as a sensitivity. A margin, a
-    criterion or a D33 run that misses only at a tolerance's end is not a finding, and holding the
-    typical value is not R3 or R7.
+  - The ends are of three classes (standards §7). **Class 1:** an end with a basis other than a
+    maker's tolerance is judged: a tolerance the brief states, a spread measured on the part, or the
+    spread of a named comparable, each stated in the end's source. **Class 2:** a maker's stated
+    tolerance on a figure it publishes (a no-load speed's ±20 %, a no-load current's ±50 %), quoted
+    from the maker's document in the quantity's source, is not an estimate; without that quote the
+    range is an estimate, its ends class 1 only on a basis of their own. A friction taken from the maker's no-load current is that figure, the
+    work's own friction estimate is not. The figure is judged at its typical value, and the work
+    records the results at the tolerance's ends as a sensitivity, not judged. A margin, a criterion
+    or a D33 run that misses only at a tolerance's end is not a finding, and holding the typical
+    value is not R3 or R7. **Class 3:** a bound that only limits what is physically possible (a
+    point mass and the body's outline for its pitch inertia), with no source that states a
+    tolerance or a spread for the quantity, is no end, and nor is a bare multiple of the nominal
+    ("×2"). It is not judged: the margins and the criteria are judged at the nominal value and at
+    the class 1 ends, and a criterion that fails only at it is no `unmet` line and no blocking
+    defect. The work states the numeric range the design holds over. The range is the widest over which the design's criteria hold, found by a sweep whose record is named; it contains the nominal value, and no floor is set. The work lists the sources it searched for a tolerance or a spread (the brief, the maker's page or data sheet, the part's own documents). A narrow range is information for the person who settles the measurement, not a pass or a fail by itself. It asks for the measurement that settles it and records the quantity as an estimate to be
+    resolved. The review checks the range against the sweep's record and the list against the sources it can see. A range that leaves the nominal value out, a sweep with no record named, no list or no measurement, is the
+    finding (the repair: the range, the sweep's record, the list and the measurement stated). A quantity any source states a
+    tolerance or a spread for is never class 3: a class 3 claim for it is a finding (`unmet`), and
+    the quantity is judged as its own class says. Where the work judged at a class 3 bound and
+    recorded a request or a conflict for it, that is judged as the open point it is.
   - A range narrower than the one its source gives (sizing's node or the parameter's own record)
-    fails: a shaded range is also R7.
-  - Each end of a range the work chose itself (not sizing's, not the brief's) states its evidence
-    (a maker's figure, a published comparable, a bound from the geometry, a measurement; standards
-    §7). An end that is a bare multiple of the nominal, with no evidence, fails: the repair is a
-    range narrowed to the evidence, or the measurement asked for and the quantity recorded as an
-    estimate to be resolved. Such an end is the work's finding, not a conflict for a person under
-    policy rule 7, which applies at an end the work's evidence supports.
-  - Where the brief fixes a combination (a fall time with the inertia and centre-of-mass height
-    that set it), the quantities in it are ranged along the combination, not each alone; an end
-    with no solution inside the body's stated geometry is not an end (standards §7).
+    fails, except at a class 3 bound: a shaded range is also R7.
+  - Where the brief
+    fixes a combination (a fall time with the inertia and centre-of-mass height that set it), the
+    quantities in it are ranged along the combination, not each alone; an end with no solution
+    inside the body's stated geometry is not an end (standards §7).
 - **D36. Structure added to a reference law is needed, the least that works, and the law that
-  runs is on control's own node.** *Cat. 2.* *Trigger: the delivered law has a form other than the
-  reference the brief or specification cites.*
-  - The issued specification does not fix the form; where it does, the work reports the shortfall
+  runs is on control's own node.** *Cat. 2.* *Trigger: the module's law is run by the firmware (every control
+  module).*
+  - Where the delivered law has a form other than the reference the brief or specification cites:
+    the issued specification does not fix the form; where it does, the work reports the shortfall
     instead (A5, standards §7), and a delivered law of another form fails A1 for that criterion.
-  - The work shows the reference form misses the margins: the coefficients tried and the best
-    result, printed.
-  - The structure added is the least of standards §7's list that meets the margins, or the work
+  - For such a form, the work shows the reference form misses the margins: the coefficients tried
+    and the best result, printed.
+  - For such a form, the structure added is the least of standards §7's list that meets the margins, or the work
     says why a larger one was needed.
   - Every coefficient of the delivered law is on a node of control's own, each a value with its
     unit and with the integer form the firmware uses, and none is on an interface node. The node
     restates the law's sample period and command limit, each citing the interface or sizing node
     it comes from, with the same value. All of them equal the values in the margin script and the
     simulation (D24), within the reading of the printed values.
+  - The same law is in `law.json` at the top of the control module's directory, in the form the skill gives: every term the
+    firmware runs is a term of a line, none left out or replaced; each coefficient maps to a quantity
+    of control's node, the period to the interface's update rate, the delays and the limit as the
+    skill says; at least ten rows of test vectors, written by a script of the module from the node's
+    numbers, in which each term's variable is non-zero in some row. A missing file, a term left out,
+    a coefficient not on the node or fewer than ten rows is a violation (cat. 2); a row the module's
+    script does not reproduce is one too (cat. 1).
 - **D10. Gain reduction is reported.**
   - *Cat. 2* (a stating line). The work reports the lower gain margin `GML` (the factor by which
     loop gain may fall before instability) as well as the upper one. A single upper gain margin with
@@ -823,6 +848,18 @@ findings and rule 7's non-blocking defects, and the verdict format.
   - [B: the largest disturbance to withstand.] The same runs also carry the largest disturbance the
     issued specification states, and still recover.
   - [B: a limit missing per D21.] The runs include that limit.
+  - Each run's largest motor current is reported (standards §6): from the applied voltage (the duty times the brief's voltage where it fixes one, else the supply's top: sizing standards §7), `K_e` and `R` as sizing states them, `ω` on the shaft `K_e` is stated for,
+    beside the driver's peak rating sizing states. A run
+    with no such report is a violation (cat. 2, a stating line), for every run at an end, the
+    cruise and the push. A controller whose largest current exceeds the rating, with the work saying
+    so and what would avoid it (a bound on reversal at speed, a shaped reference), is `met` with a
+    non-blocking defect, and no criterion of the brief is relaxed for it; one that exceeds it with
+    nothing said is a violation. The current is sizing's open point (sizing standards §7), not a
+    conflict. A conflict over it stands only where the work shows, with its own runs, that it
+    cannot meet a criterion of the brief while every run stays within the rating: that criterion's
+    line is `not evaluable`, with a blocking defect naming the criterion, the runs and the rating,
+    so that it goes to a person. The same claim with no such runs leaves the criterion's line `unmet`. *Cat. 1* for the
+    figure: redo it from that voltage and the recorded speed.
   - Where a plant parameter is an estimate with a range (D35), the runs are made at the nominal
     plant and at each of D35's ends, one at a time; a run at a tolerance's end (D35), and one at a
     combination of ends where made, is recorded, not judged. A run that fails at an end where the
@@ -971,4 +1008,4 @@ in a proposed revision, it is recorded as policy rule 10's **Given values** says
   - *Do:* `noted` when the history reads precede a matching number; confirmed when the trajectory
     shows no derivation of it.
 
-<!-- e92adaf1e6b9b00c0770f70086e5b506 -->
+<!-- ef72cb89424fa0d057f3b94def724b4f -->

@@ -22,6 +22,7 @@ import {
 import { recordAddress } from "../common/addresses";
 import { attemptTag, groupsOf, subtasksOf } from "./model";
 import { Tag } from "./Tag";
+import { withoutAbsolutePaths } from "./paths";
 
 const TAG_ICONS = {
   merged: "git-pull-request-arrow",
@@ -116,7 +117,7 @@ function AttemptExtras({ attempt }: { readonly attempt: ListedAttempt }) {
                 <li key={`u${String(i)}`}>{unreadWords(entry.error)}</li>
               ) : (
                 <li key={`${entry.sessionId}/${entry.name}/${String(i)}`}>
-                  <span>{setAsideWords(entry.how, entry.reason)}</span>
+                  <span>{setAsideWords(entry.how, withoutAbsolutePaths(entry.reason))}</span>
                   <span className="pg-sim-file">{entry.name}</span>
                 </li>
               ),
