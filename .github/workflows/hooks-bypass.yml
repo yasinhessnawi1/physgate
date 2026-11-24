@@ -6,7 +6,12 @@ name: hooks-bypass
 
 on:
   push:
+    branches: [master]
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 # Reads the repository and writes nothing. There is no secret in this job and
 # no API key: the tests drive the binary with a scripted local stand-in for the
