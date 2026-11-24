@@ -39,6 +39,7 @@ from packet_fixture import ISSUED, SPEC, artefact_of, make_attempt, stream
 from rubric_fixture import PLACEHOLDER
 
 from physgate.orchestrator import exports
+from physgate.orchestrator.dispute import DISPUTES_DIR
 from physgate.orchestrator.protocols import Artefact, IssuedSpec
 from physgate.reviewers import packet
 from physgate.reviewers.exceptions import ReviewError
@@ -642,7 +643,7 @@ def _today_s_form(repo: Path, base: str, commit: str, leaving: list[str]) -> byt
         base,
         commit,
         "--",
-        f":(exclude){packet.DISPUTES_DIR}",
+        f":(exclude){DISPUTES_DIR}",
         *(f":(exclude,literal){path}" for path in leaving),
     )
 
@@ -675,7 +676,8 @@ def test_an_admitted_export_named_like_a_pattern_leaves_its_neighbours_in_the_di
 ) -> None:
     """Each left-out path is that one path: ``*.stl`` takes no other export with it."""
     starred = f"{MODULE}/exports/*.stl"
-    repo, base, commit = _change(tmp_path, {}, {starred: TINY_STL, STL_PATH: TINY_STL + b"\n"})
+    after: dict[str, bytes | None] = {starred: TINY_STL, STL_PATH: TINY_STL + b"\n"}
+    repo, base, commit = _change(tmp_path, {}, after)
     diff = packet._diff(repo, base, commit, _admit((starred, TINY_STL)))
     named = _named_by_git(diff)
     assert named == [f"diff --git a/{STL_PATH} b/{STL_PATH}".encode()], named
@@ -691,7 +693,7 @@ def _command_lines(monkeypatch: pytest.MonkeyPatch) -> list[int]:
         seen.append(sum(len(os.fsencode(word)) + 1 for word in argv))
         return real(argv, *args, **kwargs)
 
-    monkeypatch.setattr(packet.subprocess, "run", recorded)
+    monkeypatch.setattr(subprocess, "run", recorded)
     return seen
 
 

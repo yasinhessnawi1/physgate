@@ -344,7 +344,8 @@ def test_nothing_is_admitted_in_a_module_whose_exports_folder_passes_the_count_c
 ) -> None:
     assert COUNT_CAP is not None, "a module's exports are bounded in number"
     at_cap = {f"{EXPORTS}/part{n:02d}.stl": TINY_STL for n in range(COUNT_CAP)}
-    assert len(_admitted(tmp_path / "at", at_cap)) == COUNT_CAP
+    found = _admitted(tmp_path / "at", at_cap)
+    assert isinstance(found, list) and len(found) == COUNT_CAP, found
     over = {**at_cap, f"{EXPORTS}/one-more.stl": TINY_STL}
     assert _admitted(tmp_path / "over", over) == []
 
