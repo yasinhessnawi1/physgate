@@ -242,10 +242,15 @@ def test_a_protected_file_changed_during_the_session_is_named_by_no_path_where_i
     assert LABEL.search(kept["after_stop.json"]), kept["after_stop.json"]
 
 
+@pytest.mark.parametrize("place", ["the run's own", "open to others"])
 def test_a_held_out_file_with_a_second_name_before_the_commit_is_named_by_its_label(
-    tmp_path: Path,
+    tmp_path: Path, place: str
 ) -> None:
-    """What the commit's tripwire finds goes into the run's incident: its label, not its path."""
+    """What the commit's tripwire finds goes into the run's incident: its label, not its path.
+
+    A place apart that no key can be had from gives labels all the same, never a raise in the
+    incident's place.
+    """
     task = tmp_path / "held_out" / TASK_ID
     task.mkdir(parents=True)
     (task / FILE_NAME).write_bytes(BYTES)
@@ -268,7 +273,12 @@ def test_a_held_out_file_with_a_second_name_before_the_commit_is_named_by_its_la
     )
     config_path = tmp_path / "config.json"
     config_path.write_text(build_config(request, installation()).model_dump_json())
-    found = dispatch.withheld_before_commit(config_path)
+    if place == "open to others":
+        apart.chmod(0o755)
+    try:
+        found = dispatch.withheld_before_commit(config_path)
+    except (OSError, ValueError) as exc:
+        pytest.fail(f"the commit's tripwire raised in the incident's place: {exc!r}")
     assert found is not None and "has more than one name (2)" in found, found
     needles = (str(tmp_path / "held_out"), TASK_ID, FILE_NAME)
     assert [n for n in needles if n in found] == [], found

@@ -493,12 +493,31 @@ def labeller(config: ConfigView) -> Callable[[str], str]:
     """What names a path in what the orchestrator writes of a session: the path, or its label.
 
     The same label the session's sentinel writes for the path, where the configuration names a
-    place apart; with none, labels told apart within one record.
-
-    Raises:
-        ValueError: the configuration names more than one place apart.
+    usable place apart. It never raises, so what the orchestrator records is always written: a
+    key that cannot be had gives labels told apart within one record, and a path that cannot be
+    judged is labelled, never named.
     """
-    return _namer(config, _apart_place(config), None)
+    try:
+        apart = _apart_place(config)
+    except ValueError:
+        apart = None
+    keys: list[bytes] = []
+
+    def named(path: str) -> str:
+        try:
+            kind = _kind(path, config)
+        except (OSError, ValueError):
+            kind = "protected"
+        if kind is None:
+            return path
+        if not keys:
+            try:
+                keys.append(label_key(apart) if apart is not None else os.urandom(_KEY_BYTES))
+            except (OSError, ValueError):
+                keys.append(os.urandom(_KEY_BYTES))
+        return label_of(path, kind, keys[0])
+
+    return named
 
 
 def named_problems(problems: list[Problem], named: Callable[[str], str]) -> list[str]:

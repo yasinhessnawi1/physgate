@@ -2265,10 +2265,19 @@ class ClaudeDispatcher:
                     redact(stdout, self._credential.secret)
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
+        # Read inside, named outside: the naming never raises, and an error it met is never
+        # taken for a root that could not be read.
+        failure: OSError | None = None
         try:
-            moved, unread = [named(p) for p in changed_since(roots)], None
+            changed = changed_since(roots)
         except OSError as exc:
-            moved, unread = [], f"a put-back root could not be read: {_os_error(exc, named)}"
+            changed, failure = [], exc
+        moved = [named(p) for p in changed]
+        unread = (
+            None
+            if failure is None
+            else f"a put-back root could not be read: {_os_error(failure, named)}"
+        )
         # A second name for a held record, where the session could write: its worktree, and its
         # directory, which holds what the sentinel moved aside. An attempt commit never holds one.
         names_seen = second_names(

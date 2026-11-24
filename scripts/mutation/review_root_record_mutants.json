@@ -168,8 +168,8 @@
   {
     "name": "the_end_record_names_what_moved",
     "file": "src/physgate/orchestrator/dispatch.py",
-    "old": "            moved, unread = [named(p) for p in changed_since(roots)], None",
-    "new": "            moved, unread = changed_since(roots), None",
+    "old": "        moved = [named(p) for p in changed]\n",
+    "new": "        moved = list(changed)\n",
     "tests": [
       "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py"
     ],
@@ -217,6 +217,21 @@
     ],
     "data": [
       "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+    ]
+  },
+  {
+    "name": "the_orchestrator_s_labels_raise_without_a_key",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "            try:\n                keys.append(label_key(apart) if apart is not None else os.urandom(_KEY_BYTES))\n            except (OSError, ValueError):\n                keys.append(os.urandom(_KEY_BYTES))\n",
+    "new": "            keys.append(label_key(apart) if apart is not None else os.urandom(_KEY_BYTES))\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py"
     ]
   },
   {
