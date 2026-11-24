@@ -292,6 +292,7 @@ describe("the ratings", () => {
       sha256: OTHER,
       table_sha256: DIGEST,
       laws: 9,
+      library_is_this_checkout: true,
     },
   };
 
@@ -313,7 +314,13 @@ describe("the ratings", () => {
       sha256: OTHER,
       tableSha256: DIGEST,
       laws: 9,
+      libraryIsThisCheckout: true,
     });
+    const elsewhere = ratings({
+      ...RATINGS,
+      gate_digest: { ...RATINGS.gate_digest, library_is_this_checkout: false },
+    });
+    expect(elsewhere.gateDigest).toMatchObject({ state: "read", libraryIsThisCheckout: false });
   });
 
   it("keeps the server's sentence when no gate is built from the library", () => {
@@ -339,6 +346,13 @@ describe("the ratings", () => {
     expect(() => digestOf({ ...RATINGS.gate_digest, sha256: "short" })).toThrow(ShapeError);
     expect(() => digestOf({ ...RATINGS.gate_digest, laws: -1 })).toThrow(ShapeError);
     expect(() => digestOf({ ...RATINGS.gate_digest, state: "absent" })).toThrow(ShapeError);
+    // A digest that does not say whose library it is, so the page cannot say who carries it.
+    expect(() => digestOf({ ...RATINGS.gate_digest, library_is_this_checkout: undefined })).toThrow(
+      ShapeError,
+    );
+    expect(() => digestOf({ ...RATINGS.gate_digest, library_is_this_checkout: "yes" })).toThrow(
+      ShapeError,
+    );
     expect(() => digestOf({ state: "refused", file: "knowledge/laws/laws.toml" })).toThrow(
       ShapeError,
     );

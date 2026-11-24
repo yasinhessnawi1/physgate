@@ -76,3 +76,5 @@ def test_the_library_screen_serves_the_digest_these_runs_gate_records_carry(
     digest = json.loads(body)["gate_digest"]
     assert digest["state"] == "read", digest
     assert {digest["sha256"]} == recorded
+    # The checkout's own library, so the page may say a run from this checkout carries it.
+    assert digest.get("library_is_this_checkout") is True, digest
