@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from physgate.build.bom.check import (
     EXIT_REFUSED,
+    NOT_FOUND,
     LineResult,
     check_lines,
     exit_status,
@@ -270,7 +271,7 @@ def _grid(rows: list[tuple[str, ...]]) -> list[str]:
 def _part(result: LineResult) -> str:
     entry = result.entry
     if entry is None:
-        return "not found in the sheet"
+        return NOT_FOUND
     number = entry.maker_part_number
     named = _marked(entry.maker.value, entry.maker)
     named += " " + (

@@ -108,6 +108,8 @@ def test_a_part_the_sheet_does_not_name_is_not_found_in_the_sheet(
     assert status == EXIT_INCOMPLETE
     assert only["found_in_sheet"] is False
     assert only["verdict"] == "incomplete"
+    _, table, _ = _run(capsys, tmp_path, "--sheet", other)
+    assert "  part: not found in the sheet" in table
 
 
 def test_a_run_with_no_parts_decision_has_no_lines_and_that_is_not_a_pass(
