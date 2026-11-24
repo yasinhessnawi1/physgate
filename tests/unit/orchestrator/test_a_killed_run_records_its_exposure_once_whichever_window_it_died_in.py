@@ -20,6 +20,11 @@ nothing. The windows:
 
 A run killed before anything showed held-out material records no exposure and leaves its version
 open: the rows above do not pass by marking every killed run.
+
+One window is not exactly once, and its row says so: a resume killed after a leftover's lone
+incident and before the leftover is ended records that incident again when it is taken over. Two
+register lines then stand for one session's exposure; the version is refused all the same, and
+named once among the exposed versions.
 """
 
 from __future__ import annotations
@@ -369,6 +374,47 @@ def test_a_resume_killed_after_it_read_a_leftover_s_exposure_and_before_its_reco
     assert kinds(rows).count("leftover_read") == 1
     assert "left-1" in _exposures(rows)[0]["detail"]
     _exposed_once(tier, rig)
+
+
+def test_a_resume_killed_after_a_leftover_s_lone_incident_may_record_it_twice_and_refuses_it(
+    tier: OnTier,
+) -> None:
+    """The known limit, pinned as it is: killed after the incident and before the leftover is ended.
+
+    The take-over writes the owed halt, finds the leftover again and records its incident a
+    second time: two register lines for one session's exposure. It fails closed: the version is
+    refused, and the register names it once among the exposed versions.
+    """
+    rig = tier.rig(dispatcher=SessionOnTier(real_dir=tier.run_dir, on=tier))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop._spawned("left-1", 999_999, STARTED)  # noqa: SLF001 - the loop's own record of a spawn
+    loop.close()
+    _session_dir(tier.run_dir, "left-1", tier.shown())
+
+    def dies_as_it_ends_them() -> None:
+        raise KilledError
+
+    rig.dispatcher.end_leftovers = dies_as_it_ends_them  # type: ignore[method-assign]
+    loop = rig.open()
+    assert outcome(loop.run) == "killed"
+    loop.close()
+    del rig.dispatcher.end_leftovers
+    assert kinds(lines(rig))[-1] == "incident"
+    assert len(_exposures(lines(rig))) == 1
+    assert taken_over(rig) == "halted"
+    rows = lines(rig)
+    assert kinds(rows)[-5:] == ["incident", "halted", "incident", "leftover_read", "halted"]
+    assert len(_exposures(rows)) == 2
+    assert all("left-1" in row["detail"] for row in _exposures(rows))
+    assert "merged" not in kinds(rows)
+    assert api(f"{EXPOSURE}.record_scan")(tier.made.store, ROLE) == (2, 0)
+    register = api(f"{EXPOSURE}.register_lines")(tier.made.store, ROLE)
+    assert [(x.kind, x.version) for x in register] == [("exposure", tier.made.version)] * 2
+    exposed = api(f"{EXPOSURE}.exposed_versions")(tier.made.store, ROLE)
+    assert exposed == frozenset({tier.made.version})
+    later = refusal(config(tier.made.tasks["visible"][0], tier.made), tier.runs / "r2")
+    assert later is not None and "(version_exposed)" in later, later
 
 
 # --- at a review --------------------------------------------------------------------------------
