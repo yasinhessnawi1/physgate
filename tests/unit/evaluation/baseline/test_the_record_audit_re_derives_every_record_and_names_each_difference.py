@@ -161,7 +161,7 @@ def _field(name: str, value: Any) -> Callable[[Path, StandInStore], None]:  # no
 
 
 def _protected(out: Path, store: StandInStore) -> Path:
-    round_id = _lines(out / LEDGER)[0]["round"]
+    round_id = str(_lines(out / LEDGER)[0]["round"])
     return withheld_root(store.store, "control") / BASELINE_DIR / round_id / TRIALS
 
 

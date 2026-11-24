@@ -16,6 +16,7 @@ streams are stand-ins in the shape a live run's stream gave at the limit. No ses
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -489,6 +490,12 @@ def test_the_command_prints_the_wait_and_exits_with_the_driver_s_status(
         raise RoundWaits(status, "0" * 16, waiting)  # type: ignore[arg-type]
 
     monkeypatch.setattr(runner, "run_baseline", waits)
+    # The scorer's libraries are the evaluation environment's; the command only names it here.
+    import types
+
+    scorer = types.ModuleType("physgate.evaluation.per_role.scorers.control")
+    scorer.score = Scorer()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, scorer.__name__, scorer)
     monkeypatch.setattr(install, "prepare_install", lambda *_: tmp_path / "bin")
     (tmp_path / "runs.json").write_text(
         json.dumps({"format": 1, "trials": [{"run_dir": "/r", "trial": 0}]})
