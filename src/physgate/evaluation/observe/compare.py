@@ -100,6 +100,9 @@ DRIFT: tuple[str, ...] = (
     # Whether the sessions were denied the binary's search tool: denied, every tool is offered
     # directly; offered, tools are held back behind the search step.
     "tool_search",
+    # Whether the sessions' Python wrote bytecode caches: written, a script importing another
+    # module's code left that module's cache in the worktree and its attempt out of scope.
+    "python_bytecode",
 )
 
 #: Reported when they differ, never refused: what an ablation varies on purpose.

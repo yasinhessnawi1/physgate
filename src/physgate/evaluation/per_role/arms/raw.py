@@ -78,7 +78,12 @@ from physgate.orchestrator.dispatch import (
     write_record,
 )
 from physgate.orchestrator.exceptions import InvocationError, RunConfigError
-from physgate.orchestrator.invocation import NO_TOOL_SERVERS, isolated_env, role_argv
+from physgate.orchestrator.invocation import (
+    NO_TOOL_SERVERS,
+    isolated_env,
+    role_argv,
+    session_python_bytecode,
+)
 from physgate.orchestrator.processes import kill_own, stop_tree
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.role_python import RolePython, session_bin
@@ -1179,6 +1184,8 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
             None if setup.tool_servers is None else setup.tool_servers.model_dump(mode="json")
         ),
         "tool_search": session_tool_search(),
+        # Whether its Python wrote bytecode, read from what the session was spawned with.
+        "python_bytecode": session_python_bytecode(),
         "brief_sha256": hashlib.sha256(task.brief.encode()).hexdigest(),
         "answer": task.answer.model_dump(),
     }

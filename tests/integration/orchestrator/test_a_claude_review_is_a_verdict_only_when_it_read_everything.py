@@ -231,6 +231,7 @@ def _config(version: str) -> RunConfig:
         tool_environment=None,
         tool_servers=None,
         tool_search="denied",
+        python_bytecode="not_written",
         git_binary=None,
         escalation_backend="rules",
         queue_decisions="record",

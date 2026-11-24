@@ -127,6 +127,7 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         "ablation": False,
         # What the sessions' settings do today: the search tool is denied.
         "tool_search": "denied",
+        "python_bytecode": "not_written",
         "design_review": "off",
         "parts_on_hand": "off",
         "review_compaction": "off",

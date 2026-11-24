@@ -289,6 +289,7 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
                     # Taken from the register, and null for a run naming no tool environment.
                     "tool_servers": None,
                     "tool_search": "denied",
+                    "python_bytecode": "not_written",
                     # Measured by the command, never taken from the parameters: the
                     # parameters name the account, the command adds its fingerprint.
                     "binary": None,

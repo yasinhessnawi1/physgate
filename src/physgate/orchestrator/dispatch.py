@@ -106,6 +106,7 @@ from physgate.orchestrator.invocation import (
     role_argv,
     session_search_path,
 )
+from physgate.orchestrator.left_out import SCRATCH_DIR, clear_left_out
 from physgate.orchestrator.managed import (
     ObservedTraffic,
     drift,
@@ -742,8 +743,10 @@ def role_prompt(request: SessionRequest, state: Path | None = None) -> str:
     text = (
         f"You implement subtask {request.subtask_id} in the {request.assigned_role} role.\n\n"
         f"Your specification is {request.spec_path}; read it in full first. Change files only "
-        f"under {request.module_dir}/. To propose a node of the design graph, write it whole as "
-        "JSON to .physgate/proposals/<node id>.json with the Write tool (no command or script "
+        f"under {request.module_dir}/. A throwaway helper script or note goes in {SCRATCH_DIR}/, "
+        "which is never part of your attempt and is emptied when your session ends; nothing it "
+        "computes is accepted as a record. To propose a node of the design graph, write it whole "
+        "as JSON to .physgate/proposals/<node id>.json with the Write tool (no command or script "
         "can write there); never write the graph store itself. To "
         f"record a simulation's output, run a script under {request.module_dir}/ that writes "
         "each run through the series writer, .physgate/lib/series_writer.py, into "
@@ -1172,6 +1175,10 @@ def review_streams(spawns: int) -> tuple[str, ...]:
 _RESUME_ENDS = ("stopped_at_resume", "not_running_at_resume")
 #: Where the placeholder sweep at a session's end records what it removed and refused.
 PLACEHOLDERS_NAME = "sandbox_placeholders.json"
+#: Where a session's start and its end record what they removed of the scratch folder and of
+#: bytecode (:mod:`~physgate.orchestrator.left_out`), and what stayed.
+LEFT_OUT_BEFORE_NAME = "left_out_before.json"
+LEFT_OUT_NAME = "left_out.json"
 
 
 def _taken_up(sdir: Path) -> bool:
@@ -2229,6 +2236,9 @@ class ClaudeDispatcher:
         system_before = self.environment().system_managed
         # Made before the installation, so the OS layer's rules name them as they will stand.
         (sdir / "home").mkdir(parents=True, exist_ok=True)
+        # What an earlier session left in the scratch folder or as bytecode is gone before this
+        # one starts, so no session finds another's: recorded, as the end's clearing is.
+        self._clear_left_out(worktree, sdir, LEFT_OUT_BEFORE_NAME)
         runtime_paths(worktree, sdir / "home")
         runtime_git_paths(common_dir(self._run.repo), self._config.claude_version)
         env = isolated_env(
@@ -2537,6 +2547,10 @@ class ClaudeDispatcher:
         # The tripwire on the files no session reads, once more before the attempt is committed:
         # a second name, a changed file or one that cannot be checked refuses the attempt.
         withheld_problems = withheld_before_commit(Path(installed.config))
+        # What the session left in its scratch folder or as bytecode is never part of the attempt:
+        # removed after every session, ended for whatever cause, and recorded; the commit leaves
+        # out whatever a removal could not take.
+        self._clear_left_out(worktree, sdir, LEFT_OUT_NAME)
         commit = (
             commit_attempt(
                 worktree,
@@ -2598,6 +2612,11 @@ class ClaudeDispatcher:
             usage_limit=usage_limit,
             account_windows=account_windows(streamed),
         )
+
+    def _clear_left_out(self, worktree: Path, sdir: Path, name: str) -> None:
+        """Clear the worktree of what is never part of an attempt; record it in ``sdir``."""
+        cleared = clear_left_out(worktree, repo=self._run.repo)
+        (sdir / name).write_text(cleared.model_dump_json())
 
     @staticmethod
     def _sweep(worktree: Path, before: placeholders.Snapshot, sdir: Path) -> str | None:

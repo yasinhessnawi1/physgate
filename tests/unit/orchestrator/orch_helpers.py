@@ -77,6 +77,7 @@ def make_config(**overrides: Any) -> RunConfig:
         "ablation": False,
         # What the sessions' settings do today: the search tool is denied.
         "tool_search": "denied",
+        "python_bytecode": "not_written",
         "design_review": "off",
         "parts_on_hand": "off",
         "review_compaction": "off",

@@ -75,6 +75,7 @@ from physgate.orchestrator.git import (
     utf8_name,
     verified_git_dir,
 )
+from physgate.orchestrator.left_out import LEFT_OUT_OF_THE_COMMIT, clear_left_out
 from physgate.orchestrator.ports import WorktreeRemoval
 from physgate.orchestrator.protocols import AdmittedExport
 
@@ -233,9 +234,21 @@ def commit_attempt(
     repository the worktree was made in: the worktree's admin directory must belong to it.
     ``replaces`` is this attempt's commit at the worktree's head from a session whose end was
     never recorded: the new commit takes its place, on its parent, so the attempt has one commit.
+
+    The session's scratch folder and bytecode are never part of the attempt
+    (:mod:`~physgate.orchestrator.left_out`): removed from the worktree first, and left out of
+    what is staged, so the commit holds neither even where a removal failed.
     """
     message = attempt_message(subtask_id, attempt, session_id)
-    return commit_all(worktree, message, linked=True, common=common_dir(repo), replaces=replaces)
+    clear_left_out(worktree, repo=repo)
+    return commit_all(
+        worktree,
+        message,
+        linked=True,
+        common=common_dir(repo),
+        replaces=replaces,
+        leave_out=LEFT_OUT_OF_THE_COMMIT,
+    )
 
 
 def write_scope_violations(

@@ -59,6 +59,7 @@ def _config(**changes: object) -> RunConfig:
         network_enforced=True,
         tool_servers=None,
         tool_search="denied",
+        python_bytecode="not_written",
         held_out=["/store/control/withheld"],
         held_out_sha256=["d" * 64],
         held_out_canaries=["c" * 32],

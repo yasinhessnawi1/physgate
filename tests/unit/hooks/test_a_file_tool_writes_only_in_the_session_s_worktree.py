@@ -54,6 +54,11 @@ from physgate.orchestrator.merge import RunGit  # noqa: E402
 from physgate.orchestrator.ports import SessionRequest  # noqa: E402
 from physgate.oslayer.probe import Absent, shared_temp_dirs  # noqa: E402
 
+try:
+    from physgate.orchestrator import left_out
+except ImportError:  # the code before the scratch folder existed: the row fails on its words
+    left_out = None  # type: ignore[assignment]
+
 SID = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
 REVIEW_ID = "7d0c5e1a-3b2f-4c6d-8e9f-0a1b2c3d4e5f"
 #: Named to the installer, never made: the session's own temporary directory and another's.
@@ -717,8 +722,11 @@ def test_the_refusal_says_where_a_session_writes_and_names_no_path(
     assert code != 0
     assert said == paths.OUTSIDE_THE_WORKTREE.format(tool="Write")
     assert "in its own worktree" in said
-    assert "throwaway helper script belongs in the worktree" in said
-    assert "/" not in said
+    # It names the one folder a throwaway helper goes in, and no other path.
+    scratch = f"{getattr(left_out, 'SCRATCH_DIR', '.physgate/scratch')}/"
+    assert f"A throwaway helper script or note goes in the worktree's {scratch} folder" in said
+    assert "never part of an attempt" in said
+    assert "/" not in said.replace(scratch, "")
     assert logged, "the refusal left no line in the hook log"
     # The log keeps the call's own input, as for every refusal; its reason names no path.
     for line in logged:

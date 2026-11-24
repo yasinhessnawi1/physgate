@@ -349,7 +349,7 @@ class CommandDriver:
         from physgate.orchestrator import binaries, git, role_python, run_config, tool_environment
         from physgate.orchestrator.decompose import binary_version
         from physgate.orchestrator.dispatch import probe_interpreter
-        from physgate.orchestrator.invocation import claude_binary
+        from physgate.orchestrator.invocation import claude_binary, session_python_bytecode
 
         params = json.loads(inputs.params.read_bytes())
         harness = run_config.harness_root()
@@ -390,6 +390,7 @@ class CommandDriver:
             "tool_servers": servers,
             "endpoint": lambda: run_config.endpoint_of(os.environ.get("ANTHROPIC_BASE_URL")),
             "tool_search": session_tool_search,
+            "python_bytecode": session_python_bytecode,
         }
         pins = {"harness": run_config.harness_state(harness).model_dump(mode="json")}
         for name in PINNED:

@@ -32,6 +32,9 @@ ENV_2_1_301 = {
     # The one variable the tool layer adds on every pin: the bound on one tool server's
     # answer, at the binary's own default, so that a remote flag cannot move it.
     "MAX_MCP_OUTPUT_TOKENS": "25000",
+    # And on every pin, in both arms: the session's Python writes no bytecode. A run records it
+    # as its own field, so a run recorded before it existed is told apart, never compared.
+    "PYTHONDONTWRITEBYTECODE": "1",
 }
 
 #: The variables the provider documents as turning feature-flag fetching off (read 11.11.2026).

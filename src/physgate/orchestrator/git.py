@@ -1009,6 +1009,7 @@ def commit_all(
     linked: bool = False,
     common: Path | None = None,
     replaces: str | None = None,
+    leave_out: tuple[str, ...] = (),
 ) -> str:
     """Stage everything in ``worktree`` and commit it, even if nothing changed.
 
@@ -1026,14 +1027,15 @@ def commit_all(
     level (:func:`nested_git`) is refused before anything is staged.
 
     ``replaces`` is the commit at the head the new one takes the place of, on its parent; it is
-    refused unless the head is still that commit.
+    refused unless the head is still that commit. ``leave_out`` are exclude pathspecs: what they
+    match is not staged, so the commit holds it as the head did.
     """
     admin = verified_git_dir(worktree, linked=linked, common=common)
     nested = nested_git(worktree)
     if nested is not None:
         msg = "the worktree holds a git repository of its own, which staging would open"
         raise GitError(msg, cwd=str(worktree), path=str(nested))
-    git(worktree, "add", "--all", git_dir=admin)
+    git(worktree, "add", "--all", *(("--", *leave_out) if leave_out else ()), git_dir=admin)
     amend: tuple[str, ...] = ()
     if replaces is not None:
         head = git(worktree, "rev-parse", "--verify", "HEAD^{commit}", git_dir=admin).strip()
