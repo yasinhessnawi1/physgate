@@ -259,6 +259,45 @@
   ]
  },
  {
+  "name": "no_fresh_version_is_not_refused",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "    if not fresh:\n        return refused(\"no_fresh_version\")\n",
+  "new": "    if False:\n        return refused(\"no_fresh_version\")\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
+  "name": "the_parser_repeats_what_the_file_held",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "    except ValidationError:\n        msg = (\n            \"the published tier status is not a file",
+  "new": "    except ValidationError as exc:\n        msg = str(exc) + (\n            \"the published tier status is not a file",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_tiers_route_serves_the_published_status_and_nothing_else.py"
+  ]
+ },
+ {
+  "name": "a_link_in_place_of_a_publication_is_followed",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)",
+  "new": "        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/gaps/gap_fixtures.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_tiers_route_serves_the_published_status_and_nothing_else.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_gaps_route_serves_the_published_trend_or_why_not.py"
+  ]
+ },
+ {
   "name": "baseline_last",
   "file": "src/physgate/evaluation/tiers/published.py",
   "old": "",

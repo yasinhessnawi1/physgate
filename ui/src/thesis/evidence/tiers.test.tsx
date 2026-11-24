@@ -127,6 +127,10 @@ describe("the tier versions' guard", () => {
     ["a check of another number of tasks than the tier", edited(["counts", "held_out"], 9)],
     ["an exposed version said to be fresh", edited(["exposure"], "exposed")],
     ["an exposure word it does not know", edited(["exposure"], "a little")],
+    [
+      "an exposure word it does not know, on a stale version",
+      { roles: [tierRole({ exposure: "a little", version_state: "stale" }), TIERS.roles[1]] },
+    ],
     ["a state word it does not know", edited(["version_state"], "current")],
     ["a check source it does not know", edited(["check", "source"], "a person")],
     ["a version that is no id", edited(["version"], "/srv/held_out/task.json")],
