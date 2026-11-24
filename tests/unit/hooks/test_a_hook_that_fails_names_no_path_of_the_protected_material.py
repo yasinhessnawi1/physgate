@@ -15,6 +15,7 @@ OS layer changed its mode blindly (``find / … -exec chmod 000 {} +``), with no
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -236,6 +237,36 @@ def test_a_held_out_entry_moved_aside_leaves_no_name_of_its_task_in_the_session_
     # What was planted is kept as evidence all the same.
     aside = state / "sessions" / SESSION / "sentinel" / "quarantine"
     assert [p.read_bytes() for p in aside.iterdir()] == [b"planted\n"]
+
+
+@pytest.mark.parametrize(
+    ("where", "said"),
+    [
+        ("worktree", "a path in the worktree, not named"),
+        ("elsewhere", "a path not named"),
+    ],
+)
+def test_a_file_no_rule_protects_is_named_by_the_place_it_lies_in_never_by_its_path(
+    root: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    where: str,
+    said: str,
+) -> None:
+    """A path outside the protected material can be named after an entry of it: none is written."""
+    installed = _install(root)
+    met = str(root / where / TASK_ID)
+
+    def raises(*_args: object) -> object:
+        raise OSError(errno.EACCES, "denied", met)
+
+    monkeypatch.setattr(sentinel, "_baseline", raises)
+    code, out, err = _hook(root, installed, capsys, "PreToolUse")
+    assert code == 2, out
+    assert f"on {said}," in _reason(out), _reason(out)
+    seen = {"the refusal": out, "stderr": err, "the hook log": _log(root)}
+    named = {w: [n for n in (TASK_ID, str(root)) if n in text] for w, text in seen.items()}
+    assert named == dict.fromkeys(seen, []), named
 
 
 def test_a_failure_that_is_no_error_of_the_system_is_named_by_its_kind_alone(

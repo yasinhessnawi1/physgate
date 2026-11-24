@@ -427,6 +427,42 @@
     ]
   },
   {
+    "name": "a_path_in_the_hooks_state_is_named",
+    "file": "src/physgate/hooks/runtime.py",
+    "old": "            return \"a path in the hooks' state directory, not named\"\n",
+    "new": "            return name\n",
+    "tests": [
+      "tests/unit/hooks/test_a_hook_that_fails_names_no_path_of_the_protected_material.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "a_path_in_the_worktree_is_named",
+    "file": "src/physgate/hooks/runtime.py",
+    "old": "            return \"a path in the worktree, not named\"\n",
+    "new": "            return name\n",
+    "tests": [
+      "tests/unit/hooks/test_a_hook_that_fails_names_no_path_of_the_protected_material.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "a_path_elsewhere_is_named",
+    "file": "src/physgate/hooks/runtime.py",
+    "old": "    return \"a path not named\"\n",
+    "new": "    return name\n",
+    "tests": [
+      "tests/unit/hooks/test_a_hook_that_fails_names_no_path_of_the_protected_material.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
     "name": "baseline_last",
     "file": "src/physgate/hooks/sentinel.py",
     "old": "",
