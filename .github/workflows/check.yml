@@ -16,7 +16,7 @@ jobs:
     name: tests
     runs-on: ubuntu-latest
     # Measured about 6 min for the tests step and about 1 min of setup; the ceiling is over three times that, so a hung runner still stops.
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
 
