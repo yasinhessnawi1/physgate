@@ -238,6 +238,13 @@ class PersonOrder(_Frozen):
         return data
 
 
+class AdmittedExport(_Frozen):
+    """An export the commit-time rule admitted: its path and the sha256 of the bytes it read."""
+
+    path: NonEmptyStr
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
 class UnjudgedAttempt(_Frozen):
     """An earlier attempt of the subtask that no review judged, whose streams the scan flags.
 
@@ -303,6 +310,10 @@ class Artefact(_Frozen):
     #: which its reviewer is shown quantity by quantity. Left out of a dump when empty, so every
     #: other attempt is recorded as before.
     followed: tuple[FollowedInterface, ...] = ()
+    #: The exports the change check's commit-time rule admitted, each side of each change by
+    #: its path and sha256: what the review packet may show as one line in place of its bytes.
+    #: Left out of a dump when empty, so every other attempt is recorded as before.
+    exports: tuple[AdmittedExport, ...] = ()
     #: The earlier attempts of the subtask no review judged whose streams the scan flags, in
     #: order, for this attempt's reviewer to judge their hits. Left out of a dump when empty, so
     #: every other attempt is recorded as before.
@@ -321,6 +332,8 @@ class Artefact(_Frozen):
             data.pop("parts_record", None)
         if not self.followed:
             data.pop("followed", None)
+        if not self.exports:
+            data.pop("exports", None)
         if not self.unjudged:
             data.pop("unjudged", None)
         return data
@@ -896,6 +909,10 @@ class ReviewResult(_Frozen):
     #: The context size before each compaction, in tokens, as each boundary named it; empty,
     #: and not written, where there was none or a boundary named no size.
     compaction_pre_tokens: tuple[Count, ...] = Field(default=(), exclude_if=lambda v: not v)
+    #: True where the verdict is the session's last try, sent as a text the binary refused only
+    #: for being one, read as the object it holds and held to the same schema and checks as any
+    #: verdict; ``None``, and not written, otherwise, so every other review is recorded as before.
+    verdict_from_text: Literal[True] | None = Field(default=None, exclude_if=lambda v: v is None)
 
     @model_validator(mode="after")
     def _sizes_are_one_per_compaction(self) -> ReviewResult:

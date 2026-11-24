@@ -117,7 +117,10 @@ PUSH_BAND = (-0.05, 0.0, 0.05)
 #: The brief's (criterion 18): a tilt past this angle is a fall, rad.
 FELL_TILT = math.radians(70.0)
 #: Proposal: the output points of a period are no further apart than this, s, so that the peak
-#: between two updates is found at this spacing whatever the period (the record states it).
+#: between two updates is found at this spacing whatever the period (the record states it). A
+#: smooth tilt whose peak falls between two points ``h`` apart is read low by at most
+#: ``h**2 / 8`` times the largest tilt acceleration there (its rate is zero at the peak); a row
+#: holds a slow period's peak to that bound against a fine run.
 OUTPUT_SPACING = 2.5e-3
 #: Proposal: the one tiny perturbation of the second run, rad/s, added to the initial tilt rate of
 #: every lane. It is twelve orders below the brief's push (1.5 rad/s), and it is the only
@@ -131,9 +134,15 @@ RUNS = 2
 #: Proposal: what one cut of a period costs an update, in the units of one state or one term of
 #: the law (a matrix product and the fall test are about this many array operations).
 SEGMENT_WEIGHT = 12
-#: The most work one analysis may do: runs × points × updates (the shared run and the three
-#: branches) × (states + the law's size + the cuts' weight). A proposal, measured: about a minute
-#: on a laptop at 2.6 ns a unit, and a task past it has its rows unscored.
+#: Proposal: what setting up one cut of a period costs, in the same units: a matrix exponential
+#: per point, cut and run before the first step (measured at about 30 us on a laptop, over 11,000
+#: units of 2.6 ns). At a period of 1 s, 400 cuts, this is most of the analysis's work.
+EXPONENTIAL_WEIGHT = 12_000
+#: The most work one analysis may do: runs × points × (updates (the shared run and the three
+#: branches) × (states + the law's size + the cuts' weight) + the cuts' set-up). A proposal, and a
+#: task past it has its rows unscored. What a unit costs depends on the machine and the period:
+#: on a Linux server a whole record at a 1 ms period counted 3.55e9 units and took 40 s, so a law
+#: at the bound takes minutes there (about four), not seconds.
 MAX_DYNAMIC_WORK = 20_000_000_000
 
 
@@ -412,11 +421,14 @@ def work(points: int, period: float, states: int, size: int) -> int:
 
     The runs × points × updates (the shared run and the branches) × (the closed loop's states, the
     law's size, :func:`law_size`, and the cuts of a period at their weight: the output points and
-    the two cuts a delay can add).
+    the two cuts a delay can add), and the runs × points × the cuts of a period at the weight of
+    setting each up (:data:`EXPONENTIAL_WEIGHT`), which every run does before its first step.
     """
     u = updates(period)
-    per_update = states + size + SEGMENT_WEIGHT * (output_points(period) + 2)
-    return RUNS * points * (u.push + len(PUSH_BAND) * u.observed) * per_update
+    cuts = output_points(period) + 2
+    per_update = states + size + SEGMENT_WEIGHT * cuts
+    stepped = (u.push + len(PUSH_BAND) * u.observed) * per_update
+    return RUNS * points * (stepped + EXPONENTIAL_WEIGHT * cuts)
 
 
 def realised_times(period: float) -> dict[str, float]:

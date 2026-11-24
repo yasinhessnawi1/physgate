@@ -1,0 +1,742 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/test_a_drawing_is_composed_from_its_projection_the_same_bytes_every_time.py",
+      "tests/unit/drawings/test_the_drawing_command_says_what_it_leaves_out_and_its_check_only_reads.py",
+      "tests/unit/drawings/test_make_writes_its_files_only_into_out_and_refuses_in_a_sentence.py",
+      "tests/unit/drawings/test_the_drawing_package_asks_no_model_and_its_checker_runs_nothing.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "stale_never_found",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "    if record.geometry_hash != part.geometry_hash:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "another_part_taken_for_this_one",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "    if record.part != part.part:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "file_judged_by_its_size_alone",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "    if found == named.sha256 and len(data) == named.size.value:\n",
+    "new": "    if len(data) == named.size.value:\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_one_point_path_taken_as_a_line",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "_points(p.get(\"d\", \"\")) >= 2]",
+    "new": "_points(p.get(\"d\", \"\")) >= 1]",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_missing_view_not_named",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "            problems.append(f\"no {name} view\")\n",
+    "new": "            pass\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "line_counts_not_compared",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "        if view is not None and (\n",
+    "new": "        if False and (\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "record_s_view_list_not_compared",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "    if listed != VIEWS:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "title_field_shown_otherwise_passes",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "        elif shown != given:\n",
+    "new": "        elif False:\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "record_s_own_title_block_not_compared",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "    problems += check_title_block(record)\n",
+    "new": "    problems += []\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "recorded_dimension_not_judged",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "        elif recorded.value != float(written):\n",
+    "new": "        elif False:\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "shown_dimension_not_judged",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "        elif text != written:\n",
+    "new": "        elif False:\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_shown_dimension_read_in_any_form",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "        if text is None or not _SHOWN.fullmatch(text):\n",
+    "new": "        if text is None:\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "agreement_widened_to_a_tenth",
+    "file": "src/physgate/build/drawings/sheet.py",
+    "old": "AGREEMENT_MM = 0.05",
+    "new": "AGREEMENT_MM = 0.1",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "agreement_narrowed_below_half_a_tenth",
+    "file": "src/physgate/build/drawings/sheet.py",
+    "old": "AGREEMENT_MM = 0.05",
+    "new": "AGREEMENT_MM = 0.04",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_document_type_read",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "if b\"<!DOCTYPE\" in data or b\"<!ENTITY\" in data:",
+    "new": "if False:",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "fails_answered_before_stale",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "    if \"stale\" in verdicts:\n        return EXIT_STALE\n    if \"fails\" in verdicts:\n        return EXIT_FAILS\n",
+    "new": "    if \"fails\" in verdicts:\n        return EXIT_FAILS\n    if \"stale\" in verdicts:\n        return EXIT_STALE\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "projection_of_another_shape_composed",
+    "file": "src/physgate/build/drawings/sheet.py",
+    "old": "    if projection.geometry_hash != part.geometry_hash:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_a_drawing_is_composed_from_its_projection_the_same_bytes_every_time.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_step_file_not_the_part_s_drawn",
+    "file": "src/physgate/build/drawings/cli.py",
+    "old": "        if held != step:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_the_drawing_command_says_what_it_leaves_out_and_its_check_only_reads.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "example_length_not_bounded",
+    "file": "src/physgate/build/drawings/cli.py",
+    "old": "    if not low <= args.length <= high:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_the_drawing_command_says_what_it_leaves_out_and_its_check_only_reads.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_visible_line_fewer_not_found",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "            len(drawn[\"visible\"]) != view.visible_paths.value\n            or ",
+    "new": "            False\n            or ",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "the_record_s_file_drawn_from_not_held_to_its_title",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "        \"drawn_from\": record.drawn_from.file,\n",
+    "new": "",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "the_record_s_scale_not_held_to_its_title",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "        \"scale\": record.scale.shown_as,\n",
+    "new": "",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_linked_drawing_file_read",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "        if path.is_symlink() or not path.is_file():\n            return _Svg(",
+    "new": "        if not path.is_file():\n            return _Svg(",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "the_record_s_views_compared_in_any_order",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "    if listed != VIEWS:\n",
+    "new": "    if sorted(listed) != sorted(VIEWS):\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "the_step_file_drawn_from_not_compared",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "    if drawn != step:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "the_projection_file_not_held_to_its_digest",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "        problems += [p for p in (_digest(record.files.projection, projection.data),) if p]\n",
+    "new": "        problems += []\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "the_projection_file_not_held_to_the_record",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "            problems += _projection_agrees(record, projection.told)\n",
+    "new": "            problems += []\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "the_sheet_not_held_to_the_svg",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "            problems += [p for p in (_sheet(record, svg.root),) if p]\n",
+    "new": "            problems += []\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_view_s_direction_not_compared",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "        if (seen.viewed_from.value, seen.up.value) != wanted:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "the_record_s_projection_method_not_held_to_its_title",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "        \"projection\": record.projection_method,\n",
+    "new": "",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "the_record_s_generator_not_held_to_its_title",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "        \"generator\": f\"{record.generator.name} {record.generator.version}\",\n",
+    "new": "",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "the_scale_s_number_not_held_to_its_text",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "    if ratio is None or int(ratio[1]) / int(ratio[2]) != record.scale.value:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "the_record_s_stated_rule_not_compared",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "    if stated != (SHOWN_TO_MM, ROUNDING, AGREEMENT_MM):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_tie_rounded_to_even",
+    "file": "src/physgate/build/drawings/sheet.py",
+    "old": "rounding=ROUND_HALF_UP)",
+    "new": "rounding=\"ROUND_HALF_EVEN\")",
+    "tests": [
+      "tests/unit/drawings/test_a_drawing_is_composed_from_its_projection_the_same_bytes_every_time.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_length_rounded_up",
+    "file": "src/physgate/build/drawings/sheet.py",
+    "old": "rounding=ROUND_HALF_UP)",
+    "new": "rounding=\"ROUND_UP\")",
+    "tests": [
+      "tests/unit/drawings/test_a_drawing_is_composed_from_its_projection_the_same_bytes_every_time.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_length_rounded_down",
+    "file": "src/physgate/build/drawings/sheet.py",
+    "old": "rounding=ROUND_HALF_UP)",
+    "new": "rounding=\"ROUND_DOWN\")",
+    "tests": [
+      "tests/unit/drawings/test_a_drawing_is_composed_from_its_projection_the_same_bytes_every_time.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "the_binary_number_rounded_not_its_decimal",
+    "file": "src/physgate/build/drawings/sheet.py",
+    "old": "Decimal(repr(extent_mm))",
+    "new": "Decimal(extent_mm)",
+    "tests": [
+      "tests/unit/drawings/test_a_drawing_is_composed_from_its_projection_the_same_bytes_every_time.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "make_writes_through_a_link_in_out",
+    "file": "src/physgate/build/drawings/cli.py",
+    "old": "        if target.is_symlink():\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_make_writes_its_files_only_into_out_and_refuses_in_a_sentence.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "make_writes_into_an_out_that_is_a_link",
+    "file": "src/physgate/build/drawings/cli.py",
+    "old": "    if out.is_symlink():\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_make_writes_its_files_only_into_out_and_refuses_in_a_sentence.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "make_asks_nothing_of_an_out_that_is_a_file",
+    "file": "src/physgate/build/drawings/cli.py",
+    "old": "    if out.exists() and not out.is_dir():\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_make_writes_its_files_only_into_out_and_refuses_in_a_sentence.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "make_writes_over_a_directory_in_out",
+    "file": "src/physgate/build/drawings/cli.py",
+    "old": "        if target.exists() and not target.is_file():\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_make_writes_its_files_only_into_out_and_refuses_in_a_sentence.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_projection_not_json_taken_as_empty",
+    "file": "src/physgate/build/drawings/kernel.py",
+    "old": "line that is not JSON\"\n        raise KernelError(msg) from exc\n",
+    "new": "line that is not JSON\"\n        return {}\n",
+    "tests": [
+      "tests/unit/drawings/test_make_writes_its_files_only_into_out_and_refuses_in_a_sentence.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "an_answer_without_a_hash_taken",
+    "file": "src/physgate/build/drawings/kernel.py",
+    "old": "    if not isinstance(found, str):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/drawings/test_make_writes_its_files_only_into_out_and_refuses_in_a_sentence.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_module_that_cannot_be_made_not_said",
+    "file": "src/physgate/build/drawings/kernel.py",
+    "old": "cannot be made: {exc.strerror}\"\n        raise KernelError(msg) from exc\n",
+    "new": "cannot be made: {exc.strerror}\"\n        raise\n",
+    "tests": [
+      "tests/unit/drawings/test_make_writes_its_files_only_into_out_and_refuses_in_a_sentence.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
+    "name": "a_process_started_through_os",
+    "file": "src/physgate/build/drawings/cli.py",
+    "old": "    out.mkdir(parents=True, exist_ok=True)\n",
+    "new": "    out.mkdir(parents=True, exist_ok=True)\n    _ = os.system\n",
+    "tests": [
+      "tests/unit/drawings/test_the_drawing_package_asks_no_model_and_its_checker_runs_nothing.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  }
+]

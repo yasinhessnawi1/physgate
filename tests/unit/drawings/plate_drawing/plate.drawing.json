@@ -1,0 +1,202 @@
+{
+  "agreement_within": {
+    "unit": "mm",
+    "value": 0.05
+  },
+  "drawn_from": {
+    "file": "exports/plate.step",
+    "sha256": "a1efdb7eb5c8baf9be70156d4e08c8bba5e10420e2539bcd682eeedbd24f5ac0",
+    "size": {
+      "unit": "byte",
+      "value": 29987
+    }
+  },
+  "files": {
+    "projection": {
+      "file": "plate.projection.json",
+      "sha256": "fc983885153a0d3e92136fb48e1098bd10f3b5b47fe801866beed6e1bc528e59",
+      "size": {
+        "unit": "byte",
+        "value": 54164
+      }
+    },
+    "svg": {
+      "file": "plate.svg",
+      "sha256": "c99912dc00d348829af24d7948c0750c7e7f6a127a4b9e67b96f7c39cb36e083",
+      "size": {
+        "unit": "byte",
+        "value": 65643
+      }
+    }
+  },
+  "generator": {
+    "name": "physgate drawing",
+    "version": "1"
+  },
+  "geometry_hash": "sha256:ff88fca266977bd1de7ea23c66e94b95492e4b3d1f976f49ca4521dac68dd151",
+  "kind": "drawing",
+  "left_out": "not in this drawing: STEP AP242 with product manufacturing information, ISO 286 fits, geometric tolerances and datums, the assembly manual, a PDF, and a person's sign-off; nothing here claims the drawing is fit to manufacture from",
+  "libraries": {
+    "build123d": "0.13.0",
+    "cadquery-ocp-novtk": "8.0.1.1.0"
+  },
+  "overall": {
+    "height_z": {
+      "unit": "mm",
+      "value": 3.0
+    },
+    "length_x": {
+      "unit": "mm",
+      "value": 110.0
+    },
+    "width_y": {
+      "unit": "mm",
+      "value": 60.0
+    }
+  },
+  "part": "plate",
+  "projection_method": "first angle",
+  "rounding": "half up",
+  "scale": {
+    "shown_as": "1:1",
+    "unit": "1",
+    "value": 1.0
+  },
+  "schema": 1,
+  "sheet": {
+    "height": {
+      "unit": "mm",
+      "value": 297.0
+    },
+    "size": "A3 landscape",
+    "width": {
+      "unit": "mm",
+      "value": 420.0
+    }
+  },
+  "shown": "shown, not measured: one drawing composed from the CAD kernel's own projection of one part, checked by rules; not a drawing anyone has made a part from",
+  "shown_to": {
+    "unit": "mm",
+    "value": 0.1
+  },
+  "title_block": {
+    "drawn_from": "exports/plate.step",
+    "generator": "physgate drawing 1",
+    "geometry_hash": "sha256:ff88fca266977bd1de7ea23c66e94b95492e4b3d1f976f49ca4521dac68dd151",
+    "part": "plate",
+    "projection": "first angle",
+    "scale": "1:1",
+    "units": "mm"
+  },
+  "units": "mm",
+  "views": [
+    {
+      "hidden_paths": {
+        "unit": "1",
+        "value": 28
+      },
+      "name": "front",
+      "up": {
+        "unit": "1",
+        "value": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "viewed_from": {
+        "unit": "1",
+        "value": [
+          0.0,
+          -1.0,
+          0.0
+        ]
+      },
+      "visible_paths": {
+        "unit": "1",
+        "value": 4
+      }
+    },
+    {
+      "hidden_paths": {
+        "unit": "1",
+        "value": 8
+      },
+      "name": "top",
+      "up": {
+        "unit": "1",
+        "value": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      "viewed_from": {
+        "unit": "1",
+        "value": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "visible_paths": {
+        "unit": "1",
+        "value": 8
+      }
+    },
+    {
+      "hidden_paths": {
+        "unit": "1",
+        "value": 36
+      },
+      "name": "side",
+      "up": {
+        "unit": "1",
+        "value": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "viewed_from": {
+        "unit": "1",
+        "value": [
+          -1.0,
+          0.0,
+          0.0
+        ]
+      },
+      "visible_paths": {
+        "unit": "1",
+        "value": 4
+      }
+    },
+    {
+      "hidden_paths": {
+        "unit": "1",
+        "value": 23
+      },
+      "name": "isometric",
+      "up": {
+        "unit": "1",
+        "value": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "viewed_from": {
+        "unit": "1",
+        "value": [
+          1.0,
+          -1.0,
+          1.0
+        ]
+      },
+      "visible_paths": {
+        "unit": "1",
+        "value": 21
+      }
+    }
+  ]
+}
