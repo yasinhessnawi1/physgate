@@ -665,8 +665,8 @@
   {
     "name": "the_work_ignores_the_law_s_size",
     "file": "src/physgate/evaluation/whole/dynamic.py",
-    "old": "per_update = states + size + SEGMENT_WEIGHT * (output_points(period) + 2)",
-    "new": "per_update = states + SEGMENT_WEIGHT * (output_points(period) + 2)",
+    "old": "per_update = states + size + SEGMENT_WEIGHT * cuts",
+    "new": "per_update = states + SEGMENT_WEIGHT * cuts",
     "tests": [
       "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
       "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py",
