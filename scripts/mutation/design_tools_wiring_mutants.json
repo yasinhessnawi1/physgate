@@ -284,18 +284,18 @@
   ]
  },
  {
-  "name": "the_error_stream_names_the_withheld_places",
-  "file": "src/physgate/oslayer/regeneration.py",
-  "old": "            return code, unnamed(said, denied)\n",
-  "new": "            return code, said\n",
+  "name": "a_failed_regeneration_quotes_what_it_said",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "        code, _ = runner(argv, work, env, given, recorded.roots)\n    except ContainmentError as exc:\n        return ExportRefusal(\n            reason=f\"the exports of {source} cannot be made again here: {exc}\", subject=source\n        )\n    if code is None and given < derivation.timeout_s:\n        return _out_of_time(source)\n    if code is None:\n        return ExportRefusal(\n            reason=(\n                f\"making the exports of {source} again timed out after {derivation.timeout_s} s; \"\n                \"the exports are refused\"\n            ),\n            subject=source,\n        )\n    if code != 0:\n        words = derivation.refusals.get(str(code), f\"the program ended with exit code {code}\")\n        # Never what the command said: see the module's docstring.\n        return ExportRefusal(\n            reason=f\"the exports of {source} could not be made again: {words}\", subject=source\n",
+  "new": "        code, said = runner(argv, work, env, given, recorded.roots)\n    except ContainmentError as exc:\n        return ExportRefusal(\n            reason=f\"the exports of {source} cannot be made again here: {exc}\", subject=source\n        )\n    if code is None and given < derivation.timeout_s:\n        return _out_of_time(source)\n    if code is None:\n        return ExportRefusal(\n            reason=(\n                f\"making the exports of {source} again timed out after {derivation.timeout_s} s; \"\n                \"the exports are refused\"\n            ),\n            subject=source,\n        )\n    if code != 0:\n        words = derivation.refusals.get(str(code), f\"the program ended with exit code {code}\")\n        # Never what the command said: see the module's docstring.\n        return ExportRefusal(\n            reason=f\"the exports of {source} could not be made again: {words}; {said}\", subject=source\n",
   "tests": [
-   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py"
+   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
   ],
   "data": [
    "tests/unit/hooks/hook_helpers.py",
    "tests/unit/orchestrator/loop_fakes.py",
-   "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+   "tests/unit/orchestrator/orch_helpers.py"
   ]
  },
  {

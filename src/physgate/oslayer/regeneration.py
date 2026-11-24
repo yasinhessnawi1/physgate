@@ -4,7 +4,9 @@ The change check decides what is made again and what a difference means
 (:mod:`physgate.orchestrator.derived`); this module only starts the recorded command inside the
 wrapper this machine contains it with, and says how it ended: its exit code (``None`` when it ran
 out of time) and the end of what it wrote to its error stream, at most :data:`MAX_SAID_BYTES`.
-It names no tool: the argument list is the record's.
+The change check reads only the first: what the command wrote is under the control of whatever
+it ran, so nothing of it is quoted where a session, a reviewer or a person reads. It names no
+tool: the argument list is the record's.
 
 The command reads only the recorded roots (and the system's own places), writes only the folder
 made for the call, and has no network: on Linux bubblewrap, on macOS ``sandbox-exec`` with a
@@ -122,23 +124,6 @@ UNCONTAINED = (
 )
 
 
-#: What stands in a regeneration's error stream where it named a withheld place.
-WITHHELD_WORDS = "<a place withheld from the run's sessions>"
-
-
-def unnamed(said: str, withheld: Sequence[str]) -> str:
-    """``said`` with every spelling of each withheld place replaced by :data:`WITHHELD_WORDS`.
-
-    The wrapper names on its own error stream the places it hides when it cannot hide one, and
-    the change check quotes that stream's last line: a withheld place is the protected
-    material's. Each place is replaced as given and where it really is, the longest first.
-    """
-    spellings = {s for place in withheld for s in (place, os.path.realpath(place)) if s}
-    for spelling in sorted(spellings, key=len, reverse=True):
-        said = said.replace(spelling, WITHHELD_WORDS)
-    return said
-
-
 def default_runner(
     *,
     platform: str = sys.platform,
@@ -216,8 +201,7 @@ def contained_runner(
             else:
                 msg = f"no wrapper contains the regeneration on {platform}"
                 raise ContainmentError(msg)
-            code, said = _run(command, work, env, timeout_s)
-            return code, unnamed(said, denied)
+            return _run(command, work, env, timeout_s)
         finally:
             if profiles is not None:
                 shutil.rmtree(profiles, ignore_errors=True)

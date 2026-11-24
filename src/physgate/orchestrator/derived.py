@@ -27,9 +27,11 @@ one name, a source whose name is not of the safe shape (:data:`SAFE_NAME`), a pr
 recorded entry makes, no recorded environment or one that does not hold its record, a command
 that fails, times out, passes a bound of the runner's, writes a product over its kind's cap or
 writes none, and any byte difference. A refusal names the file and says to regenerate; it never
-quotes a file's content. A command that fails is refused with the last line it wrote to its
-error stream, printable characters only and at most :data:`MAX_SAID` of them, so one failure
-can be told from another without reading the program's output.
+quotes a file's content. A command that fails is refused by its exit code alone, in the
+record's words for that code where it has them: nothing the command wrote, to its error stream
+or anywhere else, is quoted into a refusal. Its output is the program's, and so under the
+control of whatever it ran; no rewriting of it keeps every spelling of a withheld place out, so
+none is attempted.
 
 **What the machine does is a refusal too.** A folder or file that cannot be made, written or
 read, a wrapper program that is gone, a git read that fails, a bound the runner holds: each
@@ -554,7 +556,8 @@ def _run_and_compare(  # noqa: PLR0911, PLR0913 - each refusal is its own return
     if given <= 0:
         return _out_of_time(source)
     try:
-        code, said = runner(argv, work, env, given, recorded.roots)
+        # What the command said is never read here: only how it ended.
+        code, _ = runner(argv, work, env, given, recorded.roots)
     except ContainmentError as exc:
         return ExportRefusal(
             reason=f"the exports of {source} cannot be made again here: {exc}", subject=source
@@ -571,11 +574,10 @@ def _run_and_compare(  # noqa: PLR0911, PLR0913 - each refusal is its own return
         )
     if code != 0:
         words = derivation.refusals.get(str(code), f"the program ended with exit code {code}")
-        reason = f"the exports of {source} could not be made again: {words}"
-        last = last_line(said)
-        if last:
-            reason += f"; its last line: {last}"
-        return ExportRefusal(reason=reason, subject=source)
+        # Never what the command said: see the module's docstring.
+        return ExportRefusal(
+            reason=f"the exports of {source} could not be made again: {words}", subject=source
+        )
     for path in found.products:
         made = placed / EXPORTS_DIR / PurePosixPath(path).name
         refusal = _same(repo, commit, path, made, git_dir, source)

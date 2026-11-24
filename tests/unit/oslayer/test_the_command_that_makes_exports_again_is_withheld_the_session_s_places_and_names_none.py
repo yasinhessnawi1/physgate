@@ -8,7 +8,11 @@ wherever it lies inside what the command reads (Linux) or denied to every read (
 given no withheld places refuses and starts nothing. When the wrapper's rules cannot be built, a
 root of the command inside a withheld place among the causes, the refusal says so by kind and
 names no place, and the change check's refusal carries those words alone: a withheld place is the
-protected material's, and a refusal is shown to the role and written on the run's log.
+protected material's, and a refusal is shown to the role and written on the run's log. Nor is
+anything the command itself wrote ever quoted: a regeneration that fails is refused by its exit
+code alone, so a withheld place it prints, whole, cut at the edge of what is kept, or spelt
+another way, reaches neither the refusal nor the check's line on the log (a refused attempt is
+never issued to a review, so no packet is made of it).
 
 Here no wrapper runs: the runner's last step, which starts the wrapped command, is replaced by one
 that records the command (and, on macOS, the profile it names) and starts nothing. The wrapper
@@ -34,6 +38,7 @@ from test_committed_exports_are_regenerated_from_their_committed_schematic impor
     stand_in_root,
 )
 
+from physgate.orchestrator.events import ProposalsChecked  # noqa: E402
 from physgate.oslayer import regeneration  # noqa: E402
 from physgate.oslayer.containment import SANDBOX_EXEC, ContainmentError  # noqa: E402
 
@@ -171,19 +176,59 @@ def test_the_change_check_s_refusal_of_an_uncontained_set_names_no_withheld_plac
     assert started.commands == []
 
 
-@pytest.mark.parametrize("platform", ["linux", "darwin"])
-def test_the_command_s_error_stream_names_no_withheld_place(
-    platform: str, tmp_path: Path, started: Started
+#: A withheld place's distinctive part, as a regeneration might print it.
+MARK = "tier 7731"
+
+
+def _printed(place: str) -> dict[str, str]:
+    """What a command might write of ``place``: whole, cut at its front, escaped and upper-cased."""
+    return {
+        "whole": f"cannot open {place}/brief.json: permission denied\n",
+        "cut at the edge": f"{place[len(place) // 2 :]}/brief.json: permission denied\n",
+        "escaped": f"denied: {place.replace(' ', chr(92) + '040').upper()}\n",
+    }
+
+
+class Says:
+    """A runner that starts nothing and ends as a failed command that wrote ``said``."""
+
+    def __init__(self, said: str) -> None:
+        self.said = said
+
+    def __call__(
+        self,
+        argv: Sequence[str],
+        work: Path,
+        env: object,
+        timeout_s: float,
+        roots: Sequence[str],
+    ) -> tuple[int | None, str]:
+        return 1, self.said
+
+
+@pytest.mark.parametrize("form", ["whole", "cut at the edge", "escaped"])
+def test_nothing_a_failed_regeneration_wrote_reaches_its_refusal_or_the_check_s_line(
+    form: str, tmp_path: Path
 ) -> None:
-    """The wrapper names a place it cannot hide; the change check quotes the stream's end."""
-    root, inside, beside = _places(tmp_path)
-    started.said = (
-        f"bwrap: Can't mount tmpfs on {os.path.realpath(inside)}: denied\nand {beside} too\n"
-    )
-    run = regeneration.contained_runner(
-        platform=platform, bwrap=BWRAP, withheld=lambda: (str(inside), str(beside))
-    )
-    code, said = run([str(root / "python"), "-c", "pass"], tmp_path / "work", {}, 5.0, [str(root)])
-    assert code == 1
-    assert "held-out-tier" not in said and str(beside) not in said, said
-    assert regeneration.WITHHELD_WORDS in said and "Can't mount tmpfs" in said, said
+    place = str(tmp_path / MARK)
+    said = _printed(place)[form]
+    assert "7731" in said
+    run, commit = attempt(tmp_path, made(FAILING))
+    record = recorded(stand_in_root(tmp_path))
+    found = checker(tmp_path, run, lambda: record, Says(said)).check("s1", commit, "control")  # type: ignore[arg-type]
+    assert found.refused_by == "exports", (found.refused_by, found.reason)
+    assert found.reason is not None and "exit code 1" in found.reason, found.reason
+    line = ProposalsChecked(
+        seq=1,
+        ts="2026-11-24T00:00:00.000000Z",
+        run_id="r1",
+        gate_mode="on",
+        subtask_id="s1",
+        attempt=1,
+        checked_commit="0" * 40,
+        **found.model_dump(
+            exclude={"declaration", "disputes", "series_checks", "proposed", "exports"}
+        ),
+    ).model_dump_json()
+    for kept in (found.reason, line):
+        assert "7731" not in kept and "permission denied" not in kept.casefold(), kept

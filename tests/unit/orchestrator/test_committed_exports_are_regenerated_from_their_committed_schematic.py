@@ -19,9 +19,9 @@ containment and the real program are the integration test's. Read here:
 - no recorded environment, or one that does not hold its record, refuses, whatever file of the
   module the change touches: which files are sources is read from the held environment alone; a
   commit touching neither a schematic nor an export regenerates nothing;
-- a failed regeneration is refused with its last line, bounded; time used up before a set
-  starts refuses it unrun; an export kind no entry makes is refused; a product written as a link
-  is no product; the check refuses and never raises;
+- a failed regeneration is refused by its exit code, nothing it said quoted; time used up
+  before a set starts refuses it unrun; an export kind no entry makes is refused; a product
+  written as a link is no product; the check refuses and never raises;
 - the command's argument list holds nothing of the role's tree but the copied schematic's path,
   in a folder made new for the call and removed after it;
 - the record is read strictly; the core names no tool and starts no process (the runner is the
@@ -437,17 +437,16 @@ def test_a_regeneration_that_fails_times_out_passes_a_cap_or_writes_nothing_refu
     assert len(runs.calls) == 1
 
 
-def test_a_failed_regeneration_is_refused_with_its_last_line_bounded(tmp_path: Path) -> None:
+def test_a_failed_regeneration_is_refused_by_its_exit_code_and_nothing_it_said(
+    tmp_path: Path,
+) -> None:
     files = made(SOUND)
     files[f"{MODULE}/board.kicad_sch"] = (SOUND + "SAY\n").encode()
     found, _ = check(tmp_path, files)
     assert found.refused_by == "exports", (found.refused_by, found.reason)
     assert found.reason is not None and "exit code 1" in found.reason, found.reason
-    assert "why why" in found.reason, found.reason
-    assert "an earlier line" not in found.reason and "\x07" not in found.reason, found.reason
-    said = found.reason.split("why", 1)[1]
-    assert len("why" + said) <= 200, len("why" + said)
-    assert said.endswith("…"), said[-20:]
+    # What the program wrote is its own, under the control of whatever it ran: never quoted.
+    assert "why" not in found.reason and "an earlier line" not in found.reason, found.reason
 
 
 @pytest.mark.parametrize(
