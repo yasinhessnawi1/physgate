@@ -29,6 +29,7 @@ from typing import Any
 import pytest
 from round_rig import SCORED, Killed, Rig, StandInDriver, make_rig
 
+from physgate.evaluation import harness_round
 from physgate.evaluation.harness_round import (
     HARNESS_ROUNDS,
     LEDGER,
@@ -66,6 +67,8 @@ def _go(
         )
     except RoundError as exc:
         return f"refused:{exc.context.get('refused_because')}", {**exc.context, "said": str(exc)}
+    except Exception as exc:  # noqa: BLE001 - what stopped it instead is the row's failure
+        return f"stopped:{type(exc).__name__}", {"said": str(exc)}
     return status, summary
 
 
@@ -198,3 +201,18 @@ def test_a_reviewed_decomposition_the_machine_the_limit_or_a_credential_ended_ke
     assert line["attempt"] == 1
     if kind == "superseded":
         assert (line["cause"], line["from_run"]) == ("api_error", True)
+
+
+def test_a_run_whose_log_holds_a_line_no_orchestrator_wrote_is_a_run_for_the_core_to_refuse(
+    tmp_path: Path,
+) -> None:
+    """Read of the directory alone: the store's scan refuses such a run before a round reads it."""
+    rig = make_rig(tmp_path, design_review="observe")
+    _killed(rig, rig.driver(killed_in_drive={1}))
+    run_dir = _directory(rig, "0000-1")
+    assert harness_round._state(run_dir) == "run"
+    # A whole line the log's writer could not have written: the core's record refuses to open it,
+    # for a reason a person looks at. It is no run begun and never finished.
+    with (run_dir / "events.jsonl").open("ab") as log:
+        log.write(b'{"written": "by nobody"}\n')
+    assert harness_round._state(run_dir) == "run"

@@ -12,11 +12,14 @@
    "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py",
    "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py",
    "tests/unit/evaluation/harness_round/test_a_round_goes_on_only_on_the_code_and_client_it_began_with.py",
+   "tests/unit/evaluation/harness_round/test_a_round_waiting_for_the_usage_limit_says_when_to_come_back.py",
+   "tests/unit/evaluation/harness_round/test_a_run_begun_and_never_finished_is_a_decomposition_that_spent_its_call.py",
    "tests/unit/evaluation/harness_round/test_a_trial_s_answer_is_read_from_the_module_directory_its_plan_names.py",
    "tests/unit/evaluation/harness_round/test_a_usage_limit_never_spends_an_attempt_and_never_makes_a_trial_unscored.py",
    "tests/unit/evaluation/harness_round/test_nothing_outside_the_withheld_root_tells_a_protected_trial_s_outcome.py",
    "tests/unit/evaluation/harness_round/test_one_driver_drives_a_round_at_a_time.py",
    "tests/unit/evaluation/harness_round/test_the_command_driver_relays_nothing_a_trial_s_command_prints.py",
+   "tests/unit/evaluation/harness_round/test_the_command_exits_75_and_77_while_the_round_waits.py",
    "tests/unit/evaluation/harness_round/test_the_round_s_ledger_is_synced_line_by_line.py",
    "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
    "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
@@ -290,10 +293,11 @@
  {
   "name": "a_decomposition_on_the_limit_does_not_wait",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "if kind == \"limit\" and not _the_word(ctx, i, last):",
-  "new": "if False:",
+  "old": "                if how is None:\n                    return \"waiting_for_limit\"\n",
+  "new": "                if False:\n                    return \"waiting_for_limit\"\n",
   "tests": [
-   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py",
+   "tests/unit/evaluation/harness_round/test_a_round_waiting_for_the_usage_limit_says_when_to_come_back.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",
@@ -1324,6 +1328,447 @@
   "new": "        isinstance(e, SessionSpawned | SessionEnded)\n",
   "tests": [
    "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_begun_run_is_a_run",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        return \"spent\" if _never_dispatched(run_dir) else \"run\"\n",
+  "new": "        return \"run\"\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_run_begun_and_never_finished_is_a_decomposition_that_spent_its_call.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_log_with_no_configuration_is_a_run",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if not os.path.lexists(config_path):\n        return True\n",
+  "new": "    if not os.path.lexists(config_path):\n        return False\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_run_begun_and_never_finished_is_a_decomposition_that_spent_its_call.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "an_opening_the_core_refuses_is_a_run",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    except RunStateError:\n        return True\n",
+  "new": "    except RunStateError:\n        return False\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_run_begun_and_never_finished_is_a_decomposition_that_spent_its_call.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_record_with_no_line_is_a_run",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        return not record.log.events\n",
+  "new": "        return False\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_run_begun_and_never_finished_is_a_decomposition_that_spent_its_call.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "any_refused_opening_is_never_dispatched",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        return False  # the core says why, and refuses it, when the run is driven\n",
+  "new": "        return True\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_run_begun_and_never_finished_is_a_decomposition_that_spent_its_call.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_decomposition_s_limit_wait_is_not_held",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if halted_at is not None and resume_refusal(halted_at, None, now, limit_reset=False) is None:\n",
+  "new": "    if True:\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_round_waiting_for_the_usage_limit_says_when_to_come_back.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_word_is_taken_for_a_read_reset",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    waiting = limit_wait(run_dir, now, limit_reset=word)\n",
+  "new": "    waiting = None if word else limit_wait(run_dir, now, limit_reset=word)\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_round_waiting_for_the_usage_limit_says_when_to_come_back.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_instant_is_not_said",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        \"resume_after\": waiting[\"resume_after\"],\n",
+  "new": "        \"resume_after\": None,\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_round_waiting_for_the_usage_limit_says_when_to_come_back.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_word_is_not_named_on_its_directory",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        return \"operator\"\n",
+  "new": "        return \"waited\"\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_round_waiting_for_the_usage_limit_says_when_to_come_back.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_wait_is_not_written_in_the_output_directory",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "                _write_whole(inputs.out / ROUND_RECORD, canonical_json(_summary(ctx, done=False)))\n                return status\n",
+  "new": "                return status\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_round_waiting_for_the_usage_limit_says_when_to_come_back.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_word_where_no_limit_waits_is_ignored",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "            if ctx.reset_for is None:\n",
+  "new": "            if False:\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_usage_limit_never_spends_an_attempt_and_never_makes_a_trial_unscored.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_pinned_field_is_not_measured",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        for name in PINNED:\n",
+  "new": "        for name in (\"claude_version\", \"binary\"):\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_round_goes_on_only_on_the_code_and_client_it_began_with.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_field_the_census_holds_is_left_unpinned",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    name for name in DRIFT if name not in FROM_THE_PARAMETERS + THE_TRIAL_S_OWN\n",
+  "new": "    name for name in DRIFT if name not in FROM_THE_PARAMETERS + THE_TRIAL_S_OWN + (\"git_binary\",)\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_round_goes_on_only_on_the_code_and_client_it_began_with.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_fresh_round_takes_a_person_s_word",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if not resume and (set_aside is not None or limit_reset):\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_output_directory_may_lie_in_the_run_root",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        if out == there or there in out.parents:\n",
+  "new": "        if out == there:\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_set_aside_word_holds_for_every_later_directory",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    by = \"operator\" if ctx.of(i, \"superseded\") else \"rule\"\n    if by == \"operator\":\n        ctx.set_aside_for = None\n",
+  "new": "    by = \"operator\" if ctx.of(i, \"superseded\") else \"rule\"\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_directory_with_a_review_in_it_is_free",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if not nothing_reviewed:\n        return \"spent\"\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_refused_call_s_spend_is_not_counted",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        if isinstance(line, RoundEnded | CallRefused):\n",
+  "new": "        if isinstance(line, RoundEnded):\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_supersede_with_no_run_does_not_spend_the_once_more",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    once_more_taken = bool(ctx.of(i, \"superseded\"))\n",
+  "new": "    once_more_taken = bool([x for x in ctx.of(i, \"superseded\") if x.get(\"from_run\", True)])\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "waiting_for_a_person_exits_0",
+  "file": "src/physgate/evaluation/harness_round_cli.py",
+  "old": "    if status == \"waiting_for_a_person\":\n        return EXIT_WAITING_FOR_A_PERSON\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_the_command_exits_75_and_77_while_the_round_waits.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "waiting_for_the_limit_exits_0",
+  "file": "src/physgate/evaluation/harness_round_cli.py",
+  "old": "    return EXIT_WAITING_FOR_LIMIT if status == \"waiting_for_limit\" else 0\n",
+  "new": "    return 0\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_the_command_exits_75_and_77_while_the_round_waits.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",
