@@ -139,8 +139,10 @@ SEGMENT_WEIGHT = 12
 #: units of 2.6 ns). At a period of 1 s, 400 cuts, this is most of the analysis's work.
 EXPONENTIAL_WEIGHT = 12_000
 #: The most work one analysis may do: runs × points × (updates (the shared run and the three
-#: branches) × (states + the law's size + the cuts' weight) + the cuts' set-up). A proposal,
-#: measured: about a minute on a laptop at 2.6 ns a unit, and a task past it has its rows unscored.
+#: branches) × (states + the law's size + the cuts' weight) + the cuts' set-up). A proposal, and a
+#: task past it has its rows unscored. What a unit costs depends on the machine and the period:
+#: on a Linux server a whole record at a 1 ms period counted 3.55e9 units and took 40 s, so a law
+#: at the bound takes minutes there (about four), not seconds.
 MAX_DYNAMIC_WORK = 20_000_000_000
 
 
