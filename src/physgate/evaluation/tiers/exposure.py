@@ -34,17 +34,20 @@ brief, a canary or an outcome. A hand mark carries the person who made it and wh
   incident names no root, so the run's held-out digests name the versions it marks: every
   version of the role whose validation or held-out tier the run recorded. A run or record that
   names none marks every version of the role.
-- **a killed decomposition:** a directory beneath a run root with no run configuration and a
-  ``decomposition`` of its own. Its review's exposure is found without a command on it: in the
-  file the next command writes once it has scanned the review's streams; in the review's record
-  no command has scanned yet, whose streams are scanned now by the next command's own scan,
-  read only (nothing is signalled or written, and a stream that is gone counts as showing the
-  canary); or in the round journal's end line of an exposed review, which is all a kill after
-  that line and before the opening's incident leaves (read for a run too, where its log holds no
-  incident). The versions it marks are named by the held-out tiers' digests the decomposition
-  recorded before its review; one that recorded none (made before the record existed) marks
-  every version of the role, as a run naming none does. A record that is there and cannot be
-  read refuses, as a run that cannot be read does.
+- **a killed decomposition:** a directory beneath a run root with no run configuration that
+  holds a decomposition's records (its parameters record, written first, or a ``decomposition``
+  of its own), cut in its review or before its run's configuration was written. It is read as a
+  run's directory: never walked into, so the run branch's checkout a start left is not walked.
+  Its review's exposure is found without a command on it: in the file the next command writes
+  once it has scanned the review's streams; in the review's record no command has scanned yet,
+  whose streams are scanned now by the next command's own scan, read only (nothing is signalled
+  or written, and a stream that is gone counts as showing the canary); or in the round journal's
+  end line of an exposed review, which is all a kill after that line and before the opening's
+  incident leaves (read for a run too, where its log holds no incident). The versions it marks
+  are named by the held-out tiers' digests the decomposition recorded before its review; one
+  that recorded none (made before the record existed) marks every version of the role, as a run
+  naming none does. A record that is there and cannot be read refuses, as a run that cannot be
+  read does.
 - **authoring:** a read of the tiers by their author or their blind check. Never an exposure.
 - **measurement:** one scoring of a protected tier whose result anyone sees.
 
@@ -105,6 +108,8 @@ RUN_RECORD = "run.json"
 EVENT_LOG = "events.jsonl"
 #: Where a reviewed decomposition keeps its records beneath its run directory.
 DECOMPOSITION = "decomposition"
+#: The parameters record a ``decompose`` writes first in a run directory, before anything runs.
+PARAMS_RECORD = "params_source.json"
 _ZERO = "0" * 64
 _MISSING = object()
 MOST_LOG_BYTES = 64 * 1024 * 1024
@@ -625,10 +630,13 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
     """Every run directory and raw record beneath ``root``, no link followed, bounded.
 
     Inside a run directory the walk enters only :data:`NESTED_RUN_PLACES` and parses nothing
-    else. A directory there that holds a run's configuration is neither read nor ignored: its
-    root is recorded as not read whole, with its position. A link to a directory is not
-    followed, and its root is recorded so too. A ``required`` root that is not there is
-    recorded as missing, never read as empty.
+    else. A directory with no run configuration that holds a decomposition's records (its
+    parameters record, the first thing a ``decompose`` writes, or its ``decomposition``
+    directory) is a run's directory too: read by :func:`_decomposition_findings`, not walked. A
+    directory there that holds a run's configuration is neither read nor ignored: its root is
+    recorded as not read whole, with its position. A link to a directory is not followed, and
+    its root is recorded so too. A ``required`` root that is not there is recorded as missing,
+    never read as empty.
 
     Raises:
         ExposureError: the walk goes past its bounds, or a directory cannot be listed.
@@ -664,12 +672,20 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
         is_run = run is not None and run.is_file(follow_symlinks=False)
         if is_run:
             walk.runs.append(here)
-        record = names.get(RAW_RECORD)
-        if not is_run and record is not None and not record.is_dir(follow_symlinks=False):
-            walk.records.append(here / RAW_RECORD)
+        # A decomposition cut before its run's configuration (killed, or its start refused once
+        # the run branch's checkout was made) is read as a run's directory, never walked into.
+        params = names.get(PARAMS_RECORD)
         decomposed = names.get(DECOMPOSITION)
-        if not is_run and decomposed is not None and decomposed.is_dir(follow_symlinks=False):
+        is_decomposition = not is_run and (
+            (params is not None and params.is_file(follow_symlinks=False))
+            or (decomposed is not None and decomposed.is_dir(follow_symlinks=False))
+        )
+        if is_decomposition:
             walk.decompositions.append(here)
+        unit = is_run or is_decomposition
+        record = names.get(RAW_RECORD)
+        if not unit and record is not None and not record.is_dir(follow_symlinks=False):
+            walk.records.append(here / RAW_RECORD)
         for entry in listed:
             where = Path(entry.path)
             if entry.is_symlink():
@@ -678,7 +694,7 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
                 continue
             if not entry.is_dir(follow_symlinks=False):
                 continue
-            if is_run and entry.name not in NESTED_RUN_PLACES:
+            if unit and entry.name not in NESTED_RUN_PLACES:
                 # Not entered and nothing in it parsed; one that looks like a run is said.
                 if os.path.lexists(where / RUN_RECORD):
                     places.append(where.relative_to(root).as_posix())
