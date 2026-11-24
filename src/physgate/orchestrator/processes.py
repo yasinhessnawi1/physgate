@@ -120,12 +120,15 @@ def is_session(pid: int, started: str | None, session_id: str) -> bool:
     The record is a file the session's own user can write. A pid and start time
     alone would let a rewritten record point a resume's stop at any other process
     of that user; the session's own command line carries its session id, which
-    no other process's does.
+    no other process's does: after ``--session-id`` at its first spawn, after ``--resume`` when
+    it is resumed (a review's repair is the same session, spawned again).
     """
     if started is None or started_at(pid) != started:
         return False
     command = command_of(pid)
-    return command is not None and f"--session-id {session_id}" in command
+    return command is not None and any(
+        f"{flag} {session_id}" in command for flag in SESSION_ID_FLAGS
+    )
 
 
 def tree(root: int) -> list[Proc]:

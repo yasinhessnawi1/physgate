@@ -35,12 +35,14 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from physgate.orchestrator import dispatch
 from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.credentials import remove_secrets
-from physgate.orchestrator.dispatch import read_stream_file, redact, review_streams
+from physgate.orchestrator.dispatch import redact, review_streams
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.ports import SpawnHook
 from physgate.orchestrator.processes import is_session, stop_tree
+from physgate.orchestrator.session_files import FileRefused, read_beneath
 from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
 
 #: Where a design review's session is recorded while it runs, beneath the run directory.
@@ -95,9 +97,30 @@ def review_spawned(
     return spawned
 
 
-def review_over(run_dir: Path) -> None:
-    """Remove the review session's record: its round's end is journalled, and nothing of it runs."""
-    (run_dir / REVIEW_SESSION).unlink(missing_ok=True)
+def review_over(run_dir: Path, *, scanned: bool = True) -> None:
+    """Remove the review session's record: its round's end is journalled, and nothing of it runs.
+
+    ``scanned`` false: the review ended by raising, or the round went void, so nothing scanned its
+    streams. They are scanned now, from the record, before it goes, as the next command would
+    scan them: one that showed a canary is written to the exposure file first, synced; one that
+    cannot be read keeps the record, for the exposure register and the next command to read.
+    """
+    path = run_dir / REVIEW_SESSION
+    if not scanned:
+        try:
+            record = review_record(run_dir)
+        except ReviewRecordError:
+            return  # kept: whoever reads it next refuses it as it is
+        if record is not None:
+            try:
+                shown = streams_show(record)
+            except InvocationError:
+                return  # kept: a stream that cannot be read is never read as clean
+            if shown:
+                _synced(
+                    run_dir / REVIEW_EXPOSED, json.dumps({"session_id": record.session_id}).encode()
+                )
+    path.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
@@ -181,22 +204,84 @@ def review_record(run_dir: Path) -> ReviewRecord | None:
     return found
 
 
+#: Why a review stream that is there cannot be read, by kind; never what or where it is.
+STREAM_REFUSALS: dict[str, str] = {
+    "absent": "gone",
+    "file": "a link or not a plain file",
+    "directory": "on a directory on its way that is a link or not a directory",
+    "too_large": "over the size bound",
+}
+
+
+@dataclass(frozen=True)
+class StreamRead:
+    """One stream a review's spawn wrote, read once without following a link: its bytes, or why not.
+
+    ``refused`` is a key of :data:`STREAM_REFUSALS`: ``absent`` where it is gone (it, or a
+    directory on its way, is not there), otherwise why a stream that is there is not read.
+    """
+
+    name: str
+    data: bytes | None
+    refused: str | None = None
+
+
+def read_review_streams(record: ReviewRecord) -> list[StreamRead]:
+    """Every stream the review's spawns wrote, each read once as the reviewer reads its own.
+
+    Reached beneath the review root as :func:`~physgate.orchestrator.dispatch.read_stream_file`
+    reaches one, and refused for the same kinds, each told apart.
+    """
+    found = []
+    for name in review_streams(record.spawns):
+        path = record.session_dir / name
+        anchor = path.parent.parent.parent
+        names = (path.parent.parent.name, path.parent.name, path.name)
+        try:
+            data = read_beneath(anchor, names, limit=dispatch.MAX_SESSION_FILE_BYTES)
+        except FileRefused as refused:
+            if refused.kind == "absent":
+                kind = "absent"
+            elif refused.kind == "too_large":
+                kind = "too_large"
+            else:
+                kind = "directory" if refused.directory else "file"
+            found.append(StreamRead(name, None, kind))
+            continue
+        except ValueError:
+            found.append(StreamRead(name, None, "directory"))
+            continue
+        found.append(StreamRead(name, data))
+    return found
+
+
+def shown_in(data: bytes, canaries: frozenset[str], *, running: bool = False) -> bool:
+    """Whether ``data``, one review stream's bytes as written, shows one of ``canaries``.
+
+    The one scan of a review's stream, over its bytes unredacted: the live review's, the next
+    command's, and the exposure register's. While the session runs (``running``), the bytes after
+    the last line's end are a line still being written, read once it is whole: cut inside a
+    character it would read as one that cannot be read, so as the canary. Leaving them out can
+    only miss what a later read finds, never find what is not there.
+    """
+    if running:
+        data = data[: data.rfind(b"\n") + 1]
+    return canary_seen(data, canaries) is not None
+
+
 def streams_show(record: ReviewRecord, *, running: bool = False) -> bool:
     """Whether a stream the review's spawns wrote shows a held-out canary its record names.
 
-    The one scan of a review's streams: the next command's, once the session is stopped, and the
-    exposure register's, which reads them as they are now. While the session runs (``running``),
-    the bytes after a stream's last line end are a line still being written, read once it is
-    whole: cut inside a character it would read as one that cannot be read, so as the canary.
-
     Raises:
-        InvocationError: a stream is gone, a link or not a regular file: never read as clean.
+        InvocationError: a stream is gone, a link, not a regular file, on a linked directory or
+            over the size bound: never read as clean.
     """
-    for name in review_streams(record.spawns):
-        data = read_stream_file(record.session_dir / name)
-        if running:
-            data = data[: data.rfind(b"\n") + 1]
-        if canary_seen(data, record.canaries) is not None:
+    for read in read_review_streams(record):
+        if read.data is None:
+            kind = STREAM_REFUSALS[read.refused or "file"]
+            msg = f"a stream of the design review is {kind}; nothing is read from it"
+            raise InvocationError(msg, session_id=record.session_id, stream=read.name)
+        if shown_in(read.data, record.canaries, running=running):
             return True
     return False
 
@@ -272,19 +357,25 @@ def _stop_and_scan(run_dir: Path, secrets: tuple[str, ...]) -> str | None:
             f"the design review session {session_id} (pid {pid}) a killed decompose left could "
             f"not be checked: {exc!r}; nothing was signalled"
         )
-    # Nothing of it runs now, so it needs no credential: a killed decompose never removed it, and
-    # its streams were never redacted. Every stream its spawns wrote is final, and scanned once.
+    # Nothing of it runs now. Every stream its spawns wrote is final, and scanned once, as it was
+    # written: before the redaction, which replaces whole a line it cannot read, a line the scan
+    # counts as the canary. So this command counts what the exposure register counts.
     session = record.session_dir
     try:
-        remove_secrets(session / "state", session / "config")
-        for name in review_streams(record.spawns):
-            for secret in secrets:
-                redact(session / name, secret)
         shown = streams_show(record)
     except InvocationError as exc:
         return f"{said}; its directory cannot be read ({exc}), so the record is kept"
     if shown:
         _synced(run_dir / REVIEW_EXPOSED, json.dumps({"session_id": session_id}).encode())
+    # It needs no credential now: a killed decompose never removed it, and its streams were never
+    # redacted.
+    try:
+        remove_secrets(session / "state", session / "config")
+        for name in review_streams(record.spawns):
+            for secret in secrets:
+                redact(session / name, secret)
+    except InvocationError as exc:
+        return f"{said}; its directory cannot be redacted ({exc}), so the record is kept"
     path.unlink(missing_ok=True)
     return said
 

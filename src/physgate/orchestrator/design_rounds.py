@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import time
 import uuid
 from collections.abc import Mapping, Sequence
@@ -760,8 +761,9 @@ def decompose_in_rounds(
             ran = _one_round(brief, k, loop=loop, prompt=prompt, session=session)
         except (OrchestratorError, ReviewError) as exc:
             loop.end(k, "void", "infrastructure", _cause(exc), str(exc))
-            # The void line is journalled: the review, if one ran, is over on the record.
-            review_over(run_dir)
+            # The void line is journalled: the review, if one ran, is over on the record. Nothing
+            # scanned its streams, so they are scanned before its record goes.
+            review_over(run_dir, scanned=False)
             raise
         outcome, ending, plan = ran.outcome, ran.ending, ran.outcome.plan
         digest = plan_sha256(plan) if plan is not None and ending.plan_class == "plan" else None
@@ -803,8 +805,9 @@ def decompose_in_rounds(
                 planner_library=library_files(files) if files else None,
             ),
         )
-        # The round's end is journalled with what its review came to: its record goes now.
-        review_over(run_dir)
+        # The round's end is journalled with what its review came to: its record goes now. A
+        # review that raised was never scanned: its streams are, before the record goes.
+        review_over(run_dir, scanned=ending.review_cause not in UNSCANNED_REVIEWS)
         refused_first = ran.refused
         if refused_first is not None and ran.refused_ended is not None:
             spent_first = DecompositionCall(
@@ -904,6 +907,12 @@ def decompose_in_rounds(
         )
 
 
+#: The most bytes a round journal is read to by the exposure register: far past any real one.
+MOST_JOURNAL = 64 * 1024 * 1024
+#: How a round's review ends without the reviewer's own scan of its streams: by raising.
+UNSCANNED_REVIEWS = frozenset({"invocation_error", "model_separation"})
+
+
 def exposed_reviews(run_dir: Path) -> tuple[str, ...]:
     """The review sessions whose rounds the journal ended as an exposure, by their ids.
 
@@ -919,17 +928,30 @@ def exposed_reviews(run_dir: Path) -> tuple[str, ...]:
         RunStateError: the journal cannot be read, or a whole line of it is no JSON object.
     """
     try:
-        data = (run_dir / ROUNDS_JOURNAL).read_bytes()
+        # Opened without following a link and read only as a plain file of its own, bounded.
+        fd = os.open(run_dir / ROUNDS_JOURNAL, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
         return ()
     except OSError as exc:
         msg = "the round journal cannot be read"
         raise RunStateError(msg, run_dir=str(run_dir), why=repr(exc)) from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > MOST_JOURNAL:
+            msg = "the round journal is not a plain file of its own under its size bound"
+            raise RunStateError(msg, run_dir=str(run_dir))
+        with os.fdopen(os.dup(fd), "rb") as handle:
+            data = handle.read(MOST_JOURNAL + 1)
+    except OSError as exc:
+        msg = "the round journal cannot be read"
+        raise RunStateError(msg, run_dir=str(run_dir), why=repr(exc)) from exc
+    finally:
+        os.close(fd)
     found: list[str] = []
     for one in data.split(b"\n")[:-1]:
         try:
             line = json.loads(one)
-        except ValueError as exc:
+        except (ValueError, RecursionError) as exc:
             msg = "a line of the round journal is not one the rounds write"
             raise RunStateError(msg, run_dir=str(run_dir)) from exc
         if not isinstance(line, dict):

@@ -911,8 +911,18 @@ class ClaudeReviewer:
         2.1.301 against the scripted endpoint), so the account is held to them whole.
         """
         remove_secrets(sdir / "state", sdir / "config")
+        canaries = frozenset(self._setup.held_out_canaries)
+        # Scanned as written, before the redaction: the redaction replaces whole a line it cannot
+        # read, a line the scan counts as the canary, and the exposure register and the command
+        # after a kill scan these same bytes unredacted. A stream that cannot be read here is
+        # read again below, after the redaction, and halts there as before.
+        try:
+            written = read_stream_file(stdout)
+        except InvocationError:
+            written = None
+        showed = written is not None and canary_seen(written, canaries) is not None
         redact(stdout, self._setup.credential.secret)
-        # One read of the stream, without following a link, for the scan and for its end.
+        # One read of the redacted stream, without following a link, for its end.
         # This process opened it before the session ran, so a stream that is not there was
         # removed: it is never read as one that showed nothing, nor retried as a failure.
         try:
@@ -927,7 +937,7 @@ class ClaudeReviewer:
         result = captured.result
         # Each cut response marked as the totals count it, on every invocation's lines alike.
         usage = settle(result, (*prior, *captured.usage))
-        exposed = canary_seen(data, frozenset(self._setup.held_out_canaries))
+        exposed = showed if written is not None else canary_seen(data, canaries) is not None
         text = data.decode(errors="replace")
         here = compactions_in(text)
         # A compaction's own call is in the totals and in no message: where this invocation's

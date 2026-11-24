@@ -46,7 +46,6 @@ from test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier
     JOURNAL,
     REVIEW_RECORD,
     OnTier,
-    _exposed_review,
     _killed_in_its_review_showing,
     _passed,
     _readable,
@@ -177,14 +176,19 @@ def _folder(tier: OnTier, where: str) -> Path:
     return tier.runs if where == "root" else tier.runs / "round-1"
 
 
-@pytest.mark.parametrize("where", ["root", "folder"], ids=["at the run root", "in a folder"])
-def test_a_parameters_record_that_does_not_read_refuses_and_names_no_path(
-    tier: OnTier, where: str
-) -> None:
-    folder = _folder(tier, where)
+def test_a_parameters_record_that_does_not_read_refuses_and_names_no_path(tier: OnTier) -> None:
+    folder = _folder(tier, "folder")
     _exposed_run(tier, folder / "a")
     (folder / "params_source.json").write_text("")
     _refused(tier)
+
+
+@pytest.mark.parametrize("marker", ["", PARAMS], ids=["one that does not read", "one that reads"])
+def test_a_run_root_is_never_a_decomposition_s_directory(tier: OnTier, marker: str) -> None:
+    _exposed_run(tier, tier.runs / "decomposition")
+    _exposed_run(tier, tier.runs / "x" / "y")
+    (tier.runs / "params_source.json").write_text(marker)
+    assert _readable(tier) == frozenset({tier.made.version})
 
 
 @pytest.mark.parametrize("where", ["root", "folder"], ids=["at the run root", "in a folder"])
@@ -643,7 +647,7 @@ def test_a_finished_review_s_stream_is_scanned_once_and_its_result_kept(
     assert _readable(tier) == frozenset({tier.made.version})
     assert len(scans) == 2, "a finished review's stream was scanned again"
     # A stream whose bytes change is scanned again.
-    (shown / "review" / SID / "session" / "stdout.jsonl").write_text(CLEAN)
+    (shown / "review" / SID / "session" / "stdout.jsonl").write_text(CLEAN * 2)
     assert _readable(tier) == frozenset()
     assert len(scans) == 3
 

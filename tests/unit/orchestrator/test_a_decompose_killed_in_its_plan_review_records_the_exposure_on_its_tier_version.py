@@ -405,7 +405,7 @@ JOURNAL = Path("decomposition", "rounds.jsonl")
 def test_a_kill_between_the_round_s_end_line_and_the_review_s_record_going_records_it_once(
     tier: OnTier, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def dies_as_the_record_goes(run_dir: Path) -> None:
+    def dies_as_the_record_goes(run_dir: Path, **_: Any) -> None:  # noqa: ANN401
         raise Stopped
 
     monkeypatch.setattr(design_rounds, "review_over", dies_as_the_record_goes)
@@ -444,7 +444,7 @@ def test_a_journal_line_a_kill_cut_is_read_in_its_review_s_record(tier: OnTier) 
     with (tier.run_dir / JOURNAL).open("ab") as journal:
         journal.write(cut)
     # The record is read in its place, and its streams showed nothing.
-    assert tier.exposed() == frozenset()
+    assert _readable(tier) == frozenset()
 
 
 # --- a decomposition cut before its run's configuration is written -------------------------------

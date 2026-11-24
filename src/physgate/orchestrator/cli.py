@@ -58,6 +58,7 @@ from physgate.orchestrator.decompose import (
     call,
     require_fresh,
     require_no_skill_file,
+    require_only_its_own,
 )
 from physgate.orchestrator.decomposition_review import stop_left_review
 from physgate.orchestrator.design_rounds import decompose_in_rounds
@@ -864,9 +865,19 @@ def _decompose_run(args: argparse.Namespace, *, registrations: Registrations | N
         return _fail(str(exc), **exc.context)
     try:
         require_fresh(run_dir)
+        require_only_its_own(
+            run_dir,
+            given=[
+                args.target,
+                args.params,
+                args.brief,
+                *([] if args.review_root is None else [review_root_path(args.review_root)]),
+            ],
+        )
         # The parameters name the held-out canaries: recorded first, so every session of the run
-        # is installed with the file withheld, wherever it lies.
-        record_params(run_dir, args.params)
+        # is installed with the file withheld, wherever it lies. The target with them: where its
+        # clone lies in the run directory, it is the decomposition's own.
+        record_params(run_dir, args.params, target=args.target)
         reviewing = _plan_reviewer(args, config, credential, registrations)
         # The root the reviewer runs under, as every reader takes it: recorded before the review
         # runs, so a later command looks for this run's reviews where they are.
