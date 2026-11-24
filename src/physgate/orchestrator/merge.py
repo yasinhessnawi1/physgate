@@ -51,6 +51,8 @@ from physgate.orchestrator.exports import (
     EXPORTS_DIR,
     MAX_EXPORT_BYTES,
     MAX_MODULE_EXPORT_BYTES,
+    MAX_MODULE_EXPORTS,
+    SHOWN_IN_FULL,
     cap_of,
     free_text,
     is_export,
@@ -108,6 +110,15 @@ MAX_ARTEFACTS_NAMED = 20
 EXPORT_OUTSIDE = (
     f"an export outside the module's {EXPORTS_DIR} folder: the design helper writes each export "
     f"into {EXPORTS_DIR}/, and nowhere else"
+)
+#: What an attempt is told about a file outside the exports folder named like one of the circuit
+#: helper's text exports: the way out is another name, not the folder, where a file the helper
+#: did not write from a committed schematic is refused again.
+CIRCUIT_SUFFIX_OUTSIDE = (
+    f"a file named like the circuit helper's exports outside the module's {EXPORTS_DIR} folder: "
+    f"the suffixes {', '.join(SHOWN_IN_FULL)} are kept for the exports the circuit helper writes "
+    f"into {EXPORTS_DIR}/ from a committed schematic; a table or netlist of the role's own takes "
+    "another name (for example .tsv or .txt)"
 )
 NOT_AN_EXPORT = (
     f"a file in the module's {EXPORTS_DIR} folder that is no export: only files ending in "
@@ -263,9 +274,11 @@ def write_scope_violations(
     bytes are not what its suffix says, a binary STL with a header or attribute byte its writer
     does not write (``exports.FreeText``), and exports holding more than
     :data:`~physgate.orchestrator.exports.MAX_MODULE_EXPORT_BYTES` together in the module after
-    the attempt. Misplaced files are named in git's order, then the exports' bytes, read from
-    the commit. An attempt that passes holds only exports the review packet may show by size,
-    sha256 and summary.
+    the attempt, or a module whose exports folder holds more than
+    :data:`~physgate.orchestrator.exports.MAX_MODULE_EXPORTS` files then: judged first, from one
+    listing, so no export of such a folder is read. Misplaced files are named in git's order,
+    then the exports' bytes, read from the commit. An attempt that passes holds only exports the
+    review packet may show by size, sha256 and summary.
     """
     module = _module_path(module_dir)
     found: list[str] = []
@@ -325,6 +338,8 @@ def _module_path(module_dir: str) -> PurePosixPath:
 def _misplaced_export(path: PurePosixPath, exports_dir: PurePosixPath) -> str | None:
     """Why a file the attempt wrote in its module is no admissible export, if it is not."""
     if exports_dir not in path.parents:
+        if path.name.casefold().endswith(SHOWN_IN_FULL):
+            return CIRCUIT_SUFFIX_OUTSIDE
         return EXPORT_OUTSIDE if path.name.casefold().endswith(EXPORT_SUFFIXES) else None
     if path.parent != exports_dir or not is_export(str(path)):
         return NOT_AN_EXPORT
@@ -334,13 +349,22 @@ def _misplaced_export(path: PurePosixPath, exports_dir: PurePosixPath) -> str | 
 def _export_bytes_problems(
     repo: Path, commit: str, paths: list[str], exports_dir: PurePosixPath, git_dir: GitDir | None
 ) -> list[str]:
-    """Each export of ``paths`` too big or not its kind; then the module's total, if over."""
+    """Each export of ``paths`` too big or not its kind; then the module's total, if over.
+
+    A folder holding more files than :data:`~physgate.orchestrator.exports.MAX_MODULE_EXPORTS`
+    is refused for that alone, before any of its files is read.
+    """
+    count, total = _module_exports(repo, commit, exports_dir, git_dir)
+    if count > MAX_MODULE_EXPORTS:
+        return [
+            f"{exports_dir}/ (the module's exports folder holds {count} files, over "
+            f"{MAX_MODULE_EXPORTS})"
+        ]
     found = []
     for path in paths:
         problem, _ = _export_read(repo, f"{commit}:{path}", path, git_dir)
         if problem is not None:
             found.append(f"{path} ({problem})")
-    total = _module_export_bytes(repo, commit, exports_dir, git_dir)
     if total > MAX_MODULE_EXPORT_BYTES:
         found.append(
             f"{exports_dir}/ (the module's exports hold {total} bytes, over "
@@ -370,10 +394,10 @@ def _export_read(
     return None, body
 
 
-def _module_export_bytes(
+def _module_exports(
     repo: Path, commit: str, exports_dir: PurePosixPath, git_dir: GitDir | None
-) -> int:
-    """How many bytes the files in ``exports_dir`` hold at ``commit``, as git lists them.
+) -> tuple[int, int]:
+    """How many files ``exports_dir`` holds at ``commit``, and their bytes, as git lists them.
 
     Only files count: a submodule entry has no size here, and is refused by its mode.
     """
@@ -381,12 +405,13 @@ def _module_export_bytes(
         repo, "ls-tree", "-r", "-l", "-z", commit, "--", f"{exports_dir}/",
         objects_only=True, git_dir=git_dir, errors="surrogateescape",
     )  # fmt: skip
-    total = 0
+    count = total = 0
     for entry in listed.split("\0"):
         fields = entry.partition("\t")[0].split()
         if len(fields) == _LS_TREE_FIELDS and fields[1] == "blob":
+            count += 1
             total += int(fields[3])
-    return total
+    return count, total
 
 
 def admitted_exports(
@@ -411,10 +436,13 @@ def admitted_exports(
     review shows it in full, and the change check refuses the attempt if a line of it is too
     long to show. Nor is a text export of a circuit (``exports.SHOWN_IN_FULL``), ever: the
     review shows it in git's diff, as every other committed file a role writes.
+    Nor in one whose exports folder holds more than
+    :data:`~physgate.orchestrator.exports.MAX_MODULE_EXPORTS` files.
     Sorted by path, then digest. Called once :func:`write_scope_violations` found nothing.
     """
     exports_dir = _module_path(module_dir) / EXPORTS_DIR
-    if _module_export_bytes(repo, commit, exports_dir, git_dir) > MAX_MODULE_EXPORT_BYTES:
+    count, total = _module_exports(repo, commit, exports_dir, git_dir)
+    if count > MAX_MODULE_EXPORTS or total > MAX_MODULE_EXPORT_BYTES:
         return ()
     found: set[tuple[str, str]] = set()
     for change in changes_between(repo, base, commit, git_dir=git_dir):

@@ -527,16 +527,26 @@ def _git_path() -> str:
         raise PacketError(str(exc), **exc.context) from None
 
 
-def _git_bytes(repo: Path | GitDir, *args: str) -> bytes:
+def _git_bytes(
+    repo: Path | GitDir, *args: str, stdin: bytes | None = None, index: str | None = None
+) -> bytes:
+    """What git prints for ``args`` in the review's store; ``stdin`` given on its standard input.
+
+    ``index`` names an index file of the caller's own, for the commands that build a tree.
+    """
     where = _place(repo)
     object_format = _object_format(where)
     store = _object_store(tuple(_object_dirs(where)), object_format)
+    env = {**_GIT_ENV, "GIT_ATTR_SOURCE": EMPTY_TREES[object_format]}
+    if index is not None:
+        env["GIT_INDEX_FILE"] = index
     done = subprocess.run(
         [_git_path(), attr_source(object_format), "--git-dir", store, *_GIT_FLAGS, *args],
         cwd=store,
+        input=stdin,
         capture_output=True,
         check=False,
-        env={**_GIT_ENV, "GIT_ATTR_SOURCE": EMPTY_TREES[object_format]},
+        env=env,
     )
     if done.returncode != 0:
         msg = "git could not produce what the review is shown"
@@ -1226,14 +1236,24 @@ def _export_side(repo: GitDir, path: str, blob: str, admitted: Admitted) -> str 
     return f"{len(body)} bytes, sha256 {digest}; {told}; {free.described()}"
 
 
-def _admitted_exports(
-    repo: GitDir, base: str, commit: str, admitted: Admitted
-) -> list[tuple[str, bytes]]:
+class _Leaving(NamedTuple):
+    """An admitted export that leaves git's diff: its path, its line, and its side at the base."""
+
+    path: str
+    line: bytes
+    #: The path's mode and object at the base, as git's raw diff gives them (``000000`` and an
+    #: id of zeros where the base holds no such file).
+    base_mode: str
+    base_id: str
+
+
+def _admitted_exports(repo: GitDir, base: str, commit: str, admitted: Admitted) -> list[_Leaving]:
     """Each export between ``base`` and ``commit`` that leaves the diff, with its line.
 
     In git's order, which is by path. A rename is a removal and an addition. A path leaves only
     if it is an export's (``exports.is_export``), is UTF-8 and a regular file on each side it
-    exists on, and every side it has is admitted (:func:`_export_side`).
+    exists on, and every side it has is admitted (:func:`_export_side`). A path the rule did not
+    admit on any side is not read at all.
     """
     raw = _git_bytes(
         repo,
@@ -1247,6 +1267,7 @@ def _admitted_exports(
         "--",
         f":(exclude){DISPUTES_DIR}",
     )
+    named = {path for path, _ in admitted}
     fields = raw.split(b"\0")
     found = []
     for meta, name in zip(fields[0::2], fields[1::2], strict=False):
@@ -1256,6 +1277,8 @@ def _admitted_exports(
         except UnicodeDecodeError:
             continue
         if not is_export(path) or not {old_mode, new_mode} - {_ABSENT_MODE} <= _REGULAR_MODES:
+            continue
+        if path not in named:
             continue
         old = (
             None
@@ -1275,8 +1298,36 @@ def _admitted_exports(
             what = f"changed from {old} to {new}"
         else:
             continue
-        found.append((path, f"exported file {json.dumps(path)}: {what}".encode()))
+        line = f"exported file {json.dumps(path)}: {what}".encode()
+        found.append(_Leaving(path, line, old_mode.decode(), old_id.decode()))
     return found
+
+
+def _left_out(where: GitDir, commit: str, leaving: list[_Leaving]) -> str:
+    """The tree of ``commit`` with each leaving path as the base holds it, or gone if it has none.
+
+    Git's diff from the base to this tree is its diff from the base to ``commit`` with those
+    paths left out, byte for byte: each is the same on both sides, so it is in no file's section
+    and in no rename's pairing, as a path a pathspec excludes is not. The paths reach git on its
+    standard input, never as arguments, so no number of them meets the system's limit on a
+    command line, and each is one exact path, never a pattern. The tree is built in an index of
+    this call's own and written into the review's throwaway store; nothing of the attempt's
+    repository is written.
+
+    Raises:
+        PacketError: git could not build the tree.
+    """
+    entries = b"".join(
+        f"{left.base_mode} {left.base_id}\t{left.path}\0".encode() for left in leaving
+    )
+    folder = tempfile.mkdtemp(prefix="physgate-review-index-")
+    try:
+        index = str(Path(folder) / "index")
+        _git_bytes(where, "read-tree", commit, index=index)
+        _git_bytes(where, "update-index", "-z", "--index-info", stdin=entries, index=index)
+        return _git_bytes(where, "write-tree", index=index).decode().strip()
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def _diff(
@@ -1293,7 +1344,8 @@ def _diff(
     are for tools, and a binary one would be a line no part can hold. ``admitted`` holds each
     admitted path with its sha256, as the change check's commit-time rule gave them
     (``merge.admitted_exports``, carried on the attempt). A change with no admitted export is
-    git's diff, byte for byte.
+    git's diff, byte for byte; one with some is git's diff to a tree that holds each of them as
+    the base does (:func:`_left_out`), whatever their number.
     """
     where = _place(repo)
     leaving = _admitted_exports(where, base, commit, admitted)
@@ -1305,14 +1357,14 @@ def _diff(
         "--no-textconv",
         "--text",
         base,
-        commit,
+        _left_out(where, commit, leaving) if leaving else commit,
         "--",
         f":(exclude){DISPUTES_DIR}",
-        *(f":(exclude,literal){path}" for path, _ in leaving),
     )
     if not leaving:
         return shown
-    return shown + b"\n".join([EXPORTS_HEADER.encode(), *(line for _, line in leaving)]) + b"\n"
+    lines = [EXPORTS_HEADER.encode(), *(left.line for left in leaving)]
+    return shown + b"\n".join(lines) + b"\n"
 
 
 def person_order_text(order: PersonOrder) -> bytes:

@@ -44,6 +44,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -196,7 +197,13 @@ class Runs:
         roots: Sequence[str],
     ) -> tuple[int | None, str]:
         self.calls.append(
-            {"argv": list(argv), "work": Path(work), "roots": list(roots), "timeout": timeout_s}
+            {
+                "argv": list(argv),
+                "work": Path(work),
+                "roots": list(roots),
+                "timeout": timeout_s,
+                "env": dict(env),
+            }
         )
         try:
             done = subprocess.run(  # noqa: S603 - the stand-in, as the record names it
@@ -417,7 +424,7 @@ def test_a_schematic_and_its_exports_removed_together_ask_for_nothing(tmp_path: 
 @pytest.mark.parametrize(
     ("word", "said"),
     [
-        ("FAIL", "exit code 1"),
+        ("FAIL", "the program ended with an error"),
         ("SLEEP", "timed out"),
         ("BIG", "cap"),
         ("NOWRITE", "not written"),
@@ -444,7 +451,8 @@ def test_a_failed_regeneration_is_refused_by_its_exit_code_and_nothing_it_said(
     files[f"{MODULE}/board.kicad_sch"] = (SOUND + "SAY\n").encode()
     found, _ = check(tmp_path, files)
     assert found.refused_by == "exports", (found.refused_by, found.reason)
-    assert found.reason is not None and "exit code 1" in found.reason, found.reason
+    ended = "the program ended with an error"
+    assert found.reason is not None and ended in found.reason, found.reason
     # What the program wrote is its own, under the control of whatever it ran: never quoted.
     assert "why" not in found.reason and "an earlier line" not in found.reason, found.reason
 
@@ -1251,3 +1259,178 @@ def test_a_folder_that_cannot_be_counted_refuses(tmp_path: Path) -> None:
             (tmp_path / "d").chmod(0o700)
     assert type(raised).__name__ == "RegenerationBoundError", raised
     assert "cannot be counted" in str(raised), raised
+
+
+# ---- what a failed regeneration's refusal tells -----------------------------------------------
+
+
+class Ends(Runs):
+    """A runner that writes nothing and ends with the code it is given."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__()
+        self.code = code
+
+    def __call__(
+        self,
+        argv: Sequence[str],
+        work: Path,
+        env: Mapping[str, str],
+        timeout_s: float,
+        roots: Sequence[str],
+    ) -> tuple[int | None, str]:
+        self.calls.append({"argv": list(argv), "work": Path(work), "env": dict(env)})
+        return self.code, ""
+
+
+@pytest.mark.parametrize("code", [1, 2, 77, 201, 255, -9])
+def test_every_exit_code_the_record_does_not_word_is_refused_in_one_sentence(
+    tmp_path: Path, code: int
+) -> None:
+    """No number: whatever the command runs chooses its exit code, a few bits an attempt.
+
+    Those bits would reach the session that reads the refusal; the number is kept apart.
+    """
+    found, _ = check(tmp_path, made(SOUND), runs=Ends(code))
+    source = f"{MODULE}/board.kicad_sch"
+    assert found.refused_by == "exports", (found.refused_by, found.reason)
+    assert found.reason == (
+        f"the exports of {source} could not be made again: the program ended with an error"
+    ), found.reason
+
+
+def test_an_exit_code_the_record_words_is_refused_in_the_record_s_words(tmp_path: Path) -> None:
+    found, _ = check(tmp_path, made(SOUND), runs=Ends(3))
+    assert found.reason is not None and REFUSALS["3"] in found.reason, found.reason
+    assert "3" not in found.reason.replace(REFUSALS["3"], ""), found.reason
+
+
+def test_the_exit_code_is_kept_in_the_run_s_place_apart_and_on_no_line_a_session_reads(
+    tmp_path: Path,
+) -> None:
+    """Where it lands: one line in the run's place apart, which no role session reads."""
+    run, commit = attempt(tmp_path, made(SOUND))
+    record = recorded(stand_in_root(tmp_path))
+    found = checker(tmp_path, run, lambda: record, Ends(201)).check("s1", commit, "control")
+    assert found.refused_by == "exports", (found.refused_by, found.reason)
+    assert "201" not in found.model_dump_json(), found.model_dump_json()
+    kept = run.run_dir / "sentinel-apart" / "regeneration_exits.jsonl"
+    lines = [json.loads(line) for line in kept.read_text().splitlines()]
+    assert lines == [
+        {
+            "commit": commit,
+            "exit_code": 201,
+            "source": f"{MODULE}/board.kicad_sch",
+            "subtask_id": "s1",
+        }
+    ]
+    assert stat_mode(kept.parent) == 0o700 and stat_mode(kept) == 0o600
+
+
+def stat_mode(path: Path) -> int:
+    return os.lstat(path).st_mode & 0o777
+
+
+# ---- what the check reads of what the command wrote -------------------------------------------
+
+
+def test_a_made_export_one_character_off_at_the_same_length_is_refused(tmp_path: Path) -> None:
+    """The comparison is of bytes: a value changed in place leaves the length as it was."""
+    files = made(SOUND)
+    parts = f"{MODULE}/exports/board.csv"
+    changed = files[parts].replace(b'"1k"', b'"2k"', 1)
+    assert changed != files[parts] and len(changed) == len(files[parts])
+    files[parts] = changed
+    found, _ = check(tmp_path, files)
+    reason = refused(found, parts)
+    assert "is not what" in reason
+
+
+class Moves(Runs):
+    """The stand-in's set, then a part of the way to it made into something the check did not make.
+
+    A link to a folder outside that holds the very same files, a hard link, or another folder.
+    """
+
+    def __init__(self, part: str, elsewhere: Path) -> None:
+        super().__init__()
+        self.part = part
+        self.elsewhere = elsewhere
+
+    def __call__(self, argv: Sequence[str], work: Path, *rest: Any) -> tuple[int | None, str]:  # noqa: ANN401
+        ended = super().__call__(argv, work, *rest)
+        work = Path(work)
+        if self.part == "a hard link to a file outside":
+            product = work / "module" / "exports" / "board.csv"
+            outside = self.elsewhere / "board.csv"
+            outside.parent.mkdir(parents=True)
+            product.rename(outside)
+            os.link(outside, product)
+            return ended
+        if self.part == "module replaced by another folder":
+            (work / "module").rename(work / "aside")
+            shutil.copytree(work / "aside", work / "module")
+            return ended
+        inside = work / "module" if self.part == "module" else work / "module" / "exports"
+        inside.rename(self.elsewhere)
+        inside.symlink_to(self.elsewhere, target_is_directory=True)
+        return ended
+
+
+@pytest.mark.parametrize(
+    "part",
+    ["exports", "module", "a hard link to a file outside", "module replaced by another folder"],
+)
+def test_a_product_reached_through_anything_the_check_did_not_make_is_not_written(
+    tmp_path: Path, part: str
+) -> None:
+    """The orchestrator is not contained: it reads nothing outside the folder it made.
+
+    A link at any part of the way (the last part's is its own row) would have it read a file of
+    any directory it can, and tell the session whether the file is there, over its cap, or equal
+    to a guess. Each is refused as not written, whatever the file there holds: here, the very
+    bytes the role committed.
+    """
+    found, runs = check(tmp_path, made(SOUND), runs=Moves(part, tmp_path / "elsewhere"))
+    assert len(runs.calls) == 1
+    reason = refused(found, f"{MODULE}/exports/board.csv")
+    assert "was not written" in reason, reason
+
+
+# ---- the command's environment ----------------------------------------------------------------
+
+#: Credential-shaped names, as the run's credential sits in the orchestrator's environment.
+CREDENTIALS = {
+    "ANTHROPIC_API_KEY": "not-a-key-test-only",
+    "CLAUDE_CODE_OAUTH_TOKEN": "not-a-token-test-only",
+}
+
+
+def test_the_command_is_given_an_environment_built_from_names_it_may_have(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only its own four and the tool tree's own variables; never the orchestrator's."""
+    for name, value in CREDENTIALS.items():
+        monkeypatch.setenv(name, value)
+    found, runs = check(tmp_path, made(SOUND))
+    assert found.refused_by is None, found.reason
+    given = runs.calls[0]["env"]
+    assert set(given) == {"PATH", "HOME", "TMPDIR", "LANG"}, sorted(given)
+    assert not set(CREDENTIALS.values()) & set(given.values())
+
+
+def test_the_program_started_holds_no_variable_of_the_orchestrator_s_own(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The runner starts it with exactly the environment it is handed, the credential absent."""
+    assert regeneration is not None
+    for name, value in CREDENTIALS.items():
+        monkeypatch.setenv(name, value)
+    tell = "import json, os\nopen('environment.json', 'w').write(json.dumps(dict(os.environ)))\n"
+    given = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "LANG": "C.UTF-8"}
+    code, _ = regeneration._run([sys.executable, "-I", "-c", tell], tmp_path, given, 20.0)  # noqa: SLF001
+    assert code == 0
+    seen = json.loads((tmp_path / "environment.json").read_text())
+    assert not set(CREDENTIALS) & set(seen), sorted(seen)
+    assert not set(CREDENTIALS.values()) & set(seen.values())
+    assert {name: seen.get(name) for name in given} == given

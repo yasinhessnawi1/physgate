@@ -19,6 +19,7 @@ producer of that admission and the way to the packet:
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import struct
@@ -28,15 +29,20 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evaluation"))
+import observe_rig  # noqa: E402
 from export_fixture import WRITER_STL_HEADER  # noqa: E402
 from observe_rig import Reviewer, fake_run, target_repo  # noqa: E402
 
+from physgate.orchestrator import apply as apply_module  # noqa: E402
+from physgate.orchestrator import exports as exports_module  # noqa: E402
 from physgate.orchestrator import merge  # noqa: E402
 from physgate.orchestrator.apply import GitChangeChecker  # noqa: E402
 from physgate.orchestrator.events import AttemptRejected, Merged, read_events  # noqa: E402
 from physgate.orchestrator.merge import RunGit, commit_attempt, write_scope_violations  # noqa: E402
-from physgate.reviewers.packet import PART_MAX_BYTES  # noqa: E402
+from physgate.reviewers.packet import PART_MAX_BYTES, PacketError  # noqa: E402
 
 _ENV = {
     "PATH": "/usr/bin:/bin",
@@ -324,3 +330,104 @@ def test_the_loop_hands_the_admitted_export_to_the_reviewer_and_the_attempt_merg
         assert [(e.path.rsplit("/", 1)[-1], e.sha256) for e in told] == [("plate.stl", _sha(body))]
         assert all(e.path.endswith("/exports/plate.stl") for e in told)
     assert len([e for e in events if isinstance(e, Merged)]) == len(reviewer.seen)
+
+
+# ---- however many exports an attempt holds ----------------------------------------------------
+
+#: An ASCII STL with no facet: fifteen bytes, valid, as many as a session likes.
+TINY_STL = b"solid\nendsolid\n"
+COUNT_CAP = getattr(exports_module, "MAX_MODULE_EXPORTS", None)
+
+
+def test_nothing_is_admitted_in_a_module_whose_exports_folder_passes_the_count_cap(
+    tmp_path: Path,
+) -> None:
+    assert COUNT_CAP is not None, "a module's exports are bounded in number"
+    at_cap = {f"{EXPORTS}/part{n:02d}.stl": TINY_STL for n in range(COUNT_CAP)}
+    assert len(_admitted(tmp_path / "at", at_cap)) == COUNT_CAP
+    over = {**at_cap, f"{EXPORTS}/one-more.stl": TINY_STL}
+    assert _admitted(tmp_path / "over", over) == []
+
+
+def _attempt(tmp_path: Path, files: Mapping[str, bytes]) -> tuple[GitChangeChecker, str]:
+    repo = tmp_path / "target"
+    (repo / MODULE).mkdir(parents=True)
+    (repo / MODULE / "keep.txt").write_text("0\n")
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "start")
+    run = RunGit(repo=repo, run_dir=tmp_path / "run", run_id="r1")
+    run.open_run_branch(_git(repo, "rev-parse", "HEAD"))
+    worktree = run.open_subtask("chassis-1")
+    _write(worktree, dict(files))
+    commit = commit_attempt(worktree, "chassis-1", 1, "sess-1", repo=run.repo)
+    store = tmp_path / "store"
+    store.mkdir()
+    return GitChangeChecker(run, store, {"chassis-1": MODULE}), commit
+
+
+@pytest.mark.parametrize(
+    "error",
+    [OSError(errno.E2BIG, os.strerror(errno.E2BIG)), PacketError("git could not produce it")],
+    ids=["the argument list too long", "git refused"],
+)
+def test_a_diff_the_machine_cannot_prepare_refuses_the_attempt_and_never_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    """Out of the check, an error ends the loop and every resume at the same attempt."""
+    checker, commit = _attempt(tmp_path, {f"{EXPORTS}/plate.stl": TINY_STL})
+
+    def cannot(*_args: object, **_kwargs: object) -> None:
+        raise error
+
+    monkeypatch.setattr(apply_module, "long_line", cannot)
+    try:
+        check = checker.check("chassis-1", commit, "control")
+    except Exception as exc:  # noqa: BLE001 - what escapes the check is the finding
+        raise AssertionError(f"the change check raised instead of refusing: {exc!r}") from None
+    assert check.refused_by == "long_line", (check.refused_by, check.reason)
+    assert check.reason is not None and "could not be prepared" in check.reason, check.reason
+    assert type(error).__name__ in check.reason, check.reason
+    assert str(tmp_path) not in check.reason, check.reason
+
+
+class _KilledError(Exception):
+    """The orchestrator ended in the middle of a change check."""
+
+
+def test_an_attempt_with_a_few_thousand_exports_is_refused_and_the_run_goes_on_and_resumes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's case through the loop: 3,700 exports of 15 bytes, 250-byte names.
+
+    The orchestrator is ended at the first change check, where such an attempt ended it before
+    with an error; the resume judges that attempt again, refuses it by the count of its exports
+    in the closed words, and the run goes on to its end.
+    """
+    assert COUNT_CAP is not None, "a module's exports are bounded in number"
+    repo = target_repo(tmp_path)
+    files = {f"exports/{'a' * 240}{n:05d}.stl": TINY_STL for n in range(3700)}
+    cfg = observe_rig.start(tmp_path, "r-many", repo)
+    real = GitChangeChecker.check
+    calls: list[str] = []
+
+    def killed_first(self: GitChangeChecker, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        calls.append(args[1])
+        if len(calls) == 1:
+            raise _KilledError
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(GitChangeChecker, "check", killed_first)
+    with pytest.raises(_KilledError):
+        observe_rig.drive(tmp_path, cfg, repo, session={"files": files})
+    first = calls[0]
+    ended = observe_rig.drive(tmp_path, cfg, repo, session={"files": files}, resume=True)
+    assert ended, "the resumed run did not end"
+    assert calls.count(first) == 2, "the resume did not judge the attempt it was ended at"
+    events = read_events(tmp_path / "r-many" / "events.jsonl")
+    rejected = [e for e in events if isinstance(e, AttemptRejected)]
+    assert rejected, "no attempt was refused"
+    said = f"exports folder holds 3700 files, over {COUNT_CAP}"
+    assert all(said in e.finding.text for e in rejected), [
+        (e.finding.source, e.finding.text[:200]) for e in rejected
+    ]

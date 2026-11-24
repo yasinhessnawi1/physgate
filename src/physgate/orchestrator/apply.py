@@ -49,8 +49,10 @@ the loop can look for a line it never intended before a single byte is written.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+import os
 import re
 import shutil
 from collections.abc import Callable, Iterable, Sequence
@@ -80,10 +82,16 @@ from physgate.orchestrator.declaration import (
     DeclarationError,
     parse,
 )
-from physgate.orchestrator.derived import Runner, held_exports
+from physgate.orchestrator.derived import ExportRefusal, Runner, held_exports
+from physgate.orchestrator.dispatch import place_apart
 from physgate.orchestrator.dispute import DISPUTES_DIR, Dispute, DisputeError, disputer_problem
 from physgate.orchestrator.events import SessionEnded, read_events
-from physgate.orchestrator.exceptions import DutyUnownedError, RoleRegisterError, StoreRefusalError
+from physgate.orchestrator.exceptions import (
+    DutyUnownedError,
+    InvocationError,
+    RoleRegisterError,
+    StoreRefusalError,
+)
 from physgate.orchestrator.export_writer import FREE_TEXT_BUDGET
 from physgate.orchestrator.exports import is_export, shown_in_full
 from physgate.orchestrator.follow import FollowedInterface, FollowRefusedError, follow
@@ -99,7 +107,13 @@ from physgate.orchestrator.git import (
 from physgate.orchestrator.merge import RunGit, admitted_exports, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
 from physgate.oslayer.regeneration import default_runner
-from physgate.reviewers.packet import LINE_MAX_BYTES, PART_MAX_BYTES, LongLine, long_line
+from physgate.reviewers.packet import (
+    LINE_MAX_BYTES,
+    PART_MAX_BYTES,
+    LongLine,
+    PacketError,
+    long_line,
+)
 from physgate.series.consistency import check_proposals
 from physgate.series.reader import SealedEntry, attempt_records
 from physgate.series.seal import FORMAT, MAX_FILE_BYTES, SealedRecord, SessionSeries
@@ -567,6 +581,50 @@ def too_long(long: LongLine) -> str:
     )
 
 
+#: Where a failed regeneration's exit code is kept, in the run's place apart: a record of the
+#: run's own that no role session reads or writes, on any layer, and that no refusal, event,
+#: queue item or screen carries. Its reader is a person who opens it by hand.
+REGENERATION_EXITS_NAME = "regeneration_exits.jsonl"
+
+
+def note_exit(run_dir: Path, subtask_id: str, commit: str, refusal: ExportRefusal) -> None:
+    """Append a failed regeneration's exit code to :data:`REGENERATION_EXITS_NAME`.
+
+    One JSON line: the subtask, the attempt's commit, the source and the code. The place apart
+    is made where it is not there yet, and taken only as the run's own (``place_apart``). A
+    record that cannot be written loses this line and nothing else: the refusal stands as it is.
+    """
+    line = {
+        "subtask_id": subtask_id,
+        "commit": commit,
+        "source": refusal.subject,
+        "exit_code": refusal.exit_code,
+    }
+    with contextlib.suppress(OSError, InvocationError):
+        apart = place_apart(run_dir)
+        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC
+        fd = os.open(apart / REGENERATION_EXITS_NAME, flags, 0o600)
+        try:
+            os.write(fd, (json.dumps(line, sort_keys=True) + "\n").encode())
+        finally:
+            os.close(fd)
+
+
+def unprepared(exc: OSError | PacketError) -> str:
+    """The finding of an attempt whose diff the machine could not prepare for its review.
+
+    Said by kind, with the system's own words for an error of the system and the packet's own
+    sentence for its refusal; never a path, git's error stream or anything the attempt wrote.
+    """
+    said = exc.strerror if isinstance(exc, OSError) else exc.args[0] if exc.args else ""
+    kind = type(exc).__name__
+    words = f"{kind}: {said}" if isinstance(said, str) and said else kind
+    return (
+        f"the diff a reviewer reads of this attempt could not be prepared here ({words}), so it "
+        "cannot be shown to a reviewer; the attempt is refused"
+    )
+
+
 def declares_completion(role: str) -> bool:
     """Whether ``role`` is the one role the register names as owning completion, asked now.
 
@@ -661,6 +719,8 @@ class GitChangeChecker:
             git_dir=pinned,
         )
         if held.refusal is not None:
+            if held.refusal.exit_code is not None:
+                note_exit(self._run.run_dir, subtask_id, attempt_commit, held.refusal)
             return ChangeCheck(
                 refused_by="exports",
                 reason=held.refusal.reason,
@@ -780,7 +840,20 @@ class GitChangeChecker:
                 )
         # Last: the diff the review is issued, held to what one part of it can show.
         admitted = frozenset((export.path, export.sha256) for export in exported)
-        long = long_line(pinned, base, attempt_commit, admitted)
+        try:
+            long = long_line(pinned, base, attempt_commit, admitted)
+        except (OSError, PacketError) as exc:
+            # The machine could not prepare the diff (a git that does not start, a command line
+            # the system refuses): a refusal of the attempt, never an error out of the check, which
+            # would end the run here and again at every resume.
+            return ChangeCheck(
+                refused_by="long_line",
+                reason=unprepared(exc),
+                subject=module_dir[:500],
+                graph_root=str(scratch),
+                proposed=proposed,
+                series_checks=checks,
+            )
         if long is not None:
             return ChangeCheck(
                 refused_by="long_line",

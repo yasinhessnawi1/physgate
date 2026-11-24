@@ -217,7 +217,8 @@ def test_nothing_a_failed_regeneration_wrote_reaches_its_refusal_or_the_check_s_
     record = recorded(stand_in_root(tmp_path))
     found = checker(tmp_path, run, lambda: record, Says(said)).check("s1", commit, "control")  # type: ignore[arg-type]
     assert found.refused_by == "exports", (found.refused_by, found.reason)
-    assert found.reason is not None and "exit code 1" in found.reason, found.reason
+    ended = "the program ended with an error"
+    assert found.reason is not None and ended in found.reason, found.reason
     line = ProposalsChecked(
         seq=1,
         ts="2026-11-24T00:00:00.000000Z",
@@ -232,3 +233,28 @@ def test_nothing_a_failed_regeneration_wrote_reaches_its_refusal_or_the_check_s_
     ).model_dump_json()
     for kept in (found.reason, line):
         assert "7731" not in kept and "permission denied" not in kept.casefold(), kept
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_the_withheld_places_are_asked_for_at_every_call(
+    platform: str, tmp_path: Path, started: Started
+) -> None:
+    """A place withheld after the first call (a later run on the tier) is withheld at the next."""
+    asked: list[int] = []
+    root = tmp_path / "tools"
+    first, second = root / "first", root / "second"
+    first.mkdir(parents=True)
+    second.mkdir()
+    places = [str(first)]
+
+    def withheld() -> list[str]:
+        asked.append(len(asked))
+        return list(places)
+
+    run = regeneration.contained_runner(platform=platform, bwrap=BWRAP, withheld=withheld)
+    run(["/bin/true"], tmp_path, {}, 5.0, [str(root)])
+    places.append(str(second))
+    run(["/bin/true"], tmp_path, {}, 5.0, [str(root)])
+    assert len(asked) == 2
+    last = started.profiles[-1] if platform == "darwin" else " ".join(started.commands[-1])
+    assert os.path.realpath(second) in last, last

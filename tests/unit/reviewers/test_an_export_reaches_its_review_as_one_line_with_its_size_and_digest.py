@@ -30,6 +30,7 @@ import os
 import struct
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 from export_fixture import WRITER_STL_HEADER
@@ -621,3 +622,117 @@ def test_the_issued_packet_shows_the_exports_the_attempt_carries_as_their_lines(
     except ReviewError as exc:
         held = f"refused: {exc}"
     assert held == "held"
+
+
+# ---- however many exports leave the diff ------------------------------------------------------
+
+#: An ASCII STL with no facet: fifteen bytes, valid, one line in a review.
+TINY_STL = b"solid\nendsolid\n"
+
+
+def _today_s_form(repo: Path, base: str, commit: str, leaving: list[str]) -> bytes:
+    """Git's diff as the packet ran it before: each leaving path a literal exclusion."""
+    return packet._git_bytes(
+        repo,
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--text",
+        base,
+        commit,
+        "--",
+        f":(exclude){packet.DISPUTES_DIR}",
+        *(f":(exclude,literal){path}" for path in leaving),
+    )
+
+
+def test_the_diff_with_exports_left_out_is_git_s_with_them_excluded_byte_for_byte(
+    tmp_path: Path,
+) -> None:
+    """A rename beside them, a file changed, one added: the same bytes as excluding each path."""
+    moved = f"{MODULE}/frame.py"
+    before = {f"{MODULE}/bracket.py": b"width = 30\nheight = 12\n" * 20, STEP_PATH: STEP}
+    after: dict[str, bytes | None] = {
+        f"{MODULE}/bracket.py": None,
+        moved: b"width = 30\nheight = 12\n" * 20,
+        f"{MODULE}/chassis.py": b"length = 120\n",
+        STEP_PATH: None,
+        STL_PATH: STL,
+    }
+    repo, base, commit = _change(tmp_path, before, after)
+    admitted = _admit((STEP_PATH, STEP), (STL_PATH, STL))
+    diff = packet._diff(repo, base, commit, admitted)
+    shown = _today_s_form(repo, base, commit, [STL_PATH, STEP_PATH])
+    assert b"rename from" in shown, shown
+    # In git's order, by path: plate.step before plate.stl.
+    lines = [_header(), _removed(STEP_PATH, STEP), _added(STL_PATH, STL)]
+    assert diff == shown + b"\n".join(lines) + b"\n"
+
+
+def test_an_admitted_export_named_like_a_pattern_leaves_its_neighbours_in_the_diff(
+    tmp_path: Path,
+) -> None:
+    """Each left-out path is that one path: ``*.stl`` takes no other export with it."""
+    starred = f"{MODULE}/exports/*.stl"
+    repo, base, commit = _change(tmp_path, {}, {starred: TINY_STL, STL_PATH: TINY_STL + b"\n"})
+    diff = packet._diff(repo, base, commit, _admit((starred, TINY_STL)))
+    named = _named_by_git(diff)
+    assert named == [f"diff --git a/{STL_PATH} b/{STL_PATH}".encode()], named
+    assert _added(starred, TINY_STL) in _lines(diff)
+
+
+def _command_lines(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """The length in bytes of each command line the packet starts, recorded as it starts it."""
+    seen: list[int] = []
+    real = subprocess.run
+
+    def recorded(argv: list[str], *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        seen.append(sum(len(os.fsencode(word)) + 1 for word in argv))
+        return real(argv, *args, **kwargs)
+
+    monkeypatch.setattr(packet.subprocess, "run", recorded)
+    return seen
+
+
+def test_no_command_line_grows_with_the_number_of_admitted_exports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The paths that leave the diff reach git on its standard input, never as arguments.
+
+    So no number of exports meets the system's limit on a command line, which ended the change
+    check, its loop and every resume with an error (``OSError``, the argument list too long).
+    """
+    longest = []
+    for count in (2, 40):
+        names = [f"{MODULE}/exports/{'a' * 200}{n:03d}.stl" for n in range(count)]
+        (tmp_path / str(count)).mkdir()
+        repo, base, commit = _change(tmp_path / str(count), {}, dict.fromkeys(names, TINY_STL))
+        with monkeypatch.context() as patched:
+            seen = _command_lines(patched)
+            diff = packet._diff(repo, base, commit, _admit(*((name, TINY_STL) for name in names)))
+        assert _named_by_git(diff) == [], "an admitted export stayed in git's diff"
+        assert len(_lines(diff)) == count + 2
+        longest.append(max(seen))
+    assert longest[0] == longest[1], f"the longest command line grew with the count: {longest}"
+
+
+def test_exports_past_the_system_s_limit_on_a_command_line_reach_the_review(
+    tmp_path: Path,
+) -> None:
+    """The reviewer's case, sized to this machine: more exports than a command line could name.
+
+    3,700 on macOS's 1 MiB, about twice as many on Linux, each a 250-byte name. Built by hand:
+    the commit-time rule refuses a module with that many, so this is the packet's own bound, held
+    apart from the rule's.
+    """
+    limit = os.sysconf("SC_ARG_MAX")
+    count = max(3700, limit // 250 + 200)
+    names = [f"{MODULE}/exports/{'a' * 240}{n:05d}.stl" for n in range(count)]
+    assert sum(len(f":(exclude,literal){name}") + 1 for name in names) > limit
+    repo, base, commit = _change(tmp_path, {}, dict.fromkeys(names, TINY_STL))
+    admitted = _admit(*((name, TINY_STL) for name in names))
+    diff = packet._diff(repo, base, commit, admitted)
+    assert packet.first_long_line(diff) is None
+    assert _named_by_git(diff) == []
+    assert len(_lines(diff)) == count + 2

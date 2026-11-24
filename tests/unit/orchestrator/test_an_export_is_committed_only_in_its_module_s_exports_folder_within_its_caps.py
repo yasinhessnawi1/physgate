@@ -216,3 +216,75 @@ def test_a_misplaced_file_is_named_before_a_malformed_export_each_in_git_s_order
         f"{MODULE}/loose.step ({OUTSIDE})",
         f"{EXPORTS}/bad.stl ({INVALID})",
     ]
+
+
+# ---- the number of exports a module holds -----------------------------------------------------
+
+COUNT_CAP = getattr(exports, "MAX_MODULE_EXPORTS", None)
+#: An ASCII STL with no facet: fifteen bytes, valid, as many as a session likes.
+TINY_STL = b"solid\nendsolid\n"
+
+
+def _too_many(count: int) -> str:
+    return f"{EXPORTS}/ (the module's exports folder holds {count} files, over {COUNT_CAP})"
+
+
+def test_the_cap_on_the_number_of_a_module_s_exports_is_sixty_four() -> None:
+    assert COUNT_CAP == 64
+
+
+def test_a_module_s_exports_at_the_count_cap_are_in_scope_and_one_more_is_refused(
+    tmp_path: Path,
+) -> None:
+    """At the cap every export is read and judged as before; one past it, none is read."""
+    assert COUNT_CAP is not None, "a module's exports are bounded in number"
+    at_cap = {f"{EXPORTS}/part{n:02d}.stl": TINY_STL for n in range(COUNT_CAP)}
+    assert _found(tmp_path / "at", at_cap) == []
+    over = {**at_cap, f"{EXPORTS}/one-more.stl": TINY_STL}
+    assert _found(tmp_path / "over", over) == [_too_many(COUNT_CAP + 1)]
+
+
+def test_the_count_counts_the_files_the_attempt_did_not_touch(tmp_path: Path) -> None:
+    assert COUNT_CAP is not None, "a module's exports are bounded in number"
+    earlier = {f"{EXPORTS}/part{n:02d}.stl": TINY_STL for n in range(COUNT_CAP)}
+    assert _found(tmp_path / "touch", {f"{MODULE}/chassis.py": b"x = 2\n"}, earlier) == []
+    found = _found(tmp_path / "add", {f"{EXPORTS}/one-more.stl": TINY_STL}, earlier)
+    assert found == [_too_many(COUNT_CAP + 1)]
+
+
+def test_a_few_thousand_small_exports_are_refused_by_their_number_before_any_is_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's case: 3,700 exports of 15 bytes with 250-byte names, in one attempt.
+
+    Refused from the one listing of the folder, in the words the other caps use: no export of
+    it is read, so the check takes the time of two git commands, not of thousands.
+    """
+    assert COUNT_CAP is not None, "a module's exports are bounded in number"
+    many = {f"{EXPORTS}/{'a' * 240}{n:05d}.stl": TINY_STL for n in range(3700)}
+
+    def read(*_args: object, **_kwargs: object) -> tuple[str | None, bytes]:
+        raise AssertionError("an export of a folder over the count cap was read")
+
+    monkeypatch.setattr(merge, "_export_read", read)
+    assert _found(tmp_path, many) == [_too_many(3700)]
+
+
+# ---- a role's own table or netlist ------------------------------------------------------------
+
+CIRCUIT_OUTSIDE = getattr(merge, "CIRCUIT_SUFFIX_OUTSIDE", None)
+
+
+@pytest.mark.parametrize(
+    "name", ["torque_curve.csv", "data/TORQUE.CSV", "board.net", "checks/board.erc.json"]
+)
+def test_a_file_named_like_a_circuit_export_outside_the_folder_is_told_to_take_another_name(
+    tmp_path: Path, name: str
+) -> None:
+    """Refused, as before, but the words name the way out: not the folder, another name."""
+    assert CIRCUIT_OUTSIDE is not None, "the refusal of a circuit suffix outside has its words"
+    path = f"{MODULE}/{name}"
+    found = _found(tmp_path, {path: b"speed,torque\n1,2\n"})
+    assert found == [f"{path} ({CIRCUIT_OUTSIDE})"]
+    assert "kept for the exports the circuit helper writes" in CIRCUIT_OUTSIDE
+    assert "takes another name" in CIRCUIT_OUTSIDE
