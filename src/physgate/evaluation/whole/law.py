@@ -90,7 +90,9 @@ term's coefficients, reciprocals and variable multiply to the line's unit, and t
 **The command** is the line named ``command``'s value (a duty, before the limit). A memory state
 marked ``applied`` holds the command as applied: clamped to the limit and rounded to whole counts
 in a test vector, and the linear command in the loop analysis, where the limit and the integer
-rounding are outside the linear loop, as for every named structure.
+rounding are outside the linear loop, as for every named structure. One state at most is marked
+so: two would be two copies of the one applied command, and a law that marks two is malformed.
+A term's sign is the number 1 or -1; ``true``, which Python holds equal to 1, is no sign.
 """
 
 from __future__ import annotations
@@ -113,6 +115,7 @@ from pydantic import (
     StringConstraints,
     ValidationError,
     ValidationInfo,
+    field_validator,
     model_validator,
 )
 
@@ -229,6 +232,15 @@ class Term(_Frozen):
     coefficients: tuple[Name, ...] = Field(default=(), max_length=MAX_FACTORS)
     per: tuple[Name, ...] = Field(default=(), max_length=MAX_FACTORS)
     of: str | None = Field(max_length=80)
+
+    @field_validator("sign", mode="before")
+    @classmethod
+    def _sign_is_a_number(cls, value: object) -> object:
+        # A literal 1 also matches ``true``, which Python holds equal to 1, strict mode or not.
+        if isinstance(value, bool):
+            msg = "a term's sign is the number 1 or -1, not a truth value"
+            raise ValueError(msg)
+        return value
 
 
 class Line(_Frozen):
@@ -436,7 +448,8 @@ def check(body: Body, units: Mapping[str, str]) -> None:
 
     Raises:
         LawRefused: ``malformed`` (a name used before it exists, a command that is not a
-            line, an applied state that is not the command's), or ``units_do_not_balance``.
+            line, an applied state that is not the command's, two states marked applied), or
+            ``units_do_not_balance``.
     """
     coefficient_units = {**units, PERIOD: "s"}
     memory = {m.name: m for m in body.memory}
@@ -478,6 +491,14 @@ def check(body: Body, units: Mapping[str, str]) -> None:
         if state.applied and (state.next != body.command or dimension(state.unit) != ()):
             msg = f"the memory state {state.name!r} is applied, so it is the command in '1'"
             raise LawRefused("malformed", msg)
+    applied = [state.name for state in memory.values() if state.applied]
+    if len(applied) > 1:
+        names = ", ".join(repr(name) for name in applied[:-1])
+        msg = (
+            f"the memory states {names} and {applied[-1]!r} are both marked applied; one state "
+            "only holds the command as applied"
+        )
+        raise LawRefused("malformed", msg)
 
 
 def _spelt(dim: Dimension) -> str:

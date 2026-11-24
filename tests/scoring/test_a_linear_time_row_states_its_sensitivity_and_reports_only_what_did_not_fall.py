@@ -667,8 +667,10 @@ def test_the_timeline_puts_the_hold_window_just_before_the_push_whatever_the_con
     assert u.push - u.window_first == round(dynamic.HOLD_LENGTH / 0.01)
     assert u.observed == round(dynamic.OBSERVE / 0.01)
     per_run = u.push + len(dynamic.PUSH_BAND) * u.observed
-    cuts = dynamic.SEGMENT_WEIGHT * (dynamic.output_points(0.01) + 2)
-    assert dynamic.work(1025, 0.01, 10, 6) == dynamic.RUNS * 1025 * per_run * (10 + 6 + cuts)
+    cuts = dynamic.output_points(0.01) + 2
+    stepped = per_run * (10 + 6 + dynamic.SEGMENT_WEIGHT * cuts)
+    set_up = dynamic.EXPONENTIAL_WEIGHT * cuts
+    assert dynamic.work(1025, 0.01, 10, 6) == dynamic.RUNS * 1025 * (stepped + set_up)
 
 
 def test_the_push_is_at_the_first_update_at_or_after_its_time_and_the_record_says_when() -> None:
