@@ -8,67 +8,47 @@
 
 Separate three layers, and do not let a caller reach past the one it needs:
 
-1. **The vendor/driver layer** — the microcontroller vendor's own peripheral driver or register
-   access, wrapped rather than called directly from application code.
-2. **The hardware abstraction layer (HAL)** — a stable, hardware-independent API (e.g.
+1. **The vendor/driver layer**: the vendor's own peripheral driver or register access, wrapped
+   rather than called from application code.
+2. **The hardware abstraction layer (HAL)**: a stable, hardware-independent API (e.g.
    `gpio_write(pin, level)`, `timer_start(id, period_us)`) that the application calls, with the
-   vendor layer behind it. The point of the layer is that swapping a microcontroller or a board
-   revision changes the HAL's implementation, not the application code that calls it
-   [pattern documented consistently across embedded practitioner references, e.g. J. Beningo,
-   "Creating a Hardware Abstraction Layer (HAL) in C," Embedded Related].
-3. **The application/driver-pattern layer** — a function-pointer-based interface (a `struct` of
-   function pointers, or a small vtable) for a peripheral driver is a common, testable way to keep
-   drivers swappable and to allow a host-side unit test to substitute a fake driver without touching
-   the application logic that uses it. This is a **named, intended exception** to the pointer
-   restriction in standards §6, not an oversight — state it as one where it is used, the way
-   standards §6 itself asks.
+   vendor layer behind it, so that swapping a microcontroller or a board revision changes the HAL's
+   implementation, not the application [J. Beningo, "Creating a Hardware Abstraction Layer (HAL) in
+   C," Embedded Related].
+3. **The application/driver-pattern layer**: a `struct` of function pointers (a small vtable) for a
+   peripheral driver keeps drivers swappable and lets a host-side test substitute a fake driver.
+   This is a **named, intended exception** to the pointer restriction in standards §6: state it as
+   one where it is used.
 
-State which layer a change belongs to in the module's spec, and do not add a vendor-specific call
-inside application logic "just this once" — that is exactly the coupling the layering exists to
-prevent.
+State which layer a change belongs to in the module's spec, and add no vendor-specific call inside
+application logic "just this once".
 
 ## Procedure: establishing a timing budget
 
-1. Enumerate every periodic task and interrupt source with its period `Tᵢ` and its measured or
-   estimated worst-case execution time `Cᵢ` (not an average — a schedulability argument needs the
-   worst case).
-2. Compute `Σ (Cᵢ/Tᵢ)` and compare it against the rate-monotonic sufficient bound
-   `n(2^(1/n) − 1)` (standards §10), which holds only for independent periodic tasks with priority
-   ordered by period — interrupts included, since they run above every task [the interrupt and
-   resource-sharing conditions: "Rate-monotonic scheduling," Wikipedia]. At or below the bound:
-   provably schedulable under rate-monotonic priority. Above it, or where those conditions do not
-   hold (shared resources, an interrupt out of period order, an aperiodic source without a sourced
-   minimum inter-arrival time to use as its period): use an exact test (response-time analysis)
-   rather than assuming failure — the bound is sufficient, not necessary.
+1. Enumerate every periodic task and interrupt source with its period `Tᵢ` and its worst-case
+   execution time `Cᵢ`, measured or estimated (not an average).
+2. Compute `Σ (Cᵢ/Tᵢ)` and compare it against the rate-monotonic sufficient bound `n(2^(1/n) − 1)`
+   (standards §10), which holds only for independent periodic tasks with priority ordered by
+   period, interrupts included, since they run above every task [the interrupt and resource-sharing
+   conditions: "Rate-monotonic scheduling," Wikipedia]. At or below the bound: provably schedulable.
+   Above it, or where those conditions do not hold (shared resources, an interrupt out of period
+   order, an aperiodic source without a sourced minimum inter-arrival time): use an exact test
+   (response-time analysis) rather than assuming failure; the bound is sufficient, not necessary.
 3. Separately, check the same total against the practitioner CPU-headroom guidance (standards §10)
-   and state which of the two comparisons is being reported, since they are different claims.
-4. Record the enumerated tasks, their `Cᵢ`/`Tᵢ`, the utilization total, and which test it was
-   compared against, in the module's spec — a "timing budget met" claim with no enumerated tasks
-   behind it is not a checkable claim.
+  , and state which one is reported (they are different claims).
+4. Record the tasks, their `Cᵢ`/`Tᵢ`, the total and the test in the module's spec: a "timing budget
+   met" claim with no enumerated tasks is not checkable.
 
 ## Antipatterns
 
-- **Reporting "timing budget met" as a bare assertion.** Without the enumerated tasks and their
-  `Cᵢ`/`Tᵢ`, there is nothing for a reviewer to check the arithmetic on (skill §"Procedure: establishing
-  a timing budget").
-- **Measuring execution time with an average instead of a worst case.** A rate-monotonic bound is a
-  worst-case argument; an average-case `Cᵢ` invalidates the whole comparison even if every other
-  number is correct.
-- **Kicking the watchdog from the same interrupt that is meant to detect a hang.** This proves the
-  interrupt still fires, not that the monitored task is alive (standards §9).
-- **Doing real work inside an ISR "because it was convenient."** The most common source of missed
-  deadlines elsewhere in the system is an ISR that does not return quickly (standards §8);
-  reclassifying "just a quick calculation" as deferred work is usually the fix.
-- **Allocating memory dynamically during steady-state operation, even if it "usually" succeeds.**
-  Fragmentation-driven allocation failure and non-deterministic allocation timing are both real
-  failure modes of the same rule (standards §2), and "usually works in testing" is not evidence
-  against either.
-- **A function-pointer HAL that is not named as the exception it is.** The pattern itself is fine
-  (HAL conventions, above), but a module that uses it without saying so, beside a standards file
-  that otherwise restricts pointers to one level of dereferencing, reads as an inconsistency rather
-  than a stated choice (standards §6).
-- **A vendor-specific call inside application logic, justified as temporary.** This is the coupling
-  the HAL layering exists to prevent, and "temporary" workarounds are the ones a codebase keeps.
+- **"Timing budget met" as a bare assertion**, without the enumerated tasks and their `Cᵢ`/`Tᵢ`.
+- **An average instead of a worst-case execution time**: the bound is a worst-case argument.
+- **Kicking the watchdog from the interrupt meant to detect a hang** (standards §9).
+- **Real work inside an ISR "because it was convenient"**: the commonest source of missed
+  deadlines (standards §8); defer it.
+- **Allocating memory dynamically in steady-state operation, even if it "usually" succeeds**
+  (standards §2).
+- **A function-pointer HAL not named as the exception it is** (standards §6).
 
 ---
 
@@ -106,59 +86,86 @@ prevent.
    build output is not design state.
 4. The build has no git: an `extra_scripts` step that runs `git describe` fails. Put a version in
    a constant.
-5. Report size from the build's own summary, in bytes: `RAM: … (used N bytes from 2560 bytes)`
-   and `Flash: … (used N bytes from 28672 bytes)`, the flash measured against the 28,672 bytes
-   the bootloader leaves. `pio run -t size` prints the same bytes, but its `Program` percentage is
-   of the chip's whole 32,768 bytes: quote bytes. The RAM figure is static data only (`.data`,
-   `.bss`, `.noinit`); the stack comes out of what is left. For its worst case, build in an
-   environment of its own without LTO (`build_unflags = -flto`,
-   `build_flags = -fstack-usage -save-temps=obj`; `pio run` builds every environment, `-e <name>`
-   one). Each `.su` file holds the frames of one file's functions; the calls between them come
-   from the `.s` file beside it (`call`, `rcall`, `jmp`, `rjmp`), under `$TMPDIR/fw/<env>/src/`.
-   Name each indirect call (`icall`, `eicall`) and each interrupt vector, with how it is bounded.
-   Combine the per-function figures along the deepest call path and the deepest interrupt's with
-   a script in the module, and compare the sum with what is left. That build is another binary
-   (its flash and RAM differ): say which binary the figure is of. The argument holds only because
-   the code has no recursion (standards §1) and keeps the heap out of steady-state operation
-   (standards §2).
+5. Report size from the build's own summary, in bytes: `RAM: … (used N bytes from 2560 bytes)` and
+   `Flash: … (used N bytes from 28672 bytes)`, the flash against the 28,672 bytes the bootloader
+   leaves; `pio run -t size` prints the same bytes, but its `Program` percentage is of the chip's
+   whole 32,768 bytes: quote bytes. The RAM figure is static data only (`.data`, `.bss`,
+   `.noinit`); the stack comes out of what is left. For its worst case, build in an environment of
+   its own without LTO (`build_unflags = -flto`, `build_flags = -fstack-usage -save-temps=obj`;
+   `pio run -e <name>` builds one). Each `.su` file holds the frames of one file's functions; the
+   calls between them come from the `.s` file beside it (`call`, `rcall`, `jmp`, `rjmp`), under
+   `$TMPDIR/fw/<env>/src/`. Name each indirect call (`icall`, `eicall`) and each interrupt vector,
+   with how it is bounded; combine the figures along the deepest call path and the deepest
+   interrupt's with a script in the module, and compare the sum with what is left. Say which binary
+   the figure is of (that build differs in flash and RAM). It holds only because the code has no
+   recursion (standards §1) and keeps the heap out of steady-state operation (standards §2).
 
-## On target, with no board and no simulator
+## On target: the simulator `avrsim`
 
-No board is attached to a session: upload, programming, fuse, bootloader, erase and serial
-monitor commands are refused, and serial devices are closed. This environment provides no
-simulator of the target, so on-target behaviour (a loop's timing, a fault's timing) is stated as
-not shown in this run, with that reason (standards §12). Nor does it record a host compiler, and
-`pio test` runs nothing here (its `native` platform is not installed, and a session may only
-build tests). The evidence is the strict build, its size, and a model check of the law's
-arithmetic (the next procedure); that the compiled logic ran is stated as not shown.
+No board is attached to a session: upload, programming, fuse, bootloader, erase and serial monitor
+commands are refused, and serial devices are closed. The run's tool environment holds `avrsim`,
+a simulator of the ATmega32U4 with a model of the Balboa 32U4 board; `avrsim --version` prints its
+version line; if that does not run there is no simulator: state on-target behaviour as not shown
+and use the procedure after this one (standards §12).
+1. Build the program (steps 1 to 3 above, the `.elf` under `$TMPDIR`) and run it from a script of
+   the module: `avrsim run --elf <file>.elf --scenario <s>.json --out <t>.jsonl` (`avrsim check
+   --scenario <s>.json` only reads a scenario). It needs no network, writes the trace and its
+   summary beside `--out`, and prints the summary (the rig's versions, the sha256 of the program and the
+   scenario, every figure below) and exits 0 even where its evidence is not clean (1 means the rig
+   failed, 2 that the input was refused and nothing was written): read `evidence_end`,
+   `timing_evaluable` and `behaviour_evaluable` first. Its speed is not stated: time
+   a short run first, then set the Bash timeout to fit.
+2. The scenario is JSON, refused whole for a field it does not know: `avrsim_scenario` 1;
+   `duration_s` (at most 600); `imu` (`pitch_rad`, `pitch_rate_rad_s` as `[[t_s, value], …]`, or
+   `raw` counts); `encoders` (`left_rev_s`, `right_rev_s`: motor revolutions a second); `faults`
+   (`nack`, `sda_held`, `stale`, `saturated`, with `start_s`, `end_s`); `buttons`; `stalls` (the main
+   program held, `interrupts` on or off); `usb_sof`; `battery_v` (6.0 to 10.8); `probes` (`symbol`
+   of a function of the ELF, which LTO may have dropped, `period_s`); `markers`.
+3. It shows, from the CPU as it runs: a probed function's entries, period and lateness against
+   the grid of its period; the PWM period, high time and frequency between the pin's edges; the
+   encoder counts for the edges scripted; each event's motors-off instant, from the driver's two
+   enable pins ("off" is the driver's brake); the watchdog's period and resets at both ends of its
+   oscillator, and the reset path; each vector's cycles and the stack's least depth; the gyro's
+   register writes; the compare registers' writes for raw sensor counts scripted, so the law's
+   output in the target's arithmetic.
+4. It does not show, and its summary lists most of it (`not_shown`): the loop closed (the
+   sensors follow the script, the motor outputs change nothing), so no balancing and no push; the
+   input-to-output delay, bounded only; the sensor's noise, filter delay and drift; the clock's
+   tolerance; the board's off state in reset, which its wiring sets; the driver's electrical
+   behaviour; battery sag and the 5 V rail; USB with a host; the magnetometer's data; brown-out;
+   an external reset; encoder bounce; stack on paths not run. State each as not shown.
+5. A figure from a run is labelled as simulated on the target's instruction set with a model of the
+   board, not measured on a board; the record carries the rig's versions and both digests. A figure the
+   simulator can show is shown on it, not by analysis (standards §12).
 
-## Procedure: checking the control law's arithmetic and the trips without a host compiler
+## Procedure: checking the control law's arithmetic and the trips without a simulator or a host compiler
 
+No host compiler is recorded and `pio test` runs nothing here (its `native` platform is not
+installed; a session may only build tests).
 1. Write a model of the module's law, and of each trip the diff changes, in a script under the
-   module, run with the session's `python3`, that computes as the compiled code does (avr-gcc 7.3
+   module, run with the session's `python3 -B`, that computes as the compiled code does (avr-gcc 7.3
    on this chip): `int` is 16 bits and `long` 32, `char` is signed unless declared `unsigned`, and
    each intermediate result follows C's integer promotion and truncates (an `int16_t * int16_t`
    product is 16 bits, even when assigned to an `int32_t`, unless an operand is cast wider first;
    an integer literal too large for `int`, such as `40000`, makes its expression 32-bit); `float`
    and `double` are both 32-bit (numpy's `float32`, not Python's `float`); `/` truncates toward
    zero while `>>` floors (Python's and numpy's `//` floor), and `%` takes the dividend's sign
-   (`np.fmod`, not numpy's `%`); saturation and the order of operations as in the source. numpy
-   does not promote as C does (a `uint8` product stays 8-bit, where C computes it in `int`;
-   `int16` with `uint16` gives `int32`, where C gives a 16-bit `unsigned int`): set each
-   intermediate's type explicitly to the one C computes in. Signed overflow is undefined in C
-   (avr-gcc folds `a + 1 > a` to true): the script checks that no signed intermediate leaves its
-   type's range over the inputs, and states the range checked. Use numpy's fixed-width integers,
-   or explicit wrapping and clamping: Python's own integers never overflow. The script reads the
-   code's constants from the module's source, and the designer's coefficients from control's
-   node; neither is retyped.
+   (`np.fmod`); saturation and the order of operations as in the source. numpy does not promote as
+   C does (a `uint8` product stays 8-bit, where C computes it in `int`; `int16` with `uint16` gives
+   `int32`, where C gives a 16-bit `unsigned int`): set each intermediate's type explicitly to the
+   one C computes in. Signed overflow is undefined in C (avr-gcc folds `a + 1 > a` to true): check
+   that no signed intermediate leaves its type's range over the inputs, and state the range
+   checked. Use fixed-width integers or explicit wrapping and clamping. The script reads the code's
+   constants from the module's source and the designer's coefficients from control's node; neither
+   is retyped.
 2. Run it over the inputs the spec names and the ends of each input's range, against the same law
-   in floating point with the designer's coefficients; report the largest difference with its
-   unit, and every clamp or wrap the inputs reach. Exercise each trip in the model (the tilt
-   limit, the stale-command timeout, the sensor-fault rule) with the values the specification gives, on
-   both sides of each limit, and show the outputs it commands going off. A forced reset and a
-   physically disconnected sensor are stated as not shown, with the reason (DS-12).
-3. Label the result as a model of the code, not the compiled code. Change the model with the
-   code: a model that departs from the code is a finding.
+   in floating point with the designer's coefficients; report the largest difference with its unit
+   and every clamp or wrap reached. Exercise each trip (the tilt limit, the stale-command timeout,
+   the sensor-fault rule) with the values the specification gives, on both sides of each limit, and
+   show the outputs it commands going off. A forced reset and a disconnected sensor are stated as
+   not shown (DS-12).
+3. Label the result as a model of the code, not the compiled code. Change the model with the code: a
+   model that departs from the code is a finding.
 
 ## What a session's checks refuse
 
@@ -187,13 +194,19 @@ arithmetic (the next procedure); that the compiled logic ran is stated as not sh
 
 ## Antipatterns: build and size
 
+- **A wait on a hardware flag with no bound of its own, a failed bus transfer with no recovery, or
+  a module averaging under two assertions per function.** Each wait loop (a status bit, a
+  transfer's completion) counts to a bound and then takes a failure path (standards §1, §13). For a
+  bus transfer the path clears the bus: with SDA held low, nine clock pulses on SCL, then SDA is
+  checked or a STOP sent; with SCL held low, the device's reset or a power cycle (UM10204 §3.1.16).
+  The code averages at least two assertions per function, none a checker proves constant
+  (standards §3).
 - **A hung loop that holds the last command.** The loop that refreshes the command cannot be the
   one that notices it stopped refreshing (standards §13).
 - **A safety path left out for want of a value, or a value invented and called sourced.** The path
   is built; its value is the specification's, or the module's own choice, named as such (standards
   §13).
-- **A size as a percentage with no denominator.** 12.5 % and 10.9 % are the same 3,570 bytes of
-  flash against two totals.
+- **A size as a percentage with no denominator.**
 - **"RAM fits" because the static figure is under 2,560 bytes.** The stack still has to fit in
   what is left, at its deepest.
 - **A library in `lib_deps` by its registry name**, even the installed one: written as
@@ -201,5 +214,4 @@ arithmetic (the next procedure); that the compiled logic ran is stated as not sh
   code.
 - **"Verified on target" for what was only built or modelled.** Say what ran, and that on-target
   behaviour was not shown.
-- **A model check reported as a test of the code.** It shows the arithmetic, not that the compiled
-  logic ran.
+- **A model check reported as a test of the code.**

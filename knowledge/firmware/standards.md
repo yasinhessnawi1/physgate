@@ -1,11 +1,10 @@
 # Firmware — standards
 
-> Researched and drafted by the
-> implementing agent (Yasin's content-authorship correction, 29.09.2026). Read
+> Researched and drafted by an agent and approved by a person before use. Read
 > `knowledge/cross/standards.md` first. Almost every rule here is **judgement-only**: the automated
 > design-quantity checks (the gate) cover declared physical quantities, not code style or scheduling
 > behaviour, so this domain's discipline is enforced by the role's own on-target test and the
-> reviewer, not by the gate — stated plainly rather than implied, per this file's own rule 11.
+> reviewer, not by the gate: stated plainly, per this file's own rule 11.
 
 ## 1. Control flow stays simple and statically boundable
 
@@ -147,10 +146,8 @@ either way.
 
 Separately from the provable bound, practitioner guidance is more conservative in practice: staying
 near or under roughly 70% steady-state CPU utilization is commonly recommended so that timing stays
-predictable under worst-case interrupt load, and moving from roughly 70% to 90% utilization has been
-reported, anecdotally but consistently, to roughly double integration and debugging time on a
-project, tripling near 95% [J. G. Ganssle, embedded systems consultant, cited consistently across
-practitioner sources, e.g. Embedded Artistry, "Embedded Rules of Thumb"]. State the worst-case
+predictable under worst-case interrupt load [J. G. Ganssle, cited consistently across practitioner
+sources, e.g. Embedded Artistry, "Embedded Rules of Thumb"]. State the worst-case
 utilization figure and which bound (the provable one, or the practitioner margin) it is being
 compared against — the two are different claims and should not be conflated.
 
@@ -162,44 +159,51 @@ standards §1–2) but not compared against this bound by the gate itself.
 
 ## 11. State plainly which rules above are gate-enforced and which are not
 
-None of rules 1–10 above are gate-enforced today — say so, rather than let a role or a reviewer
-assume the gate is covering scheduling and code-style discipline it does not check. Rule 7
-(compiler warnings and static analysis) is the one exception worth naming precisely: it is fully
-mechanically enforceable, just not by anything this project runs — it is the firmware toolchain's
-own job. The gate's own enforcement (cross-domain standards §1–6) covers declared physical
+None of rules 1–10 are gate-enforced today: say so, rather than let a role or a reviewer assume
+the gate covers scheduling and code-style discipline. Rule 7 (compiler warnings and static
+analysis) is mechanically enforceable, just not by anything this project runs: it is the firmware
+toolchain's job. The gate's enforcement (cross-domain standards §1–6) covers declared physical
 quantities: units, sourced magnitude ranges, power/energy balance, propagation, a mount's
-equilibrium from its declared reactions, and thermal margins. Firmware's own domain discipline —
-bounded control flow, no dynamic allocation, scope discipline, preprocessor and pointer
-restriction, warning/analyzer cleanliness, ISR hygiene, watchdog design, and schedulability —
-is judged by the on-target test, the firmware toolchain, and the reviewer reading the trajectory,
-until or unless a future spec adds a corresponding gate check.
+equilibrium from its declared reactions, and thermal margins. Firmware's own discipline (bounded
+control flow, no dynamic allocation, scope, preprocessor and pointer restriction, warning and
+analyzer cleanliness, ISR hygiene, watchdog design, schedulability) is judged by the on-target
+test, the firmware toolchain, and the reviewer reading the trajectory, until a future spec adds a
+gate check.
 
 **Judgement-only** — this rule states what rules 1–10 are each already marked as, individually; it
 adds no enforcement of its own beyond naming the pattern plainly.
 
-## 12. Without a board, on-target evidence comes from a provided simulator, or is stated as not shown
+## 12. Without a board, on-target evidence comes from the provided simulator, or is stated as not shown
 
 Where no board is connected to the run environment, on-target evidence comes from a simulator of
 the target microcontroller only where the run environment provides one (design standards §6): the
-one the specification names, or, where it names none, the provided one, and the omission is said.
-The program built for the board by the target's compiler runs on it, with its output kept, and its
-cycle counts, register states and pin timings are the measurements of timing, peripheral settings
-and trip paths. A device the simulator lacks (a sensor's registers, a motor driver) is modelled by
-the work from its datasheet, each behaviour citing the section it follows; the model is part of
-the work. Where the run environment provides no simulator, the evidence is what the run can
-measure: the program builds with the target's compiler at the strict warning flags with no
-warning in the module's own files (§7), its size, a static analyser's run where the run
-environment provides one, and host-side tests of the logic and of the control law against the
-designer's coefficients where it provides a host compiler it records. Where it records none, the
-control law's arithmetic is shown by a model of the code in the environment's own interpreter
-(the same integer widths, scaling, saturation and order of operations), run against the
+one the specification names, or, where it names none, the provided one (`avrsim`),
+and the omission is said. A session finds out by running it (`avrsim --version`); one that does not
+run is no simulator. The program built for the board by the target's compiler runs on it, with its
+output kept, and its cycle counts, register states and pin timings are the measurements of timing,
+peripheral settings and trip paths. Each is labelled as what it is: simulated on the target's
+instruction set with a model of the board, not measured on a board, with the rig's versions
+(the summary's `rig` fields, or the `--version` line) and the digests of the program and the
+scenario. What its summary lists as not shown, or as
+not evaluable, is stated as such, never as met and never as failed. A criterion whose whole the simulator
+can show (the update period and its lateness, the PWM frequency and full scale at the pin, the
+encoder counting, the stop's timing and the motors' off instant, the watchdog's period and
+reset) is shown on it: "by analysis" or "by a model of the code" for such a criterion is not
+evidence, and is owed. The size and the stack's depth come from the build (skill, size and stack
+procedure); the simulator's stack figure covers the paths run and is stated as that. A device the simulator lacks
+is modelled by the work from its datasheet, each behaviour citing the section it follows; the model
+is part of the work. Where the run environment provides no simulator, the evidence is what the run
+can measure: the strict build with no warning in the module's own files (§7), its size, a static
+analyser's run where the run environment provides one, and host-side tests of the logic and of the
+control law against the designer's coefficients where it records a host compiler. Where it records
+none, the control law's arithmetic is shown by a model of the code in the environment's own
+interpreter (the same integer widths, scaling, saturation and order of operations), run against the
 designer's coefficients and labelled as a model of the code, not the compiled code; that the
-compiled logic ran is then stated as not shown. On-target behaviour (a loop's timing, a fault's
-timing) is then stated as not shown in this run. What the
-run cannot show (that, or with a simulator a sensor's physical noise, the driver's electrical
-behaviour, an off state set by the board's wiring) is stated as not shown, with the reason: never
-as met, and never as failed. A "not shown" for what a provided simulator, analyser or recorded
-host compiler does measure is not a reason: that evidence is owed.
+compiled logic ran, and on-target behaviour (a loop's timing, a fault's timing), are then stated as
+not shown. What the run cannot show (without a simulator, that; with one, a sensor's physical noise,
+the driver's electrical behaviour, an off state set by the board's wiring, the loop closed) is
+stated as not shown, with the reason, never as met. A "not shown" for what a provided instrument measures is not
+a reason: that evidence is owed.
 
 **Judgement-only** — no check reads where evidence came from; the reviewer does.
 

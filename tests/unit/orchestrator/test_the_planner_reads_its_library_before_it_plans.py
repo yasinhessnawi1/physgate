@@ -433,20 +433,20 @@ def test_the_module_names_the_markers_it_writes() -> None:
 #: 2,635 bytes (twelve catalogue names, two kind labels, the peak-stall clause, the laws paragraph).
 PROMPT_PINS: dict[tuple[tuple[str, ...], bool], tuple[int, str]] = {
     (("control", "electrical", "firmware"), False): (
-        47671,
-        "c3fe8e63226e81567a12dc5ac8e49c724ad976c6db3abf24f1b5a61a2cb8d165",
+        48935,
+        "c46ed299ebd41de85f3fe45664013c149fd4f6ff6019098bfa3d656e1c13fb02",
     ),
     (("control", "electrical", "firmware"), True): (
-        48385,
-        "eca1c24718aab32a043bb8cad5e67b4836b1fb8cb3fa7b23473db493350e5e9c",
+        49649,
+        "4e476a81b89123e367e48598caa4978af0bae3c30a3e29a026cf94bf6ebe0c4b",
     ),
     (("control", "firmware", "integration", "sizing"), False): (
-        48527,
-        "fe1405e204a0c432b13bd2c26f19405e9e46c78578d8e8b6f03141d41c642d14",
+        49791,
+        "93a0272429fc47d39317adbe2065f9bb51675449e73bbc8c02c1883bc8ad78f8",
     ),
     (("electrical",), False): (
-        47652,
-        "98126a09351221078dae090d066e5c9dc79608d414d917e5d22028ce3ee5b136",
+        48916,
+        "0c5a8249eaa50d6c14b7d54f564d9b269eb9dc8b1b98c99e86a39eb175c20f73",
     ),
 }
 

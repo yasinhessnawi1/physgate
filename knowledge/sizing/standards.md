@@ -49,7 +49,7 @@ whether the source supports the number.
 Where a criterion of the brief fixes a cross quantity (a part, a limit, a rating), sizing writes
 that value, converted where needed with the conversion shown, and does not move it to make another
 criterion easier to meet. The one exception is a value a person chose on a dispute, carried to the
-pass by the harness's order: that value is written instead (§11). Where two requirements conflict,
+pass by the harness's order: that value is written as chosen, value and unit. Where two requirements conflict,
 sizing writes the value the brief
 fixes and records the conflict in its module's record, cited from that value's `source`: both
 statements, the calculation that shows the conflict, and the criterion it puts at risk.
@@ -75,8 +75,7 @@ voltage supplied to the motor drivers (VSW) will decrease" [Pololu, *Pololu Balb
 Guide*, §3.3, retrieved 31.10.2026]. A NiMH cell drops "from an open-circuit voltage of
 approximately 1.4 volts to the 1.2 volt plateau", and a cut-off of "0.9 volts per battery" "may be
 premature" at 1–4C [Energizer, *Nickel Metal Hydride (NiMH) Handbook and Application Manual*,
-NiMH02.01, 2010, pp. 6 and 10] (*typical value*). Six cells span about 8.4 V to 5.4 V (*derived*),
-the window the electrical standards use; for a pack loaded above 1C (motors at stall) the bottom so
+NiMH02.01, 2010, pp. 6 and 10] (*typical value*). Six cells span about 8.4 V to 5.4 V (*derived*); for a pack loaded above 1C (motors at stall) the bottom so
 taken is optimistic, and said so. So a supply quantity carries its nominal value and the range it
 takes in use, each end with its source: the top is the charged open-circuit voltage, and the bottom
 the cut-off less any drop under load the design knows. A demand that grows with voltage (a stall
@@ -98,7 +97,7 @@ voltage range a value was computed at.
 ## 5. A motor's operating points come from its published points, by a stated model
 
 A brushed DC motor at steady state obeys `V = R·I + K_e·ω` and `T = K_t·I_T`, with `I_T` the
-current that makes torque (*derived*, the motor's circuit). From a maker's two points at its rated
+current that makes torque (*derived*). From a maker's two points at its rated
 voltage `V_r`, the usual fit is `R = V_r / I_stall` and `K_e = (V_r − I_noload·R) / ω_noload`,
 and either `K_t = T_stall / I_stall` or, treating the no-load current as friction as the `K_e` fit
 does, `K_t = T_stall / (I_stall − I_noload)` (*model*: friction current constant with speed and
@@ -159,7 +158,11 @@ element it passes, a peak against a peak rating and a sustained draw against a c
 the rating's kind is named. The DRV8838 is rated "1.8-A Maximum Drive Current" (§1), a motor peak
 current of 1.8 A (§6.3), with an overcurrent trip between 1.9 A and 3.5 A (§6.5) [TI DRV883x
 datasheet, SLVSBA4F] (*normative*). A stall current over the 1.9 A trip minimum at the top of the
-range only is §4's open point. A rating not found is stated as missing, never assumed.
+range only is §4's open point. Where the brief bounds the stall current, a stall over a rating at
+the largest average voltage commanded is a conflict (§3). A reversal at speed over a rating is
+always an open point, `reversal_current_max`, with figure, speed, voltage, rating, source, the
+reverse duty that avoids it and control as its examiner (integration reads it); sizing does not
+judge whether a criterion can be met without it. A rating not found is stated as missing, never assumed.
 
 **Enforced:** in part: gate check 4 holds each supply's declared output against its consumers'
 declared draw, in watts, and each stall current against the current limit of the supply its edge
@@ -178,8 +181,8 @@ it, is not summed; whether every part is counted, and how a centre of mass was f
 
 ## 9. Every sizing result states its margin, against what, at what condition
 
-A margin is "the allowances carried in budget ... and technical performance parameters ... to
-account for uncertainties and risks" [NASA SE Handbook, Appendix B, glossary, "Margin"]. Each sizing
+A margin is "the allowances carried in budget ... to account for uncertainties
+and risks" [NASA SE Handbook, Appendix B, glossary, "Margin"]. Each sizing
 result that sets or checks a limit states the capability, the demand, the margin as their difference
 with its unit and as the ratio capability ÷ demand, and the condition both are taken at. A margin a
 source requires is quoted with its source; where none is sourced, the margin computed is stated and
@@ -205,7 +208,8 @@ other known name carries the brief's value or the nominal one, which is what the
 same quantity at another condition goes under a name with a suffix of three letters or more, such as
 `_max`, `_min` or `_nominal` (shorter suffixes on names the checks read are refused at write), which
 the checks record as unchecked: the stall current at the top of the pack, beside the one judged, is
-`stall_current_max` (§4). Each cross node has a `constrains` edge to every node whose work depends
+`stall_current_max` (§4), never `peak_stall_current`, the stall at full duty that the checks hold to
+a driver's peak rating, for a brief that pins the voltage. Each cross node has a `constrains` edge to every node whose work depends
 on it, so that a change reaches them (§11). A name the checks do not know is recorded unchecked; a
 needed edge left out leaves a change unpropagated.
 
@@ -229,8 +233,7 @@ after them, it reads every one of its nodes again with each node it constrains a
 constrains it, as they now stand. Where a domain's node changed after the first pass, each sizing
 node joined to it is rewritten to agree (a current budget to a controller's recorded peak current, a
 mass to a part a domain chose), citing the node it follows, or keeps its values and states why in
-its `no_change_justified`, under the changed node's id (cross §5). A value a person chose on a
-dispute is written exactly as chosen, value and unit. A domain's record may ask sizing for a value
+its `no_change_justified`, under the changed node's id (cross §5). A domain's record may ask sizing for a value
 it owns, with the value needed and the bound sizing stated (§12); the closing pass meets each
 request by a value inside the bound that meets it, citing the request (the readers follow, below).
 Requests for different values of one quantity get one value that meets all of them, where one lies
@@ -290,8 +293,7 @@ maker's single figure), each with the fall time across its tolerance, ends and p
 `R`'s sourced tolerances: `ΔV` is a small difference of two large voltages.
 
 **The threshold.** `d_max·e^(−λT) ÷ d`, with the smallest `d_max` of the spread, is at least 1
-(*derived*: below it no controller recovers the disturbance in the model, and the spread is the
-model's uncertainty). No margin above 1 is required: none is sourced (§9). The bound is necessary
+(*derived*). No margin above 1 is required: none is sourced (§9). The bound is necessary
 only: a ratio of 1 or more does not show that a given controller recovers.
 
 **Recorded**, from a script that reads the node's values and prints them: `V_hold`, `D·V_supply`,

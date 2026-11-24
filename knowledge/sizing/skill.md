@@ -33,7 +33,7 @@ One row per quantity sizing writes (§1, §2):
 5. Use a name the automated checks know where the quantity is one. Under a name a check compares
    with a bound, write the value it must judge (the demand at the brief's pinned voltage, the
    rating); under any other, the brief's or the nominal value. Other conditions go under `_max`,
-   `_min` or `_nominal`: the stall current at the top of the pack is `stall_current_max` (§4, §10).
+   `_min` or `_nominal`: the stall current at the top of the pack is `stall_current_max`, not `peak_stall_current` for a brief that pins the voltage (§4, §10).
    An efficiency or a duty cycle is a fraction in the unit `1`, under `efficiency`, `duty_cycle` or
    a name ending in `_efficiency` or `_duty_cycle` (§10).
 6. A quantity two domains read that the plan gave sizing no node for is listed as unowned (§1).
@@ -41,23 +41,20 @@ One row per quantity sizing writes (§1, §2):
 ## Procedure: the interfaces sizing produces
 
 1. List every interface node the plan gives sizing (its owner is sizing) and its quantities.
-2. For each, keep one node of your own in the cross-quantity table that names the interface in its
-   `constrains` edges and holds every one of the interface's quantities under the same name, in a
-   unit of the same kind, with the value the domains are to read (§10). Values at other conditions
-   go under suffixed names on that node.
-3. Never write the interface node: the harness writes it from your joined node at your first
-   pass's change check. An interface with no joined node, a missing name, two joined nodes that
-   disagree, or a unit of another kind refuses the attempt (§10).
+2. For each, keep one node of your own, joined to it by `constrains` edges, holding every one of the
+   interface's quantities under the same name and in a unit of the same kind, with the value the
+   domains are to read; other conditions go under suffixed names (§10).
+3. Never write the interface node: the harness writes it from your joined node, and refuses the
+   attempt for an interface with no joined node, a missing or disagreeing name or another kind of
+   unit (§10).
 
 ## Procedure: the supply range
 
-1. Write the nominal voltage, and the lowest and highest the supply reaches in use, each with its
-   source (§4): the top is cells × the charged open-circuit voltage; the bottom is cells × the
-   cut-off, less any drop under load the design knows.
+1. Write the nominal voltage and the lowest and highest the supply reaches in use, each with its
+   source (§4).
 2. For each value derived from the supply, say which voltage it was computed at, and check it at
-   the worst end: demands against ratings at the top, speeds and headroom at the bottom. A criterion
-   the specification pins to one design voltage is checked at it, with what the ends give stated
-   beside it.
+   the worst end (§4); a criterion pinned to one design voltage is checked at it, with what the
+   ends give beside it.
 
 ## Procedure: a motor's operating points
 
@@ -66,7 +63,7 @@ One row per quantity sizing writes (§1, §2):
 2. Fit `R`, `K_t` and `K_e`; say which `K_t` fit you use and why; show the arithmetic with units.
    Keep `K_t` and `K_e` separate when they were fitted at a gearbox output.
 3. For each further gear stage, from tooth counts where the maker gives them: `K_e` times its ratio,
-   `K_t` times its ratio and its efficiency (1 where none is sourced, stated as an assumption).
+   `K_t` times its ratio and its efficiency (§5).
 4. At each voltage that matters (the command limit's average at the top, nominal and bottom of the
    supply range): stall current `V / R`, no-load speed, and the torque available at the speeds the
    specification asks for; and the reversal current `(V + K_e·ω) / R` at the largest speed the
@@ -99,7 +96,8 @@ One row per quantity sizing writes (§1, §2):
 |---|---|---|---|---|
 | e.g. one motor driver | peak rating, datasheet section | its motor at stall at the voltage the brief pins (§7); its reversal current, or the reason it cannot occur | | capability − demand, and capability ÷ demand |
 
-One row per element on each path (§7); a rating not found is written as missing.
+One row per element on each path (§7); a rating not found is written as missing; a reversal
+current over a rating is an open point, control as its examiner (integration reads it) (§7).
 
 ## Procedure: the mass budget
 
@@ -126,7 +124,7 @@ In a record under your module directory, cited from the `source` of the value it
    Otherwise record a conflict naming the request (§3) and say why under the request's id.
 3. Recompute the budgets and margins the change touches (§7, §8, §9).
 4. Where your specification or a person's order carries a value a person chose on a dispute, write
-   it exactly as chosen (§11).
+   it exactly as chosen (§3).
 5. For each rewritten value whose edges reach a domain node, record the node, the value and the
    follow-up it now owes (§11).
 6. Write no node of another role.

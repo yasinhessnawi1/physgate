@@ -26,12 +26,16 @@ recovers from), one row per link (§12):
 
 | Requirement | Link | Module | Quantity, value, unit | Where it comes from | Criterion that applies or shows it |
 |---|---|---|---|---|---|
-| e.g. "drives at 1.2 m/s" | source of the speed command | the module that commands it | speed command, 1.2 m/s | the brief's figure, on the node both read | the built program applies it, by the means the environment provides |
-| e.g. "drives at 1.2 m/s" | speed command applied | the implementing module (firmware) | speed command, a firmware constant, 1.2 m/s | equal to the speed reference on control's node | its built program applies the value read from the node |
+| e.g. "drives at least at a stated speed" | source of the speed command | the module that commands it | speed command, the bound moved by a stated margin | the brief's figure and the margin with its reason, on the node both read | the built program applies it, by the means the environment provides |
+| e.g. "drives at least at a stated speed" | speed command applied | the implementing module (firmware) | speed command, a firmware constant, the same value | equal to the speed reference on control's node | its built program applies the value read from the node |
 
 1. Fill every link from the source of the command to the plant. A link with no module is a missing
    producer: allocate it, or record the requirement as not allocated only where the brief leaves
    that link to a person (§12, §1).
+   Where the requirement is a one-sided bound on a commanded quantity, the command is the bound moved by a
+   stated margin to the safe side, never the bound itself: give the margin's reason and the criterion it serves; the
+   brief's criterion is unchanged, and a module that cannot reach the command reports it and does not
+   lower it (§12).
 2. The module that closes the chain gets a heading "System checks" in its specification, with the
    quantity integration compares across the links and the check it runs, or the statement that it
    is not shown in this run (§12).
@@ -64,8 +68,8 @@ A value the plan cannot source is an estimate to be resolved, with who resolves 
    own (§5).
 3. Outputs: each quantity it owes, to which node, and who reads it.
 4. Fixed choices: parts and values the brief names, each with its source; any fixed method with
-   its rationale (§7).
-5. Operating conditions: ranges, rates and load cases the module must meet (§11).
+   its rationale (§7); the run's tools it relies on, as an assumption (§6, §8).
+5. A heading "Operating conditions": ranges, rates and load cases the module must meet (§11).
 6. A heading "Acceptance criteria" with numbered criteria. Each: "The <module> shall <verb>
    <what>, <threshold with unit and tolerance>, verified by <analysis | demonstration |
    inspection | test>." One thought each; no "as appropriate", "etc.", "and/or" (§6, §7).

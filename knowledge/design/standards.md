@@ -53,9 +53,7 @@ special characteristics" (ibid., §6.3.1.2.2, p. 158). Each quantity one module 
 reads is a quantity on an interface node: value, unit, source and writer, owned by the producing
 role, with the consumers named where the plan names them. A quantity has one producer: two modules that
 both owe it, or two interface nodes of different owners that both carry it, leave the difference
-between them owned by no one (§5). "Are all internal interfaces clearly
-defined? ... Are all interfaces necessary, sufficient, and consistent with each other?" (ibid.,
-Appendix C.4, pp. 238–239). An interface node is fixed once the plan is accepted, so its values are
+between them owned by no one (§5). An interface node is fixed once the plan is accepted, so its values are
 the plan's commitment.
 
 So an interface node holds what both sides must agree on before either works: the signals that
@@ -87,7 +85,9 @@ Sizing owns "every quantity constraining more than one domain" [architecture spe
 ARCH-051]. When the run has a sizing module, the plan names such quantities in sizing's
 specification and does not state them, with values of its own, in two domain specifications. When
 it has none, a shared value is stated once, on an interface node or in one specification that the
-others cite.
+others cite. A motor's stall current is `stall_current` at the voltage the brief pins; its figure at
+the top of the pack is `stall_current_max`, and no plan node holds `peak_stall_current` for a brief
+that pins the voltage (sizing standards §10).
 
 **Judgement-only** — no check yet reads which plan quantities constrain more than one domain.
 
@@ -101,9 +101,7 @@ the tolerance it compares interface values with). With no absolute term, a value
 only with zero; whether one is added is left to the contract check's frozen criteria. The Mars
 Climate Orbiter was lost when one side of an interface wrote "pound-seconds (lbf-s)" where its
 specification required "Newton-seconds (N-s)", a factor of 4.45 [Mars Climate Orbiter Mishap
-Investigation Board, *Phase I Report*, 10 November 1999, p. 16]. Requirements are to be "stated
-consistently without contradicting themselves or the requirements of related systems" [NASA SE
-Handbook, Appendix C.4, p. 238].
+Investigation Board, *Phase I Report*, 10 November 1999, p. 16].
 
 **Judgement-only** — no check compares numbers across specifications.
 
@@ -124,22 +122,23 @@ written, and the contributing modules' criteria are what the plan can show.
 
 A criterion is written only as the run environment can measure it (*normative*, this harness's
 rule). A module's sessions have programs and files, and no physical board or instrument is
-connected to them unless the brief says one is; a part a person has is not thereby connected.
-With no board connected, a criterion on the board's own behaviour (an update's timing, a
-peripheral's setting, a trip path) is written against a simulator of the board's microcontroller
-only where the run environment provides one, named in the criterion, running the program built
-for the board; none is presumed (on 20.11.2026 the run environment gives firmware the target's
-compiler, PlatformIO's avr-gcc, and no simulator). Where it provides none, the criterion is
-written against what the run can measure, with that compiler (that the code compiles without a
-warning in the module's own files, its size, and a check of its logic with the tools the
-environment provides); on 20.11.2026 the check is a model of the code in the environment's
-interpreter, labelled as a model of the code, run against the designer's coefficients. A
-host-side test is named only where the run environment records a host compiler, and a static
-analyser's run only where it provides an analyser. A requirement
-the run cannot show (on-target behaviour, such as a loop's or a
-fault's timing, where no simulator is provided; a sensor's physical noise; the motor driver's
-electrical behaviour) is not made a module's criterion: the plan records it as not shown in this
-run, with the reason (§1).
+connected to them unless the brief says one is; a part a person has is not thereby connected. The
+planner is shown no description of the environment, so what the plan relies on it states in the
+specification of the module that relies on it, as an assumption with who resolves it (§8). The
+standard tool environment holds the target's compiler (PlatformIO's avr-gcc) and `avrsim`, a
+simulator of the ATmega32U4 with a model of the Balboa 32U4 board that runs the program built for
+the board. A criterion on the board's own behaviour (an update's timing and lateness, the PWM
+frequency and full scale at the pin, the encoder counting, a trip path's timing, the watchdog) is
+written against `avrsim`, names it, the scenario it is shown under and the quantity read from its
+summary, and says it is simulated, not measured on a board. A module whose session finds `avrsim`
+absent states that criterion as not shown (firmware standards §12); a criterion `avrsim` cannot
+show is written against what the run can measure with the compiler (a build without a warning in
+the module's own files, its size, a check of its logic). A host-side test is named only
+where the run environment records a host compiler, and a static analyser's run only where it
+provides an analyser. A requirement the run cannot show (the loop closed; a sensor's noise and
+filter delay; the clock's tolerance; the motor driver's electrical behaviour; what the board's
+wiring sets) is not made a module's criterion: the plan records it as not shown in this run, with
+the reason (§1).
 
 **Enforced:** the review contract reads a specification's numbered lines under an
 acceptance-criteria heading and holds each review to one line per criterion. Whether a criterion
@@ -236,7 +235,7 @@ allocated to the module that analyses it and to no module that produces it is sh
 only: the system built never does it. So for each such requirement the plan (a) names the module
 that produces the command or input and the implementing module that applies it (the one whose built
 program reads the value), where the value comes from (a constant of the brief, a sensor, a person)
-and its value and unit (the brief's value, or a stated command above it for margin), on the node
+and its value and unit (the brief's value, or, for a one-sided bound, a command away from it by a stated margin, below), on the node
 both modules read (§3); (b) gives the implementing module a criterion that its built program applies
 the value read from that node, verified by a means the run environment provides (§6); (c) lists the
 requirement in the plan's list for integration with the criteria of every link (§6); and (d) in the
@@ -246,6 +245,8 @@ the check it runs, or says the check is not shown in this run, with the reason (
 of the brief with a link no module owns is recorded in the plan as not allocated, with the reason,
 only where the brief itself leaves that link to a person; where a module of the plan could produce
 it, that module is given it.
+
+Where the brief's criterion is a one-sided bound ("at least", "at most") on a quantity the system is commanded to (a speed, a position, a rate), the plan sets the command away from the bound, on the side that keeps it met, by a margin it states with its reason, and says which criterion the margin serves. A command equal to the bound leaves the criterion no room for the means' tolerance and is a finding. The brief's criterion stays as issued: the margin is the plan's choice, and the brief is neither relaxed nor tightened. A module that cannot reach the commanded value reports it and does not lower the command.
 
 **Judgement-only** — no check follows a requirement through the modules that produce it.
 
