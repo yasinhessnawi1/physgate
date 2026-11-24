@@ -134,7 +134,8 @@ def _installed(setup: RawSetup, place: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     with monkeypatch.context() as patched:
         patched.setattr(subprocess, "run", fake_run)
-        raw._install(setup, place / "worktree", probe, None, own_temp=OWN_TEMP)
+        # Inside the OS layer: a raw session withheld a root whole is installed only there.
+        raw._install(setup, place / "worktree", probe, OWN_TEMP, own_temp=OWN_TEMP)
     parser = argparse.ArgumentParser()
     add_parser(parser.add_subparsers(dest="command"))
     args = parser.parse_args(seen[0][1:])

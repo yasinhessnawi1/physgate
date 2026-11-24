@@ -10,10 +10,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
-from hook_helpers import bash
+from hook_helpers import SESSION, bash
 
 from physgate.hooks import paths, sentinel
 from physgate.hooks.config import HookInput, SessionConfig
@@ -106,7 +107,12 @@ def test_the_tripwire_holds_a_withheld_record_to_one_name(root: Path) -> None:
     assert check("SessionStart") == "allow"
     os.link(root / "run" / "run.json", root / "run" / "worktrees" / "s1" / "copy.json")
     reason = check("SessionEnd")
-    assert "more than one name" in reason and "run.json" in reason
+    # Named by its label, never by its path.
+    record = root / "outside" / "state" / "sessions" / SESSION / "sentinel" / "baseline.json"
+    key = bytes.fromhex(json.loads(record.read_text())[sentinel.LABEL_KEY_FIELD])
+    label = sentinel.label_of(str(root / "run" / "run.json"), "withheld-record", key)
+    assert f"{label}: has more than one name (2)" in reason, reason
+    assert "run.json" not in reason, reason
 
 
 def test_the_check_before_a_commit_names_a_withheld_record_with_a_second_name(root: Path) -> None:
@@ -122,7 +128,11 @@ def test_the_check_before_a_commit_names_a_withheld_record_with_a_second_name(ro
     os.link(root / "run" / "run.json", root / "second-name.json")
     found = withheld_before_commit(path)
     assert found is not None
-    assert "run.json: has more than one name (2)" in found
+    # No place apart gives the orchestrator a key: its label says it was made with one of its own.
+    assert re.search(
+        r"withheld-record entry [0-9a-f]{12} \(one-off key\): has more than one name \(2\)", found
+    ), found
+    assert "run.json" not in found, found
 
 
 def test_the_parameters_record_is_put_back_like_the_run_s_configuration(tmp_path: Path) -> None:

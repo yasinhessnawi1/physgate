@@ -455,6 +455,14 @@ class RunConfig(_Frozen):
     #: on disk then, never from anything the tier carries. One per root, or none at all for a
     #: run recorded before the field existed.
     held_out_sha256: tuple[Sha256, ...]
+    #: Roots withheld from every session of the run whole, by rule: whatever lies in them, now or
+    #: made later, is refused to every read and write on every layer, but for a role session's
+    #: own worktree where the run's directory lies in one. A measured run on a tier-set store
+    #: names here the store's run roots, where the earlier runs on it lie, each with the brief it
+    #: was given, its plan and its answer; the evaluation holds it to exactly those. No digest:
+    #: every run made there changes what such a root holds. A required parameter, empty for a run
+    #: that names none; a run recorded before the field existed named none, and reads so.
+    withheld_whole: tuple[AbsolutePath, ...]
     #: ``none`` refuses every role session's shell commands every remote host, through the
     #: OS layer, and every service on the machine's loopback. ``open`` leaves the
     #: network as the layer finds it. Where the layer is absent nothing enforces ``none``:
@@ -525,6 +533,13 @@ class RunConfig(_Frozen):
     def _tool_servers_start_from_the_tool_environment(self) -> RunConfig:
         if self.tool_servers is not None and self.tool_environment is None:
             msg = "tool_servers are started from the run's tool environment, and it names none"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _each_root_withheld_whole_is_named_once(self) -> RunConfig:
+        if len(set(self.withheld_whole)) != len(self.withheld_whole):
+            msg = "withheld_whole names a root twice"
             raise ValueError(msg)
         return self
 
@@ -632,17 +647,17 @@ class RunConfig(_Frozen):
     def canonical_bytes(self) -> bytes:
         """The recorded form: stable key order, so equal configs are equal bytes.
 
-        ``thinking_display`` is left out when it is ``omitted``, what every run before
-        the field existed ran with, and ``role_python``, ``git_binary``,
-        ``escalation_backend`` and ``os_layer`` when they are ``None``, ``held_out``,
-        ``held_out_canaries`` and ``held_out_sha256`` when empty, ``network`` when ``open``,
-        ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``,
-        ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off``, ``parts_on_hand``
-        and ``review_compaction`` when ``off``, ``reviewers`` when ``paired``, ``skills`` and
-        ``hooks`` when ``on``, ``ablation`` when ``False``, ``tool_environment`` and
-        ``tool_servers`` when ``None``, ``tool_search`` when ``offered``, and ``binary`` and
-        ``account`` when ``None``, so their recorded digests still name them. A run that names a
-        binding always records it, so the binding is part of its manifest id.
+        ``thinking_display`` is left out when it is ``omitted``, what every run before the field
+        existed ran with, and ``role_python``, ``git_binary``, ``escalation_backend`` and
+        ``os_layer`` when they are ``None``, ``held_out``, ``held_out_canaries``,
+        ``held_out_sha256`` and ``withheld_whole`` when empty, ``network`` when ``open``,
+        ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``, ``os_layer_absent``
+        when ``refuse``, ``design_review`` when ``off``, ``parts_on_hand`` and ``review_compaction``
+        when ``off``, ``reviewers`` when ``paired``, ``skills`` and ``hooks`` when ``on``,
+        ``ablation`` when ``False``, ``tool_environment`` and ``tool_servers`` when ``None``,
+        ``tool_search`` when ``offered``, and ``binary`` and ``account`` when ``None``, so their
+        recorded digests still name them. A run that names a binding always records it, so the
+        binding is part of its manifest id.
         """
         exclude = set()
         if self.thinking_display == "omitted":
@@ -661,6 +676,8 @@ class RunConfig(_Frozen):
             exclude.add("held_out_canaries")
         if not self.held_out_sha256:
             exclude.add("held_out_sha256")
+        if not self.withheld_whole:
+            exclude.add("withheld_whole")
         if self.network == "open":
             exclude.add("network")
         if self.network_enforced is None:
@@ -805,6 +822,7 @@ def load_run_config(path: Path) -> RunConfig:
         ("held_out", []),
         ("held_out_canaries", []),
         ("held_out_sha256", []),
+        ("withheld_whole", []),
         ("network", "open"),
         ("network_enforced", None),
         # Recorded before the field existed: nothing in the run acted on a decision.

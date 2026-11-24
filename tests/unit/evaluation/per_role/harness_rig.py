@@ -20,6 +20,7 @@ if str(ORCHESTRATOR_TESTS) not in sys.path:
 from loop_fakes import FakeDispatcher, FakeReviewer, KilledError, Rig  # noqa: E402
 
 from physgate.orchestrator.record import DecompositionSummary, PlanEntry  # noqa: E402
+from physgate.orchestrator.review_root_record import record_review_root  # noqa: E402
 from physgate.orchestrator.run_config import ModelStrings  # noqa: E402
 
 #: The models of a run whose one subtask is a control task's.
@@ -62,6 +63,8 @@ def loop_run(
     process resumes it once, as a person or a round driver would, and lets it end on its own.
     """
     run_dir.mkdir(parents=True)
+    # As the command records it before anything runs: the run reviews inside its own directory.
+    record_review_root(run_dir, run_dir / "review")
     rig = Rig(
         run_dir,
         dispatcher=FakeDispatcher(

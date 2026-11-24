@@ -67,10 +67,18 @@ def api(name: str) -> Any:  # noqa: ANN401
 
 
 def facts(run: RunConfig, run_dir: Path | None, *, new_run: bool = True) -> RunFacts:
-    """What the command shows a requirement, the run's directory among it."""
+    """What the command shows a requirement, the run's directory among it.
+
+    And the review root it names, inside its run directory, where a measured run reviews.
+    """
     try:
         return RunFacts(
-            config=run, os_layer=LAYER, shell_sessions=True, new_run=new_run, run_dir=run_dir
+            config=run,
+            os_layer=LAYER,
+            shell_sessions=True,
+            new_run=new_run,
+            run_dir=run_dir,
+            review_root=None if run_dir is None else run_dir / "review",
         )
     except TypeError:
         pytest.fail("a requirement is not shown the run's directory (RunFacts.run_dir)")

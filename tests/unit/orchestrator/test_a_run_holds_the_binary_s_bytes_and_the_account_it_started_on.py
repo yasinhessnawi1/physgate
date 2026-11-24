@@ -100,6 +100,7 @@ def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],
+        "withheld_whole": [],
         "network": "open",
         "design_review": "off",
         "parts_on_hand": "off",

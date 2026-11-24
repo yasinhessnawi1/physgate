@@ -45,7 +45,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 from physgate.hooks import withheld
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import compactions, outstanding
-from physgate.hooks.sentinel import _frozen_experiment_paths, held_apart
+from physgate.hooks.sentinel import _frozen_experiment_paths, held_apart, labeller, named_problems
 from physgate.hooks.settings import CONFIG_NAME, SETTINGS_NAME
 from physgate.hooks.shell_startup import held_or_refused
 from physgate.hooks.snapshot import Signature, file_digest, signature
@@ -176,7 +176,11 @@ from physgate.oslayer.reaper_install import CANARY_EXPORT
 from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
-from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
+from physgate.reviewers.places import (
+    SESSION_DIRNAME,
+    review_root_path,
+    standing_review_material,
+)
 from physgate.series.collect import collect, empty_outbox, temporary_roots
 from physgate.series.seal import SetAside
 from physgate.state.write_account import ACCOUNT_NAME, Settled, account_of, read_account
@@ -406,10 +410,13 @@ def withheld_before_commit(config_path: Path) -> str | None:
 
     The held-out tier, the answer-key corpora and the run's withheld records, as the session's
     own configuration names them: one problem per file with a second name or that cannot be
-    checked, joined; ``None`` when there is none.
+    checked, joined; ``None`` when there is none. Each file is named by its label, as the
+    session's sentinel names it (:func:`physgate.hooks.sentinel.labeller`): what is found goes
+    into the run's incident, which names no place of the protected material.
     """
     session_config = SessionConfig.model_validate_json(config_path.read_bytes())
-    _, problems = withheld.survey(withheld.roots_of(session_config))
+    _, found = withheld.survey_found(withheld.roots_of(session_config))
+    problems = named_problems(found, labeller(session_config))
     return "; ".join(problems) if problems else None
 
 
@@ -489,6 +496,35 @@ def session_protected_roots(
         Path(store_root) / ".git",
     )
     return reverted, refused
+
+
+def withheld_whole_args(run_dir: Path, roots: Sequence[str]) -> list[str]:
+    """The installer's options for the roots the run withholds whole from every role session.
+
+    Each root, where it really is, refused to every read and write on every layer by rule,
+    whatever is made in it later (an earlier run made beside this one). A root that holds the run's
+    directory has the run's directory as the session's own place in it, so the session reaches
+    its worktree there, and what it is given to read in its own session directory, as it does
+    today; nothing else of the root.
+
+    Raises:
+        InvocationError: a root is the run's directory or lies in it: the session would have no
+            place of its own inside it. Said by what it is, never by the path.
+    """
+    place = os.path.realpath(run_dir)
+    args: list[str] = []
+    around = False
+    for root in roots:
+        real = os.path.realpath(root)
+        if real == place or real.startswith(place.rstrip("/") + "/"):
+            msg = (
+                "a root the run withholds whole is the run's own directory or lies in it, so no "
+                "session of the run has a place of its own inside it"
+            )
+            raise InvocationError(msg, refused_because="withheld_whole_holds_no_place")
+        args += ["--withheld-whole", real]
+        around = around or place.startswith(real.rstrip("/") + "/")
+    return [*args, "--own-place", place] if around else args
 
 
 #: The files and directories in a repository's common git directory through which a write
@@ -1349,6 +1385,32 @@ def _links(path: str) -> int | None:
         return None
 
 
+def _os_error(exc: OSError, named: Callable[[str], str]) -> str:
+    """An error reading a put-back root, its path named by ``named`` (a label, where protected)."""
+    where = exc.filename
+    if not isinstance(where, str):
+        return f"{type(exc).__name__}: {exc.strerror or 'no reason given'}"
+    return f"{type(exc).__name__}: {exc.strerror} ({named(where)})"
+
+
+def roots_at_end(record: RootsRecord, named: Callable[[str], str]) -> tuple[list[str], str | None]:
+    """What changed among the put-back roots since ``record``, and why they cannot be read.
+
+    Each path named by ``named`` (a label, where protected), the error's file among them. Read
+    inside, named outside: the naming never raises, and an error it met is never taken for a
+    root that could not be read.
+    """
+    failure: OSError | None = None
+    try:
+        changed = changed_since(record)
+    except OSError as exc:
+        changed, failure = [], exc
+    moved = [named(p) for p in changed]
+    if failure is None:
+        return moved, None
+    return moved, f"a put-back root could not be read: {_os_error(failure, named)}"
+
+
 def changed_since(record: RootsRecord) -> list[str]:
     """Every put-back root path that is not now what the record holds, read afresh.
 
@@ -1766,6 +1828,15 @@ class ClaudeDispatcher:
         # Where reviews are prepared, each packet with its copy of a rubric: withheld
         # from the role session like the library's reviewer tree.
         protect += ["--review-material", str(self._review_root)]
+        # And the standing review root, where runs made by hand review by convention, where the
+        # run names a held-out tier: a measured run reviews inside its own run directory, so
+        # its review root is never the standing one, which would otherwise lie open to it.
+        protect += [
+            arg
+            for root in standing_review_material(self._config.held_out)
+            if root != str(self._review_root)
+            for arg in ("--review-material", root)
+        ]
         # The run's records that name the held-out tier's canaries, and its parameters file:
         # no read of them, by any route, though they lie within reach of the worktree.
         try:
@@ -1843,6 +1914,8 @@ class ClaudeDispatcher:
             *protect,
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
+            # The run roots where earlier runs on the tier lie, whole, but for the session's own.
+            *withheld_whole_args(self._run.run_dir, self._config.withheld_whole),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
             # The tool servers the session is offered: their admitted tools join its closed
             # list. None without the OS layer, which alone contains them.
@@ -2109,6 +2182,9 @@ class ClaudeDispatcher:
         installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
         # Read before the session starts, while nothing of it can have touched the file.
         end_check = session_end_command(Path(installed.settings))
+        # What names a path in the session's end record and in its refusal: a path the session
+        # may not read is given the label its sentinel gives it, never named.
+        named = labeller(SessionConfig.model_validate_json(Path(installed.config).read_bytes()))
         env.update(installed.spawn_env)
         recorded_python = self._config.role_python
         if recorded_tools is not None:
@@ -2251,26 +2327,24 @@ class ClaudeDispatcher:
                     redact(stdout, self._credential.secret)
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
-        try:
-            moved, unread = changed_since(roots), None
-        except OSError as exc:
-            moved, unread = [], f"a put-back root could not be read: {exc!r}"
+        moved, unread = roots_at_end(roots, named)
         # A second name for a held record, where the session could write: its worktree, and its
         # directory, which holds what the sentinel moved aside. An attempt commit never holds one.
-        linked = second_names(
+        names_seen = second_names(
             roots.held_identities(), (worktree, sdir)
         ) if unread is None else []  # fmt: skip
+        linked = [named(p) for p in names_seen]
         # And each held record has exactly one name, wherever another was made, before the spawn
         # or since: the others the run directory holds are named, any further one is counted.
         for path in roots.held:
             links = _links(path)
             if links not in (None, 1):
                 elsewhere = [
-                    f"{p} (a name of {path})"
+                    f"{named(p)} (a name of {named(path)})"
                     for p in second_names(roots.held_identities(), (self._run.run_dir,))
-                    if p not in roots.held and p not in linked
+                    if p not in roots.held and p not in names_seen
                 ]
-                linked += elsewhere or [f"{path} ({links} names)"]
+                linked += elsewhere or [f"{named(path)} ({links} names)"]
         # The tool environment, scanned once more: a change now was made while this session
         # ran, by a write no layer refused. Nothing it left is then collected or committed.
         tools_changed = (

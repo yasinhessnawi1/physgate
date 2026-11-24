@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import stat
 import subprocess
 import sys
@@ -40,7 +42,8 @@ from test_a_session_s_hooks_never_fork_the_run_s_own_records import (
     leftovers,
 )
 
-from physgate.hooks.settings import CONFIG_NAME
+from physgate.hooks.settings import CONFIG_NAME, InstallRequest, build_config
+from physgate.hooks.settings import current_installation as installation
 from physgate.knowledge import loader
 from physgate.orchestrator import dispatch
 from physgate.orchestrator.credentials import Credential
@@ -208,6 +211,80 @@ def test_a_protected_file_changed_during_the_session_is_caught_at_its_end_check(
     assert raised.context.get("check") or raised.context.get("changed"), raised.context
 
 
+#: A label in a protected path's place: the kind of protection, then twelve hex digits.
+LABEL = re.compile(r"held-out entry [0-9a-f]{12}")
+
+
+def test_a_protected_file_changed_during_the_session_is_named_by_no_path_where_its_end_is_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The refusal, the hook log and the end record name a label where the path was."""
+    run = HeldOutRun(tmp_path, "changes-held-out")
+    loop = Rig(run.run.run_dir).open()
+    raised: InvocationError | None = None
+    try:
+        run.dispatcher(monkeypatch).run(run.request(), loop._spawned)
+    except InvocationError as exc:
+        raised = exc
+    finally:
+        loop.close()
+    assert raised is not None, "a changed held-out file went unrefused"
+    sdir = run.session_dir()
+    assert (sdir / "after_stop.json").exists(), "the session's end left no record of its check"
+    kept = {
+        "the refusal": f"{raised} {json.dumps(raised.context)}",
+        "after_stop.json": (sdir / "after_stop.json").read_text(),
+        "the hook log": "".join(p.read_text() for p in sdir.rglob("hooks.log.jsonl")),
+    }
+    needles = (str(run.held_out), TASK_ID, FILE_NAME, DIGEST)
+    named = {where: [n for n in needles if n in text] for where, text in kept.items()}
+    assert named == dict.fromkeys(kept, []), f"where the protected material is, named: {named}"
+    assert LABEL.search(kept["after_stop.json"]), kept["after_stop.json"]
+
+
+@pytest.mark.parametrize("place", ["the run's own", "open to others"])
+def test_a_held_out_file_with_a_second_name_before_the_commit_is_named_by_its_label(
+    tmp_path: Path, place: str
+) -> None:
+    """What the commit's tripwire finds goes into the run's incident: its label, not its path.
+
+    A place apart that no key can be had from gives labels all the same, never a raise in the
+    incident's place.
+    """
+    task = tmp_path / "held_out" / TASK_ID
+    task.mkdir(parents=True)
+    (task / FILE_NAME).write_bytes(BYTES)
+    (tmp_path / "worktree").mkdir()
+    os.link(task / FILE_NAME, tmp_path / "worktree" / "copy")
+    apart = dispatch.place_apart(tmp_path / "run")
+    request = InstallRequest(
+        profile="role",
+        role="electrical",
+        worktree=str(tmp_path / "worktree"),
+        own_branch=None,
+        store_root=None,
+        state_dir=str(tmp_path / "outside" / "state"),
+        target_dir=str(tmp_path / "outside" / "session"),
+        claude_config_dir=str(tmp_path / "outside" / "cfg"),
+        user_home=str(tmp_path / "outside" / "home"),
+        token_ceiling=1000,
+        held_out=(str(tmp_path / "held_out"),),
+        sentinel_apart=str(apart),
+    )
+    config_path = tmp_path / "config.json"
+    config_path.write_text(build_config(request, installation()).model_dump_json())
+    if place == "open to others":
+        apart.chmod(0o755)
+    try:
+        found = dispatch.withheld_before_commit(config_path)
+    except (OSError, ValueError) as exc:
+        pytest.fail(f"the commit's tripwire raised in the incident's place: {exc!r}")
+    assert found is not None and "has more than one name (2)" in found, found
+    needles = (str(tmp_path / "held_out"), TASK_ID, FILE_NAME)
+    assert [n for n in needles if n in found] == [], found
+    assert LABEL.search(found), found
+
+
 def _changed_while_gone(run: HeldOutRun, monkeypatch: pytest.MonkeyPatch, pids: list[int]) -> str:
     """The session exits with no end hook; a held-out file changes; what the resume's check says."""
     _left(run, monkeypatch, pids)
@@ -337,3 +414,71 @@ def test_a_place_apart_changed_before_a_resume_refuses_its_check(
 
 
 assert base.SESSION  # the rig's stand-in, extended above
+
+
+def _ended(run: HeldOutRun, monkeypatch: pytest.MonkeyPatch) -> InvocationError:
+    loop = Rig(run.run.run_dir).open()
+    try:
+        with pytest.raises(InvocationError) as raised:
+            run.dispatcher(monkeypatch).run(run.request(), loop._spawned)
+    finally:
+        loop.close()
+    return raised.value
+
+
+def _label_with_the_place_s_key(run: HeldOutRun) -> str:
+    from physgate.hooks import sentinel
+
+    key = sentinel.label_key(str(_apart(run)))
+    return sentinel.label_of(str(run.held_file), "held-out", key)
+
+
+def test_the_orchestrator_names_a_changed_file_by_the_label_its_sentinel_gives_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The end record's label for a held-out file is the one the session's sentinel logged."""
+    run = HeldOutRun(tmp_path, "changes-held-out")
+    _ended(run, monkeypatch)
+    label = _label_with_the_place_s_key(run)
+    after = json.loads((run.session_dir() / "after_stop.json").read_text())
+    assert after["protected_changed"] == [label], after
+    logged = "".join(p.read_text() for p in run.session_dir().rglob("hooks.log.jsonl"))
+    assert label in logged, logged[-800:]
+
+
+def test_a_put_back_root_the_end_check_cannot_read_is_named_by_its_label(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What the end record keeps of a root it could not read: the error's kind, the file's label."""
+    from physgate.hooks import sentinel
+
+    held = tmp_path / "held_out" / TASK_ID / FILE_NAME
+    held.parent.mkdir(parents=True)
+    held.write_bytes(BYTES)
+    apart = dispatch.place_apart(tmp_path / "run")
+    request = InstallRequest(
+        profile="role",
+        role="electrical",
+        worktree=str(tmp_path / "worktree"),
+        own_branch=None,
+        store_root=None,
+        state_dir=str(tmp_path / "outside" / "state"),
+        target_dir=str(tmp_path / "outside" / "session"),
+        claude_config_dir=str(tmp_path / "outside" / "cfg"),
+        user_home=str(tmp_path / "outside" / "home"),
+        token_ceiling=1000,
+        held_out=(str(tmp_path / "held_out"),),
+        sentinel_apart=str(apart),
+    )
+    config = build_config(request, installation())
+
+    def unreadable(_record: object) -> list[str]:
+        raise PermissionError(13, "Permission denied", str(held))
+
+    monkeypatch.setattr(dispatch, "changed_since", unreadable)
+    moved, unread = dispatch.roots_at_end(None, sentinel.labeller(config))  # type: ignore[arg-type]
+    label = sentinel.label_of(str(held), "held-out", sentinel.label_key(str(apart)))
+    assert moved == [] and unread is not None, unread
+    assert (
+        unread == f"a put-back root could not be read: PermissionError: Permission denied ({label})"
+    )

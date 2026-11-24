@@ -135,11 +135,12 @@ def _lines(body: str) -> Response:
 
 
 #: The record's fields that name the held-out tier: its roots, the canary each held-out task
-#: carries, and each root's digest. The UI shows nothing of the tier, and no answer carries them:
+#: carries, each root's digest, and the run roots withheld whole beside it, where the earlier runs
+#: on the tier lie. The UI shows nothing of the tier, and no answer carries them:
 #: a canary a session could read from this server might then appear in its stream, raising a
 #: false incident or telling it what to avoid, and a root names where the tier lives. Left out,
 #: not counted: no screen draws a count, and a count would still tell a reader that a tier exists.
-HELD_OUT_FIELDS = frozenset({"held_out", "held_out_canaries", "held_out_sha256"})
+HELD_OUT_FIELDS = frozenset({"held_out", "held_out_canaries", "held_out_sha256", "withheld_whole"})
 
 
 def config(context: Context, params: Mapping[str, str]) -> Response:

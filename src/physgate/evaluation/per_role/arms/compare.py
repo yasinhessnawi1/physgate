@@ -72,6 +72,9 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "effort": "compared",
     "endpoint": "compared",
     "held_out": "compared",
+    # The run roots withheld whole from every session of the run, earlier runs' places: the raw
+    # session is given the same, and records them as it ran.
+    "withheld_whole": "compared",
     # Compared as digests: the raw arm records its canaries' digest, never the canaries.
     "held_out_canaries": "compared",
     "max_output_tokens": "compared",
@@ -217,6 +220,8 @@ RAW_PINS = frozenset(
         "held_out_also",
         "held_out_canaries_sha256",
         "max_output_tokens",
+        # The run roots withheld whole from it, as the harness run recorded them.
+        "withheld_whole",
         "model",
         "network",
         "os_layer",
@@ -235,6 +240,8 @@ BEFORE_THE_PIN: dict[str, Any] = {
     "tool_environment": None,
     "tool_servers": None,
     "tool_search": "offered",
+    # Left out of a record whose harness run withheld no root whole, as every one before it.
+    "withheld_whole": [],
 }
 
 
@@ -445,6 +452,7 @@ def _expected(config: RunConfig, role: str, task: Task) -> dict[str, Any]:
             None if config.tool_servers is None else config.tool_servers.model_dump(mode="json")
         ),
         "tool_search": config.tool_search,
+        "withheld_whole": sorted(config.withheld_whole),
     }
 
 

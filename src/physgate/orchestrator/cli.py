@@ -834,6 +834,8 @@ def _decompose_run(args: argparse.Namespace, *, registrations: Registrations | N
             shell_sessions=True,
             new_run=True,
             run_dir=args.run_dir.resolve(),
+            # Where the plan's review would run, as every reader takes it, when one is named.
+            review_root=None if args.review_root is None else review_root_path(args.review_root),
         )
     )
     if refused:
@@ -1091,7 +1093,13 @@ def _drive_run(
     # Said here; refused by the loop, which records the layer's line first.
     _say_os_layer(layer, config.network, allowed=os_layer_refusal(config, layer) is None)
     refused = refusals(
-        RunFacts(config=config, os_layer=layer, shell_sessions=True, run_dir=run_dir)
+        RunFacts(
+            config=config,
+            os_layer=layer,
+            shell_sessions=True,
+            run_dir=run_dir,
+            review_root=review_root,
+        )
     )
     if refused:
         loop.close()

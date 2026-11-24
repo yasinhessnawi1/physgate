@@ -339,6 +339,7 @@ PARAMS = {
     "held_out",
     "held_out_canaries",
     "held_out_sha256",
+    "withheld_whole",
     "network",
 }
 
@@ -410,6 +411,7 @@ def config(run_id: str = "run-1") -> RunConfig:
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),
+        withheld_whole=(),
         network="open",
         network_enforced=None,
         binary=None,

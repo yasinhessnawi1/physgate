@@ -44,6 +44,7 @@ from physgate.orchestrator.events import (  # noqa: E402
     TokensUsed,
 )
 from physgate.orchestrator.protocols import Usage  # noqa: E402
+from physgate.orchestrator.review_root_record import record_review_root  # noqa: E402
 from physgate.orchestrator.run_config import RunConfig  # noqa: E402
 from physgate.oslayer.probe import Present  # noqa: E402
 
@@ -261,6 +262,8 @@ def harness_run(
         run_dir = run_dir.with_name(run_dir.name + "x")
     run_dir.mkdir(parents=True)
     (run_dir / "run.json").write_text(config(task, made, **changes).model_dump_json())
+    # As the command records it before anything runs: the run reviews inside its own directory.
+    record_review_root(run_dir, run_dir / "review")
     log = EventLog(run_dir / "events.jsonl", run_id="r", gate_mode="on")
     log.append(RunStarted(**log.envelope(), config_sha256="0" * 64))
     usage = Usage(
