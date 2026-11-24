@@ -1432,8 +1432,9 @@ def _run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, st
     if wrong:
         return "run_root_not_spelt_as_on_disk", (
             f"{len(wrong)} of the run roots of the stores the run names are not their real path "
-            "spelt as the disk spells it (another case, or a linked parent); a person registers "
-            "each as it is on disk"
+            "spelt as the disk spells it (another case, or a linked parent), and no command "
+            "retires a run root's line, so measured runs on the store wait for a person to "
+            "correct the register"
         )
     given = set(config.withheld_whole)
     missing = registered - given
