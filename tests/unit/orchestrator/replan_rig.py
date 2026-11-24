@@ -55,6 +55,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.record import ReviewInstall
 from physgate.orchestrator.trajectory import seal
+from physgate.orchestrator.usage_limit import UsageLimit
 
 DESIGN = "claude-opus-5-5"
 BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
@@ -208,6 +209,8 @@ class Script:
             model="claude-sonnet-5",
             num_turns=1,
             stream_seal=seal(stream.read_bytes()),
+            # A call that ended on the account's usage limit carries the limit, its reset unread.
+            **({"usage_limit": UsageLimit(resets=None)} if step.call == "usage_limit" else {}),
             **sent_as_the_call_records_it(given.get("prompt")),
         )
 

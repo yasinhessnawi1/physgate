@@ -314,7 +314,8 @@ def test_every_round_survives_what_comes_after_it(
     assert (last["round"], last["follows"], last["cause"]) == (end, follows, cause)
     assert len(ran.script.calls) == end + again - 1
     if follows == "void":
-        assert ran.code == 2, ran.code
+        # Rounds ended by the usage limit wait for its reset; every other void is refused.
+        assert ran.code == (75 if cause == "usage_limit" else 2), ran.code
         assert not (ran.run_dir / "events.jsonl").exists()
         return
     reviews = _reviews(ran.run_dir)

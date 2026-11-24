@@ -280,11 +280,9 @@ from physgate.orchestrator.sign_off import (
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.orchestrator.usage_limit import (
     UsageLimit,
-    bounded,
+    held_at,
     resume_after,
     resume_refusal,
-    stamped,
-    with_instant,
 )
 from physgate.orchestrator.wait_cycle import held_on, items_open
 from physgate.reviewers.packet import fits_one_read, indicator_scan_runs, person_order_text
@@ -552,19 +550,6 @@ def _follow_up_end(now: AttemptState | None, sub: SubtaskState) -> str:
         said += [f"failing items {_listed(failing)}"] if failing else []
         said += [f"blocking {_listed(blocking)}"] if blocking else []
     return "; ".join(said)
-
-
-def _reset_from(limit: UsageLimit | None, ts: str) -> UsageLimit | None:
-    """``limit`` with its reset read as the next instant after the line stamped ``ts``.
-
-    A reset the stream gave further out than any window after ``ts`` is not taken (:func:`bounded`).
-    """
-    if limit is None:
-        return None
-    limit = bounded(limit, read_at=stamped(ts))
-    if limit.resets_at is not None:
-        return limit
-    return with_instant(limit, after=stamped(ts))
 
 
 class Loop:
@@ -2099,7 +2084,7 @@ class Loop:
                 policy_limits_unjudged=_unjudged(report),
                 issued_spec_sha256=report.issued_spec_sha256,
                 series=report.series,
-                usage_limit=_reset_from(report.usage_limit, env["ts"]),
+                usage_limit=held_at(report.usage_limit, env["ts"]),
                 account_windows=report.account_windows,
             )
         )
@@ -4487,7 +4472,7 @@ class Loop:
         the session after the reset runs in it, and the attempt's completed end commits it.
         """
         env = self._env()
-        held = _reset_from(limit, env["ts"])
+        held = held_at(limit, env["ts"])
         waits = (
             "its review is still owed"
             if review

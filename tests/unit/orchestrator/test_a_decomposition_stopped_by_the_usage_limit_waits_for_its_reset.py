@@ -23,6 +23,7 @@ for.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -45,7 +46,7 @@ from physgate.orchestrator.common import utc_stamp
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.design_rounds import read_journal
 from physgate.orchestrator.events import Halted, read_events
-from physgate.orchestrator.exceptions import ReviewUnavailableError
+from physgate.orchestrator.exceptions import ReviewUnavailableError, RunStateError
 from physgate.orchestrator.protocols import MessageUsage, Usage
 from physgate.orchestrator.usage_limit import UsageLimit, usage_limit_of
 
@@ -151,8 +152,20 @@ class Made:
 
 
 def _json(text: str) -> dict[str, Any]:
+    """The last thing printed, where it is an object: the command's own words."""
     text = text.strip()
-    return json.loads(text) if text.startswith("{") else {}
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            return dict(json.loads(text))
+        except json.JSONDecodeError:
+            pass
+    for line in reversed(text.splitlines()):
+        if line.startswith("{"):
+            try:
+                return dict(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return {}
 
 
 def made(
@@ -257,13 +270,15 @@ def test_a_stopped_decomposition_s_directory_is_refused_and_a_fresh_one_goes_on(
 ) -> None:
     first = made(tmp_path / "a", "off", [Step(call="limit")], capsys, monkeypatch)
     assert first.code == WAITING, (first.code, first.out, first.err)
-    before = (first.run_dir / "events.jsonl").read_bytes()
-    # Into the same directory: refused before any call, the stopped one kept as it was.
-    again = made(tmp_path / "a", "off", [Step()], capsys, monkeypatch)
+    # Into the directory it left (its bytes, beside a target of its own): refused before any
+    # call, and what it left kept as it was.
+    shutil.copytree(first.run_dir, tmp_path / "a2" / "run", symlinks=True)
+    before = (tmp_path / "a2" / "run" / "events.jsonl").read_bytes()
+    again = made(tmp_path / "a2", "off", [Step()], capsys, monkeypatch)
     assert again.code == 2, (again.code, again.out, again.err)
     assert again.script.calls == []
     assert "already holds a run" in again.err["error"]
-    assert (first.run_dir / "events.jsonl").read_bytes() == before
+    assert (again.run_dir / "events.jsonl").read_bytes() == before
     # Into a fresh directory, after the reset: the decomposition goes on and the run starts.
     fresh = made(tmp_path / "b", "off", [Step()], capsys, monkeypatch)
     assert fresh.code == 0, (fresh.code, fresh.out, fresh.err)
@@ -354,6 +369,34 @@ def test_a_plan_review_stopped_by_the_limit_in_an_observed_run_starts_it_naming_
     assert line["unavailable"]["cause"] == "infrastructure"
     assert line["unavailable"]["usage_limit"]["resets_at"] == reset
     assert ran.code == 0, (ran.code, ran.out, ran.err)
+
+
+def _rewrite(run_dir: Path, lines: list[dict[str, Any]]) -> None:
+    path = run_dir / "decomposition" / "rounds.jsonl"
+    path.write_text("".join(json.dumps(one) + "\n" for one in lines))
+
+
+def test_the_journal_holds_a_limit_exactly_where_its_round_ended_on_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    limited = made(tmp_path / "a", "on", [Step(call="limit")], capsys, monkeypatch)
+    lines = journal(limited.run_dir)
+    ended = next(one for one in lines if one["kind"] == "round_ended")
+    del ended["usage_limit"]
+    _rewrite(limited.run_dir, lines)
+    with pytest.raises(RunStateError) as without:
+        read_journal(limited.run_dir, last=1)
+    assert without.value.context["check"] == "limit"
+    # A review that ended in infrastructure, not on the limit: the rounds end on its cause.
+    other = made(tmp_path / "b", "on", [Step(review="infrastructure")], capsys, monkeypatch)
+    lines = journal(other.run_dir)
+    assert lines[-1]["cause"] == "infrastructure"
+    read_journal(other.run_dir, last=1)
+    lines[-1]["cause"] = "usage_limit"
+    _rewrite(other.run_dir, lines)
+    with pytest.raises(RunStateError) as named:
+        read_journal(other.run_dir, last=1)
+    assert named.value.context["check"] == "terminal"
 
 
 # -- the reading is the role session's, on both pins ----------------------------------------------
