@@ -50,7 +50,7 @@ def root(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _config(root: Path, *, apart: bool = True) -> SessionConfig:
+def _request(root: Path, *, apart: bool = True) -> dict[str, object]:
     fields: dict[str, object] = {
         "profile": "role",
         "role": "electrical",
@@ -66,6 +66,11 @@ def _config(root: Path, *, apart: bool = True) -> SessionConfig:
     }
     if apart:
         fields["sentinel_apart"] = str(root / "apart")
+    return fields
+
+
+def _config(root: Path, *, apart: bool = True, **changes: object) -> SessionConfig:
+    fields = _request(root, apart=apart) | changes
     return build_config(InstallRequest(**fields), installation())  # type: ignore[arg-type]
 
 
@@ -236,3 +241,45 @@ def test_a_halt_kept_by_a_record_made_before_the_labels_is_returned_as_it_was_ke
     base["halted"] = kept
     record.write_text(json.dumps(base, sort_keys=True))
     assert _check(root, config) == kept
+
+
+def test_a_second_name_made_during_the_session_is_refused_at_its_end_with_no_path(
+    root: Path,
+) -> None:
+    config = _config(root)
+    assert _check(root, config, "SessionStart") == "allow"
+    (root / "elsewhere").mkdir()
+    os.link(root / "heldout" / TASK_ID / FILE_NAME, root / "elsewhere" / "copy")
+    reason = _check(root, config, "SessionEnd")
+    assert "has more than one name (2)" in reason, reason
+    _held_to_labels(root, reason)
+
+
+def test_with_no_place_apart_one_path_keeps_one_label_on_every_call(root: Path) -> None:
+    config = _config(root, apart=False)
+    assert _check(root, config, "SessionStart") == "allow"
+    task = root / "heldout" / TASK_ID
+    labels = []
+    for mode in (0o700, 0o711):
+        task.chmod(mode if task.stat().st_mode & 0o777 != mode else 0o755)
+        labels += LABEL.findall(_check(root, config))
+    assert len(labels) == 2 and labels[0] == labels[1], f"one entry, two labels: {labels}"
+
+
+@pytest.mark.parametrize(
+    ("field", "kind"), [("answer_keys", "answer-key"), ("withheld", "withheld-record")]
+)
+def test_an_answer_key_or_a_withheld_record_changed_is_named_by_its_kind_and_label(
+    root: Path, field: str, kind: str
+) -> None:
+    where = root / "kept" / "record-5e0a.json"
+    where.parent.mkdir()
+    where.write_text('{"kept": true}\n')
+    value = str(where.parent) if field == "answer_keys" else str(where)
+    config = _config(root, **{field: (value,)})
+    assert _check(root, config, "SessionStart") == "allow"
+    where.write_text('{"kept": false}\n')
+    reason = _check(root, config)
+    assert f"{kind} entry " in reason, reason
+    assert str(where) not in reason and where.name not in reason, reason
+    assert where.name not in _log(root), _log(root)

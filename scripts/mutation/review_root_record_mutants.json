@@ -1,0 +1,242 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py",
+      "tests/unit/hooks/test_the_sentinel_keeps_what_names_a_protected_task_apart_from_the_session.py",
+      "tests/unit/reviewers/test_a_review_session_s_own_directory_names_no_protected_task.py",
+      "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py",
+      "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py"
+    ]
+  },
+  {
+    "name": "a_held_out_path_is_named",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "            return \"held-out\"\n",
+    "new": "            return None\n",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "an_answer_key_path_is_named",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "            return \"answer-key\"\n",
+    "new": "            return None\n",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "a_read_refused_path_is_named",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "    return None if reason is None else _KINDS.get(reason, \"withheld\")",
+    "new": "    return None",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "no_path_is_labelled",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "        if kind is None:\n            return path\n",
+    "new": "        if kind is None or kind:\n            return path\n",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py",
+      "tests/unit/hooks/test_the_sentinel_keeps_what_names_a_protected_task_apart_from_the_session.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "the_label_is_not_keyed",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "digest = hashlib.blake2b(path.encode(), digest_size=6, key=key).hexdigest()",
+    "new": "digest = hashlib.blake2b(path.encode(), digest_size=6).hexdigest()",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "the_start_s_survey_is_written_as_found",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "            problems = named_problems(found, _namer(config, state.apart, base))",
+    "new": "            problems = [f\"{p}: {w}\" for p, w in found]",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "the_end_s_survey_is_written_as_found",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "            unsure = named_problems(found, named)",
+    "new": "            unsure = [f\"{p}: {w}\" for p, w in found]",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "what_changed_at_the_end_is_written_as_found",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "            unsure += named_problems(withheld.changed_found(recorded, now), named)",
+    "new": "            unsure += withheld.changed(recorded, now)",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "what_was_put_back_is_written_as_found",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "        put_back, failed = [named(p) for p in put_back], [named(p) for p in failed]",
+    "new": "        failed = [named(p) for p in failed]",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py",
+      "tests/unit/hooks/test_the_sentinel_keeps_what_names_a_protected_task_apart_from_the_session.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "what_was_not_put_back_is_written_as_found",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "        put_back, failed = [named(p) for p in put_back], [named(p) for p in failed]",
+    "new": "        put_back = [named(p) for p in put_back]",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "a_record_s_own_key_is_not_kept",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "                kept = base.setdefault(LABEL_KEY_FIELD, os.urandom(_KEY_BYTES).hex())",
+    "new": "                kept = os.urandom(_KEY_BYTES).hex()",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "the_place_s_key_is_not_the_one_kept",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "        return _read_key(fd, place)\n    finally:\n        os.close(fd)",
+    "new": "        return os.urandom(_KEY_BYTES)\n    finally:\n        os.close(fd)",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "the_end_record_names_what_moved",
+    "file": "src/physgate/orchestrator/dispatch.py",
+    "old": "            moved, unread = [named(p) for p in changed_since(roots)], None",
+    "new": "            moved, unread = changed_since(roots), None",
+    "tests": [
+      "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py"
+    ]
+  },
+  {
+    "name": "the_commit_s_tripwire_names_what_it_found",
+    "file": "src/physgate/orchestrator/dispatch.py",
+    "old": "    problems = named_problems(found, labeller(session_config))",
+    "new": "    problems = [f\"{p}: {w}\" for p, w in found]",
+    "tests": [
+      "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py"
+    ]
+  },
+  {
+    "name": "a_reviewer_is_installed_with_no_place_apart",
+    "file": "src/physgate/reviewers/claude.py",
+    "old": "            \"--sentinel-apart\",\n            str(apart),\n",
+    "new": "",
+    "tests": [
+      "tests/unit/reviewers/test_a_review_session_s_own_directory_names_no_protected_task.py"
+    ],
+    "data": [
+      "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+    ]
+  },
+  {
+    "name": "a_place_apart_in_the_read_allowance_is_taken",
+    "file": "src/physgate/hooks/settings.py",
+    "old": "        places += list(request.read_roots)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/reviewers/test_a_review_session_s_own_directory_names_no_protected_task.py"
+    ],
+    "data": [
+      "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py",
+      "tests/unit/hooks/test_the_sentinel_keeps_what_names_a_protected_task_apart_from_the_session.py",
+      "tests/unit/reviewers/test_a_review_session_s_own_directory_names_no_protected_task.py",
+      "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py",
+      "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py"
+    ]
+  }
+]
