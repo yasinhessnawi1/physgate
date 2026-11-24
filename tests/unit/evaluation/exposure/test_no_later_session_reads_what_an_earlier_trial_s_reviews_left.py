@@ -68,9 +68,9 @@ from physgate.evaluation.per_role.exceptions import PerRoleError  # noqa: E402
 from physgate.evaluation.tiers.exposure import run_roots  # noqa: E402
 from physgate.evaluation.tiers.task import Task  # noqa: E402
 from physgate.hooks import cli as hooks_cli  # noqa: E402
-from physgate.hooks import paths, shell_paths  # noqa: E402
+from physgate.hooks import paths, shell_paths, tools  # noqa: E402
 from physgate.hooks import settings as hooks_settings  # noqa: E402
-from physgate.hooks.config import SessionConfig  # noqa: E402
+from physgate.hooks.config import HookInput, SessionConfig  # noqa: E402
 from physgate.hooks.settings import InstallRequest, build_config, current_installation  # noqa: E402
 from physgate.hooks.shell import parse  # noqa: E402
 from physgate.orchestrator import dispatch  # noqa: E402
@@ -79,7 +79,9 @@ from physgate.orchestrator.dispatch import ClaudeDispatcher  # noqa: E402
 from physgate.orchestrator.ports import SessionRequest  # noqa: E402
 from physgate.orchestrator.requirements import RunFacts  # noqa: E402
 from physgate.orchestrator.review_root_record import record_review_root  # noqa: E402
+from physgate.orchestrator.run_config import RunConfig  # noqa: E402
 from physgate.oslayer.policy import sandbox_policy  # noqa: E402
+from physgate.oslayer.probe import Absent  # noqa: E402
 from physgate.oslayer.session_temp import make_session_temp  # noqa: E402
 from physgate.reviewers.packet import WORKTREE_NAME  # noqa: E402
 from physgate.reviewers.places import READ_DIRNAME, SESSION_DIRNAME, standing_root  # noqa: E402
@@ -504,3 +506,101 @@ def test_a_raw_session_for_a_run_naming_no_held_out_tier_is_installed_as_before(
     assert "<rig>" in spelt  # not vacuous: the rig's paths are what was given
     digest = hashlib.sha256(spelt.encode()).hexdigest()
     assert digest == BEFORE_RAW_ARGV[layer], (digest, spelt)
+
+
+def _raw_argv(setup: RawSetup, root: Path, *, layer: bool) -> list[str]:
+    """The raw installer's command line for ``setup``, with or without the OS layer."""
+    (root / "w" / "worktree").mkdir(parents=True)
+    temp = _temp()
+    with pytest.MonkeyPatch.context() as mp:
+        seen = _capture(mp)
+        raw._install(  # noqa: SLF001
+            dataclasses.replace(setup, install_bin=Path("/nowhere/bin/physgate")),
+            root / "w" / "worktree",
+            root / "w" / "session",
+            temp if layer else None,
+            own_temp=temp,
+        )
+    (argv,) = [a for a in seen if a[1:3] == ["hooks", "install"]]
+    return argv
+
+
+def _install_says(argv: list[str], capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
+    """What the real installer does with ``argv``, run in this process: its code, its error."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(hooks_settings, "machine_writable", lambda: ())
+        code = hooks_cli.main(argv[argv.index("hooks") :])
+    return code, capsys.readouterr().err
+
+
+@pytest.mark.parametrize("layer", [False, True], ids=["without the layer", "inside the layer"])
+def test_a_raw_session_withheld_a_root_whole_is_installed_only_inside_the_os_layer(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], layer: bool
+) -> None:
+    """The hooks alone do not hold a root whole against a path a command builds as it runs."""
+    trials = _trials(tmp_path.resolve(), "in its run", later=False)
+    harness = config(trials.task_b, trials.made, **_withheld(trials.made))
+    argv = _raw_argv(setup_for(harness, "control"), tmp_path.resolve(), layer=layer)
+    assert "--withheld-whole" in argv, argv
+    code, said = _install_says(argv, capsys)
+    if layer:
+        assert code == 0, said
+    else:
+        assert code != 0, "a raw session withheld a root whole was installed with no OS layer"
+        assert "OS layer" in said, said
+
+
+def test_a_raw_session_withheld_no_root_whole_is_installed_without_the_layer_as_before(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path.resolve()
+    made = stand_in_store(root / "s")
+    plain = config(
+        made.tasks["visible"][0], made, held_out=[], held_out_sha256=[], held_out_canaries=[]
+    )
+    argv = _raw_argv(setup_for(plain, "control"), root, layer=False)
+    code, said = _install_says(argv, capsys)
+    assert code == 0, said
+
+
+def test_a_baseline_round_where_the_layer_is_absent_starts_no_raw_session(tmp_path: Path) -> None:
+    """Refused before any session: the layer is compared only after one, which is too late."""
+    trials = _trials(tmp_path.resolve(), "in its run", later=False)
+    arm = StandInArm()
+
+    def absent(harness: RunConfig, role: Any) -> RawSetup:  # noqa: ANN401
+        return dataclasses.replace(setup_for(harness, role), os_layer=Absent(reason="none here"))
+
+    with pytest.raises(PerRoleError) as raised:
+        run_baseline(
+            store=trials.made.store,
+            role="control",
+            version=trials.made.version,
+            runs=run_set((trials.a, 0)),
+            out=tmp_path.resolve() / "round",
+            setup_for=absent,
+            score=lambda _task, _answer: dict(SCORED),
+            prices=load_price_sheet(PRICES),
+            arm=arm,
+            sleep=lambda _s: None,
+        )
+    assert arm.calls == [], "a raw session started where the OS layer is absent"
+    assert raised.value.context.get("refused_because") == "os_layer_absent", raised.value.context
+
+
+def test_a_reviewer_runs_no_command_so_it_needs_no_os_layer(tmp_path: Path) -> None:
+    """Its closed list holds Read and its verdict tool alone; the shell is refused by the hook."""
+    trials = _trials(tmp_path.resolve(), "in its run")
+    session = _reviewer(trials, REVIEW_B)
+    assert sorted(session.tools_allowed) == ["Read", "StructuredOutput"]
+    for tool in ("Bash", "Write", "Edit", "NotebookEdit", "Task", "WebFetch"):
+        asked = HookInput.model_validate(
+            {
+                "session_id": "s",
+                "hook_event_name": "PreToolUse",
+                "cwd": session.worktree,
+                "tool_name": tool,
+                "tool_input": {"command": "cat /etc/hosts"},
+            }
+        )
+        assert not tools.pre_tool_use(asked, session).allow, f"a reviewer may call {tool}"
