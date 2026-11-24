@@ -47,6 +47,8 @@ class Started:
     def __init__(self) -> None:
         self.commands: list[list[str]] = []
         self.profiles: list[str] = []
+        #: What the started command says on its error stream.
+        self.said = ""
 
     def __call__(
         self, command: Sequence[str], work: Path, env: object, timeout_s: float
@@ -54,7 +56,7 @@ class Started:
         self.commands.append(list(command))
         if command[0] == SANDBOX_EXEC:
             self.profiles.append(Path(command[2]).read_text(encoding="utf-8"))
-        return 0, ""
+        return 1, self.said
 
 
 @pytest.fixture
@@ -167,3 +169,21 @@ def test_the_change_check_s_refusal_of_an_uncontained_set_names_no_withheld_plac
     assert "held-out-tier-9c41" not in found.reason and str(tmp_path) not in found.reason
     assert regeneration.UNCONTAINED in found.reason, found.reason
     assert started.commands == []
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_the_command_s_error_stream_names_no_withheld_place(
+    platform: str, tmp_path: Path, started: Started
+) -> None:
+    """The wrapper names a place it cannot hide; the change check quotes the stream's end."""
+    root, inside, beside = _places(tmp_path)
+    started.said = (
+        f"bwrap: Can't mount tmpfs on {os.path.realpath(inside)}: denied\nand {beside} too\n"
+    )
+    run = regeneration.contained_runner(
+        platform=platform, bwrap=BWRAP, withheld=lambda: (str(inside), str(beside))
+    )
+    code, said = run([str(root / "python"), "-c", "pass"], tmp_path / "work", {}, 5.0, [str(root)])
+    assert code == 1
+    assert "held-out-tier" not in said and str(beside) not in said, said
+    assert regeneration.WITHHELD_WORDS in said and "Can't mount tmpfs" in said, said

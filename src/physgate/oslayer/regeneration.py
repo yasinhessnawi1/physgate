@@ -122,6 +122,23 @@ UNCONTAINED = (
 )
 
 
+#: What stands in a regeneration's error stream where it named a withheld place.
+WITHHELD_WORDS = "<a place withheld from the run's sessions>"
+
+
+def unnamed(said: str, withheld: Sequence[str]) -> str:
+    """``said`` with every spelling of each withheld place replaced by :data:`WITHHELD_WORDS`.
+
+    The wrapper names on its own error stream the places it hides when it cannot hide one, and
+    the change check quotes that stream's last line: a withheld place is the protected
+    material's. Each place is replaced as given and where it really is, the longest first.
+    """
+    spellings = {s for place in withheld for s in (place, os.path.realpath(place)) if s}
+    for spelling in sorted(spellings, key=len, reverse=True):
+        said = said.replace(spelling, WITHHELD_WORDS)
+    return said
+
+
 def default_runner(
     *,
     platform: str = sys.platform,
@@ -199,7 +216,8 @@ def contained_runner(
             else:
                 msg = f"no wrapper contains the regeneration on {platform}"
                 raise ContainmentError(msg)
-            return _run(command, work, env, timeout_s)
+            code, said = _run(command, work, env, timeout_s)
+            return code, unnamed(said, denied)
         finally:
             if profiles is not None:
                 shutil.rmtree(profiles, ignore_errors=True)

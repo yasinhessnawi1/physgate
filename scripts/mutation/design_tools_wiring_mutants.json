@@ -267,8 +267,8 @@
  {
   "name": "a_runner_given_no_withheld_places_runs",
   "file": "src/physgate/oslayer/regeneration.py",
-  "old": "            if withheld is None:\n                msg = \"no places",
-  "new": "            if False:\n                msg = \"no places",
+  "old": "            if withheld is None:\n                msg = \"no places withheld from the run's sessions are given to the regeneration\"\n                raise ContainmentError(msg)\n            denied = tuple(withheld())\n",
+  "new": "            denied = tuple(withheld()) if withheld is not None else ()\n",
   "tests": [
    "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py",
    "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
@@ -280,6 +280,21 @@
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
    "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "the_error_stream_names_the_withheld_places",
+  "file": "src/physgate/oslayer/regeneration.py",
+  "old": "            return code, unnamed(said, denied)\n",
+  "new": "            return code, said\n",
+  "tests": [
+   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
   ]
  },
