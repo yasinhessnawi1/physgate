@@ -13,11 +13,12 @@ no file by its path, only by its label.
 from __future__ import annotations
 
 import ast
+import json
 import os
 from pathlib import Path
 
 import pytest
-from hook_helpers import bash
+from hook_helpers import SESSION, bash
 
 from physgate.hooks import sentinel
 from physgate.hooks.config import HookInput, SessionConfig
@@ -64,6 +65,13 @@ def _check(root: Path, name: str = "PostToolUse") -> str:
     return "allow" if decision.allow else decision.reason
 
 
+def _label(root: Path, path: Path, kind: str) -> str:
+    """The label the sentinel gives ``path``: with no place apart, keyed by its record's own key."""
+    record = root / "outside" / "state" / "sessions" / SESSION / "sentinel" / "baseline.json"
+    key = bytes.fromhex(json.loads(record.read_text())[sentinel.LABEL_KEY_FIELD])
+    return sentinel.label_of(str(path), kind, key)
+
+
 def test_files_with_one_name_each_pass(root: Path) -> None:
     assert _check(root, "SessionStart") == "allow"
     assert _check(root) == "allow"
@@ -73,7 +81,8 @@ def test_a_held_out_file_with_a_second_name_at_the_start_refuses_the_session(roo
     os.link(root / "heldout" / "scenario.json", root / "outside-name.json")
     reason = _check(root, "SessionStart")
     # Named by its label, never by its path: what was found there is kept.
-    assert "held-out entry " in reason and ": has more than one name (2)" in reason, reason
+    held = root / "heldout" / "scenario.json"
+    assert f"{_label(root, held, 'held-out')}: has more than one name (2)" in reason, reason
     assert "scenario.json" not in reason, reason
     assert _check(root) == reason  # and every later call
 
@@ -83,7 +92,8 @@ def test_a_second_name_made_during_the_session_halts_it_at_the_end(root: Path) -
     os.link(root / "worktree" / "corpora" / "answers.json", root / "worktree" / "copy.json")
     assert _check(root) == "allow", "checked at the start and the end only, by design"
     reason = _check(root, "SessionEnd")
-    assert "answer-key entry " in reason and ": has more than one name (2)" in reason, reason
+    answers = root / "worktree" / "corpora" / "answers.json"
+    assert f"{_label(root, answers, 'answer-key')}: has more than one name (2)" in reason, reason
     assert "answers.json" not in reason, reason
     os.unlink(root / "worktree" / "copy.json")
     assert _check(root) == reason, "a halt holds once the link is gone"
@@ -96,7 +106,7 @@ def test_a_file_swapped_for_another_halts_at_the_end(root: Path) -> None:
     replacement.write_text(MARKER)  # the same bytes, another file
     os.replace(replacement, held)
     reason = _check(root, "SessionEnd")
-    assert "held-out entry " in reason and ": not the file it was" in reason, reason
+    assert f"{_label(root, held, 'held-out')}: not the file it was" in reason, reason
     assert "scenario.json" not in reason, reason
 
 
@@ -109,7 +119,7 @@ def test_what_cannot_be_checked_halts_rather_than_passes(root: Path) -> None:
         reason = _check(root, "SessionStart")
     finally:
         locked.chmod(0o755)
-    assert "held-out entry " in reason and ": cannot be" in reason, reason
+    assert f"{_label(root, locked, 'held-out')}: cannot be" in reason, reason
     assert "locked" not in reason, reason
 
 
@@ -118,7 +128,8 @@ def test_a_link_inside_the_tier_is_not_followed_and_is_flagged(root: Path) -> No
     outside.write_text(MARKER)
     (root / "heldout" / "pointer").symlink_to(outside)
     reason = _check(root, "SessionStart")
-    assert "held-out entry " in reason and ": not a regular file" in reason, reason
+    pointer = root / "heldout" / "pointer"
+    assert f"{_label(root, pointer, 'held-out')}: not a regular file" in reason, reason
     assert "pointer" not in reason, reason
 
 

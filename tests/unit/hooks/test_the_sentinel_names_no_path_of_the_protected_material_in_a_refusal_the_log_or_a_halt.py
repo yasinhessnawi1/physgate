@@ -284,3 +284,132 @@ def test_an_answer_key_or_a_withheld_record_changed_is_named_by_its_kind_and_lab
     assert f"{kind} entry " in reason, reason
     assert str(where) not in reason and where.name not in reason, reason
     assert where.name not in _log(root), _log(root)
+
+
+def _key_file(root: Path) -> Path:
+    return root / "apart" / sentinel.LABEL_KEY_NAME
+
+
+def _put_back_one(root: Path, config: SessionConfig) -> tuple[Path, str]:
+    """A held-out task directory's mode changed and put back: the directory, and the refusal."""
+    task = root / "heldout" / TASK_ID
+    task.chmod(0o700 if task.stat().st_mode & 0o777 != 0o700 else 0o755)
+    return task, _check(root, config)
+
+
+def test_the_key_is_this_user_s_alone_with_one_name(root: Path) -> None:
+    config = _config(root)
+    assert _check(root, config, "SessionStart") == "allow"
+    _put_back_one(root, config)
+    held = _key_file(root).stat()
+    assert held.st_mode & 0o777 == 0o600, oct(held.st_mode)
+    assert held.st_nlink == 1 and held.st_uid == os.geteuid()
+    assert re.fullmatch(r"[0-9a-f]{64}", _key_file(root).read_text())
+
+
+def test_a_hook_killed_while_it_makes_the_key_leaves_no_key_and_the_next_makes_a_whole_one(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Killed after the key's file was made and before it was whole: no key half there."""
+    config = _config(root)
+    assert _check(root, config, "SessionStart") == "allow"
+    real = os.urandom
+
+    def killed(n: int) -> bytes:
+        monkeypatch.setattr(os, "urandom", real)
+        raise SystemExit(137)
+
+    monkeypatch.setattr(os, "urandom", killed)
+    with pytest.raises(SystemExit):
+        _put_back_one(root, config)
+    assert not _key_file(root).exists(), "a key half made was left at the key's name"
+    task, reason = _put_back_one(root, config)
+    assert re.fullmatch(r"[0-9a-f]{64}", _key_file(root).read_text())
+    label = sentinel.label_of(str(task), "held-out", sentinel.label_key(str(root / "apart")))
+    assert f"put back: {label}." in reason or f"{label}," in reason, reason
+
+
+@pytest.mark.parametrize(
+    "kept", [b"", b"ab" * 16, b"zz" * 32, b"ab" * 33], ids=["empty", "short", "not hex", "long"]
+)
+def test_a_key_that_is_no_key_is_a_refusal_that_says_what_to_do_and_the_put_back_is_kept(
+    root: Path, kept: bytes
+) -> None:
+    config = _config(root)
+    assert _check(root, config, "SessionStart") == "allow"
+    _key_file(root).write_bytes(kept)
+    _key_file(root).chmod(0o600)
+    task = root / "heldout" / TASK_ID
+    was = task.stat().st_mode & 0o777
+    _, reason = _put_back_one(root, config)
+    assert task.stat().st_mode & 0o777 == was, "the directory's mode was not put back"
+    # It says so, and what a person does, naming no protected path and not the place's.
+    assert "labels.key" in reason and "removes" in reason, reason
+    assert "were put back" in reason and "(one-off key)" in reason, reason
+    assert str(root / "apart") not in reason and _named(reason, root) == [], reason
+    # What was done on disk is on record before the refusal, as without the labels.
+    decisions = [json.loads(line)["decision"] for line in _log(root).splitlines()]
+    assert decisions[:1] == ["put back"], decisions
+    # The record was saved: the put-back is not done or said again.
+    assert _check(root, config) == "allow"
+
+
+def test_a_key_open_to_others_is_no_key(root: Path) -> None:
+    config = _config(root)
+    assert _check(root, config, "SessionStart") == "allow"
+    _key_file(root).write_text("ab" * 32)
+    _key_file(root).chmod(0o644)
+    _, reason = _put_back_one(root, config)
+    assert "labels.key" in reason and "(one-off key)" in reason, reason
+
+
+def _whole_config(root: Path) -> SessionConfig:
+    """A configuration with every kind of protected place: a root withheld whole among them."""
+    store = root / "store"
+    (store / "trial" / "wt").mkdir(parents=True)
+    (store / "other").mkdir()
+    (root / "material").mkdir()
+    return _config(
+        root,
+        worktree=str(store / "trial" / "wt"),
+        withheld_whole=(str(store),),
+        own_place=str(store / "trial"),
+        extra_review_material=(str(root / "material"),),
+    )
+
+
+@pytest.mark.parametrize(
+    ("where", "kind"),
+    [
+        ("store/other/x.json", "withheld-root"),
+        ("apart/x.json", "sentinel-record"),
+        ("material/x.json", "review-material"),
+        ("heldout/x.json", "held-out"),
+    ],
+)
+def test_the_orchestrator_s_label_and_the_sentinel_s_are_one_where_both_use_the_place_s_key(
+    root: Path, where: str, kind: str
+) -> None:
+    config = _whole_config(root)
+    path = str(root / where)
+    key = sentinel.label_key(str(root / "apart"))
+    expected = sentinel.label_of(path, kind, key)
+    assert sentinel.labeller(config)(path) == expected
+    assert sentinel._namer(config, str(root / "apart"), {})(path) == expected
+
+
+def test_the_orchestrator_names_a_path_it_cannot_judge_by_a_label_never_as_it_is(
+    root: Path,
+) -> None:
+    config = _config(root)
+    unjudged = str(root / "heldout" / TASK_ID) + "\0" + FILE_NAME
+    named = sentinel.labeller(config)(unjudged)
+    assert TASK_ID not in named and FILE_NAME not in named, named
+    assert named.startswith("protected entry "), named
+
+
+def test_labels_the_orchestrator_makes_with_a_key_for_one_record_alone_say_so(root: Path) -> None:
+    config = _config(root)
+    (root / "apart").chmod(0o755)
+    named = sentinel.labeller(config)(str(root / "heldout" / TASK_ID))
+    assert named.startswith("held-out entry ") and named.endswith(" (one-off key)"), named

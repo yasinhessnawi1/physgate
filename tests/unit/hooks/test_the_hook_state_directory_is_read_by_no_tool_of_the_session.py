@@ -15,6 +15,7 @@ back: a change to it is found by its digest, nothing is put back, and every late
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -150,6 +151,13 @@ def test_the_sentinel_keeps_no_byte_of_a_file_the_session_may_not_read(
     assert OPEN_BYTES in kept
 
 
+def _label(config: SessionConfig, path: Path, kind: str) -> str:
+    """The label the sentinel gives ``path``: with no place apart, keyed by its record's own key."""
+    record = Path(config.state_dir) / "sessions" / SESSION / "sentinel" / "baseline.json"
+    key = bytes.fromhex(json.loads(record.read_text())[sentinel.LABEL_KEY_FIELD])
+    return sentinel.label_of(str(path), kind, key)
+
+
 @pytest.mark.parametrize("profile", PROFILES)
 def test_a_withheld_record_that_changes_is_not_put_back_and_every_call_is_refused(
     root: Path, profile: str
@@ -160,7 +168,7 @@ def test_a_withheld_record_that_changes_is_not_put_back_and_every_call_is_refuse
     said = _hook(root, config)
     assert said != "allow"
     # Named by its label, never by its path.
-    assert "withheld-record entry " in said and "could not be put back" in said, said
+    assert f"could not be put back ({_label(config, record, 'withheld-record')})" in said, said
     assert str(record) not in said, said
     # Nothing was put back from anywhere: the sentinel holds no copy to put back.
     assert record.read_text() == '{"held_out_canaries": []}\n'
@@ -176,7 +184,7 @@ def test_a_held_out_file_that_is_removed_is_not_put_back_and_every_call_is_refus
     held.unlink()
     said = _hook(root, config)
     assert said != "allow"
-    assert "held-out entry " in said and "could not be put back" in said, said
+    assert f"could not be put back ({_label(config, held, 'held-out')})" in said, said
     assert str(held) not in said, said
     assert not held.exists()
 
