@@ -374,7 +374,8 @@ def _carved_install(
 
     setup = dataclasses.replace(_setup(root), held_out=held_out, held_out_carved=str(carved))
     monkeypatch.setattr(subprocess, "run", fake_run)
-    raw._install(setup, carved / "worktree", carved / "session", None, own_temp=OWN_TEMP)
+    # Inside the OS layer: a raw session withheld a root whole is installed only there.
+    raw._install(setup, carved / "worktree", carved / "session", OWN_TEMP, own_temp=OWN_TEMP)
     monkeypatch.undo()
     return seen[0]
 
