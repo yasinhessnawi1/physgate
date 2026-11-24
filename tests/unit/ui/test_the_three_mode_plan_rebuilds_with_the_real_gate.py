@@ -3,16 +3,20 @@
 The operator UI's views and browser tests read these runs. The rig asserts each run's shape as
 it builds it, so this test is that assertion run once; it then checks the run directories hold
 what the UI reads, and that the gate's records are the real gate's: unchecked records, a pass
-over nothing, and the catalogue digest the real gate stamps.
+over nothing, and the catalogue digest the real gate stamps. The Library screen, served over the
+checkout's own library, shows that same digest.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
+from ui_rig import context_over, fake_ui, serving
 from ui_three_mode_rig import MODES, three_mode_runs
 
+from physgate.gate.bounds_table import KNOWLEDGE_DIR
 from physgate.orchestrator.events import GateRan, IntegrationGateRan, read_events
 from physgate.orchestrator.gate_events import recorded_gate_checks
 from physgate.orchestrator.protocols import UncheckedDetails
@@ -51,3 +55,26 @@ def test_the_gate_s_records_are_the_real_gate_s(built: tuple[Path, ...]) -> None
         if isinstance(e, GateRan | IntegrationGateRan)
     }
     assert len(catalogues) == 1 and catalogues != {"c" * 64}, "not the real gate's catalogue"
+
+
+def test_the_library_screen_serves_the_digest_these_runs_gate_records_carry(
+    built: tuple[Path, ...], tmp_path: Path
+) -> None:
+    on, observe, _ = built
+    recorded = {
+        e.result.catalogue_sha256
+        for run in (on, observe)
+        for e in read_events(run / "events.jsonl")
+        if isinstance(e, GateRan | IntegrationGateRan)
+    }
+    assert len(recorded) == 1, recorded
+    # The library the runs' gate read its law table from: the checkout's own.
+    context = context_over(on.parent, ui_root=fake_ui(tmp_path / "app"), library=KNOWLEDGE_DIR)
+    with serving(context) as live:
+        status, _, body = live.request("GET", "/api/library/ratings")
+    assert status == 200, body[:300]
+    digest = json.loads(body)["gate_digest"]
+    assert digest["state"] == "read", digest
+    assert {digest["sha256"]} == recorded
+    # The checkout's own library, so the page may say a run from this checkout carries it.
+    assert digest.get("library_is_this_checkout") is True, digest

@@ -13,11 +13,16 @@ import json
 from typing import Any
 
 import pytest
-from answer_form_cases import Case, cases, example, precedence
+from answer_form_cases import Case, cases, example, precedence, stated_and_refused
 
 import physgate.evaluation.whole.form as form
 from physgate.evaluation.per_role.exceptions import TaskFormatError
-from physgate.evaluation.whole.answer import OutsideScope, parse_answer, parse_answer_scoped
+from physgate.evaluation.whole.answer import (
+    MAX_ANSWER_BYTES,
+    OutsideScope,
+    parse_answer,
+    parse_answer_scoped,
+)
 
 RULES = {r.key: r for r in (*form.REFUSED, *form.NOT_JUDGED)}
 ALL = [(key, case) for key, group in cases().items() for case in group]
@@ -53,6 +58,61 @@ def test_an_answer_built_to_break_one_rule_is_read_as_the_block_says(key: str, c
         if rule.name is not None:
             assert rule.name in str(refusal), (rule.name, str(refusal))
     assert case.outcome == ("unscored" if case.parse == "outside" else "fail")
+
+
+def _refused_saying(case: Case) -> str:
+    assert case.changed, f"{case.label}: the edit found its text in the example not exactly once"
+    refusal = _read(case)
+    assert isinstance(refusal, TaskFormatError) and not isinstance(refusal, OutsideScope), refusal
+    said = str(refusal)
+    for words in case.said:
+        assert words in said, (words, said)
+    return said
+
+
+def test_a_sign_written_true_is_refused_as_a_sign_that_is_no_number() -> None:
+    _refused_saying(stated_and_refused()["sign_true"])
+
+
+def test_two_states_marked_as_holding_the_applied_command_are_refused_and_both_are_named() -> None:
+    _refused_saying(stated_and_refused()["applied_twice"])
+
+
+def test_three_states_marked_applied_are_refused_with_their_count_and_each_name() -> None:
+    _refused_saying(stated_and_refused()["applied_thrice"])
+
+
+def test_a_key_written_twice_is_refused_by_name_at_the_top_of_the_answer_and_inside_it() -> None:
+    _refused_saying(stated_and_refused()["key_twice"])
+    _refused_saying(stated_and_refused()["key_twice_inside"])
+
+
+def test_a_key_written_twice_in_a_version_2_answer_is_refused_too() -> None:
+    text = b'{"form": "whole_run", "version": 2, "version": 2, "controller": {}, "parameters": {}}'
+    with pytest.raises(TaskFormatError, match="key_written_twice"):
+        parse_answer(text)
+
+
+# The key check reads the text with Python's reader, which cannot read every text: it says
+# nothing then, and the reading that follows refuses. These hold that such a text, with a key
+# written twice after the part Python cannot read, is still a refused answer and nothing else.
+def _version_twice(first: str) -> bytes:
+    rest = '"version": 2, "controller": {}, "parameters": {}}'
+    return ('{"form": "whole_run", "version": ' + first + ", " + rest).encode()
+
+
+def test_a_key_written_twice_after_a_number_python_cannot_read_is_still_a_refused_answer() -> None:
+    text = _version_twice("9" * 5000)
+    with pytest.raises(TaskFormatError):
+        parse_answer(text)
+
+
+def test_a_key_written_twice_after_a_nest_python_cannot_read_is_still_a_refused_answer() -> None:
+    depth = 20_000
+    text = _version_twice("[" * depth + "]" * depth)
+    assert len(text) <= MAX_ANSWER_BYTES
+    with pytest.raises(TaskFormatError):
+        parse_answer(text)
 
 
 def test_a_fault_of_the_answer_beats_a_term_that_is_not_judged() -> None:

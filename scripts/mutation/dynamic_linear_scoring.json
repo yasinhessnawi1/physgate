@@ -665,8 +665,8 @@
   {
     "name": "the_work_ignores_the_law_s_size",
     "file": "src/physgate/evaluation/whole/dynamic.py",
-    "old": "per_update = states + size + SEGMENT_WEIGHT * (output_points(period) + 2)",
-    "new": "per_update = states + SEGMENT_WEIGHT * (output_points(period) + 2)",
+    "old": "per_update = states + size + SEGMENT_WEIGHT * cuts",
+    "new": "per_update = states + SEGMENT_WEIGHT * cuts",
     "tests": [
       "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
       "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py",
@@ -837,6 +837,74 @@
     "file": "src/physgate/evaluation/whole/scenario.py",
     "old": "{\"label\": dynamic_module.LABEL}",
     "new": "{}",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py",
+      "tests/scoring/test_a_linear_time_row_states_its_sensitivity_and_reports_only_what_did_not_fall.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "the_set_up_not_counted_in_the_work",
+    "file": "src/physgate/evaluation/whole/dynamic.py",
+    "old": "    return RUNS * points * (stepped + EXPONENTIAL_WEIGHT * cuts)",
+    "new": "    return RUNS * points * stepped",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py",
+      "tests/scoring/test_a_linear_time_row_states_its_sensitivity_and_reports_only_what_did_not_fall.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "the_contested_count_said_to_be_complete",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "failing; one perturbation finds at least the points it contests",
+    "new": "failing; one perturbation finds the points it contests",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py",
+      "tests/scoring/test_a_linear_time_row_states_its_sensitivity_and_reports_only_what_did_not_fall.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "the_reason_drops_the_fragile_points",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "least that many points are fragile",
+    "new": "most that many points are fragile",
+    "tests": [
+      "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
+      "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py",
+      "tests/scoring/test_a_linear_time_row_states_its_sensitivity_and_reports_only_what_did_not_fall.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/recorded_law/law.json",
+      "src/physgate/evaluation/whole/plant_v0.json",
+      "src/physgate/evaluation/whole/plant_v0_draft.json",
+      "tests/scoring/test_a_sampled_law_is_scored_as_the_named_structures_are.py"
+    ]
+  },
+  {
+    "name": "the_peak_bound_unsaid",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "read low by at most the output spacing \"",
+    "new": "read low by at most the spacing \"",
     "tests": [
       "tests/scoring/test_the_linear_time_run_is_the_margins_loop_stepped_in_time.py",
       "tests/scoring/test_a_linear_time_row_is_labelled_secondary_and_changes_no_existing_record.py",

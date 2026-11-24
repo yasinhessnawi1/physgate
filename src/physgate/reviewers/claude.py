@@ -12,7 +12,10 @@ left, from the stream this process captured and the hook layer's own records.
 
 **What is a verdict.** Only a session that completed, was answered by the pinned
 model alone, never compacted, read everything required, and gave a structured
-verdict that :func:`verdict.judge` accepts. Everything else raises
+verdict that :func:`verdict.judge` accepts. A session the binary ended at its cap on refused
+verdicts, whose last tool call was a text it refused only for being one, is read through
+:mod:`verdict_text`: the object the text holds, held to the same schema, then to every check
+here. Everything else raises
 :class:`ReviewUnavailableError` with its cause, which the loop records and escalates
 (retrying once only for an infrastructure cause); it is never a pass or a fail:
 
@@ -157,6 +160,7 @@ from physgate.reviewers.rubric import (
 from physgate.reviewers.scan import ScanHit
 from physgate.reviewers.transcript import SYNTHETIC_MODEL as SYNTHETIC_MODEL
 from physgate.reviewers.verdict import Unavailable, judge, to_result
+from physgate.reviewers.verdict_text import last_text_verdict
 
 #: How the binary marks a compaction in the stream (measured on both binaries).
 COMPACT_BOUNDARY = "compact_boundary"
@@ -831,6 +835,7 @@ class ClaudeReviewer:
                 needs=needs,
                 was_issued=was_issued,
                 packet=packet,
+                schema=schema,
                 prior=prior,
                 prior_refusals=prior_refusals,
                 prior_compacted=prior_compacted,
@@ -894,6 +899,7 @@ class ClaudeReviewer:
         needs: NotEvaluableNeeds,
         was_issued: bool,
         packet: Packet | PlanPacket,
+        schema: dict[str, Any],
         prior: tuple[MessageUsage, ...],
         prior_refusals: int,
         prior_compacted: tuple[int | None, ...] = (),
@@ -970,7 +976,21 @@ class ClaudeReviewer:
             timed_out=timed_out,
             compaction=self._setup.review_compaction,
         )
-        if cut is not None:
+        structured = (result or {}).get("structured_output")
+        # Only a session the binary ended at its cap on refused structured answers, with no
+        # verdict, whose last tool call was a try refused only for being a text: that try is
+        # read (``verdict_text``). Every other end is read exactly as before.
+        told = (
+            last_text_verdict(text, schema)
+            if structured is None
+            and cut is not None
+            and cut[0] == "invalid_verdict"
+            and (result or {}).get("terminal_reason") == STRUCTURED_OUTPUT_EXHAUSTED
+            else None
+        )
+        if cut is not None and told is not None and told.refused is not None:
+            return ended("invalid_verdict", f"{cut[1]}; {told.refused}"[:900])
+        if cut is not None and told is None:
             stop = ended(*cut)
             if cut[0] == "infrastructure":
                 # No verdict, as any infrastructure end; the loop is told the limit beside it.
@@ -998,7 +1018,9 @@ class ClaudeReviewer:
             return ended("reading_incomplete", shown)
         if not read_in_full(Path(installed.config), session_id):
             return ended("reading_incomplete", "a required file was not read in full")
-        structured = (result or {}).get("structured_output")
+        if told is not None:
+            # Only here, past every check a structured verdict passes: the same object, read.
+            structured = told.answer
         judged = judge(
             structured,
             to_answer(packet),
@@ -1022,7 +1044,12 @@ class ClaudeReviewer:
             schema_refusals=refusals,
             max_output_tokens=self._setup.max_output_tokens,
             context_window=context_window(result, self._model),
-        ).model_copy(update=compaction_fields(compacted))
+        ).model_copy(
+            update={
+                **compaction_fields(compacted),
+                **({"verdict_from_text": True} if told is not None else {}),
+            }
+        )
 
     def _prepare(self, review: Path, artefact: Artefact, session_id: str) -> Packet:
         """The review's packet, or no review at all."""

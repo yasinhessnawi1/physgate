@@ -72,6 +72,13 @@ EXPORT_CAPS: dict[str, int] = {
 }
 #: The most bytes a module's exports may hold together after an attempt.
 MAX_MODULE_EXPORT_BYTES = 16_000_000
+#: The most files a module's exports folder may hold after an attempt. A module is one board, or a
+#: board and a few daughter boards (at most eight circuits made again in one check, three exports
+#: each), and the mechanical parts it holds, a STEP and an STL each: 64 is eight boards and twenty
+#: parts with room. Bounded in number, not only in bytes, because every export costs the change
+#: check its own reads of git and the reviewer a line of its own whatever its size: a few thousand
+#: small ones would hold the check for minutes and give the reviewer thousands of lines.
+MAX_MODULE_EXPORTS = 64
 #: The longest text taken from inside an export into its summary, in characters.
 MAX_FIELD_CHARS = 80
 

@@ -27,9 +27,11 @@ one name, a source whose name is not of the safe shape (:data:`SAFE_NAME`), a pr
 recorded entry makes, no recorded environment or one that does not hold its record, a command
 that fails, times out, passes a bound of the runner's, writes a product over its kind's cap or
 writes none, and any byte difference. A refusal names the file and says to regenerate; it never
-quotes a file's content. A command that fails is refused with the last line it wrote to its
-error stream, printable characters only and at most :data:`MAX_SAID` of them, so one failure
-can be told from another without reading the program's output.
+quotes a file's content. A command that fails is refused by its exit code alone, in the
+record's words for that code where it has them: nothing the command wrote, to its error stream
+or anywhere else, is quoted into a refusal. Its output is the program's, and so under the
+control of whatever it ran; no rewriting of it keeps every spelling of a withheld place out, so
+none is attempted.
 
 **What the machine does is a refusal too.** A folder or file that cannot be made, written or
 read, a wrapper program that is gone, a git read that fails, a bound the runner holds: each
@@ -74,6 +76,7 @@ from pydantic import (
 from physgate.orchestrator.exceptions import GitError, InvocationError
 from physgate.orchestrator.exports import EXPORTS_DIR, SHOWN_IN_FULL, cap_of, suffix_of
 from physgate.orchestrator.git import GitDir, changes_between, git, git_blob
+from physgate.orchestrator.session_files import FileRefused, read_beneath
 from physgate.oslayer.containment import ContainmentError
 from physgate.oslayer.regeneration import RegenerationBoundError
 from physgate.toolenv.exceptions import ToolEnvironmentError
@@ -96,8 +99,13 @@ MAX_SETS_PER_CHECK = 8
 #: a full module takes about a minute; each run is given the lesser of its own timeout and
 #: what is left, and a check that runs out refuses.
 TOTAL_DEADLINE_S = 900.0
-#: The most characters of a failed command's last line a refusal carries.
+#: The most characters of the system's or the runner's own words a refusal carries.
 MAX_SAID = 200
+#: What a refusal says of a regeneration that ended with an exit code the record does not word:
+#: one sentence for every such code. The number would be a few bits a set, chosen by whatever
+#: the command ran, carried to the session that reads the refusal; it goes to the run's own
+#: record instead (:attr:`ExportRefusal.exit_code`).
+ENDED_WITH_AN_ERROR = "the program ended with an error"
 #: The places an argument may name, and nothing else in braces.
 PLACES = frozenset({"interpreter", "root", "source", "module", "name"})
 #: The places whose words a role chose: the end of the options stands before the first of them.
@@ -183,6 +191,9 @@ class ExportRefusal:
 
     reason: str
     subject: str
+    #: The exit code of a regeneration that failed, for the run's own record that no session
+    #: reads; never in :attr:`reason`, which a session reads. ``None`` for every other refusal.
+    exit_code: int | None = None
 
 
 @dataclass(frozen=True)
@@ -535,6 +546,9 @@ def _run_and_compare(  # noqa: PLR0911, PLR0913 - each refusal is its own return
     deadline: float,
 ) -> ExportRefusal | None:
     source, derivation, placed = found.sources[0], found.recipe.derivation, work / "module"
+    # The two directories this check made, as they are before the command runs: what is read
+    # after it is read beneath these very ones, or not at all.
+    made_here = [(info.st_dev, info.st_ino) for info in (os.lstat(work), os.lstat(placed))]
     try:
         env = _environment(recorded, work)
     except ToolEnvironmentError as exc:
@@ -554,7 +568,8 @@ def _run_and_compare(  # noqa: PLR0911, PLR0913 - each refusal is its own return
     if given <= 0:
         return _out_of_time(source)
     try:
-        code, said = runner(argv, work, env, given, recorded.roots)
+        # What the command said is never read here: only how it ended.
+        code, _ = runner(argv, work, env, given, recorded.roots)
     except ContainmentError as exc:
         return ExportRefusal(
             reason=f"the exports of {source} cannot be made again here: {exc}", subject=source
@@ -570,15 +585,16 @@ def _run_and_compare(  # noqa: PLR0911, PLR0913 - each refusal is its own return
             subject=source,
         )
     if code != 0:
-        words = derivation.refusals.get(str(code), f"the program ended with exit code {code}")
-        reason = f"the exports of {source} could not be made again: {words}"
-        last = last_line(said)
-        if last:
-            reason += f"; its last line: {last}"
-        return ExportRefusal(reason=reason, subject=source)
+        # By kind, in closed words: the record's for a code it words, one sentence for any
+        # other; never the number, never what the command said (see the module's docstring).
+        words = derivation.refusals.get(str(code), ENDED_WITH_AN_ERROR)
+        return ExportRefusal(
+            reason=f"the exports of {source} could not be made again: {words}",
+            subject=source,
+            exit_code=code,
+        )
     for path in found.products:
-        made = placed / EXPORTS_DIR / PurePosixPath(path).name
-        refusal = _same(repo, commit, path, made, git_dir, source)
+        refusal = _same(repo, commit, path, work, git_dir, source, made_here)
         if refusal is not None:
             return refusal
     return None
@@ -626,23 +642,35 @@ def _same(  # noqa: PLR0913 - the committed file, the made one and where they co
     repo: Path,
     commit: str,
     path: str,
-    made: Path,
+    work: Path,
     git_dir: GitDir | None,
     source: str,
+    made_here: Sequence[tuple[int, int]],
 ) -> ExportRefusal | None:
-    """Why the committed ``path`` is not the file made again at ``made``, if it is not."""
-    if made.is_symlink() or not made.is_file():
+    """Why the committed ``path`` is not the file made again in ``work``, if it is not.
+
+    The file made again is ``work/module/exports/<name>``, opened beneath ``work`` one part at a
+    time with no link followed on the way or at the end (``session_files.open_beneath``), the
+    folder and its ``module`` held to the very directories this check made (``made_here``), and
+    read no further than its kind's cap: the command chose what it left there, a link among it,
+    and nothing outside its folder is read for it, whatever it named. Anything that is not one
+    regular file of one name there was not written; one over the cap is over it.
+    """
+    cap = cap_of(path)
+    names = ("module", EXPORTS_DIR, PurePosixPath(path).name)
+    try:
+        made = read_beneath(work, names, limit=cap, identity=made_here)
+    except FileRefused as refused:
+        if refused.kind == "too_large":
+            return ExportRefusal(
+                reason=f"{path} made again from {source} is over its kind's cap of {cap} bytes",
+                subject=path,
+            )
         return ExportRefusal(
             reason=f"{path} was not written when the exports of {source} were made again",
             subject=path,
         )
-    cap = cap_of(path)
-    if made.stat().st_size > cap:
-        return ExportRefusal(
-            reason=f"{path} made again from {source} is over its kind's cap of {cap} bytes",
-            subject=path,
-        )
-    if made.read_bytes() != git_blob(repo, f"{commit}:{path}", git_dir=git_dir):
+    if made != git_blob(repo, f"{commit}:{path}", git_dir=git_dir):
         return ExportRefusal(
             reason=(
                 f"{path} is not what {source} produces at this commit; regenerate the exports "
