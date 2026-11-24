@@ -17,6 +17,19 @@
     ]
   },
   {
+    "name": "a_bare_price_taken",
+    "file": "src/physgate/build/bom/sheet.py",
+    "old": "    unit_price: Price | None = None\n",
+    "new": "    unit_price: Price | float | None = None\n",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
     "name": "lead_time_edge_taken_as_a_failure",
     "file": "src/physgate/build/bom/check.py",
     "old": "if held.days() > LEAD_TIME_LIMIT_DAYS:",
@@ -326,6 +339,23 @@
     "new": "    if False:\n",
     "tests": [
       "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/test_the_lines_are_the_plans_parts_a_person_answered_find.py",
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/test_the_check_can_only_read_and_never_order.py",
       "tests/unit/bom/bom_helpers.py"
     ],
     "data": [
