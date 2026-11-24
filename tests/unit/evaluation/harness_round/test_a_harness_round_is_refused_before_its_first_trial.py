@@ -6,8 +6,9 @@ runs; a store a split left unclean; a version the role does not have,
 or that the register marks exposed, or that has no record of its blind check; a run root that is
 not registered; parameters that are not reportable, that leave a protected place of the store
 open, or that do not look for every canary; a target whose worktree is not clean, or whose top
-holds a run's configuration. A held-out task the check flagged is never run. The command says the
-refusal as one JSON line and exits 1.
+holds a run's configuration; a protected tier whose runs are not withheld from one another (until
+the core withholds every run root of a store whole, every protected tier is). A held-out task the
+check flagged is never run. The command says the refusal as one JSON line and exits 1.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from round_rig import SCORED, Rig, make_rig
+from round_rig import SCORED, Rig, make_rig, protected_tiers_withheld
 
 from physgate.cli import main
 from physgate.evaluation.harness_round import RoundError, run_round
@@ -157,16 +158,29 @@ def test_a_round_is_refused_with_a_target_whose_top_holds_a_run(tmp_path: Path) 
     assert _refused(rig) == "target_holds_a_run"
 
 
+@pytest.mark.parametrize("tier", ["validation", "held_out"])
+def test_a_protected_tier_is_refused_while_its_runs_are_not_withheld_from_one_another(
+    tmp_path: Path, tier: str
+) -> None:
+    """Refused while the core has no whole-root withholding, and once it has, by its own rule."""
+    rig = make_rig(tmp_path, withheld_whole=[])
+    assert _refused(rig, tiers=(tier,)) in (
+        "protected_tier_not_withheld",
+        "run_root_not_withheld",
+    )
+
+
 def test_a_held_out_task_the_check_flagged_is_never_run(tmp_path: Path) -> None:
     rig = make_rig(tmp_path, store={"flagged": (0,)})
     flagged = rig.made.tasks["held_out"][0]
     driver = rig.driver()
-    status, summary = run_round(
-        rig.inputs(tiers=("held_out",), trials=1, tasks=None),
-        driver=driver,
-        scorer=_score,
-        sleep=lambda _: None,
-    )
+    with protected_tiers_withheld():
+        status, summary = run_round(
+            rig.inputs(tiers=("held_out",), trials=1, tasks=None),
+            driver=driver,
+            scorer=_score,
+            sleep=lambda _: None,
+        )
     assert status == "done" and summary["tiers"]["held_out"]["trials"] == 7
     given = {c.brief.read_bytes() for c in driver.decomposed}
     assert len(given) == 7 and flagged.brief.encode() not in given

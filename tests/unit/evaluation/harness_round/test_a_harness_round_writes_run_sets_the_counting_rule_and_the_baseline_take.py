@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from round_rig import SCORED, Rig, make_rig
+from round_rig import SCORED, Rig, make_rig, protected_tiers_withheld
 
 from physgate.evaluation.baseline.runner import RunSet, plan
 from physgate.evaluation.harness_round import COMBINED, HARNESS_ROUNDS, ROUND_RECORD, run_round
@@ -42,12 +42,13 @@ def _score(_task: Any, _answer: Path) -> dict[str, Any]:  # noqa: ANN401
 def whole(tmp_path_factory: pytest.TempPathFactory) -> tuple[Rig, str, dict[str, Any], str]:
     """One round over every task of the three tiers, once each, of a marked store."""
     rig = make_rig(tmp_path_factory.mktemp("whole"), store={"marked": True})
-    status, summary = run_round(
-        rig.inputs(tiers=TIERS, trials=1, tasks=None),
-        driver=rig.driver(),
-        scorer=_score,
-        sleep=lambda _: None,
-    )
+    with protected_tiers_withheld():
+        status, summary = run_round(
+            rig.inputs(tiers=TIERS, trials=1, tasks=None),
+            driver=rig.driver(),
+            scorer=_score,
+            sleep=lambda _: None,
+        )
     printed = json.dumps(summary, sort_keys=True)
     return rig, status, summary, printed
 
