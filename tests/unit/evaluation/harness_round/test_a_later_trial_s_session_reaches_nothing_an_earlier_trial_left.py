@@ -11,13 +11,9 @@ its own worktree there.
 The sessions are installed as their installers are given them: the role session through the
 dispatcher's own install command line, the raw session through the raw arm's, both run in this
 process; the reviewer's request is built as its installer is given it. Each read is judged at the
-file tool's hook, the shell's hook (a ``cat``), and the OS layer's policy for a shell read.
-
-The rows of the role and the raw session wait on the change in flight that makes a measured run
-withhold its stores' run roots whole: until it is on master the layers let these reads through,
-and each row fails on its assertion. Once that change is merged here, they pass and their marks
-are taken off. So do the two rows of a protected tier's round, which this code refuses outright
-until then. A reviewer reads only beneath its packet already, and its row holds today.
+file tool's hook, the shell's hook (a ``cat``), and the OS layer's policy for a shell read. A raw
+session withheld a root whole is installed only with the OS layer: given none, the installer
+refuses it. A reviewer reads only beneath its packet.
 """
 
 from __future__ import annotations
@@ -62,14 +58,6 @@ from physgate.reviewers.packet import WORKTREE_NAME
 
 #: What the earlier trial left that a later session must not read, by what it is.
 READS = ("configuration", "specification", "answer", "stream")
-WAITS = pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "waits for the sibling-runs fix (fix/sibling-runs-withheld): a measured run withholds "
-        "every registered run root of its stores whole, a session reaching its own worktree only"
-    ),
-)
 
 
 def _score(_task: Any, _answer: Path) -> dict[str, Any]:  # noqa: ANN401
@@ -203,8 +191,14 @@ def _role_session(trials: Trials, monkeypatch: pytest.MonkeyPatch, name: str) ->
     return _installed(argv, monkeypatch)
 
 
-def _raw_session(trials: Trials, monkeypatch: pytest.MonkeyPatch, tmp: Path) -> SessionConfig:
-    """A raw session on the second trial's task, in a trial's place in the work root."""
+def _raw_argv(
+    trials: Trials, monkeypatch: pytest.MonkeyPatch, tmp: Path, *, layer: bool
+) -> tuple[list[str], Path]:
+    """The installer's command line for a raw session on the second trial's task, and its place.
+
+    ``layer``: the session is given the OS layer's temporary directory, as the raw arm gives it
+    where the layer is present.
+    """
     made = trials.rig.made
     place = work_root(made.store, "control") / f"baseline-{tmp.name}-0001-1" / "place"
     (place / "worktree").mkdir(parents=True)
@@ -218,12 +212,19 @@ def _raw_session(trials: Trials, monkeypatch: pytest.MonkeyPatch, tmp: Path) -> 
         held_out_also=(str(out),),
     )
     seen = _capture(monkeypatch)
-    raw._install(setup, place / "worktree", place / "session", _temp())  # noqa: SLF001
+    temp = _temp() if layer else None
+    raw._install(setup, place / "worktree", place / "session", temp)  # noqa: SLF001
     (argv,) = [a for a in seen if a[1:3] == ["hooks", "install"]]
+    return argv, place.parent
+
+
+def _raw_session(trials: Trials, monkeypatch: pytest.MonkeyPatch, tmp: Path) -> SessionConfig:
+    """A raw session on the second trial's task, in a trial's place in the work root."""
+    argv, place = _raw_argv(trials, monkeypatch, tmp, layer=True)
     try:
         return _installed(argv, monkeypatch)
     finally:
-        shutil.rmtree(place.parent, ignore_errors=True)
+        shutil.rmtree(place, ignore_errors=True)
 
 
 def _let_through(config: SessionConfig, target: Path, home: Path) -> list[str]:
@@ -246,7 +247,6 @@ def _let_through(config: SessionConfig, target: Path, home: Path) -> list[str]:
     return let
 
 
-@WAITS
 @pytest.mark.parametrize("what", READS)
 def test_the_second_trial_s_role_session_reads_nothing_the_first_trial_left(
     trials: Trials, monkeypatch: pytest.MonkeyPatch, what: str
@@ -261,7 +261,6 @@ def test_the_second_trial_s_role_session_reads_nothing_the_first_trial_left(
     assert let == [], f"the later trial's role session reads the earlier's {what} through {let}"
 
 
-@WAITS
 @pytest.mark.parametrize("what", READS)
 def test_a_raw_session_on_the_second_trial_s_task_reads_nothing_the_first_trial_left(
     trials: Trials, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, what: str
@@ -270,6 +269,27 @@ def test_a_raw_session_on_the_second_trial_s_task_reads_nothing_the_first_trial_
     home = Path(session.worktree).parent / "session" / "home"
     let = _let_through(session, trials.first[what], home)
     assert let == [], f"a raw session reads the harness trial's {what} through {let}"
+
+
+def test_a_raw_session_on_the_second_trial_s_task_is_not_installed_without_the_os_layer(
+    trials: Trials,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The hooks alone do not hold a root whole against a path a command builds as it runs."""
+    argv, place = _raw_argv(trials, monkeypatch, tmp_path.resolve(), layer=False)
+    try:
+        assert "--withheld-whole" in argv and "--os-layer-temp" not in argv
+        monkeypatch.undo()
+        monkeypatch.setattr(hooks_settings, "machine_writable", lambda: ())
+        code = hooks_cli.main(argv[argv.index("hooks") :])
+    finally:
+        shutil.rmtree(place, ignore_errors=True)
+    said = capsys.readouterr()
+    # Refused, with nothing written: no configuration's path is printed for the client to load.
+    assert code == 2 and said.out == ""
+    assert "installed only with the OS layer" in json.loads(said.err)["error"]
 
 
 @pytest.mark.parametrize("what", READS)
@@ -304,7 +324,6 @@ def test_a_reviewer_of_the_second_trial_reads_nothing_the_first_trial_left(
     assert paths.protection(target, session.worktree, session, writing=False) is not None
 
 
-@WAITS
 def test_a_protected_tier_whose_parameters_withhold_every_run_root_whole_is_run(
     tmp_path: Path,
 ) -> None:
@@ -323,7 +342,6 @@ def test_a_protected_tier_whose_parameters_withhold_every_run_root_whole_is_run(
     assert status == "done" and summary["tiers"]["held_out"]["assembled"] == 2
 
 
-@WAITS
 def test_a_protected_tier_whose_parameters_leave_a_run_root_out_is_refused_by_the_core_s_rule(
     tmp_path: Path,
 ) -> None:

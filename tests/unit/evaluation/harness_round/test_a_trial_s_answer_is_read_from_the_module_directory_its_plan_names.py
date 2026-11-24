@@ -15,10 +15,21 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
 from round_rig import SCORED, Rig, make_rig
 
 from physgate.evaluation.harness_round import HARNESS_ROUNDS, LEDGER, ROUND_RECORD, run_round
 from physgate.evaluation.tiers.store import withheld_root
+
+
+@pytest.fixture
+def trial_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The row's own place, named apart from the row.
+
+    pytest names a row's temporary directory after the row, and these rows' names hold a word
+    the core refuses in the path of a review root beneath a run root; a round there is refused.
+    """
+    return tmp_path_factory.mktemp("trial")
 
 
 def _score(_task: Any, _answer: Path) -> dict[str, Any]:  # noqa: ANN401
@@ -36,24 +47,24 @@ def _assembled(rig: Rig, **how: Any) -> dict[str, Any]:  # noqa: ANN401
     return dict(line)
 
 
-def test_the_answer_in_a_planned_modules_directory_is_found_as_before(tmp_path: Path) -> None:
-    line = _assembled(make_rig(tmp_path))
+def test_the_answer_in_a_planned_modules_directory_is_found_as_before(trial_dir: Path) -> None:
+    line = _assembled(make_rig(trial_dir))
     assert (line["answer"], line["outcome"]) == ("found", "pass")
 
 
-def test_the_answer_in_a_planned_directory_outside_modules_is_found(tmp_path: Path) -> None:
-    line = _assembled(make_rig(tmp_path), module_dir=lambda minted: f"control/{minted}")
+def test_the_answer_in_a_planned_directory_outside_modules_is_found(trial_dir: Path) -> None:
+    line = _assembled(make_rig(trial_dir), module_dir=lambda minted: f"control/{minted}")
     assert (line["answer"], line["outcome"]) == ("found", "pass")
 
 
-def test_the_answer_in_a_planned_directory_deeper_under_modules_is_found(tmp_path: Path) -> None:
-    line = _assembled(make_rig(tmp_path), module_dir=lambda minted: f"modules/ctl/{minted}")
+def test_the_answer_in_a_planned_directory_deeper_under_modules_is_found(trial_dir: Path) -> None:
+    line = _assembled(make_rig(trial_dir), module_dir=lambda minted: f"modules/ctl/{minted}")
     assert (line["answer"], line["outcome"]) == ("found", "pass")
 
 
-def _elsewhere(tmp_path: Path) -> Rig:
+def _elsewhere(trial_dir: Path) -> Rig:
     """A rig whose target already holds a file of the answer's name in a directory no plan names."""
-    rig = make_rig(tmp_path)
+    rig = make_rig(trial_dir)
     old = rig.target / "modules" / "old" / rig.task().answer.path
     old.parent.mkdir(parents=True)
     old.write_text(json.dumps({"x": 1}))
@@ -68,20 +79,20 @@ def _elsewhere(tmp_path: Path) -> Rig:
 
 
 def test_an_answer_file_outside_the_planned_directory_is_not_taken_beside_the_answer(
-    tmp_path: Path,
+    trial_dir: Path,
 ) -> None:
-    line = _assembled(_elsewhere(tmp_path))
+    line = _assembled(_elsewhere(trial_dir))
     assert (line["answer"], line["outcome"]) == ("found", "pass")
 
 
-def test_an_answer_file_outside_the_planned_directory_is_not_taken_alone(tmp_path: Path) -> None:
-    line = _assembled(_elsewhere(tmp_path), silent={1})
+def test_an_answer_file_outside_the_planned_directory_is_not_taken_alone(trial_dir: Path) -> None:
+    line = _assembled(_elsewhere(trial_dir), silent={1})
     assert (line["answer"], line["outcome"]) == ("contract_lost", "fail")
 
 
-def test_a_planned_directory_without_the_answer_is_the_harness_s_own_fail(tmp_path: Path) -> None:
-    line = _assembled(make_rig(tmp_path), silent={1})
+def test_a_planned_directory_without_the_answer_is_the_harness_s_own_fail(trial_dir: Path) -> None:
+    line = _assembled(make_rig(trial_dir), silent={1})
     assert (line["answer"], line["outcome"]) == ("contract_lost", "fail")
     assert line["harness_total"] is not None
-    summary = json.loads((tmp_path.resolve() / "out" / ROUND_RECORD).read_bytes())
+    summary = json.loads((trial_dir.resolve() / "out" / ROUND_RECORD).read_bytes())
     assert summary["done"] is True

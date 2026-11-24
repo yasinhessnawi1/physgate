@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from round_rig import SCORED, Rig, StandInDriver, make_rig, protected_tiers_withheld
+from round_rig import SCORED, Rig, StandInDriver, make_rig
 
 from physgate.evaluation import harness_round
 from physgate.evaluation.harness_round import ROUND_RECORD, RoundError, run_round
@@ -41,13 +41,12 @@ def _score(_task: Any, _answer: Path) -> dict[str, Any]:  # noqa: ANN401
 
 
 def _round(rig: Rig, driver: StandInDriver) -> tuple[str, dict[str, Any]]:
-    with protected_tiers_withheld():
-        status, summary = run_round(
-            rig.inputs(tiers=TIERS, trials=1, tasks=1),
-            driver=driver,
-            scorer=_score,
-            sleep=lambda _: None,
-        )
+    status, summary = run_round(
+        rig.inputs(tiers=TIERS, trials=1, tasks=1),
+        driver=driver,
+        scorer=_score,
+        sleep=lambda _: None,
+    )
     return status, summary
 
 

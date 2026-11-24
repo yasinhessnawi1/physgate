@@ -16,15 +16,16 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 EVALUATION_TESTS = Path(__file__).resolve().parents[1]
 for _where in (EVALUATION_TESTS, EVALUATION_TESTS / "baseline", EVALUATION_TESTS / "per_role"):
@@ -47,13 +48,13 @@ from knowledge_fixture import build_fixture_library  # noqa: E402
 from observe_rig import FakeSession, Gate, Reviewer, node  # noqa: E402
 from task_fixtures import controller  # noqa: E402
 
-from physgate.evaluation import harness_round  # noqa: E402
 from physgate.evaluation.harness_round import Decompose, Drive, Inputs  # noqa: E402
 from physgate.evaluation.observe.cost import load_price_sheet  # noqa: E402
 from physgate.evaluation.tiers.canaries import store_canaries  # noqa: E402
 from physgate.evaluation.tiers.exposure import add_run_root, run_roots  # noqa: E402
 from physgate.evaluation.tiers.heldout import tier_digest  # noqa: E402
-from physgate.evaluation.tiers.task import Task  # noqa: E402
+from physgate.evaluation.tiers.store import role_root  # noqa: E402
+from physgate.evaluation.tiers.task import Role, Task  # noqa: E402
 from physgate.knowledge.library import LibraryError  # noqa: E402
 from physgate.orchestrator import decompose as core_decompose  # noqa: E402
 from physgate.orchestrator import design_rounds  # noqa: E402
@@ -115,7 +116,6 @@ __all__ = [
     "Rig",
     "StandInDriver",
     "make_rig",
-    "protected_tiers_withheld",
     "setup_for",
 ]
 
@@ -135,28 +135,6 @@ PINS: dict[str, Any] = {
 }
 #: The plan's reviewer, on another model than the decomposition's.
 PLAN_REVIEWER = "claude-sonnet-5"
-#: The whole-root withholding of every run root of a store, which the core adds in a change in
-#: flight: a parameters field the core's own rule holds a measured run to.
-WITHHELD_WHOLE = "withheld_whole" in RunConfig.model_fields
-
-
-@contextlib.contextmanager
-def protected_tiers_withheld() -> Iterator[None]:
-    """Let the round run a protected tier as it will once the core withholds run roots whole.
-
-    Until the core has the whole-root withholding, the round refuses every tier but the visible
-    one; a row about how a protected tier's records are written stands the withholding in. Once
-    the core has it, the rig's parameters name every run root of the store and nothing is stood
-    in: the round's own refusal is then the core's rule.
-    """
-    if WITHHELD_WHOLE:
-        yield
-        return
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(
-            harness_round, "_whole_root_refusal", lambda _inputs, _params: None, raising=False
-        )
-        yield
 
 
 class Killed(BaseException):  # noqa: N818 - stands for the process being killed, as an interrupt is
@@ -187,8 +165,8 @@ def params(made: StandInStore, **changes: Any) -> dict[str, Any]:  # noqa: ANN40
     """A measured single-role run's parameters on the store, with what the command measures.
 
     The stand-in ``decompose`` takes these as the run's configuration, adding what a run is
-    given (its id, seed, brief digest and target commit); the real one measures the rest. Where
-    the core withholds run roots whole, they name every run root of the store, as its rule asks.
+    given (its id, seed, brief digest and target commit); the real one measures the rest. They
+    withhold whole every run root of the store, as the core's rule asks.
     """
     fields: dict[str, Any] = json.loads((EXAMPLES / "params.subscription.json").read_text())
     fields.update(
@@ -218,8 +196,14 @@ def params(made: StandInStore, **changes: Any) -> dict[str, Any]:  # noqa: ANN40
         held_out_canaries=sorted(set(made.canaries) | set(store_canaries(made.store))),
     )
     fields["bounds"]["infra_retry_delays_s"] = [7.0]
-    if WITHHELD_WHOLE:
-        fields["withheld_whole"] = sorted(str(r) for r in run_roots(made.store, "control"))
+    # Every registered run root of the store, every role's, as the core's rule asks of a
+    # measured run of any tier.
+    fields["withheld_whole"] = sorted(
+        str(r)
+        for role in get_args(Role)
+        if os.path.lexists(role_root(made.store, role))
+        for r in run_roots(made.store, role)
+    )
     if changes.get("design_review", "off") != "off":
         reviewers = {**fields["models"]["reviewers"], "design": PLAN_REVIEWER}
         fields["models"] = {**fields["models"], "reviewers": reviewers}
