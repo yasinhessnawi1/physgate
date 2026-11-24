@@ -16,16 +16,20 @@ not withhold every protected place of the store or do not look for every canary 
 and the store; a protected tier whose runs are not withheld from one another (every registered
 run root of the store withheld whole, by the core's own rule; until the core can, every protected
 tier); a target that is not a clean repository, or whose top holds a run's configuration; a
-harness checkout that is not a clean commit. The core refuses what it refuses besides, at each
-decomposition, before its call.
+harness checkout that is not a clean commit; an output directory inside the run root, the target
+or the store; a person's word (``set_aside``, ``limit_reset``) for a wait the round does not stand
+at. The core refuses what it refuses besides, at each decomposition, before its call.
 
 **One driver drives a round.** It takes the round's lock before it reads the ledger and holds it
 for its life; a second is refused at once and writes nothing. A lock a dead driver left (the
 kernel's lock free, its pid still in the lock's file) is taken over, and the ledger says so.
 
-**The code and the client are held.** The harness checkout, the client binary and its version
-are measured as the round starts and recorded in its ledger's first line; a restart on others is
-refused, naming what differs.
+**The code, the client and the tools are held.** The harness checkout and every field the census
+holds equal across a tier's runs that the command measures afresh for each run (:data:`PINNED`:
+the client binary and its version, the git, the role sessions' interpreter, the tool environment
+and its servers, the endpoint, the tool search) are measured as the round starts and recorded in
+its ledger's first line; a restart on others is refused, naming what differs. The census's other
+fields are the parameters', held by their digest, or each trial's own.
 
 **The order is fixed, and written once** in the round's ledger before the first trial: the
 named tiers in the version's order (visible, validation, held out), within each the tasks by
@@ -54,8 +58,11 @@ trial is never repeated and never skipped, and a killed run is resumed, never re
 - the account's usage limit is never an end and never an attempt: a run halted on it is resumed
   past it, and a decomposition that ended on it is named in the ledger with its spend and made
   afresh in a new directory, each once the limit has reset (the round stops as waiting for the
-  limit, exit 75, until it is started again, with the person's word where the reset was not
-  read), however often and in whatever order with the machine's other ends;
+  limit, exit 75, naming the trial and the instant after which it goes on: the reset the client's
+  message gave, where the core read one, else the core's stated wait after the halt; started
+  again before then it makes nothing, unless no reset was read and a person gives the word, which
+  is used once and named on the line of the directory it makes), however often and in whatever
+  order with the machine's other ends;
 - a refused credential is no attempt either: the round stops as waiting for a person (exit 77),
   and started again once the credential is replaced resumes the run, or names the
   decomposition's directory with its spend and decomposes afresh;
@@ -118,6 +125,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from physgate.evaluation.baseline.record import VERSION_TIERS
 from physgate.evaluation.baseline.runner import RunSet
+from physgate.evaluation.observe.compare import DRIFT
 from physgate.evaluation.observe.cost import DatedSheet, price_run
 from physgate.evaluation.observe.manifest import manifest_id_of, read_run_events
 from physgate.evaluation.per_role.arms.compare import (
@@ -162,6 +170,7 @@ from physgate.evaluation.tiers.task import (
     parse_task,
 )
 from physgate.orchestrator.accounting import TokenAccount
+from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decompose import ROUNDS_JOURNAL
 from physgate.orchestrator.decomposition_review import stop_left_review
@@ -179,8 +188,10 @@ from physgate.orchestrator.record import RunRecord
 from physgate.orchestrator.review_root_record import RECORD_NAME as REVIEW_ROOT_RECORD
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.orchestrator.stop_signals import remove_left_credentials
-from physgate.orchestrator.waiting import EXIT_WAITING_FOR_LIMIT
+from physgate.orchestrator.usage_limit import resume_after, resume_refusal
+from physgate.orchestrator.waiting import EXIT_WAITING_FOR_LIMIT, limit_wait
 from physgate.reviewers.places import review_root_path
+from physgate.toolenv.exceptions import ToolEnvironmentError
 
 #: Beneath the role's withheld root: every round's own directory.
 HARNESS_ROUNDS = "harness"
@@ -195,6 +206,29 @@ LEDGER_FORMAT = 1
 LOCK = "driver.lock"
 #: The tier whose run set and records lie in the output directory; the others' are withheld.
 VISIBLE = "visible"
+#: Of what the census holds equal across a tier's runs (:data:`DRIFT`): what a run takes from its
+#: parameters as they are, held at a restart by their digest.
+FROM_THE_PARAMETERS: tuple[str, ...] = (
+    "models.decomposition",
+    "models.roles",
+    "models.reviewers",
+    "effort",
+    "max_output_tokens",
+    "thinking_display",
+    "bounds",
+    "token_ceiling",
+    "network",
+    "held_out_sha256",
+)
+#: ... and what is each trial's own: its brief (held by the round's order) and the target's
+#: commit (held by the inputs).
+THE_TRIAL_S_OWN: tuple[str, ...] = ("brief_sha256", "target_head")
+#: The rest of it the command measures afresh for every run: measured as the round starts,
+#: recorded in its ledger's first line, and held at every restart, so drift is refused then and
+#: not after the round is spent at the census. Read from the census's own list.
+PINNED: tuple[str, ...] = tuple(
+    name for name in DRIFT if name not in FROM_THE_PARAMETERS + THE_TRIAL_S_OWN
+)
 
 Tier = Literal["visible", "validation", "held_out"]
 #: How a round left off: every trial assembled (and whether every one gives the baseline its
@@ -254,8 +288,8 @@ class Drive:
 class Driver(Protocol):
     """Decomposes and drives one harness run: the command's exit status, nothing else."""
 
-    def pins(self) -> dict[str, Any]:
-        """The harness checkout, the client binary and its version the runs would be made on."""
+    def pins(self, inputs: Inputs) -> dict[str, Any]:
+        """The harness checkout and every :data:`PINNED` field the round's runs would be made on."""
         ...
 
     def decompose(self, call: Decompose) -> int:
@@ -305,22 +339,69 @@ class CommandDriver:
 
     registrations: Any = None
 
-    def pins(self) -> dict[str, Any]:
-        """The checkout this process runs from, and the client binary and version it would run.
+    def pins(self, inputs: Inputs) -> dict[str, Any]:
+        """The checkout this process runs from, and every :data:`PINNED` field a run would record.
 
-        Measured as the command measures them for a run's record.
+        Each measured as the command measures it for a run's record, by the same functions, from
+        the round's parameters: the run's directory and target a tool environment may not lie in
+        are the run root and the target the trials are cloned from.
+
+        Raises:
+            RoundError: a field the census holds equal that nothing here measures.
         """
-        from physgate.orchestrator import binaries
+        from physgate.hooks.settings import session_tool_search
+        from physgate.orchestrator import binaries, git, role_python, run_config, tool_environment
         from physgate.orchestrator.decompose import binary_version
+        from physgate.orchestrator.dispatch import probe_interpreter
         from physgate.orchestrator.invocation import claude_binary
-        from physgate.orchestrator.run_config import harness_root, harness_state
 
+        params = json.loads(inputs.params.read_bytes())
+        harness = run_config.harness_root()
         binary = claude_binary()
-        return {
-            "harness": harness_state(harness_root()).model_dump(mode="json"),
-            "binary": binaries.measure(binary).model_dump(mode="json"),
-            "claude_version": binary_version(binary),
+
+        def interpreter() -> Any:  # noqa: ANN401 - a record's dump
+            named = params.get("role_python")
+            if named is None:
+                return None
+            measured = role_python.measure(named, probe=probe_interpreter, harness=harness)
+            return measured.model_dump(mode="json")
+
+        def tools() -> Any:  # noqa: ANN401 - a record's dump
+            named = params.get("tool_environment")
+            if named is None:
+                return None
+            forbidden = tool_environment.forbidden_places(
+                harness=harness,
+                install=None,
+                run_dir=Path(os.path.realpath(inputs.run_root)),
+                target=inputs.target_from,
+            )
+            return tool_environment.measure_named(named, forbidden=forbidden).model_dump(
+                mode="json"
+            )
+
+        def servers() -> Any:  # noqa: ANN401 - a record's dump
+            if params.get("tool_environment") is None:
+                return None
+            return tool_environment.recorded_servers().model_dump(mode="json")
+
+        measures: dict[str, Callable[[], Any]] = {
+            "claude_version": lambda: binary_version(binary),
+            "binary": lambda: binaries.measure(binary).model_dump(mode="json"),
+            "git_binary": lambda: git.harness_git().model_dump(mode="json"),
+            "role_python": interpreter,
+            "tool_environment": tools,
+            "tool_servers": servers,
+            "endpoint": lambda: run_config.endpoint_of(os.environ.get("ANTHROPIC_BASE_URL")),
+            "tool_search": session_tool_search,
         }
+        pins = {"harness": run_config.harness_state(harness).model_dump(mode="json")}
+        for name in PINNED:
+            if name not in measures:
+                msg = f"the census holds {name} equal across a tier's runs, and nothing measures it"
+                raise _refuse("pins_unreadable", msg, field=name)
+            pins[name] = measures[name]()
+        return pins
 
     def decompose(self, call: Decompose) -> int:
         """``physgate decompose`` with the trial's brief, seed, run id and places."""
@@ -621,6 +702,14 @@ def _refusals(inputs: Inputs) -> tuple[_Version, frozenset[str], str]:
     if run_root not in roots:
         msg = "the run root is not one of the role's registered run roots"
         raise _refuse("run_root_not_registered", msg, run_root=str(inputs.run_root))
+    out = Path(os.path.realpath(inputs.out))
+    for name, place in (("run root", run_root), ("target", inputs.target_from), ("store", store)):
+        there = Path(os.path.realpath(place))
+        if out == there or there in out.parents:
+            # In the run root the exposure scan walks it; in the target or the store it leaves
+            # them unclean, and a resume is refused.
+            msg = f"the round's output directory lies in its {name}; give it a place of its own"
+            raise _refuse("out_misplaced", msg)
     found = _version_tasks(store, role, inputs.version)
     held = found.tasks["held_out"]
     by_digest: dict[str, list[str]] = {}
@@ -768,6 +857,7 @@ class _Round:
     driver: Driver
     scorer: Scorer
     sleep: Callable[[float], None]
+    now: Callable[[], datetime]
     round_id: str
     place: Path
     ledger: Path
@@ -780,7 +870,8 @@ class _Round:
     #: The trial a person's restart names, whose directory the round sets aside; ``None`` once
     #: used, or for none.
     set_aside_for: int | None = None
-    #: Why the round stands waiting for a person, for what it prints; ``None`` while it does not.
+    #: Why the round stands waiting, for a person or for the usage limit, for what it prints and
+    #: writes in the output directory; ``None`` while it does not.
     waiting: dict[str, Any] | None = None
     #: What this process has done to each run, so a step that moves nothing is not taken twice.
     acted: set[tuple[Any, ...]] = field(default_factory=set)
@@ -840,23 +931,31 @@ def run_round(
     limit_reset: bool = False,
     set_aside: int | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    now: Callable[[], datetime] = utc_now,
 ) -> tuple[Status, dict[str, Any]]:
     """Run, or go on with, the round ``inputs`` name; how it left off and its counts and digests.
 
     ``limit_reset`` is a person's word that the account's usage limit reset, for the wait the
-    round stands at; ``set_aside`` names the trial the round stands stopped at for a person, whose
-    directory is then set aside on the person's word.
+    round stands at, held to the core's rule for a run's (:func:`resume_refusal`); ``set_aside``
+    names the trial the round stands stopped at for a person, whose directory is then set aside on
+    the person's word. Either given to a round that stands at no such wait is refused, before
+    anything is made. ``now`` is the clock a limit's wait is read against.
 
     Raises:
         RoundError: the round is refused, or stopped at a step it names; nothing of a task.
     """
+    if not resume and (set_aside is not None or limit_reset):
+        # A fresh round stands at no wait: a person's word for one is refused before anything.
+        word = "set_aside" if set_aside is not None else "limit_reset"
+        msg = "a fresh round stands at no wait a person's word is for"
+        raise _refuse(f"{word}_not_waiting", msg)
     found, flagged, check_sha256 = _refusals(inputs)
     target_head = _target_head(inputs.target_from)
     given = _inputs_record(inputs, target_head, check_sha256)
     order = _order(inputs, found, flagged)
     if not order:
         raise _refuse("nothing_to_run", "the named tiers hold no task the round runs")
-    pins = _measured(driver)
+    pins = _measured(driver, inputs)
     out = inputs.out
     withheld = withheld_root(inputs.store, inputs.role) / HARNESS_ROUNDS
     if resume:
@@ -890,6 +989,7 @@ def run_round(
             driver=driver,
             scorer=scorer,
             sleep=sleep,
+            now=now,
             round_id=round_id,
             place=place,
             ledger=place / LEDGER,
@@ -940,6 +1040,9 @@ def _go(
         ctx.set_aside_for = set_aside
         if limit_reset:
             ctx.reset_for = _waiting_at_start(ctx)
+            if ctx.reset_for is None:
+                msg = "the round stands waiting for no usage limit; the word is for none"
+                raise _refuse("limit_reset_not_waiting", msg)
         if not ctx.lines:
             header = {
                 "kind": "round",
@@ -966,6 +1069,8 @@ def _go(
             current[0] = planned
             status = _trial(ctx, planned)
             if status in ("waiting_for_limit", "waiting_for_a_person"):
+                # Said where a wrapper reads it, as well as printed: which trial, and until when.
+                _write_whole(inputs.out / ROUND_RECORD, canonical_json(_summary(ctx, done=False)))
                 return status
         current[0] = None
         _outputs(ctx)
@@ -1035,16 +1140,18 @@ def _release(fd: int, *, claimed: bool) -> None:
         os.close(fd)
 
 
-def _measured(driver: Driver) -> dict[str, Any]:
-    """The harness checkout, the client binary and its version, as the driver measures them.
+def _measured(driver: Driver, inputs: Inputs) -> dict[str, Any]:
+    """The harness checkout and every pinned field, as the driver measures them.
 
     Raises:
         RoundError: they cannot be measured.
     """
     try:
-        pins = driver.pins()
-    except (OrchestratorError, OSError) as exc:
-        msg = f"the harness and its client cannot be measured ({type(exc).__name__})"
+        pins = driver.pins(inputs)
+    except RoundError:
+        raise
+    except (OrchestratorError, PerRoleError, ToolEnvironmentError, OSError, ValueError) as exc:
+        msg = f"the harness, its client and its tools cannot be measured ({type(exc).__name__})"
         raise _refuse("pins_unreadable", msg) from None
     measured: dict[str, Any] = json.loads(json.dumps(pins, sort_keys=True))
     return measured
@@ -1404,6 +1511,52 @@ def _the_word(ctx: _Round, i: int, attempt: int) -> bool:
     return True
 
 
+def _limit_holds(ctx: _Round, planned: _Planned, run_dir: Path, *, word: bool) -> bool:
+    """Whether the core would refuse the resume of a run halted on the limit now; said if so.
+
+    The core's own reading (:func:`limit_wait`): a reset the client's limit message gave is waited
+    for whatever the word says; one it did not is waited for until the core's stated wait has
+    passed, or until the word.
+    """
+    now = ctx.now()
+    waiting = limit_wait(run_dir, now, limit_reset=word)
+    if waiting is None:
+        return False
+    ctx.waiting = {
+        "index": planned.index,
+        "why": USAGE_LIMIT,
+        "resume_after": waiting["resume_after"],
+        "word_helps": limit_wait(run_dir, now, limit_reset=True) is None,
+    }
+    return True
+
+
+def _past_the_limit(
+    ctx: _Round, planned: _Planned, attempt: int, line: Mapping[str, Any]
+) -> str | None:
+    """How the round goes on past a decomposition that ended on the limit, or ``None`` to wait.
+
+    Held to the core's rule for a run's resume (:func:`resume_refusal`), the decomposition's reset
+    never read: ``waited`` once the stated wait after its halt has passed; ``operator`` before
+    then, on the person's word, which is used once and named on the line of the directory it lets
+    the round make. A line that names no halt goes on only on the word.
+    """
+    i = planned.index
+    halted_at = line.get("halted_at")
+    now = ctx.now()
+    if halted_at is not None and resume_refusal(halted_at, None, now, limit_reset=False) is None:
+        return "waited"
+    if _the_word(ctx, i, attempt):
+        return "operator"
+    ctx.waiting = {
+        "index": i,
+        "why": USAGE_LIMIT,
+        "resume_after": None if halted_at is None else resume_after(halted_at, None),
+        "word_helps": True,
+    }
+    return None
+
+
 def _wait_for_a_person(
     ctx: _Round, planned: _Planned, attempt: int, why: str, **said: Any
 ) -> Status:  # noqa: ANN401
@@ -1435,13 +1588,17 @@ def _trial(ctx: _Round, planned: _Planned) -> Status | None:
             if status is not None:
                 return status
             continue
+        past: dict[str, str] = {}
         if last is not None and closing is not None:
             kind = closing["kind"]
             if kind == "credential" and _touched(ctx, i, last):
                 # Its decomposition met a refused credential in this process: a person replaces it.
                 return _wait_for_a_person(ctx, planned, last, CREDENTIAL_REFUSED)
-            if kind == "limit" and not _the_word(ctx, i, last):
-                return "waiting_for_limit"
+            if kind == "limit":
+                how = _past_the_limit(ctx, planned, last, closing)
+                if how is None:
+                    return "waiting_for_limit"
+                past = {"limit_reset": how}
             if kind == "superseded" and closing.get("by", "rule") == "rule":
                 ctx.sleep(float(closing["delay_s"]))
         attempt = 1 if last is None else last + 1
@@ -1453,6 +1610,7 @@ def _trial(ctx: _Round, planned: _Planned) -> Status | None:
                 "run_id": ctx.run_id(i, attempt),
                 "run_dir": str(ctx.run_dir(i, attempt)),
                 "seed": planned.seed,
+                **past,
             }
         )
 
@@ -1484,6 +1642,10 @@ def _step(ctx: _Round, planned: _Planned, attempt: int) -> Status | None:
             # No attempt: a person replaces the credential, or the limit resets; then afresh.
             kind = "credential" if cause == CREDENTIAL_REFUSED else "limit"
             line = {"kind": kind, "index": i, "attempt": attempt, "run_id": ctx.run_id(i, attempt)}
+            if kind == "limit":
+                # The core reads no reset for a decomposition's call: its stated wait after the
+                # halt, which the round holds a restart to as the core holds a run's resume.
+                line |= {"halted_at": halt.ts, "resume_after": resume_after(halt.ts, None)}
             ctx.add({**line, "tokens": spent})
             return None
         if not once_more_taken:
@@ -1510,7 +1672,10 @@ def _step(ctx: _Round, planned: _Planned, attempt: int) -> Status | None:
         ctx.acted.add(("credential", i, attempt))
         return _drive(ctx, planned, attempt, "resume", resume=True)
     elif halt is not None and halt.reason == USAGE_LIMIT:
-        # Never an end: the run is resumed past the limit, however often it met it.
+        # Never an end: the run is resumed past the limit, however often it met it, once the
+        # core would resume it; until then the round waits, saying until when.
+        if _limit_holds(ctx, planned, run_dir, word=ctx.reset_for == (i, attempt)):
+            return "waiting_for_limit"
         _once(ctx, ("limit", i, attempt), "the run's resume past the usage limit left it there")
         return _drive(ctx, planned, attempt, "resume", resume=True)
     elif halt is not None and _machine_halts(events) == 1 and not once_more_taken:
@@ -1637,7 +1802,11 @@ def _drive(
             log=_log(ctx, i, attempt, "drive"),
         )
     )
-    return _waits(code, command, i, attempt)
+    status = _waits(code, command, i, attempt)
+    if status == "waiting_for_limit":
+        # The run halted on the limit, or its resume was refused before the reset: until when.
+        _limit_holds(ctx, planned, run_dir, word=False)
+    return status
 
 
 def _the_trial_s(ctx: _Round, planned: _Planned, attempt: int) -> None:

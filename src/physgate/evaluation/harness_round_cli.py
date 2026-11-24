@@ -11,22 +11,29 @@ the combined run set, the ledger and the round's record beneath the role's withh
 the core withholds every run root of a store whole from a run's sessions, only the visible tier
 is run.
 
-``--resume`` goes on with the round ``O`` names, given the same inputs, on the same code and
-client: a killed round resumes its killed run and repeats no trial. ``--limit-reset`` is the
+``--resume`` goes on with the round ``O`` names, given the same inputs, on the same code, client
+and tools: a killed round resumes its killed run and repeats no trial. ``--limit-reset`` is the
 person's word that the account's usage limit has reset, for the run or the decomposition the
-round stands waiting at. ``--set-aside I`` is the person's word on trial ``I``'s directory, where
-the round stands stopped for a person: a decomposition that spent its call and left no run after
-the trial's one more go, or a second directory with nothing but its parameters. It is set aside,
-recorded as the person's act, and the trial decomposed again. ``--tasks N`` runs the first ``N``
-tasks of each named tier in the round's order: a shakedown, whose run sets the counting rule
-refuses as not covering their tier.
+round stands waiting at, held to the core's rule: a reset the client's message gave is waited for
+whatever the word says; one it did not give is waited for until the core's stated wait after the
+halt, or the word, used once and named on the line of the directory it makes. ``--set-aside I``
+is the person's word on trial ``I``'s directory, where the round stands stopped for a person: a
+decomposition that spent its call and left no run after the trial's one more go, or a second
+directory with nothing but its parameters. It is set aside, recorded as the person's act, and the
+trial decomposed again. ``--tasks N`` runs the first ``N`` tasks of each named tier in the round's
+order: a shakedown, whose run sets the counting rule refuses as not covering their tier.
 
-It prints one JSON line of counts and digests, never a task. Exit 0 once every trial is
-assembled; 3 once every trial is assembled but some give the baseline no cap (its plan refuses
-the combined set until a cap rule for such a trial exists); 75 while the round waits for the
-account's usage limit (start it again after the reset); 77 while it waits for a person (a refused
-credential to replace, or a trial's directory to set aside: the line says which); 1 with
-``refused_because`` and the reason in words when it is refused or stopped.
+It prints one JSON line of counts and digests, never a task, and writes the same into ``O``. Exit
+0 once every trial is assembled; 3 once every trial is assembled but some give the baseline no cap
+(its plan refuses the combined set until a cap rule for such a trial exists); 75 while the round
+waits for the account's usage limit; 77 while it waits for a person (a refused credential to
+replace, or a trial's directory to set aside); 1 with ``refused_because`` and the reason in words
+when it is refused or stopped. 75 and 77 are states, not waits: the command returns at once, and
+its line's ``waiting`` names the trial and why, and for the limit ``resume_after`` (the instant
+after which it goes on with no word) and ``word_helps``. A wrapper sleeps until ``resume_after``
+between turns, and never puts ``--limit-reset`` in a loop: each word given before the reset makes
+one more call, clone and directory. A person's word given to a round that waits for none is
+refused.
 
 The round's machinery and the scorer's numerical libraries are imported only when it runs.
 """
@@ -64,7 +71,11 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
         "--limit-reset",
         dest="limit_reset",
         action="store_true",
-        help="say that the account's usage limit has reset, for the wait the round stands at",
+        help=(
+            "say that the account's usage limit has reset, for the wait the round stands at; "
+            "exit 75 is not a wait: sleep until the printed resume_after between starts, and "
+            "never loop this word"
+        ),
     )
     run.add_argument(
         "--set-aside",
