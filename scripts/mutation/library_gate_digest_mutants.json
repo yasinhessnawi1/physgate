@@ -65,7 +65,7 @@
  {
   "name": "a_record_not_utf_8_is_a_whole_tab_refusal",
   "file": "src/physgate/ui/library.py",
-  "old": "    except (GateError, OSError, UnicodeDecodeError):\n",
+  "old": "    except (GateError, OSError, UnicodeDecodeError, RecursionError):\n",
   "new": "    except GateError:\n",
   "tests": [
    "tests/unit/evaluation/observe_rig.py",
@@ -77,6 +77,68 @@
   "file": "src/physgate/ui/library.py",
   "old": "        return refused(\"this library holds no law table, so no gate is built from it\")\n",
   "new": "        return {\"state\": \"read\", \"file\": shown, \"sha256\": \"0\" * 64, \"table_sha256\": \"0\" * 64, \"laws\": 0}\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py"
+  ]
+ },
+ {
+  "name": "another_library_labelled_as_this_checkout_s",
+  "file": "src/physgate/ui/library.py",
+  "old": "    return root is not None and library == Path(os.path.realpath(root / LIBRARY_NAME))\n",
+  "new": "    return True\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py",
+   "tests/unit/ui/test_the_three_mode_plan_rebuilds_with_the_real_gate.py"
+  ]
+ },
+ {
+  "name": "this_checkout_s_library_labelled_as_another",
+  "file": "src/physgate/ui/library.py",
+  "old": "    return root is not None and library == Path(os.path.realpath(root / LIBRARY_NAME))\n",
+  "new": "    return False\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py",
+   "tests/unit/ui/test_the_three_mode_plan_rebuilds_with_the_real_gate.py"
+  ]
+ },
+ {
+  "name": "a_table_nested_too_deep_refuses_the_whole_tab",
+  "file": "src/physgate/ui/library.py",
+  "old": "    except (GateError, OSError, UnicodeDecodeError, RecursionError):\n",
+  "new": "    except (GateError, OSError, UnicodeDecodeError):\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py"
+  ]
+ },
+ {
+  "name": "the_record_s_fault_named_as_the_table_s",
+  "file": "src/physgate/ui/library.py",
+  "old": "        if not _record_parses(read[promotions]):\n",
+  "new": "        if False:\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py"
+  ]
+ },
+ {
+  "name": "a_guard_refusal_folded_into_the_digest_s_state",
+  "file": "src/physgate/ui/library.py",
+  "old": "        except GuardRefusedError:\n            raise\n        except UIError as exc:\n            # The reader's own sentence",
+  "new": "        except UIError as exc:\n            # The reader's own sentence",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py"
+  ]
+ },
+ {
+  "name": "register_refuses_the_same_function_again",
+  "file": "src/physgate/ui/library.py",
+  "old": "    if _digester is not None and _digester is not digester:\n",
+  "new": "    if _digester is not None:\n",
   "tests": [
    "tests/unit/evaluation/observe_rig.py",
    "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py"

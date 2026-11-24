@@ -32,23 +32,38 @@ export function tableRole(table: BoundsTable): string {
 }
 
 /**
- * The gate's digest, labelled as what a run's gate results carry; or, when no gate is built from
- * the library, the server's sentence in its place, never another digest under the same label.
+ * The gate's digest, labelled as what a run from this checkout now carries when the library is
+ * this checkout's own, and as no run's unless its checkout matches when it is another folder; or,
+ * when no gate is built from the library, the server's sentence in its place, never another
+ * digest under the same label. ``labelled`` is false where a row's own label already names it.
  */
-export function GateDigest({ digest }: { readonly digest: GateDigestRecord }) {
+export function GateDigest({
+  digest,
+  labelled = true,
+}: {
+  readonly digest: GateDigestRecord;
+  readonly labelled?: boolean;
+}) {
   if (digest.state === "refused")
     return (
       <span className="pg-lib-gate-digest" data-state="refused">
-        <span>{LIBRARY_COPY.noGateDigest}</span>
-        <span className="pg-muted">{digest.reason}</span>
+        <span>{LIBRARY_COPY.noGateDigest}</span> <span className="pg-muted">{digest.reason}</span>
       </span>
     );
   return (
     <span className="pg-lib-gate-digest" data-state="read">
-      <span>{LIBRARY_COPY.gateDigest}</span>
-      <Id value={digest.sha256} />
-      <span className="pg-muted">{lawsCount(digest.laws, digest.file)}</span>
-      <span className="pg-muted">{LIBRARY_COPY.gateDigestNote}</span>
+      {labelled && (
+        <>
+          <span>{LIBRARY_COPY.gateDigest}</span>{" "}
+        </>
+      )}
+      <Id value={digest.sha256} />{" "}
+      <span className="pg-muted">{lawsCount(digest.laws, digest.file)}</span>{" "}
+      <span className="pg-muted">
+        {digest.libraryIsThisCheckout
+          ? LIBRARY_COPY.gateDigestThisCheckout
+          : LIBRARY_COPY.gateDigestOtherLibrary}
+      </span>
     </span>
   );
 }

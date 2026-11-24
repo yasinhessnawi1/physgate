@@ -358,9 +358,11 @@ export const GATE_DIGEST_STATES = ["read", "refused"] as const;
 
 /**
  * The digest a gate built from this library stamps on every result: the catalogue's content with
- * the law table's laws, computed by the server with the gate's own function. A run's gate results
- * carry it as their catalogue digest. ``refused`` when no gate is built from the library (no law
- * table, or one that does not load), with the server's sentence; never the catalogue's alone.
+ * the law table's laws, computed by the server with the gate's own function. ``libraryIsThisCheckout``
+ * says whether the library is the server's own checkout's, the one a run started from it reads;
+ * any other folder's laws digested with this server's catalogue are no run's digest unless the
+ * run's checkout has both. ``refused`` when no gate is built from the library (no law table, or
+ * one that does not load), with the server's sentence; never the catalogue's alone.
  */
 export type GateDigest =
   | {
@@ -369,6 +371,7 @@ export type GateDigest =
       readonly sha256: string;
       readonly tableSha256: string;
       readonly laws: number;
+      readonly libraryIsThisCheckout: boolean;
     }
   | { readonly state: "refused"; readonly file: string; readonly reason: string };
 
@@ -389,6 +392,10 @@ function gateDigest(value: unknown): GateDigest {
     sha256: digest(raw.sha256),
     tableSha256: digest(raw.table_sha256),
     laws: count(raw.laws, "how many laws the table holds"),
+    libraryIsThisCheckout: flag(
+      raw.library_is_this_checkout,
+      "whether the library is this checkout's own",
+    ),
   };
 }
 

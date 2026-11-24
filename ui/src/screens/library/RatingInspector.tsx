@@ -56,9 +56,9 @@ export function RatingInspector({
               <dd>{store.source}</dd>
               <dt>Confirmed</dt>
               <dd>{store.confirmed}</dd>
-              <dt>Gate digest</dt>
+              <dt>{LIBRARY_COPY.gateDigest}</dt>
               <dd>
-                <GateDigest digest={ratings.gateDigest} />
+                <GateDigest digest={ratings.gateDigest} labelled={false} />
               </dd>
             </dl>
             <SourceChip id={LIBRARY_COPY.catalogue} commit={null} />

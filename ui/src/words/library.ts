@@ -116,9 +116,11 @@ export const LIBRARY_COPY = {
   storeClasses: "Energy store classes",
   catalogue: "gate catalogue",
   gateDigest: "Gate digest (catalogue and laws)",
-  gateDigestNote:
-    "Every gate result of a run from this library carries this digest as its catalogue digest: compare it with a run's.",
-  noGateDigest: "No gate digest",
+  gateDigestThisCheckout:
+    "A run started from this checkout now records this digest with every gate result, as its catalogue digest: compare it with a run's.",
+  gateDigestOtherLibrary:
+    "This digest combines this server's catalogue with the laws of the library shown, which is not this checkout's own. A run records it only if it was started from a checkout whose catalogue and library are these.",
+  noGateDigest: "No gate digest:",
   openTheFile: "Open the file",
 } as const;
 

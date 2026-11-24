@@ -68,7 +68,9 @@ from physgate.knowledge.promote import (
     promotion_bytes,
 )
 from physgate.knowledge.staging import Candidate, Kind
+from physgate.orchestrator.run_config import harness_root
 from physgate.ui.exceptions import GuardRefusedError, NotFoundError, PathRefusedError, UIError
+from physgate.ui.paths import LIBRARY_NAME
 from physgate.ui.routes import PARAMETERS, Context, Handler, Response, json_response
 
 #: The most bytes one library file may hold to be read here.
@@ -746,7 +748,8 @@ def _gate_digest(context: Context, library: Path) -> dict[str, Any]:
     called on the same two paths, and what it loaded must be the table's bytes read here. A file
     refused here, a table that is absent or does not load, and a record the function cannot
     read are each a state with a sentence, never the catalogue's digest alone: no gate is built
-    from such a library, so no result carries any digest of it.
+    from such a library, so no result carries any digest of it. A digest read says whether the
+    library is this checkout's own, since only then is it what a run started from here records.
     """
     table = library.joinpath(*LAW_TABLE)
     promotions = library / PROMOTIONS_NAME
@@ -771,8 +774,14 @@ def _gate_digest(context: Context, library: Path) -> dict[str, Any]:
         return refused("this library holds no law table, so no gate is built from it")
     try:
         digest = _digester(table, promotions)
-    except (GateError, OSError, UnicodeDecodeError):
+    except (GateError, OSError, UnicodeDecodeError, RecursionError):
         # In the route's own words: the loader's message may name the table by its full path.
+        # A table or a promotion line nested deeper than its parser goes is as unloadable as a
+        # torn one, and refuses this digest alone, as the promotion log's reader does.
+        if not _record_parses(read[promotions]):
+            return refused(
+                "the law table's promotion record does not load, so no gate is built from it"
+            )
         return refused("the law table does not load, so no gate is built from it")
     if digest.table_sha256 != hashlib.sha256(data).hexdigest():
         msg = "the file changed while it was read"
@@ -783,4 +792,35 @@ def _gate_digest(context: Context, library: Path) -> dict[str, Any]:
         "sha256": digest.sha256,
         "table_sha256": digest.table_sha256,
         "laws": digest.laws,
+        "library_is_this_checkout": _is_this_checkout(library),
     }
+
+
+def _record_parses(data: bytes | None) -> bool:
+    """Whether the promotion record's bytes read here parse as the gate's loader parses them.
+
+    Asked only once the loader has refused, to say which file is at fault: the record when it
+    is not UTF-8 or a line of it is not JSON (nested too deep included), else the table. An
+    absent record is no fault: the loader reads it as no lines.
+    """
+    if data is None:
+        return True
+    try:
+        for line in data.decode("utf-8").splitlines():
+            if line.strip():
+                json.loads(line)
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        return False
+    return True
+
+
+def _is_this_checkout(library: Path) -> bool:
+    """Whether ``library`` is this checkout's own, the folder a run started from it reads.
+
+    A run's gate reads its law table from its own checkout's library, and nothing a run is
+    given points it elsewhere. Any other folder, even one holding the same bytes, is not what
+    a run from here reads, and its laws digested with this server's catalogue are a run's
+    digest only if that run's checkout has this catalogue and this library.
+    """
+    root = harness_root()
+    return root is not None and library == Path(os.path.realpath(root / LIBRARY_NAME))

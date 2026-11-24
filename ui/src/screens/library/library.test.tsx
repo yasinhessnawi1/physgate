@@ -910,7 +910,7 @@ describe("data-sheet ratings", () => {
     expect(panel.querySelector(".pg-quantity")?.textContent).toBe("1501/h");
     expect(panel.querySelector(".pg-lib-gate-digest")?.textContent).toContain(SHA("3"));
     // Named once, by the row's own label.
-    expect((panel.textContent ?? "").split("Gate digest")).toHaveLength(2);
+    expect(panel.textContent.split("Gate digest")).toHaveLength(2);
     expect(panel.textContent).toContain(THIS_CHECKOUT_NOTE);
   });
 });
