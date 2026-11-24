@@ -844,10 +844,11 @@ def _whole_root_refusal(params: Mapping[str, Any]) -> tuple[str, str] | None:
         return "params_unreadable", "the run parameters withhold whole one root twice"
     # Only the two fields the rule reads: the rest of a run's configuration is measured by the
     # command at each decomposition, and is not known before it.
-    named = RunConfig.model_construct(
-        held_out=tuple(params.get("held_out") or ()), withheld_whole=tuple(whole)
-    )
-    return run_roots_refusal(named, None)
+    fields: dict[str, Any] = {
+        "held_out": tuple(params.get("held_out") or ()),
+        "withheld_whole": tuple(whole),
+    }
+    return run_roots_refusal(RunConfig.model_construct(**fields), None)
 
 
 # The round. ---------------------------------------------------------------------------------

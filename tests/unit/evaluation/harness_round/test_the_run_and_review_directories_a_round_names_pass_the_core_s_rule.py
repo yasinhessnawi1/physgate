@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from round_rig import SCORED, Rig, StandInDriver, make_rig
 
-from physgate.evaluation.harness_round import REVIEW, run_round
+from physgate.evaluation.harness_round import REVIEW, Decompose, Drive, run_round
 from physgate.evaluation.requirements import a_measured_run_withholds_every_run_root_whole
 from physgate.evaluation.tiers.exposure import review_root_refusal, run_roots_refusal
 from physgate.evaluation.tiers.store import spelt_as_on_disk
@@ -99,7 +99,8 @@ def test_a_trial_s_run_directory_is_spelt_as_on_disk_strictly_inside_its_run_roo
 ) -> None:
     rig, driver = round_of_two
     root = str(rig.run_root)
-    for call in (*driver.decomposed, *driver.drives):
+    calls: list[Decompose | Drive] = [*driver.decomposed, *driver.drives]
+    for call in calls:
         run_dir = str(call.run_dir)
         assert run_dir == os.path.realpath(run_dir) and spelt_as_on_disk(call.run_dir)
         assert run_dir.startswith(root + "/") and run_dir != root
