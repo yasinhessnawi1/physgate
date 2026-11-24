@@ -282,13 +282,13 @@ def check_views(record: DrawingRecord, svg: _Svg) -> Finding:
     problems: list[str] = []
     if listed != VIEWS:
         problems.append(f"the record lists the views {', '.join(listed) or 'none'}")
-    for view in record.views:
-        toward, up = VIEW_DIRECTIONS[view.name]
+    for seen in record.views:
+        toward, up = VIEW_DIRECTIONS[seen.name]
         wanted = (tuple(float(c) for c in toward), tuple(float(c) for c in up))
-        if (view.viewed_from.value, view.up.value) != wanted:
+        if (seen.viewed_from.value, seen.up.value) != wanted:
             problems.append(
-                f"the record has the {view.name} view seen from {view.viewed_from.value} with "
-                f"{view.up.value} up, and this version draws it from {wanted[0]} with "
+                f"the record has the {seen.name} view seen from {seen.viewed_from.value} with "
+                f"{seen.up.value} up, and this version draws it from {wanted[0]} with "
                 f"{wanted[1]} up"
             )
     for name in VIEWS:

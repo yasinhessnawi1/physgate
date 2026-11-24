@@ -470,7 +470,7 @@
   {
     "name": "a_view_s_direction_not_compared",
     "file": "src/physgate/build/drawings/check.py",
-    "old": "        if (view.viewed_from.value, view.up.value) != wanted:\n",
+    "old": "        if (seen.viewed_from.value, seen.up.value) != wanted:\n",
     "new": "        if False:\n",
     "tests": [
       "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
