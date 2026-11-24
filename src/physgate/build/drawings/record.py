@@ -1,18 +1,22 @@
 """The records a drawing is read from and written as: the part's, the projection's, the drawing's.
 
-Three files, each a closed schema with every numeric quantity a value with its unit:
+Three files, of which only the drawing's record is a closed schema with every numeric quantity
+a value with its unit:
 
 - **the part's record**, ``<part>.result.json``, as the tool environment's geometry helper writes
-  it beside a part script. Only what a drawing needs of it is read here: the part's name, its
-  ``geometry_hash``, its bounding box in metres and its exported STEP file by name, size and
-  sha256. It is the part's current state for every check: whatever wrote it last is the part.
+  it beside a part script. It is another writer's file, so it is not closed here: only what a
+  drawing needs of it is read (the part's name, its ``geometry_hash``, its bounding box in metres
+  and its exported STEP file by name, size and sha256), and the rest is left as it is. It is the
+  part's current state for every check: whatever wrote it last is the part.
 - **the projection**, ``<part>.projection.json``: what the CAD kernel's own hidden-line projection
-  gave for each view, as polylines in millimetres in the view's own plane, the hash of the shape
-  it was projected from, its bounding box and the libraries' versions.
+  gave for each view, as polylines in the view's own plane, the hash of the shape it was
+  projected from, its bounding box (``box_mm``) and the libraries' versions. Its schema is closed,
+  but its numbers are bare: every coordinate is in millimetres, as the field's name says.
 - **the drawing's record**, ``<part>.drawing.json``, written beside the SVG: the hash the drawing
-  was made from, the views, the title block's fields, the overall dimensions, the scale, the files
-  by name, size and sha256, and the generator's version. No time, no absolute path, no machine:
-  made twice from one part on one machine, its bytes are the same.
+  was made from, the views, the title block's fields, the overall dimensions and the rule they
+  are rounded by, the scale, the files by name, size and sha256, and the generator's version.
+  Every number in it is a value with its unit. No time, no absolute path, no machine: made twice
+  from one part on one machine, its bytes are the same.
 """
 
 from __future__ import annotations
@@ -257,6 +261,8 @@ class DrawingRecord(_Frozen):
     views: tuple[View, ...]
     overall: dict[OverallName, Millimetres]
     shown_to: Millimetres
+    #: How a dimension is rounded to ``shown_to``: ``half up``.
+    rounding: Text
     agreement_within: Millimetres
     title_block: dict[str, Text]
     generator: Generator

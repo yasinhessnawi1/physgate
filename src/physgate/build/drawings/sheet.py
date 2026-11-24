@@ -11,8 +11,11 @@ text a drawing carries:
   dimensions fit above the title block. The isometric view is the kernel's orthographic
   projection, so its lengths are foreshortened: it is for seeing the part, not for measuring.
 - **the overall dimensions**: the part's length along x and height along z on the front view,
-  its width along y on the view from above, each the kernel's bounding box shown to
-  :data:`SHOWN_TO_MM`, as plain text marked with the quantity it is.
+  its width along y on the view from above, as plain text marked with the quantity it is. Each
+  is the part's own extent as its record holds it, rounded once, half up, to
+  :data:`SHOWN_TO_MM` (:func:`shown_dimension`): the rule the checker judges it by. The kernel's
+  box in the projection, already rounded to three decimals, is not used for it, since rounding
+  twice can round the other way.
 - **the title block**, as plain text, one field per line marked with its name: the part, the
   units, the scale, the geometry hash, the file drawn from, the projection method and the
   generator, and a note that the drawing is shown, not measured, and not for manufacture.
@@ -25,6 +28,7 @@ decimals and a negative zero as zero, so the same projection composes to the sam
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from xml.sax.saxutils import escape, quoteattr
 
 from physgate.build.drawings.record import (
@@ -82,10 +86,15 @@ SCALES: tuple[tuple[float, str], ...] = (
     (0.2, "1:5"),
     (0.1, "1:10"),
 )
-#: What an overall dimension is shown to, and the most a shown one may differ from the part's
-#: bounding box: half of the last digit shown.
+#: What an overall dimension is shown to, how it is rounded to it, and so the most a shown one
+#: differs from the part's bounding box: half of the last digit shown.
 SHOWN_TO_MM = 0.1
+ROUNDING = "half up"
 AGREEMENT_MM = 0.05
+RULE = (
+    f"each overall dimension is the part's bounding box rounded {ROUNDING} to "
+    f"{SHOWN_TO_MM:g} mm, so within {AGREEMENT_MM:g} mm of it"
+)
 PROJECTION_METHOD = "first angle"
 #: Where each view sits on the sheet: its column and its row.
 PLACES = {"front": (0, 0), "side": (1, 0), "top": (0, 1), "isometric": (1, 1)}
@@ -106,6 +115,16 @@ STYLE = (
     ".label{font-size:2.5px}.view-label{font-size:3px}"
     ".dimension{font-size:3.5px}.field{font-size:2.5px}.note{font-size:2.2px}"
 )
+
+
+def shown_dimension(extent_mm: float) -> str:
+    """How a drawing writes a part's extent: rounded once, half up, to a tenth of a millimetre.
+
+    The extent is taken as its shortest decimal (``repr``), so 112.35 is 112.35 and not the
+    binary number just below it: it is written 112.4, and 112.3496 is written 112.3.
+    """
+    tenth = Decimal(repr(extent_mm)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+    return f"{tenth:f}"
 
 
 def number(value: float) -> str:
@@ -204,7 +223,7 @@ def _arrow(tip: tuple[float, float], along: tuple[float, float]) -> str:
     )
 
 
-def _dimension(quantity: str, shown: float, start: tuple[float, float], end: tuple[float, float],
+def _dimension(quantity: str, shown: str, start: tuple[float, float], end: tuple[float, float],
                *, vertical: bool) -> list[str]:  # fmt: skip
     """A dimension line from ``start`` to ``end`` with its arrows and its text."""
     (x1, y1), (x2, y2) = start, end
@@ -219,7 +238,7 @@ def _dimension(quantity: str, shown: float, start: tuple[float, float], end: tup
         out += [_arrow((x1, y1), (-ux, -uy)), _arrow((x2, y2), (ux, uy))]
     else:
         out += [_arrow((x1, y1), (ux, uy)), _arrow((x2, y2), (-ux, -uy))]
-    text = f"{shown:.1f}"
+    text = shown
     marked = f'class="dimension" data-quantity="{quantity}"'
     if vertical:
         tx, ty = x1 - 1.5, (y1 + y2) / 2
@@ -236,7 +255,7 @@ def _dimension(quantity: str, shown: float, start: tuple[float, float], end: tup
 
 
 def _dimensions(layout: _Layout, extents: dict[str, _Extent],
-                shown: dict[str, float]) -> list[str]:  # fmt: skip
+                shown: dict[str, str]) -> list[str]:  # fmt: skip
     s = layout.scale
     fx, fy = layout.corners["front"]
     front = extents["front"]
@@ -301,12 +320,10 @@ def compose(projection: Projection, part: PartRecord, drawn_from: FileEntry) -> 
             f"{part.geometry_hash} the part's record holds: it is not the part's shape"
         )
         raise RecordError(msg)
-    extents: dict[str, _Extent] = {name: _extent(projection.views[name]) for name in VIEWS}
-    layout = _layout(extents)
-    box = projection.box_mm
-    shown: dict[str, float] = {
-        name: round(box[i + 3] - box[i], 1) for i, name in enumerate(OVERALL)
-    }
+    views: dict[str, _Extent] = {name: _extent(projection.views[name]) for name in VIEWS}
+    layout = _layout(views)
+    extents = part.values.bounding_box.extents_mm()
+    shown: dict[str, str] = {name: shown_dimension(extents[name]) for name in OVERALL}
     fields = {
         "part": part.part,
         "units": "mm",
@@ -326,9 +343,9 @@ def compose(projection: Projection, part: PartRecord, drawn_from: FileEntry) -> 
         f'width="{number(SHEET_W - 2 * BORDER)}" height="{number(SHEET_H - 2 * BORDER)}"/>',
     ]
     for name in VIEWS:
-        body += _view(name, projection.views[name], layout.corners[name], extents[name],
+        body += _view(name, projection.views[name], layout.corners[name], views[name],
                       layout.scale)  # fmt: skip
-    body += _dimensions(layout, extents, shown)
+    body += _dimensions(layout, views, shown)
     body += _title_block(fields)
     body.append("</svg>")
     svg = "\n".join(body) + "\n"
@@ -356,8 +373,9 @@ def compose(projection: Projection, part: PartRecord, drawn_from: FileEntry) -> 
             "units": "mm",
             "projection_method": PROJECTION_METHOD,
             "views": tuple(_view_record(name, projection.views[name]) for name in VIEWS),
-            "overall": {q: Millimetres(value=v, unit="mm") for q, v in shown.items()},
+            "overall": {q: Millimetres(value=float(v), unit="mm") for q, v in shown.items()},
             "shown_to": Millimetres(value=SHOWN_TO_MM, unit="mm"),
+            "rounding": ROUNDING,
             "agreement_within": Millimetres(value=AGREEMENT_MM, unit="mm"),
             "title_block": fields,
             "generator": Generator(name=GENERATOR, version=GENERATOR_VERSION),

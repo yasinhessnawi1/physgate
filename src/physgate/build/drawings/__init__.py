@@ -5,7 +5,8 @@ records it (its ``<part>.result.json`` and the STEP file that record names), the
 hidden-line projection gives the standard views; they are placed on one sheet as SVG with the
 overall dimensions and a title block carrying the part's name, the units, the scale and the
 part's ``geometry_hash``, and a record is written beside it. A checker with no kernel reads the
-drawing, its record and the part's record, and gives a verdict per check; when the part's hash
+drawing, its record and projection, and the part's record, and gives a verdict per check; it
+redraws nothing, and its help says what that leaves uncaught. When the part's hash
 is no longer the one the drawing was made from, the drawing reads stale. A drawing is made again
 from the part, never patched (ARCH-111).
 

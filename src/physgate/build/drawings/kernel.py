@@ -185,18 +185,31 @@ def run_script(tree: Path, script: str, marker: str, *arguments: str) -> Any:  #
     if told is None:
         msg = f"the kernel's script printed no {marker} line"
         raise KernelError(msg)
-    return json.loads(told[len(prefix) :])
+    try:
+        return json.loads(told[len(prefix) :])
+    except ValueError as exc:
+        msg = f"the kernel's script printed a {marker} line that is not JSON"
+        raise KernelError(msg) from exc
 
 
 def example_part(tree: Path, module: Path, length_mm: float) -> str:
     """Write the chassis fixture's plate into ``module``; return its geometry hash.
 
     Raises:
-        KernelError: as :func:`run_script`.
+        KernelError: as :func:`run_script`; or the module directory cannot be made, or the
+            script answered with no geometry hash.
     """
-    module.mkdir(parents=True, exist_ok=True)
+    try:
+        module.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        msg = f"the module directory {module} cannot be made: {exc.strerror}"
+        raise KernelError(msg) from exc
     told = run_script(tree, EXAMPLE_PART, "EXAMPLE-PART", str(module.resolve()), repr(length_mm))
-    return str(told["geometry_hash"])
+    found = told.get("geometry_hash") if isinstance(told, dict) else None
+    if not isinstance(found, str):
+        msg = "the kernel's script answered with no geometry hash"
+        raise KernelError(msg)
+    return found
 
 
 def project(tree: Path, step: Path) -> Any:  # noqa: ANN401 - the projection as JSON, read later
