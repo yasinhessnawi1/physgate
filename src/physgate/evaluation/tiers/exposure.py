@@ -733,8 +733,56 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
 
 
 def _settle_key(directory: Path) -> str:
-    """The key of a hand mark that settles ``directory``: a digest, never its path."""
-    return _digest(f"settled\0{os.path.realpath(directory)}".encode())
+    """The key of a hand mark that settles ``directory``: a digest of what it is, never its path.
+
+    A mark holds for the directory a person looked at, never for whatever later lies where it
+    lay. So the key digests the directory's own identity (its device and inode, as it stands,
+    never through a link) and the parameters record a decomposition writes first in it
+    (:func:`_params_print`): a directory moved away and another made at its path, or a later
+    decomposition into it, which writes that record afresh, is not settled, and refuses as before.
+    What changes beside the record (a file added, a run made beneath) leaves the mark standing.
+    """
+    try:
+        here = os.lstat(directory)
+    except OSError:
+        identity = "unreachable"
+    else:
+        identity = f"{here.st_dev}:{here.st_ino}"
+    return _digest(f"settled\0{identity}\0{_params_print(directory)}".encode())
+
+
+def _params_print(directory: Path) -> str:
+    """The parameters record in ``directory`` as it stands, read without following a link.
+
+    Its kind, its file's identity, its size and modification time, and the digest of its bytes
+    where it is a plain file under its bound that can be read. One that cannot be read is told by
+    the rest (a record that does not read is one a person settles); a run made before the record
+    existed holds none (``absent``), and its directory's identity alone is what was settled.
+    """
+    path = directory / PARAMS_RECORD
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return "absent"
+    except OSError:
+        return "unreachable"
+    read = "unread"
+    if stat.S_ISREG(info.st_mode) and info.st_size <= MOST_RECORD_BYTES:
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except OSError:
+            fd = -1
+        if fd >= 0:
+            try:
+                if os.fstat(fd).st_ino == info.st_ino:
+                    with os.fdopen(os.dup(fd), "rb") as handle:
+                        read = _digest(handle.read(MOST_RECORD_BYTES + 1))
+            except OSError:
+                read = "unread"
+            finally:
+                os.close(fd)
+    kind = stat.S_IFMT(info.st_mode)
+    return f"{kind}:{info.st_dev}:{info.st_ino}:{info.st_size}:{info.st_mtime_ns}:{read}"
 
 
 def _unreadable(what: str) -> ExposureError:
@@ -1328,9 +1376,11 @@ def mark_exposed(
 
     ``settles``: a directory beneath the run roots the register refuses because a record or a
     stream of it cannot be read, which the person has looked at. The mark's key is then a digest
-    of that directory's path (the line names no path), and from then on what of the directory
-    cannot be read is passed over; what it shows is still read. A person marks each version it
-    may have shown, each with the directory named.
+    of that directory's identity and of the parameters record in it (:func:`_settle_key`; the
+    line names no path), and from then on, while both hold, what of the directory cannot be read
+    is passed over; what it shows is still read. Another directory at the same path, or a later
+    decomposition into it, is not settled. A person marks each version it may have shown, each
+    with the directory named.
 
     Raises:
         ExposureError: no person or no reason of more than one word is given, the version

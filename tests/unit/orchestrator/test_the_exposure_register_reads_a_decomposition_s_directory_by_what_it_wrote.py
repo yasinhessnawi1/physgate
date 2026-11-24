@@ -724,3 +724,69 @@ def test_a_canary_a_scan_showed_marks_its_version_where_its_result_cannot_be_kep
         assert not (withheld / "scans").exists()
     finally:
         withheld.chmod(0o700)
+
+
+# --- a settle mark holds for what was settled, not for where it lay ---------------------------
+
+
+def _moved_and_made_again(tier: OnTier, directory: Path) -> None:
+    directory.rename(tier.runs.parent / "moved-out-of-the-run-roots")
+    again = _by_hand(tier, directory.name)
+    _unreadable_review(tier, again)
+
+
+def _decomposed_afresh_in_place(tier: OnTier, directory: Path) -> None:
+    # A later decomposition into the same directory writes its parameters record afresh, apart
+    # and renamed into place, as every decomposition writes it: the same bytes, another file.
+    fresh = directory / ".params_source.json.part"
+    fresh.write_bytes((directory / "params_source.json").read_bytes())
+    fresh.replace(directory / "params_source.json")
+
+
+@pytest.mark.parametrize(
+    "replaced",
+    [_moved_and_made_again, _decomposed_afresh_in_place],
+    ids=["moved away and another made there", "decomposed afresh in place"],
+)
+def test_a_settled_directory_replaced_at_its_path_by_another_refuses_again(
+    tier: OnTier, replaced: Callable[[OnTier, Path], None]
+) -> None:
+    directory = _by_hand(tier, "old")
+    _unreadable_review(tier, directory)
+    _settle(tier, directory)
+    assert _readable(tier) == frozenset({tier.made.version})
+    replaced(tier, directory)
+    assert "--settles" in str(_refused(tier))
+
+
+def test_a_settled_directory_stays_settled_when_an_unrelated_file_beside_it_changes(
+    tier: OnTier,
+) -> None:
+    directory = _by_hand(tier, "old")
+    _unreadable_review(tier, directory)
+    _settle(tier, directory)
+    (directory / "notes.txt").write_text("a note a person left")
+    (tier.runs / "notes.txt").write_text("another")
+    (directory / "decomposition" / "notes.txt").write_text("and one more")
+    assert _readable(tier) == frozenset({tier.made.version})
+
+
+def test_a_settle_mark_keyed_by_the_directory_s_path_alone_is_not_honoured(
+    tier: OnTier, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib  # noqa: PLC0415
+    import os  # noqa: PLC0415
+
+    from physgate.evaluation.tiers import exposure  # noqa: PLC0415
+
+    directory = _by_hand(tier, "old")
+    _unreadable_review(tier, directory)
+
+    def by_path(where: Path) -> str:
+        return hashlib.sha256(f"settled\0{os.path.realpath(where)}".encode()).hexdigest()
+
+    # A mark made as a settle mark was first keyed: by the directory's real path alone.
+    with monkeypatch.context() as patch:
+        patch.setattr(exposure, "_settle_key", by_path)
+        _settle(tier, directory)
+    assert "--settles" in str(_refused(tier))

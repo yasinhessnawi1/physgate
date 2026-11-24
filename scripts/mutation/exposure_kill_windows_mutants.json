@@ -1424,5 +1424,80 @@
    "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
    "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
+ },
+ {
+  "name": "a_settle_mark_takes_the_directory_s_modification_time",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        identity = f\"{here.st_dev}:{here.st_ino}\"\n",
+  "new": "        identity = f\"{here.st_dev}:{here.st_ino}:{here.st_mtime_ns}\"\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_settle_mark_leaves_out_the_parameters_record",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    return _digest(f\"settled\\0{identity}\\0{_params_print(directory)}\".encode())\n",
+  "new": "    return _digest(f\"settled\\0{identity}\".encode())\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_settle_mark_is_keyed_by_the_directory_s_path_alone",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    return _digest(f\"settled\\0{identity}\\0{_params_print(directory)}\".encode())\n",
+  "new": "    return _digest(f\"settled\\0{os.path.realpath(directory)}\".encode())\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
  }
 ]

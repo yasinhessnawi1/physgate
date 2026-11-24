@@ -39,7 +39,9 @@ inside a harness session's environment, as defence in depth only.
   session, which can make a terminal of its own. With ``--settles DIR``, the mark also settles
   a directory beneath the run roots that the register refuses because a record or a stream of
   it cannot be read: the person has looked at it, and what of it cannot be read is passed over
-  from then on (the register keeps only a digest of the directory's path).
+  from then on, for as long as it is the directory that was looked at (the register keeps only
+  a digest of the directory's identity and of its parameters record, never its path; another
+  directory made at the same path is not settled).
 - ``physgate tiers add-run-root --withheld W --path DIR`` adds a directory beneath which the
   role's runs are made; a measured run made anywhere else is refused. A directory the scan
   could not read whole, with the roots there already, is refused and nothing is appended.
