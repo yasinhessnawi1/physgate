@@ -200,13 +200,18 @@ def test_a_round_whose_parameters_withhold_whole_a_root_that_is_no_run_root_is_r
     assert _refused(rig) == "withheld_whole_not_a_run_root"
 
 
-@pytest.mark.parametrize("given", ["a string", "a root twice"])
+@pytest.mark.parametrize("given", ["a string", "a number among the roots", "a root twice"])
 def test_a_round_whose_parameters_name_their_roots_withheld_whole_otherwise_is_refused(
     tmp_path: Path, given: str
 ) -> None:
     rig = make_rig(tmp_path)
     roots = _registered(rig)
-    _withhold_whole(rig, roots[0] if given == "a string" else [*roots, roots[0]])
+    named = {
+        "a string": roots[0],
+        "a number among the roots": [*roots, 7],
+        "a root twice": [*roots, roots[0]],
+    }
+    _withhold_whole(rig, named[given])
     assert _refused(rig) == "params_unreadable"
 
 
