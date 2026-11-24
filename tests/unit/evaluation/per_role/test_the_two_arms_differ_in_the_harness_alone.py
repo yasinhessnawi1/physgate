@@ -847,6 +847,39 @@ def test_a_harness_total_of_a_run_halted_for_a_resume_is_refused(
         harness_total(run)
 
 
+def _decomposition_spend(log: EventLog) -> None:
+    log.append(
+        TokensUsed(
+            **log.envelope(),
+            attribution="decomposition:plan",
+            message_id="d1",
+            usage=_usage(100, 20, 0, 50),
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "detail",
+    ["api_error: 529 overloaded", "usage_limit: limit reached", "invalid_plan: no module"],
+)
+def test_a_harness_total_of_a_run_with_no_role_session_is_refused(
+    tmp_path: Path, detail: str
+) -> None:
+    """A run that ended at its decomposition had no role session: no raw session is held to it.
+
+    Its spend is the decomposition call's alone, so a raw session capped at it would be held to
+    a harness that never ran a role; the pair is refused before any raw session runs, as a run
+    halted for a resume is.
+    """
+
+    def failed(log: EventLog) -> None:
+        log.append(Halted(**log.envelope(), reason="decomposition_failed", detail=detail))
+
+    run = _harness_run(tmp_path, spend=_decomposition_spend, end=failed)
+    with pytest.raises(ComparisonError, match="no role session"):
+        harness_total(run)
+
+
 def test_the_retry_delays_are_not_held_against_the_raw_arm(tmp_path: Path) -> None:
     """The raw session makes no infrastructure retry; its delays decide nothing it does."""
     assert RUN_FIELDS["bounds.infra_retry_delays_s"] == "not_compared"
