@@ -6,16 +6,18 @@
   "new": "",
   "tests": [
    "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
    "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
    "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
-   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/loop_fakes.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py"
   ]
  },
  {
@@ -25,16 +27,18 @@
   "new": "    return sorted(set(answered))\n",
   "tests": [
    "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
    "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
    "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
-   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/loop_fakes.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py"
   ]
  },
  {
@@ -44,14 +48,16 @@
   "new": "    return sorted(m for m in set(answered) if \"synth\" not in m.lower())\n",
   "tests": [
    "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
    "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
-   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/loop_fakes.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py"
   ]
  },
  {
@@ -61,14 +67,16 @@
   "new": "    return sorted(m for m in set(answered) if not m.startswith(SYNTHETIC_MODEL))\n",
   "tests": [
    "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
    "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
-   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/loop_fakes.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py"
   ]
  },
  {
@@ -78,8 +86,10 @@
   "new": "        \"answered_by\": sorted(captured.answered),\n",
   "tests": [
    "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/task_fixtures.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
   ]
  },
  {
@@ -89,10 +99,12 @@
   "new": "    answered = sorted(read_captured(raw_dir / \"session\" / \"stdout.jsonl\").answered)\n",
   "tests": [
    "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
    "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
   ]
  },
  {
@@ -102,10 +114,12 @@
   "new": "    if answered and answered != [pinned]:\n",
   "tests": [
    "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
    "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
   ]
  },
  {
@@ -115,10 +129,12 @@
   "new": "    if pinned not in answered:\n",
   "tests": [
    "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
    "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
   ]
  },
  {
@@ -128,11 +144,13 @@
   "new": "            echoed = sorted(answered)\n",
   "tests": [
    "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
-   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/loop_fakes.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py"
   ]
  },
  {
@@ -142,11 +160,13 @@
   "new": "    models = sorted(answered)\n",
   "tests": [
    "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
-   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/loop_fakes.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py"
   ]
  },
  {
@@ -156,11 +176,13 @@
   "new": "    if models and models != [model]:\n",
   "tests": [
    "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
-   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/loop_fakes.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py"
   ]
  },
  {
@@ -170,16 +192,18 @@
   "new": "",
   "tests": [
    "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
    "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
    "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
-   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
-   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/loop_fakes.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py"
   ]
  }
 ]
