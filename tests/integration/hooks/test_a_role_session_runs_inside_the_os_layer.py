@@ -797,10 +797,18 @@ def _no_outside_write_lands(layout: Layout, *, layer: bool, raw: bool) -> None:
     ]
     for n, path in outside.items():
         step = steps[n - 1]
+        # By the tool and where its path leads: the client adds its own defaults to a call's
+        # input (an Edit's ``replace_all``) and normalises a path (``..``) before the hook sees
+        # it, so the logged input is not the scripted one byte for byte.
+        key = "notebook_path" if step["tool"] == "NotebookEdit" else "file_path"
+        given = step["input"]
+        assert isinstance(given, dict)
         by = [
             e
             for e in refused
-            if e.get("tool") == step["tool"] and e.get("tool_input") == step["input"]
+            if e.get("tool") == step["tool"]
+            and os.path.realpath(str((e.get("tool_input") or {}).get(key)))
+            == os.path.realpath(given[key])
         ]
         assert [e.get("hook") for e in by] == ["paths"], (n, step, refused)
         assert OUTSIDE_WORDS in str(by[0].get("reason")), (n, by)
