@@ -82,6 +82,10 @@ def _environment_root(tmp_path: Path) -> Path:
     for name in ("pio", "platformio", "python3"):
         (root / "venv" / "bin" / name).write_text("#!/bin/sh\n")
         (root / "venv" / "bin" / name).chmod(0o755)
+    # The simulator's launcher, which the real file names as a program of this root.
+    (root / "avrsim" / "bin").mkdir(parents=True)
+    (root / "avrsim" / "bin" / "avrsim").write_text("#!/bin/sh\n")
+    (root / "avrsim" / "bin" / "avrsim").chmod(0o755)
     for name in ("platforms", "packages", "lib"):
         (root / "platformio" / name).mkdir(parents=True)
     shutil.copyfile(TOOLENV / SESSION_FILE, root / SESSION_FILE)
