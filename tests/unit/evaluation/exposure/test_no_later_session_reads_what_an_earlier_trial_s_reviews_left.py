@@ -563,9 +563,21 @@ def test_a_raw_session_withheld_no_root_whole_is_installed_without_the_layer_as_
     assert code == 0, said
 
 
-def test_a_baseline_round_where_the_layer_is_absent_starts_no_raw_session(tmp_path: Path) -> None:
-    """Refused before any session: the layer is compared only after one, which is too late."""
-    trials = _trials(tmp_path.resolve(), "in its run", later=False)
+@pytest.mark.parametrize("roots", [True, False], ids=["run roots", "no run root registered"])
+def test_a_baseline_round_where_the_layer_is_absent_starts_no_raw_session(
+    tmp_path: Path, roots: bool
+) -> None:
+    """Refused before any session: the layer is compared only after one, which is too late.
+
+    With or without run roots: every raw session is withheld its trial's work root whole.
+    """
+    if roots:
+        trials = _trials(tmp_path.resolve(), "in its run", later=False)
+    else:
+        made = stand_in_store(tmp_path.resolve() / "s")
+        task = made.tasks["held_out"][0]
+        run_a = harness_run(tmp_path.resolve() / "runs", task, made)
+        trials = Trials(made, run_a, run_a / "review", {}, run_a, run_a / "review", task)
     arm = StandInArm()
 
     def absent(harness: RunConfig, role: Any) -> RawSetup:  # noqa: ANN401

@@ -913,12 +913,15 @@ def _one_trial(
     if built != trial.config.binary:
         msg = "the binary here is not the build the harness run executed"
         raise BaselineError(msg, entry=str(trial.index), refused_because="binary")
-    if setup.withheld_whole and not isinstance(setup.os_layer, Present):
-        # Before the session, never only after it (``differences``): with the hooks alone a
-        # path a command builds as it runs reaches the run roots. The installer refuses it too.
+    if not isinstance(setup.os_layer, Present):
+        # Before the session, never only after it (``differences``): every raw session is
+        # withheld a root whole (the work root around its trial's place, and the run roots), and
+        # with the hooks alone a path a command builds as it runs reaches it. The installer
+        # refuses such a session too; here the round stops before it makes any place.
         msg = (
-            "the OS layer is absent here, and the raw session is withheld the run roots whole, "
-            "which the hooks alone do not hold; no raw session runs without the layer"
+            "the OS layer is absent here, and every raw session is withheld a root whole (its "
+            "trial's place in the work root, the run roots), which the hooks alone do not hold; "
+            "no raw session runs without the layer"
         )
         raise BaselineError(msg, entry=str(trial.index), refused_because="os_layer_absent")
     for attempt in (1, 2):

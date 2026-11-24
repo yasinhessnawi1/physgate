@@ -520,7 +520,7 @@
   {
     "name": "a_round_starts_a_raw_session_where_the_layer_is_absent",
     "file": "src/physgate/evaluation/baseline/runner.py",
-    "old": "    if setup.withheld_whole and not isinstance(setup.os_layer, Present):\n",
+    "old": "    if not isinstance(setup.os_layer, Present):\n",
     "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
