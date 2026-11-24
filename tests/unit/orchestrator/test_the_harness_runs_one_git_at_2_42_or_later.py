@@ -169,6 +169,7 @@ def test_a_run_recorded_before_the_field_loads_and_keeps_its_bytes(tmp_path: Pat
         "held_out",
         "held_out_canaries",
         "held_out_sha256",
+        "withheld_whole",
         "network",
         "network_enforced",
         "queue_decisions",
@@ -279,6 +280,7 @@ def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],
+        "withheld_whole": [],
         "network": "open",
         **extra,
     }

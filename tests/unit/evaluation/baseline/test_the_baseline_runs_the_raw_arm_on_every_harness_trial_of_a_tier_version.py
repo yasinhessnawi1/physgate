@@ -778,6 +778,10 @@ def _another_role_s_places(made: StandInStore) -> list[str]:
     places += [root / made.version / tier for tier in ("validation", "held_out")]
     for place in places:
         place.mkdir(parents=True, exist_ok=True)
+    # As a version's writer leaves a role's root: its register and run roots, empty.
+    from physgate.evaluation.tiers.exposure import start_logs
+
+    start_logs(root / "withheld")
     return [str(place) for place in places]
 
 

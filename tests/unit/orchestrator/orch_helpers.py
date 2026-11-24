@@ -83,6 +83,7 @@ def make_config(**overrides: Any) -> RunConfig:
         "held_out": (),
         "held_out_canaries": (),
         "held_out_sha256": (),
+        "withheld_whole": (),
         "network": "open",
         "network_enforced": None,
         "binary": None,
