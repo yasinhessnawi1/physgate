@@ -280,11 +280,9 @@ from physgate.orchestrator.sign_off import (
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.orchestrator.usage_limit import (
     UsageLimit,
-    bounded,
+    read_reset,
     resume_after,
     resume_refusal,
-    stamped,
-    with_instant,
 )
 from physgate.orchestrator.wait_cycle import held_on, items_open
 from physgate.reviewers.packet import fits_one_read, indicator_scan_runs, person_order_text
@@ -557,14 +555,9 @@ def _follow_up_end(now: AttemptState | None, sub: SubtaskState) -> str:
 def _reset_from(limit: UsageLimit | None, ts: str) -> UsageLimit | None:
     """``limit`` with its reset read as the next instant after the line stamped ``ts``.
 
-    A reset the stream gave further out than any window after ``ts`` is not taken (:func:`bounded`).
+    The one reading of a reset, shared with the baseline round's raw sessions (:func:`read_reset`).
     """
-    if limit is None:
-        return None
-    limit = bounded(limit, read_at=stamped(ts))
-    if limit.resets_at is not None:
-        return limit
-    return with_instant(limit, after=stamped(ts))
+    return read_reset(limit, ts)
 
 
 class Loop:

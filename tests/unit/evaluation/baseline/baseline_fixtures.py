@@ -323,6 +323,16 @@ class StandInArm:
     left: Callable[[Path, Path], None] | None = None
     #: Per call: the tokens of responses cut short that the binary's totals left out.
     cut_off: dict[int, int] = field(default_factory=dict)
+    #: Per call: the account's usage limit ended the session, as a live stream says it: the
+    #: refusal event's reset instant (epoch seconds), or ``None`` for a stream that gave none
+    #: and a result whose reset does not parse.
+    limited: dict[int, int | None] = field(default_factory=dict)
+    #: Per call: the session's credential was refused (HTTP 401).
+    refused: set[int] = field(default_factory=set)
+    #: Per call: a session the limit or a refused credential ended wrote its answer first.
+    answered_first: set[int] = field(default_factory=set)
+    #: Per call: the check after the session's end refused it.
+    end_refused: set[int] = field(default_factory=set)
 
     def __call__(
         self, task: Task, setup: RawSetup, work: Path, *, cap: int, harness: Path | None = None
@@ -346,24 +356,30 @@ class StandInArm:
         }
         result = self.ended.get(n, {"is_error": False, "terminal_reason": "completed"})
         content = f"tool output {task.canary}" if n in self.seen else "tool output"
-        lines = [
+        lines: list[dict[str, Any]] = [
             {"type": "assistant", "message": {"id": "m", "model": model, "usage": usage}},
             {"type": "user", "message": {"content": content}},
-            {"type": "result", "session_id": f"s-{n}", **result},
         ]
+        if n in self.limited:
+            lines += limit_lines(self.limited[n])
+            result = limit_result(self.limited[n])
+        if n in self.refused:
+            result = {"is_error": True, "terminal_reason": "api_error", "api_error_status": 401}
+        lines.append({"type": "result", "session_id": f"s-{n}", **result})
         stream = session / "stdout.jsonl"
         stream.write_text("".join(json.dumps(line) + "\n" for line in lines))
         kept = work if harness is None else harness
         if self.left is not None:
             self.left(work, kept)
-        answered = n not in self.ended
+        machine = n in self.ended or n in self.limited or n in self.refused
+        answered = not machine or n in self.answered_first
         if answered:
             (kept / "answer").mkdir()
             (kept / "answer" / task.answer.path).write_text(json.dumps(controller()))
         record: dict[str, Any] = {
             "session_id": f"s-{n}",
             "end": "ended",
-            "exit_code": 0 if answered else 1,
+            "exit_code": 1 if machine else 0,
             "left_running": [],
             "wall_clock_s": 12.0,
             "tokens": 400,
@@ -372,10 +388,41 @@ class StandInArm:
             "answered_by": [model],
             "held_out_seen": held_out_seen(stream, setup.held_out_canaries),
             "watch_failure": None,
-            "sentinel_after_stop": None,
+            "sentinel_after_stop": "a protected path changed" if n in self.end_refused else None,
             "task": task.id,
             "answer": "found" if answered else "no_answer",
             "pins": pins(task, setup),
         }
         (kept / "raw.json").write_text(json.dumps(record))
         return record
+
+
+#: A session window's reset in the stand-in refusal: 1:20pm in Oslo on 13 November 2026.
+RESET_EPOCH = 1794572400
+RESET_STAMP = "2026-11-13T12:20:00.000000Z"
+#: The result's text, as a live run's stream gave it when its account reached the limit.
+LIMIT_TEXT = "You've hit your session limit · resets 1:20pm (Europe/Oslo)"
+#: A result text whose reset does not parse: the reset is then not read.
+UNREAD_TEXT = "You've hit your session limit · resets soon"
+
+
+def limit_lines(reset: int | None) -> list[dict[str, Any]]:
+    """The refusal event and the assistant line a live stream gave as the limit ended it."""
+    info: dict[str, Any] = {
+        "status": "rejected",
+        "rateLimitType": "five_hour",
+        "unifiedWindows": {"five_hour": {"utilization": 1, "resetsAt": RESET_EPOCH}},
+    }
+    if reset is not None:
+        info["resetsAt"] = reset
+    said = {"id": "msg_1", "model": "<synthetic>", "role": "assistant", "content": []}
+    return [
+        *([{"type": "rate_limit_event", "rate_limit_info": info}] if reset is not None else []),
+        {"type": "assistant", "message": said, "error": "rate_limit", "request_id": "req_1"},
+    ]
+
+
+def limit_result(reset: int | None) -> dict[str, Any]:
+    """The result a live stream gave as the limit ended the session."""
+    text = LIMIT_TEXT if reset is not None else UNREAD_TEXT
+    return {"is_error": True, "terminal_reason": "api_error", "result": text}

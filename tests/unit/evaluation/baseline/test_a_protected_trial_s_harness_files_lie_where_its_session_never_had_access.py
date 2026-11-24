@@ -36,7 +36,14 @@ from baseline_fixtures import (
 from task_fixtures import controller, own_task
 
 from physgate.evaluation.baseline.record import BASELINE_RECORD, TIERS_RECORD
-from physgate.evaluation.baseline.runner import BASELINE_DIR, HARNESS, PLACE, run_baseline
+from physgate.evaluation.baseline.runner import (
+    BASELINE_DIR,
+    HARNESS,
+    LEDGER,
+    PLACE,
+    ROUND_RECORD,
+    run_baseline,
+)
 from physgate.evaluation.observe.cost import load_price_sheet
 from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.tiers.store import role_root, version_dir, withheld_root, work_root
@@ -135,6 +142,9 @@ def test_what_a_session_leaves_at_a_name_the_harness_writes_is_inert(
         Path(TIERS_RECORD).name,
         Path(TIERS_RECORD).parent.name,
         BASELINE_RECORD,
+        # The round's ledger and how it left off: entries by place and steps, no task.
+        LEDGER,
+        ROUND_RECORD,
     }, new_outside
     assert role_root(store.store, "control").is_dir()
 

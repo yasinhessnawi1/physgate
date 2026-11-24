@@ -84,6 +84,7 @@ from typing import Any, get_args
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.authoring import (
+    PER_TIER,
     TIERS,
     AuthoringError,
     _open_chain,
@@ -844,8 +845,12 @@ def write_version(
     provenance: bytes,
     retire: Path | None = None,
     generated: str | None = None,
+    per_tier: int = PER_TIER,
 ) -> tuple[TierSet, dict[str, Any]]:
     """Split ``chosen`` into a new version under the role's ``root``; its manifest and the split.
+
+    ``per_tier`` is how many tasks each tier takes, so ``chosen`` holds three times as many:
+    every real version takes the authoring rule's number; a practice version, fewer.
 
     The tasks are copied into a fresh temporary directory beside the versions, split there by
     ``seed`` (:func:`.authoring.split`), and the provenance record and the manifest written
@@ -886,6 +891,7 @@ def write_version(
             temporary / "held_out",
             validation=temporary / "validation",
             seed=seed,
+            per_tier=per_tier,
         )
         fd = _open_chain(temporary, make=False)
         try:

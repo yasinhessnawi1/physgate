@@ -95,7 +95,7 @@ from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Literal, NoReturn, get_args
 
 from pydantic import Field, StringConstraints
 
@@ -119,6 +119,7 @@ from physgate.evaluation.observe.cost import DatedSheet
 from physgate.evaluation.per_role.arms.compare import ComparisonError, differences, harness_total
 from physgate.evaluation.per_role.arms.raw import RawSetup, run_raw
 from physgate.evaluation.per_role.assemble import (
+    OWN_ENDS,
     ExcludedTrial,
     TrialExcludedError,
     raw_ended_by_infrastructure,
@@ -166,8 +167,9 @@ from physgate.evaluation.tiers.task import (
     parse_task,
 )
 from physgate.orchestrator.binaries import ClaudeBinary, measure
+from physgate.orchestrator.common import utc_stamp
 from physgate.orchestrator.credentials import Credential
-from physgate.orchestrator.dispatch import MAX_SESSION_FILE_BYTES
+from physgate.orchestrator.dispatch import MAX_SESSION_FILE_BYTES, read_captured, read_stream_file
 from physgate.orchestrator.exceptions import InvocationError, RunConfigError, RunStateError
 from physgate.orchestrator.review_root_record import recorded_review_root
 from physgate.orchestrator.role_python import RolePython
@@ -177,6 +179,14 @@ from physgate.orchestrator.run_config import (
     require_endpoint,
 )
 from physgate.orchestrator.session_files import FileRefused, open_beneath, read_bounded
+from physgate.orchestrator.usage_limit import (
+    UsageLimit,
+    read_reset,
+    resume_after,
+    resume_refusal,
+    session_end,
+)
+from physgate.orchestrator.waiting import EXIT_WAITING_FOR_LIMIT as EXIT_WAITING_FOR_LIMIT
 from physgate.oslayer.probe import Absent, Present
 from physgate.reviewers.places import standing_review_material
 
@@ -194,8 +204,132 @@ HARNESS = "harness"
 TierName = SourceTier
 
 
+#: The round's own account of where it stands, in its directory: one line per step, each
+#: appended and synced before the step it names goes on. It names entries by their place in
+#: the run set and sessions by their number, never a task, and holds no outcome.
+LEDGER = "ledger.jsonl"
+LEDGER_FORMAT = 1
+#: How the round left off, in its directory, written whole at each stop: its status and wait.
+ROUND_RECORD = "round.json"
+#: The exit status while the round waits for a person (a refused credential to replace): the
+#: harness round driver's value and name, so one launch script reads both arms alike.
+EXIT_WAITING_FOR_A_PERSON = 77
+#: The causes a raw session's end is waited on for, as the harness arm names them.
+USAGE_LIMIT = "usage_limit"
+CREDENTIAL_REFUSED = "credential_refused"
+#: How a round left off: every trial recorded, waiting for the account's usage limit to reset,
+#: or waiting for a person. The harness round driver's words.
+Status = Literal["done", "waiting_for_limit", "waiting_for_a_person"]
+#: How the machine ended a raw session, as the round reads it: the account's usage limit, a
+#: refused credential, or any other end of the machine's before an answer existed.
+MachineEnd = Literal["usage_limit", "credential_refused", "machine"]
+#: What the round does after a session (:func:`next_step`).
+Step = Literal["wait_for_limit", "wait_for_a_person", "once_more", "record"]
+
+
 class BaselineError(PerRoleError):
     """The round cannot be run, or was stopped, for a reason it names: no task content."""
+
+
+class RoundWaits(Exception):  # noqa: N818 - a state the round stops in, not a fault
+    """The round stopped to wait: for the account's usage limit to reset, or for a person.
+
+    Nothing is spent by it. ``waiting`` names the entry by its place in the run set and why,
+    and for the limit the instant after which a start goes on (``resume_after``) and whether a
+    person's word would let it go on sooner (``word_helps``).
+    """
+
+    def __init__(self, status: Status, round_id: str, waiting: dict[str, Any]) -> None:
+        """A wait of the round ``round_id``, of ``status``, at ``waiting``."""
+        super().__init__(f"the round waits: {status}")
+        self.status = status
+        self.round_id = round_id
+        self.waiting = waiting
+
+    @property
+    def exit_code(self) -> int:
+        """The status the command exits with: the harness round driver's for the same wait."""
+        if self.status == "waiting_for_limit":
+            return EXIT_WAITING_FOR_LIMIT
+        return EXIT_WAITING_FOR_A_PERSON
+
+    def printed(self) -> dict[str, Any]:
+        """The line the command prints, and the round's record says: the status and the wait."""
+        return {"format": 1, "round": self.round_id, "status": self.status, "waiting": self.waiting}
+
+
+def machine_end(
+    record: Mapping[str, Any], stream: Path, task: Task
+) -> tuple[MachineEnd | None, UsageLimit | None]:
+    """How the machine ended a raw session, read from its own record and stream; ``None`` if not.
+
+    A session whose records exclude it is no machine end: it is assembled as excluded, whatever
+    else its stream says, so a canary in a stream the limit ended still excludes the trial. Of
+    the rest, a session the arm itself stopped (its cap, its wall clock) is the arm's own end.
+    Every other session is read as the harness arm reads a role session's end
+    (:func:`.orchestrator.usage_limit.session_end`, on the stream's bytes): an end the stream
+    names as the account's usage limit is the limit, with the limit as the stream gave it, and
+    one whose request was refused for its credential is that; each whether or not the session
+    wrote an answer first, since neither is a trial's end. Any other end of the machine's before
+    an answer existed (:func:`.per_role.assemble.raw_ended_by_infrastructure`) is ``machine``.
+
+    Raises:
+        ReportError: the record is not of ``task``.
+    """
+    try:
+        machine = raw_ended_by_infrastructure(record, stream, task)
+    except TrialExcludedError:
+        return None, None
+    if record.get("end") in OWN_ENDS:
+        return None, None
+    end, limit = session_end(
+        read_stream_file(stream),
+        read_captured(stream).result,
+        exit_code=record.get("exit_code"),
+        stopped_at_wall_clock=False,
+    )
+    if end.cause == USAGE_LIMIT and limit is not None:
+        return "usage_limit", limit
+    if end.cause == CREDENTIAL_REFUSED:
+        return "credential_refused", None
+    return ("machine" if machine else None), None
+
+
+def next_step(end: MachineEnd | None, once_more_spent: bool) -> Step:
+    """What the round does after a session that ended so: the one place its rule is held.
+
+    The account's usage limit and a refused credential are never a trial's end and never spend
+    its one more go, however often they come: the round waits, for the reset or for a person,
+    and then runs the session again as if it had not run. Any other end of the machine's before
+    an answer existed is run once more, once; after that it is recorded, as ``unscored``. Every
+    other end is recorded as it is.
+    """
+    if end == "usage_limit":
+        return "wait_for_limit"
+    if end == "credential_refused":
+        return "wait_for_a_person"
+    if end == "machine" and not once_more_spent:
+        return "once_more"
+    return "record"
+
+
+def stopped_entry_refusal(index: int) -> NoReturn:
+    """Refuse to go on past an entry the round stopped on for a cause other than a wait.
+
+    A session of the entry started and no step after it is in the round's ledger: the round was
+    stopped there (a pair that differs, other pins, an error, a move that failed) or killed
+    while it ran. Whether such an entry is run once more, or never, is a rule not set yet:
+    neither is built, and the round refuses until the rule is set.
+
+    Raises:
+        BaselineError: always (``rule_not_set_yet``).
+    """
+    msg = (
+        "the round stopped on this entry after its session started, for a cause other than the "
+        "usage limit or a refused credential; whether such an entry is run once more is a rule "
+        "that is not set yet, so the round does not go on"
+    )
+    raise BaselineError(msg, entry=str(index), refused_because="rule_not_set_yet")
 
 
 class RunSetEntry(_Frozen):
@@ -451,8 +585,7 @@ def plan(
         try:
             cap = harness_total(run_dir)
         except ComparisonError as exc:
-            msg = f"the harness run's token account gives no cap: {exc}"
-            raise BaselineError(msg, **where) from None
+            no_cap_refusal(index, str(exc))
         # The binary is held as the build it is, its bytes and platform, never as a version
         # string: a run that recorded no build cannot be held to the raw session's.
         if config.binary is None:
@@ -464,6 +597,23 @@ def plan(
         binary_seen = config.binary
         planned.append(Planned(index, entry, config, task, tier, cap, reviewed))
     return source, planned
+
+
+def no_cap_refusal(index: int, why: str) -> NoReturn:
+    """Refuse a harness trial whose run gives the raw arm no cap.
+
+    The rule for the raw trial of such a harness trial (a cap taken from the task's other
+    trials, or the raw trial counted unscored) is not set yet: neither is built, and the round is
+    refused before any session until it is.
+
+    Raises:
+        BaselineError: always (``cap_rule_not_set_yet``).
+    """
+    msg = (
+        f"the harness run's token account gives no cap: {why}; the rule for the raw trial of "
+        "a harness trial that gives no cap is not set yet"
+    )
+    raise BaselineError(msg, entry=str(index), refused_because="cap_rule_not_set_yet")
 
 
 def _check_of(store: Path, role: Role, manifest: TierSet) -> CheckRecord:
@@ -722,6 +872,133 @@ def _append(path: Path, line: TrialRecord | ExcludedTrial) -> None:
         os.fsync(out.fileno())
 
 
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _inputs_sha256(
+    store: Path,
+    role: Role,
+    version: str | None,
+    external: Path | None,
+    runs: RunSet,
+    development: bool,
+    base_url: str | None,
+) -> str:
+    """The digest a round's inputs are held to across its starts."""
+    given = {
+        "store": str(store),
+        "role": role,
+        "version": version,
+        "external": None if external is None else str(external),
+        "runs": runs.model_dump(mode="json"),
+        "development": development,
+        "base_url": base_url,
+    }
+    return hashlib.sha256(canonical_json(given)).hexdigest()
+
+
+class Ledger:
+    """The round's ledger: its lines as read, and each new one appended and synced."""
+
+    def __init__(self, path: Path, lines: list[dict[str, Any]]) -> None:
+        """The ledger at ``path``, holding ``lines``."""
+        self.path = path
+        self.lines = lines
+
+    @classmethod
+    def read(cls, out: Path) -> Ledger:
+        """The ledger of the round in ``out``.
+
+        Raises:
+            BaselineError: there is none, or a line of it is not whole JSON (``ledger_unread``).
+        """
+        path = out / LEDGER
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            msg = "the round's ledger cannot be read, so where it stands is not known"
+            raise BaselineError(
+                msg, refused_because="ledger_unread", error=str(exc.strerror)
+            ) from None
+        try:
+            lines = [json.loads(line) for line in text.splitlines()]
+        except ValueError:
+            msg = "a line of the round's ledger is not whole, so where it stands is not known"
+            raise BaselineError(msg, refused_because="ledger_unread") from None
+        if not lines or lines[0].get("kind") != "round":
+            msg = "the round's ledger does not begin with the round's own line"
+            raise BaselineError(msg, refused_because="ledger_unread")
+        return cls(path, lines)
+
+    def add(self, line: Mapping[str, Any]) -> None:
+        """Append ``line``, synced before the step it names goes on."""
+        fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            os.write(fd, canonical_json(dict(line)))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        self.lines.append(dict(line))
+
+    def of(self, index: int) -> list[dict[str, Any]]:
+        """The entry's lines, in order."""
+        return [line for line in self.lines if line.get("index") == index]
+
+    def sessions(self, index: int) -> int:
+        """How many sessions of the entry were started."""
+        return sum(1 for line in self.of(index) if line["kind"] == "started")
+
+    def recorded(self) -> list[dict[str, Any]]:
+        """Every entry's ``recorded`` line, in the order the round recorded them."""
+        return [line for line in self.lines if line["kind"] == "recorded"]
+
+    def once_more_spent(self, index: int) -> bool:
+        """Whether the entry's one more go was taken: a session the machine ended otherwise."""
+        return any(line["kind"] == "machine" for line in self.of(index))
+
+    def last(self, index: int) -> dict[str, Any] | None:
+        """The entry's last line, or ``None``."""
+        lines = self.of(index)
+        return lines[-1] if lines else None
+
+
+def _waiting_for_limit(
+    line: Mapping[str, Any], now: datetime, *, word: bool
+) -> dict[str, Any] | None:
+    """The wait a ``limit`` line stands at, held to the core's rule at ``now``; ``None`` to go on.
+
+    A reset the client's stream gave is waited for whatever the word says; one it did not give
+    is waited for until the core's stated wait after the halt, or until a person's word.
+    """
+    limit = (
+        None
+        if line.get("limit") is None
+        else UsageLimit.model_validate_json(json.dumps(line["limit"]))
+    )
+    halted = str(line["halted_at"])
+    if resume_refusal(halted, limit, now, limit_reset=word) is None:
+        return None
+    return {
+        "index": line["index"],
+        "why": USAGE_LIMIT,
+        "resume_after": resume_after(halted, limit),
+        "word_helps": resume_refusal(halted, limit, now, limit_reset=True) is None,
+    }
+
+
+def _write_whole(path: Path, data: bytes) -> None:
+    """Write ``path`` whole: a new file beside it, synced, renamed over it."""
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(fd, data)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(temporary, path)
+
+
 def run_baseline(
     *,
     store: Path,
@@ -737,19 +1014,37 @@ def run_baseline(
     base_url: str | None = None,
     version: str | None = None,
     external: Path | None = None,
+    resume: bool = False,
+    limit_reset: bool = False,
+    now: Callable[[], datetime] = _now,
 ) -> BaselineRecord:
     """Run the raw arm on every trial of ``runs``, and write the round's records under ``out``.
 
-    ``out`` is new: a round gets a directory of its own, and its records are never replaced.
-    ``base_url`` is the operator's endpoint, ``None`` for the binary's default; every harness
-    run must have recorded it, and ``setup_for`` must send the credential there. The round's
-    source is the store's ``version`` or the external set at ``external``, exactly one.
+    ``out`` is new: a round gets a directory of its own, and its records are never replaced;
+    ``resume`` goes on with the round ``out`` holds, given the same inputs. ``base_url`` is the
+    operator's endpoint, ``None`` for the binary's default; every harness run must have recorded
+    it, and ``setup_for`` must send the credential there. The round's source is the store's
+    ``version`` or the external set at ``external``, exactly one.
+
+    **The round waits, and spends nothing for it.** A session the account's usage limit ended
+    stops the round as waiting for the reset (:class:`RoundWaits`, ``waiting_for_limit``); one
+    whose credential was refused stops it as waiting for a person (``waiting_for_a_person``).
+    Each is kept where a finished trial lies, named in the ledger with its spend, and is no
+    trial: it has no trial record, is never scored, and spends neither the entry's one more go
+    nor anything else, however often it comes. Started again with ``resume``, the round runs that
+    entry's session again as if it had not run: at once after a refused credential; after the
+    limit, only once the core would resume a run halted on it (the reset the client's stream
+    gave; where it gave none, the core's stated wait or ``limit_reset``, a person's word, used
+    once). A start before then makes nothing and writes nothing, and raises the same wait.
 
     Raises:
         BaselineError: the round was refused before it started, or stopped by a pair that
             differs in more than the harness, or by trials that ran under different pins.
+        RoundWaits: the round waits for the usage limit's reset or for a person.
     """
-    if out.exists():
+    if resume:
+        ledger = Ledger.read(out)
+    elif out.exists():
         msg = "the round's directory exists; each round gets a directory of its own"
         raise BaselineError(msg, out=str(out))
     # Withheld from every session of the round, by its name: its finished trials and its records
@@ -779,16 +1074,45 @@ def run_baseline(
     source, planned = plan(
         store, role, version, runs, base_url=base_url, development=development, external=external
     )
-    out.mkdir(mode=0o700, parents=True)
-    round_id = secrets.token_hex(8)
+    given = _inputs_sha256(store, role, version, external, runs, development, base_url)
+    if resume:
+        header = ledger.lines[0]
+        if header.get("inputs_sha256") != given:
+            msg = "the round is started again on other inputs than it began with"
+            raise BaselineError(msg, refused_because="inputs_changed")
+        if (out / BASELINE_RECORD).exists():
+            msg = "the round has ended; its records are written and kept"
+            raise BaselineError(msg, refused_because="round_ended")
+        round_id = str(header["round"])
+    else:
+        out.mkdir(mode=0o700, parents=True)
+        round_id = secrets.token_hex(8)
+        ledger = Ledger(out / LEDGER, [])
+        ledger.add(
+            {
+                "kind": "round",
+                "format": LEDGER_FORMAT,
+                "round": round_id,
+                "inputs_sha256": given,
+                "started": utc_stamp(now()),
+            }
+        )
     protected_root = withheld_root(store, role) / BASELINE_DIR / round_id
     counted = EXTERNAL_TIERS if isinstance(source, ExternalSetRecord) else VERSION_TIERS
-    tallies = {tier: _Tally() for tier in counted}
-    pins: dict[str, Any] | None = None
+    done = {int(line["index"]) for line in ledger.recorded()}
+    standing = next((trial for trial in planned if trial.index not in done), None)
+    stood = None if standing is None else ledger.last(standing.index)
+    if limit_reset and (stood is None or stood["kind"] != "limit"):
+        msg = "the round stands waiting for no usage limit; the word is for none"
+        raise BaselineError(msg, refused_because="limit_reset_not_waiting")
+    pins = _first_pins(ledger, planned, out, protected_root)
     for trial in planned:
+        if trial.index in done:
+            continue
         protected = trial.tier in PROTECTED_TIERS
+        how = _how_it_goes_on(ledger, trial.index, round_id, now(), word=limit_reset)
         try:
-            record, line = _one_trial(
+            ended = _one_trial(
                 trial,
                 out=out,
                 withheld_out=withheld_out,
@@ -802,6 +1126,9 @@ def run_baseline(
                 arm=arm,
                 sleep=sleep,
                 development=development,
+                ledger=ledger,
+                limit_reset=how,
+                now=now,
             )
         except BaselineError:
             raise  # the runner's own: it names the entry and fields, never the task
@@ -812,6 +1139,10 @@ def run_baseline(
             # protected trial only the tier and the error's kind are said, and nothing chained.
             msg = f"a {trial.tier} trial stopped on an error ({type(exc).__name__}), not repeated"
             raise BaselineError(msg, tier=trial.tier, entry=str(trial.index)) from None
+        if isinstance(ended, RoundWaits):
+            _write_whole(out / ROUND_RECORD, canonical_json(ended.printed()))
+            raise ended
+        record, line, session = ended
         these = pin_set(record["pins"])
         if pins is None:
             pins = these
@@ -819,23 +1150,9 @@ def run_baseline(
             msg = "the round's trials ran under different pins; no one baseline holds them"
             raise BaselineError(msg, entry=str(trial.index))
         _append((protected_root if protected else out) / TRIALS, line)
-        tally = tallies[trial.tier]
-        tally.trials += 1
-        tally.cap += trial.cap
-        tally.spent += int(record.get("tokens", 0))
-        # Cut tokens the session's count leaves out: the spend is a lower bound by them.
-        tally.spent_not_in_binary_totals += int(record.get("tokens_not_in_binary_totals") or 0)
-        if isinstance(line, ExcludedTrial):
-            tally.excluded += 1
-        elif line.outcome == "pass":
-            tally.passed += 1
-        elif line.outcome == "fail":
-            tally.failed += 1
-        elif line.outcome == "flaky":
-            tally.flaky += 1
-        else:
-            tally.unscored += 1
+        ledger.add({"kind": "recorded", "index": trial.index, "session": session})
     assert pins is not None  # the run set holds at least one trial
+    tallies = _tallies(ledger, planned, counted, out, protected_root)
     external_set = source if isinstance(source, ExternalSetRecord) else None
     # The record the plan held each flagged digest to one held-out task with.
     check = None if isinstance(source, ExternalSetRecord) else _check_of(store, role, source)
@@ -848,7 +1165,7 @@ def run_baseline(
     baseline = BaselineRecord(
         format=1,
         id=round_id,
-        created=datetime.now(UTC).strftime("%Y-%m-%d"),
+        created=now().strftime("%Y-%m-%d"),
         tiers=tiers,
         external=external_set,
         pins=pins,
@@ -865,7 +1182,156 @@ def run_baseline(
     if tiers is not None:
         write_new(out / TIERS_RECORD, record_bytes(tiers))
     write_new(out / BASELINE_RECORD, record_bytes(baseline))
+    _write_whole(
+        out / ROUND_RECORD, canonical_json({"format": 1, "round": round_id, "status": "done"})
+    )
     return baseline
+
+
+def _how_it_goes_on(
+    ledger: Ledger, index: int, round_id: str, now: datetime, *, word: bool
+) -> str | None:
+    """How the entry's next session may start, as the ledger leaves it; or the round stays put.
+
+    ``None`` for a fresh start; ``waited`` or ``operator`` past a usage limit (the core's rule,
+    the person's word used once). An entry whose last session started and has no step after it
+    is refused (:func:`stopped_entry_refusal`).
+
+    Raises:
+        RoundWaits: the entry stands at a usage limit the core would still wait for.
+        BaselineError: the entry was stopped on for a cause that is not a wait.
+    """
+    last = ledger.last(index)
+    if last is None:
+        return None
+    if last["kind"] == "started":
+        stopped_entry_refusal(index)
+    if last["kind"] != "limit":
+        return None
+    if _waiting_for_limit(last, now, word=False) is None:
+        return "waited"
+    waiting = _waiting_for_limit(last, now, word=word)
+    if waiting is None:
+        return "operator"
+    raise RoundWaits("waiting_for_limit", round_id, waiting)
+
+
+def _trial_files(
+    planned: Planned, session: int, out: Path, protected_root: Path
+) -> tuple[Path, Path, Path]:
+    """Where a recorded session of ``planned`` lies once moved: its directory, harness, stream."""
+    name = f"{planned.index:04d}-{session}"
+    directory = protected_root / name if planned.tier in PROTECTED_TIERS else out / WORK / name
+    return directory, directory / HARNESS, directory / PLACE / "session" / "stdout.jsonl"
+
+
+def read_record(harness: Path) -> dict[str, Any]:
+    """The raw arm's record a finished session left in its harness directory.
+
+    Read as every file of a finished trial is read: no link followed, under the session file
+    bound.
+
+    Raises:
+        BaselineError: it cannot be read whole (``record_unread``), naming no path.
+    """
+    try:
+        fd = open_beneath(harness, ("raw.json",))
+        try:
+            data = read_bounded(fd, MAX_SESSION_FILE_BYTES)
+        finally:
+            os.close(fd)
+        record = json.loads(data)
+    except (OSError, FileRefused, ValueError) as exc:
+        msg = "a finished session's record cannot be read whole"
+        raise BaselineError(
+            msg, refused_because="record_unread", error=type(exc).__name__
+        ) from None
+    if not isinstance(record, dict):
+        msg = "a finished session's record is not a record"
+        raise BaselineError(msg, refused_because="record_unread")
+    return record
+
+
+def _first_pins(
+    ledger: Ledger, planned: list[Planned], out: Path, protected_root: Path
+) -> dict[str, Any] | None:
+    """The pin set the round's first recorded trial ran under, from its own record; or ``None``."""
+    first = next(iter(ledger.recorded()), None)
+    if first is None:
+        return None
+    by_index = {trial.index: trial for trial in planned}
+    _, harness, _ = _trial_files(
+        by_index[int(first["index"])], int(first["session"]), out, protected_root
+    )
+    return pin_set(read_record(harness)["pins"])
+
+
+def read_lines(path: Path) -> list[TrialRecord | ExcludedTrial]:
+    """The trial records a round wrote at ``path``, in order; none if it wrote none there."""
+    if not path.exists():
+        return []
+    lines: list[TrialRecord | ExcludedTrial] = []
+    for text in path.read_text(encoding="utf-8").splitlines():
+        raw = json.loads(text)
+        model = ExcludedTrial if "reason" in raw and "outcome" not in raw else TrialRecord
+        lines.append(model.model_validate_json(text))
+    return lines
+
+
+def tally(
+    recorded: list[tuple[Planned, Mapping[str, Any], TrialRecord | ExcludedTrial]],
+    counted: tuple[SourceTier, ...],
+) -> dict[SourceTier, _Tally]:
+    """Each tier's counts from its recorded trials' records and lines: summed here alone."""
+    tallies = {tier: _Tally() for tier in counted}
+    for trial, record, line in recorded:
+        tally_of = tallies[trial.tier]
+        tally_of.trials += 1
+        tally_of.cap += trial.cap
+        tally_of.spent += int(record.get("tokens", 0))
+        # Cut tokens the session's count leaves out: the spend is a lower bound by them.
+        tally_of.spent_not_in_binary_totals += int(record.get("tokens_not_in_binary_totals") or 0)
+        if isinstance(line, ExcludedTrial):
+            tally_of.excluded += 1
+        elif line.outcome == "pass":
+            tally_of.passed += 1
+        elif line.outcome == "fail":
+            tally_of.failed += 1
+        elif line.outcome == "flaky":
+            tally_of.flaky += 1
+        else:
+            tally_of.unscored += 1
+    return tallies
+
+
+def _tallies(
+    ledger: Ledger,
+    planned: list[Planned],
+    counted: tuple[SourceTier, ...],
+    out: Path,
+    protected_root: Path,
+) -> dict[SourceTier, _Tally]:
+    """Each tier's counts, from the records the round wrote and its sessions' own records.
+
+    Read from the files, never from what this process holds, so a round started again counts
+    the trials its earlier starts recorded. The lines of each place are in the order the
+    ledger recorded its entries.
+    """
+    by_index = {trial.index: trial for trial in planned}
+    written = {
+        False: iter(read_lines(out / TRIALS)),
+        True: iter(read_lines(protected_root / TRIALS)),
+    }
+    recorded = []
+    for line in ledger.recorded():
+        trial = by_index[int(line["index"])]
+        _, harness, _ = _trial_files(trial, int(line["session"]), out, protected_root)
+        trial_line = next(written[trial.tier in PROTECTED_TIERS], None)
+        if trial_line is None:
+            msg = "the round's ledger records a trial its records do not hold; a person must look"
+            raise BaselineError(msg, refused_because="records_short", entry=str(trial.index))
+        recorded.append((trial, read_record(harness), trial_line))
+    return tally(recorded, counted)
 
 
 def _coverage(
@@ -884,6 +1350,29 @@ def _coverage(
     return {"covered": covered, "of": of, "whole": covered == of}
 
 
+def trial_line(
+    trial: Planned,
+    role: Role,
+    record: Mapping[str, Any],
+    stream: Path,
+    prices: DatedSheet,
+    scored: Mapping[str, Any] | None,
+    *,
+    unscored: bool,
+) -> TrialRecord | ExcludedTrial:
+    """The record of a raw trial from its session's own record, stream and score."""
+    return raw_trial(
+        suite=f"{role}_{trial.tier}",
+        task=trial.task,
+        trial=trial.entry.trial,
+        record=record,
+        stream=stream,
+        prices=prices,
+        score=scored,
+        unscored=unscored,
+    )
+
+
 def _one_trial(
     trial: Planned,
     *,
@@ -899,9 +1388,17 @@ def _one_trial(
     arm: Arm,
     sleep: Callable[[float], None],
     development: bool,
-) -> tuple[dict[str, Any], TrialRecord | ExcludedTrial]:
-    """One harness trial's raw trial, run once more if the machine ended it; its last attempt."""
-    task, run_dir = trial.task, Path(trial.entry.run_dir)
+    ledger: Ledger,
+    limit_reset: str | None,
+    now: Callable[[], datetime],
+) -> tuple[dict[str, Any], TrialRecord | ExcludedTrial, int] | RoundWaits:
+    """One harness trial's raw trial, until it is recorded or the round waits.
+
+    Each session is named by its number among the entry's (``<index>-<n>``) and is started only
+    once the ledger says so. What follows each is :func:`next_step`'s: a wait, the one more go
+    after the run's own first infrastructure delay, or the record of the trial.
+    """
+    task, run_dir, index = trial.task, Path(trial.entry.run_dir), trial.index
     delays = trial.config.bounds.infra_retry_delays_s
     # Before any record of work: a setup refused here (no credential, another binary) leaves
     # nothing behind for the next round to refuse.
@@ -909,10 +1406,10 @@ def _one_trial(
     try:
         built = measure(setup.binary)
     except InvocationError as exc:
-        raise BaselineError(str(exc), entry=str(trial.index), refused_because="binary") from None
+        raise BaselineError(str(exc), entry=str(index), refused_because="binary") from None
     if built != trial.config.binary:
         msg = "the binary here is not the build the harness run executed"
-        raise BaselineError(msg, entry=str(trial.index), refused_because="binary")
+        raise BaselineError(msg, entry=str(index), refused_because="binary")
     if not isinstance(setup.os_layer, Present):
         # Before the session, never only after it (``differences``): every raw session is
         # withheld a root whole (the work root around its trial's place, and the run roots), and
@@ -923,12 +1420,15 @@ def _one_trial(
             "trial's place in the work root, the run roots), which the hooks alone do not hold; "
             "no raw session runs without the layer"
         )
-        raise BaselineError(msg, entry=str(trial.index), refused_because="os_layer_absent")
-    for attempt in (1, 2):
-        name = f"{trial.index:04d}-{attempt}"
-        if attempt == 2:
-            # Only a first attempt the machine ended is run again, once its trial is out.
-            sleep(delays[0] if delays else 0.0)
+        raise BaselineError(msg, entry=str(index), refused_because="os_layer_absent")
+    last = ledger.last(index)
+    if last is not None and last["kind"] == "machine":
+        # Stopped between the session the machine ended and its one more go: its delay again.
+        sleep(float(last["delay_s"]))
+    how = limit_reset
+    while True:
+        session = ledger.sessions(index) + 1
+        name = f"{index:04d}-{session}"
         # Made in the work root, which every run on the store withholds, whatever the trial's
         # tier: its session is given its own place out of the run's held-out roots and nothing
         # else there, and the round's own directory is withheld from it besides. Two
@@ -936,6 +1436,11 @@ def _one_trial(
         # harness's, beside it, where the copied answer, the record and the score are written.
         # The work root is held until the trial is out (:func:`trial_place`).
         with trial_place(store, role, round_id, name) as (trial_dir, working):
+            started: dict[str, Any] = {"kind": "started", "index": index, "session": session}
+            if how is not None:
+                started["limit_reset"] = how
+            ledger.add(started)
+            how = None
             given = replace(
                 setup,
                 held_out_carved=str(trial_dir / PLACE),
@@ -948,41 +1453,60 @@ def _one_trial(
             harness.mkdir(mode=0o700)
             record = arm(task, given, work, cap=trial.cap, harness=harness)
             stream = work / "session" / "stdout.jsonl"
+            end, limit = machine_end(record, stream, task)
+            step = next_step(end, ledger.once_more_spent(index))
+            spent = {"index": index, "session": session, "tokens": int(record.get("tokens", 0))}
+            if step == "wait_for_limit":
+                at = utc_stamp(now())
+                held = read_reset(limit, at)
+                line = {
+                    "kind": "limit",
+                    **spent,
+                    "halted_at": at,
+                    "resume_after": resume_after(at, held),
+                    "limit": None if held is None else held.model_dump(mode="json"),
+                }
+                ledger.add(line)
+                _finish(trial_dir, working, protected_root, out, name)
+                waiting = _waiting_for_limit(line, now(), word=False)
+                if waiting is None:  # its reset is past already: the next start goes on
+                    waiting = {
+                        "index": index,
+                        "why": USAGE_LIMIT,
+                        "resume_after": line["resume_after"],
+                        "word_helps": False,
+                    }
+                return RoundWaits("waiting_for_limit", round_id, waiting)
+            if step == "wait_for_a_person":
+                ledger.add({"kind": "credential", **spent})
+                _finish(trial_dir, working, protected_root, out, name)
+                return RoundWaits(
+                    "waiting_for_a_person", round_id, {"index": index, "why": CREDENTIAL_REFUSED}
+                )
+            if step == "once_more":
+                delay = delays[0] if delays else 0.0
+                ledger.add({"kind": "machine", **spent, "delay_s": delay})
+                _finish(trial_dir, working, protected_root, out, name)
+                # Only a session the machine ended is run again, once its trial is out.
+                sleep(delay)
+                continue
             answer = harness / "answer" / task.answer.path
             scored: Mapping[str, Any] | None = None
             if record.get("answer") == "found":
                 scored = score(task, answer)
                 write_new(harness / SCORE, canonical_json(dict(scored)))
-            machine = False
-            if scored is None:
-                try:
-                    machine = raw_ended_by_infrastructure(record, stream, task)
-                except TrialExcludedError:
-                    machine = False  # assembled as excluded below, with its reason
-            if machine and attempt == 1:
-                _finish(trial_dir, working, protected_root, out, name)
-                continue
             found = differences(run_dir, work, role=role, task=task, record_dir=harness)
             allowed = DEVELOPMENT_DIFFERENCES if development else frozenset()
             named = sorted({f.split(":", 1)[0] for f in found} - allowed)
             if named:
                 _finish(trial_dir, working, protected_root, out, name)
                 msg = "the raw arm differs from the harness run in more than the harness: "
-                raise BaselineError(msg + ", ".join(named), entry=str(trial.index))
-            line = raw_trial(
-                suite=f"{role}_{trial.tier}",
-                task=task,
-                trial=trial.entry.trial,
-                record=record,
-                stream=stream,
-                prices=prices,
-                score=scored,
-                unscored=machine,
+                raise BaselineError(msg + ", ".join(named), entry=str(index))
+            line_of = trial_line(
+                trial, role, record, stream, prices, scored, unscored=end == "machine"
             )
             _finish(trial_dir, working, protected_root, out, name)
-            return record, line
-    msg = "a trial ran past its one re-run"  # unreachable: the second attempt always returns
-    raise BaselineError(msg, entry=str(trial.index))
+            return record, line_of, session
 
 
 def _finish(
