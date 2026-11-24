@@ -1429,3 +1429,39 @@ def _run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, st
             "their own inside the root they withhold whole; a measured run is made inside one"
         )
     return None
+
+
+def review_root_refusal(
+    run_dir: Path | None, review_root: Path | None, *, reviewing: bool
+) -> tuple[str, str] | None:
+    """Why a run's reviews would lie where a later session on its stores could read them.
+
+    A review leaves under its review root the packet it reads (the brief, the specification, the
+    answer), the reviewer's own record, and the place apart with the key that maps every label
+    back. A measured run's directory lies strictly inside a run root of its stores, and every
+    measured run on them and every raw session withholds those roots whole. So its reviews are
+    withheld with it when its review root lies strictly inside that directory, where both really
+    are (``review_root_outside_the_run``). Then every review root of the stores' measured runs
+    lies in their run roots. Nothing but the run roots is withheld whole, and no register of
+    review roots is needed. ``reviewing``: the run is about to review (at run and resume), so a
+    root not shown refuses it (``review_root_not_shown``); at decompose none is shown where the
+    plan is not reviewed. Only what the root is is said, never a path. ``None`` if the run may go
+    on.
+    """
+    if review_root is None:
+        if not reviewing:
+            return None
+        return "review_root_not_shown", (
+            "the run is about to review and no review root was shown, so where its reviews leave "
+            "the brief and the answer cannot be judged"
+        )
+    place = os.path.realpath(review_root)
+    run = None if run_dir is None else os.path.realpath(run_dir)
+    if run is None or not place.startswith(run.rstrip("/") + "/"):
+        return "review_root_outside_the_run", (
+            "the run's review root lies outside its own run directory, so a later session on its "
+            "stores could read what its reviews leave there (each packet with the brief and the "
+            "answer, each reviewer's record, the key for labels): a measured run reviews inside "
+            "its own run directory, which the run roots withhold whole"
+        )
+    return None

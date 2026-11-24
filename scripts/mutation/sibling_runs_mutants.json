@@ -12,14 +12,25 @@
       "tests/unit/hooks/test_a_run_root_withheld_whole_opens_a_role_session_its_worktree_and_what_it_is_given.py",
       "tests/unit/hooks/test_a_session_s_worktree_is_all_it_reaches_of_the_root_around_it.py",
       "tests/unit/orchestrator/test_a_role_session_is_withheld_its_run_roots_whole_but_its_own_place.py",
-      "tests/unit/ui/test_no_route_serves_the_held_out_tier.py"
+      "tests/unit/ui/test_no_route_serves_the_held_out_tier.py",
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py",
+      "tests/unit/evaluation/exposure/test_a_measured_run_reviews_only_inside_its_own_run_directory.py",
+      "tests/unit/orchestrator/test_a_requirement_is_shown_the_run_s_review_root.py"
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
       "tests/unit/evaluation/exposure/exposure_fixtures.py",
       "tests/unit/evaluation/per_role/task_fixtures.py",
       "tests/unit/evaluation/per_role/test_the_raw_arm_s_credential_is_handled_as_a_role_session_s.py",
-      "tests/unit/orchestrator/orch_helpers.py"
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_role_session_runs_only_inside_the_os_layer_unless_allowed.py",
+      "tests/unit/orchestrator/test_the_command_refuses_a_measured_run_on_an_exposed_tier_version.py",
+      "tests/unit/orchestrator/test_the_held_out_tier_and_the_network_reach_every_session.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ]
   },
   {
@@ -260,6 +271,234 @@
     "data": []
   },
   {
+    "name": "a_review_root_outside_the_run_is_not_refused",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "    if run is None or not place.startswith(run.rstrip(\"/\") + \"/\"):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_measured_run_reviews_only_inside_its_own_run_directory.py",
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_review_root_at_the_run_or_beside_it_is_taken",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "    if run is None or not place.startswith(run.rstrip(\"/\") + \"/\"):\n",
+    "new": "    if run is None or not place.startswith(run.rstrip(\"/\")):\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_measured_run_reviews_only_inside_its_own_run_directory.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_review_root_is_judged_as_spelt",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "    place = os.path.realpath(review_root)\n",
+    "new": "    place = os.path.normpath(review_root)\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_measured_run_reviews_only_inside_its_own_run_directory.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_run_about_to_review_shown_no_root_goes_on",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "        if not reviewing:\n",
+    "new": "        if True:\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_measured_run_reviews_only_inside_its_own_run_directory.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_requirement_asks_no_review_root",
+    "file": "src/physgate/evaluation/requirements.py",
+    "old": "    refusal = run_roots_refusal(config, facts.run_dir) or review_root_refusal(\n        facts.run_dir, facts.review_root, reviewing=not facts.new_run\n    )\n",
+    "new": "    refusal = run_roots_refusal(config, facts.run_dir)\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_measured_run_reviews_only_inside_its_own_run_directory.py",
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_decomposition_is_held_to_a_root_it_was_not_given",
+    "file": "src/physgate/evaluation/requirements.py",
+    "old": "reviewing=not facts.new_run",
+    "new": "reviewing=True",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_measured_run_reviews_only_inside_its_own_run_directory.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "decompose_shows_no_review_root",
+    "file": "src/physgate/orchestrator/cli.py",
+    "old": "            review_root=None if args.review_root is None else review_root_path(args.review_root),\n",
+    "new": "            review_root=None,\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_requirement_is_shown_the_run_s_review_root.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_role_session_runs_only_inside_the_os_layer_unless_allowed.py",
+      "tests/unit/orchestrator/test_the_command_refuses_a_measured_run_on_an_exposed_tier_version.py",
+      "tests/unit/orchestrator/test_the_held_out_tier_and_the_network_reach_every_session.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ]
+  },
+  {
+    "name": "run_and_resume_show_no_review_root",
+    "file": "src/physgate/orchestrator/cli.py",
+    "old": "            run_dir=run_dir,\n            review_root=review_root,\n",
+    "new": "            run_dir=run_dir,\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_requirement_is_shown_the_run_s_review_root.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_role_session_runs_only_inside_the_os_layer_unless_allowed.py",
+      "tests/unit/orchestrator/test_the_command_refuses_a_measured_run_on_an_exposed_tier_version.py",
+      "tests/unit/orchestrator/test_the_held_out_tier_and_the_network_reach_every_session.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+    ]
+  },
+  {
+    "name": "the_round_asks_not_where_a_harness_run_reviewed",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        reviewed = _require_reviewed_inside(run_dir, where)\n",
+    "new": "        reviewed = recorded_review_root(run_dir) or run_dir\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_harness_run_that_recorded_no_review_root_is_taken",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if recorded is None:\n",
+    "new": "    if recorded is None:\n        return run_dir\n    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_raw_session_is_not_given_the_harness_run_s_review_root",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "                withheld_reads=(*setup.withheld_reads, str(trial.review_root)),\n",
+    "new": "                withheld_reads=setup.withheld_reads,\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_raw_session_is_not_given_the_standing_review_root",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        withheld_reads=((os.path.realpath(standing_root(Path.home())),) if config.held_out else ()),\n",
+    "new": "        withheld_reads=(),\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_raw_session_on_no_tier_is_given_the_standing_review_root",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        withheld_reads=((os.path.realpath(standing_root(Path.home())),) if config.held_out else ()),\n",
+    "new": "        withheld_reads=(os.path.realpath(standing_root(Path.home())),),\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_raw_arm_installs_no_review_material",
+    "file": "src/physgate/evaluation/per_role/arms/raw.py",
+    "old": "        *(arg for root in setup.withheld_reads for arg in (\"--review-material\", root)),\n",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
     "name": "baseline_last",
     "file": "src/physgate/evaluation/tiers/exposure.py",
     "old": "",
@@ -272,14 +511,25 @@
       "tests/unit/hooks/test_a_run_root_withheld_whole_opens_a_role_session_its_worktree_and_what_it_is_given.py",
       "tests/unit/hooks/test_a_session_s_worktree_is_all_it_reaches_of_the_root_around_it.py",
       "tests/unit/orchestrator/test_a_role_session_is_withheld_its_run_roots_whole_but_its_own_place.py",
-      "tests/unit/ui/test_no_route_serves_the_held_out_tier.py"
+      "tests/unit/ui/test_no_route_serves_the_held_out_tier.py",
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py",
+      "tests/unit/evaluation/exposure/test_a_measured_run_reviews_only_inside_its_own_run_directory.py",
+      "tests/unit/orchestrator/test_a_requirement_is_shown_the_run_s_review_root.py"
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
       "tests/unit/evaluation/exposure/exposure_fixtures.py",
       "tests/unit/evaluation/per_role/task_fixtures.py",
       "tests/unit/evaluation/per_role/test_the_raw_arm_s_credential_is_handled_as_a_role_session_s.py",
-      "tests/unit/orchestrator/orch_helpers.py"
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_role_session_runs_only_inside_the_os_layer_unless_allowed.py",
+      "tests/unit/orchestrator/test_the_command_refuses_a_measured_run_on_an_exposed_tier_version.py",
+      "tests/unit/orchestrator/test_the_held_out_tier_and_the_network_reach_every_session.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
     ]
   }
 ]

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import hashlib
 import io
 import json
 import os
@@ -97,6 +98,13 @@ REVIEW_A, REVIEW_B = (
     "1a2b3c4d-5e6f-4789-8abc-def012345678",
 )
 SID = "2b3c4d5e-6f70-4819-9abc-def012345679"
+#: Taken from the code before the change: the command line a raw session's installer is given for
+#: a harness run naming no held-out tier (the rig's paths written as a placeholder), without and
+#: inside the OS layer.
+BEFORE_RAW_ARGV = {
+    False: "c66c32afa1377f0dc8cc7d18b908d6f81d279894ced1a4e3f6f1e055ad186b0a",
+    True: "c98394eb13a5ab2c5593cdfbce10f9bf038e006a54a5c19937415285837b1655",
+}
 
 
 @dataclass
@@ -462,3 +470,33 @@ def test_a_reviewer_still_reads_its_own_packet_wherever_its_review_root_lies(
     for what in ("reviewer's record", "label key", "protected record"):
         found = paths.protection(str(mine[what]), session.worktree, session, writing=False)
         assert found is not None, f"a reviewer may read its own review's {what}"
+
+
+@pytest.mark.parametrize("layer", [False, True], ids=["without the layer", "inside the layer"])
+def test_a_raw_session_for_a_run_naming_no_held_out_tier_is_installed_as_before(
+    tmp_path: Path, layer: bool
+) -> None:
+    """Nothing protected lies under its review root, so it is given no review root at all."""
+    root = tmp_path.resolve()
+    made = stand_in_store(root / "s")
+    task = made.tasks["visible"][0]
+    plain = config(task, made, held_out=[], held_out_sha256=[], held_out_canaries=[])
+    (root / "w" / "worktree").mkdir(parents=True)
+    temp = root / "pgs" / "0123456789"
+    with pytest.MonkeyPatch.context() as mp:
+        seen = _capture(mp)
+        # The checkout the suite runs from is no part of what is compared.
+        mp.setattr(raw, "harness_protection", lambda: [])
+        raw._install(  # noqa: SLF001
+            setup_for(plain, "control"),
+            root / "w" / "worktree",
+            root / "w" / "session",
+            temp if layer else None,
+            own_temp=temp,
+        )
+    (argv,) = seen
+    assert "--review-material" not in argv, argv
+    spelt = json.dumps(argv).replace(str(root), "<rig>")
+    assert "<rig>" in spelt  # not vacuous: the rig's paths are what was given
+    digest = hashlib.sha256(spelt.encode()).hexdigest()
+    assert digest == BEFORE_RAW_ARGV[layer], (digest, spelt)

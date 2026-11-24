@@ -43,7 +43,8 @@ measured), and its run directory lies beneath one of the run roots the register 
 (:func:`.tiers.exposure.version_refusal`). A version the run
 only withholds, as every run on the role withholds every version, is not one it is on. Such a
 run also withholds whole every run root of the stores it names, where the earlier runs on them
-lie, and nothing else (:func:`.tiers.exposure.run_roots_refusal`).
+lie, and nothing else (:func:`.tiers.exposure.run_roots_refusal`), and reviews inside its own
+run directory, so those roots hold its reviews too (:func:`.tiers.exposure.review_root_refusal`).
 
 These are the evaluation's rules, not the product's: the command's composition root
 registers them with the core, and removing the evaluation removes them.
@@ -51,7 +52,11 @@ registers them with the core, and removing the evaluation removes them.
 
 from __future__ import annotations
 
-from physgate.evaluation.tiers.exposure import run_roots_refusal, version_refusal
+from physgate.evaluation.tiers.exposure import (
+    review_root_refusal,
+    run_roots_refusal,
+    version_refusal,
+)
 from physgate.evaluation.tiers.store import (
     leftover_refusal,
     protected_tier_refusal,
@@ -214,14 +219,20 @@ def a_measured_run_withholds_every_run_root_whole(facts: RunFacts) -> str | None
     An earlier run on the store lies under one of its run roots, its record holding every
     canary of the store, its plan written from its brief, its answer beside it: a later run's
     sessions are withheld each root whole, by rule, but for their own worktree, and nothing
-    else is withheld so (:func:`.tiers.exposure.run_roots_refusal`). At its start and at every
-    run and resume: a root registered while the run was halted refuses it until it names it. A
-    run that is not measured is the product's, and is not held to it.
+    else is withheld so (:func:`.tiers.exposure.run_roots_refusal`). Its reviews (each packet with
+    the brief and the answer, each reviewer's record, the key for labels) run strictly inside its
+    own run directory, so the run roots withhold them whole too, from every later session: the
+    review roots of its stores are inside the run roots, and no other place is withheld whole
+    (:func:`.tiers.exposure.review_root_refusal`). At its start and at every run and resume: a
+    root registered while the run was halted refuses it until it names it, and a run about to
+    review is shown where. A run that is not measured is the product's, and is not held to it.
     """
     config = facts.config
     if measured(config) is None or not (config.held_out or config.withheld_whole):
         return None
-    refusal = run_roots_refusal(config, facts.run_dir)
+    refusal = run_roots_refusal(config, facts.run_dir) or review_root_refusal(
+        facts.run_dir, facts.review_root, reviewing=not facts.new_run
+    )
     if refusal is None:
         return None
     reason, words = refusal
