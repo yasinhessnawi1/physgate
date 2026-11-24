@@ -31,8 +31,8 @@ def _registered(made: StandInStore, root: Path) -> list[str]:
     return [str(r) for r in run_roots(made.store, "control")]
 
 
-def _count(made: StandInStore, where: Path, **changes: object) -> object:
-    m = measured(made, "visible", where, trials=1, **changes)
+def _count(made: StandInStore, where: Path, *, withheld_whole: list[str]) -> object:
+    m = measured(made, "visible", where, trials=1, withheld_whole=withheld_whole)
     return census(made.store, "control", made.version, "visible", m.runs, m.trials)
 
 
