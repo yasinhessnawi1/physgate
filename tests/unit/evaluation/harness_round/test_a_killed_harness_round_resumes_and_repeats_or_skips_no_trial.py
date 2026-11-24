@@ -102,7 +102,10 @@ def test_a_round_killed_before_any_line_of_its_ledger_resumes_to_the_same_end(
     then = rig.driver()
     status, summary = _round(rig, then, resume=True)
     assert status == "done" and summary["done"] is True
-    assert [x["kind"] for x in _ledger(rig)] == kinds
+    # The killed driver's lock is taken over, once the ledger holds its first line.
+    taken = [x["kind"] for x in _ledger(rig)].count("lock_taken_over")
+    assert taken == (1 if after > 0 else 0)
+    assert [x["kind"] for x in _ledger(rig) if x["kind"] != "lock_taken_over"] == kinds
     assert _outcomes(rig) == [(0, "pass"), (1, "pass")]
     assert _run_dirs(rig) == ["0000-1", "0001-1"]
     # Each trial decomposed once, in its one directory, across both processes.
@@ -198,7 +201,10 @@ def test_a_ledger_line_a_kill_cut_off_is_dropped_and_its_step_taken_again(tmp_pa
         _round(rig, rig.driver(killed={2}))
     with (_place(rig) / LEDGER).open("ab") as ledger:
         ledger.write(b'{"kind":"placed","ind')
-    status, _ = _round(rig, rig.driver(), resume=True)
+    try:
+        status, _ = _round(rig, rig.driver(), resume=True)
+    except RoundError as exc:
+        status = f"refused: {exc.context.get('refused_because')}"
     assert status == "done"
     assert _outcomes(rig) == [(0, "pass"), (1, "pass")]
     assert (_place(rig) / LEDGER).read_bytes().endswith(b"\n")

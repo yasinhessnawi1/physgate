@@ -2,23 +2,31 @@
 
 ``physgate harness-round --store S --role control --version V --tier visible [--tier
 validation --tier held_out] --trials K --seed-base B --params P --run-root R --target-from T
---install I --prices DATE --out O [--tasks N] [--resume] [--limit-reset]`` runs one harness
-trial per task and trial of the named tiers, in a fixed order, each a run decomposed and
-driven by this process on a fresh clone of ``T`` inside its own run directory beneath the
+--install I --prices DATE --out O [--tasks N] [--resume] [--limit-reset] [--set-aside I]`` runs
+one harness trial per task and trial of the named tiers, in a fixed order, each a run decomposed
+and driven by this process on a fresh clone of ``T`` inside its own run directory beneath the
 registered run root ``R`` (:mod:`physgate.evaluation.harness_round`). It writes the visible
 tier's run set and records into the new directory ``O``, and everything of a protected tier,
-the combined run set, the ledger and the round's record beneath the role's withheld root.
+the combined run set, the ledger and the round's record beneath the role's withheld root. Until
+the core withholds every run root of a store whole from a run's sessions, only the visible tier
+is run.
 
-``--resume`` goes on with the round ``O`` names, given the same inputs: a killed round resumes
-its killed run and repeats no trial. ``--limit-reset`` is the person's word that the account's
-usage limit has reset, for a run or a decomposition the limit stopped. ``--tasks N`` runs the
-first ``N`` tasks of each named tier in the round's order: a shakedown, whose run sets the
-counting rule refuses as not covering their tier.
+``--resume`` goes on with the round ``O`` names, given the same inputs, on the same code and
+client: a killed round resumes its killed run and repeats no trial. ``--limit-reset`` is the
+person's word that the account's usage limit has reset, for the run or the decomposition the
+round stands waiting at. ``--set-aside I`` is the person's word on trial ``I``'s directory, where
+the round stands stopped for a person: a decomposition that spent its call and left no run after
+the trial's one more go, or a second directory with nothing but its parameters. It is set aside,
+recorded as the person's act, and the trial decomposed again. ``--tasks N`` runs the first ``N``
+tasks of each named tier in the round's order: a shakedown, whose run sets the counting rule
+refuses as not covering their tier.
 
 It prints one JSON line of counts and digests, never a task. Exit 0 once every trial is
-assembled; 75 while the round waits for the account's usage limit (start it again after the
-reset); 77 while it waits for a person to replace a refused credential (start it again after);
-1 with ``refused_because`` and the reason in words when it is refused or stopped.
+assembled; 3 once every trial is assembled but some give the baseline no cap (its plan refuses
+the combined set until a cap rule for such a trial exists); 75 while the round waits for the
+account's usage limit (start it again after the reset); 77 while it waits for a person (a refused
+credential to replace, or a trial's directory to set aside: the line says which); 1 with
+``refused_because`` and the reason in words when it is refused or stopped.
 
 The round's machinery and the scorer's numerical libraries are imported only when it runs.
 """
@@ -56,7 +64,14 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
         "--limit-reset",
         dest="limit_reset",
         action="store_true",
-        help="say that the account's usage limit has reset; recorded on the resume it lets on",
+        help="say that the account's usage limit has reset, for the wait the round stands at",
+    )
+    run.add_argument(
+        "--set-aside",
+        dest="set_aside",
+        type=int,
+        metavar="TRIAL",
+        help="set aside the directory of the trial the round stands stopped at for a person",
     )
     run.set_defaults(func=_run)
 
@@ -78,6 +93,7 @@ def _refused(reason: str, words: str) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     from physgate.evaluation.harness_round import (
+        EXIT_DONE_WITHOUT_CAPS,
         EXIT_WAITING_FOR_A_PERSON,
         CommandDriver,
         Inputs,
@@ -115,6 +131,7 @@ def _run(args: argparse.Namespace) -> int:
             scorer=_score,
             resume=args.resume,
             limit_reset=args.limit_reset,
+            set_aside=args.set_aside,
         )
     except RoundError as exc:
         return _refused(exc.context.get("refused_because", "refused"), str(exc))
@@ -124,4 +141,6 @@ def _run(args: argparse.Namespace) -> int:
     print(json.dumps({"status": status, **summary}, sort_keys=True))
     if status == "waiting_for_a_person":
         return EXIT_WAITING_FOR_A_PERSON
+    if status == "done_without_caps":
+        return EXIT_DONE_WITHOUT_CAPS
     return EXIT_WAITING_FOR_LIMIT if status == "waiting_for_limit" else 0

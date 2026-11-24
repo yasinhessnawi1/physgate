@@ -880,6 +880,35 @@ def test_a_harness_total_of_a_run_with_no_role_session_is_refused(
         harness_total(run)
 
 
+def test_a_role_session_on_the_record_only_as_a_leftover_read_gives_the_run_its_total(
+    tmp_path: Path,
+) -> None:
+    """A session a killed orchestrator left, read whole at the resume, is a role session.
+
+    Its stream held a result and no message, so it spent nothing on the record: the leftover's
+    read is the only line that says a role session ran, and the run's total is held to it.
+    """
+
+    def leftover_only(log: EventLog) -> None:
+        _decomposition_spend(log)
+        log.append(
+            LeftoverRead(
+                **log.envelope(),
+                session_id="left-1",
+                stopped=False,
+                complete=True,
+                trajectory_seal=None,
+            )
+        )
+
+    run = _harness_run(tmp_path, spend=leftover_only)
+    try:
+        total: int | str = harness_total(run)
+    except ComparisonError as exc:
+        total = str(exc)
+    assert total == 100 + 20 + 50
+
+
 def test_the_retry_delays_are_not_held_against_the_raw_arm(tmp_path: Path) -> None:
     """The raw session makes no infrastructure retry; its delays decide nothing it does."""
     assert RUN_FIELDS["bounds.infra_retry_delays_s"] == "not_compared"

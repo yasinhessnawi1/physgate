@@ -23,10 +23,11 @@ from physgate.evaluation import harness_round
 from physgate.evaluation.harness_round import ROUND_RECORD, RoundError, run_round
 
 TIERS = ("visible", "held_out")
-#: What differs between two rigs whatever their trials did: the round's id, and the digests of
-#: inputs that name each rig's own paths.
+#: What differs between two rigs whatever their trials did: the round's id, each rig's own
+#: version, and the digests of inputs that name each rig's own paths.
 PER_RIG = (
     "round",
+    "version",
     "inputs_sha256",
     "check_sha256",
     "params_sha256",

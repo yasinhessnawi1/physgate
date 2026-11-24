@@ -13,9 +13,10 @@
   stop the round as waiting for a person, with nothing spent; started again, the round resumes
   the run, or sets the decomposition aside and decomposes afresh, its one more go still whole.
 - The account's usage limit spends nothing: a run halted on it whose resume the command refuses
-  before the reset, and a decomposition that ended on it, stop the round as waiting for the
-  limit, with nothing written; started again after the reset (with the person's word where the
-  reset was not read), the round goes on.
+  before the reset, and a decomposition that ended on it (named with its spend, not superseded),
+  stop the round as waiting for the limit, with nothing written; started again after the reset
+  (with the person's word where the reset was not read), the round goes on, the trial's one more
+  go still whole.
 """
 
 from __future__ import annotations
@@ -27,7 +28,14 @@ from typing import Any
 from round_rig import SCORED, Rig, StandInDriver, make_rig
 
 from physgate.evaluation.baseline.runner import RunSet
-from physgate.evaluation.harness_round import HARNESS_ROUNDS, LEDGER, ROUND_RECORD, run_round
+from physgate.evaluation.harness_round import (
+    HARNESS_ROUNDS,
+    LEDGER,
+    ROUND_RECORD,
+    RoundError,
+    run_round,
+)
+from physgate.evaluation.per_role.arms.compare import harness_total
 from physgate.evaluation.tiers.store import withheld_root
 from physgate.orchestrator.events import Halted, read_events
 
@@ -101,8 +109,12 @@ def test_a_run_halted_on_the_machine_again_after_its_one_resume_is_unscored(
 ) -> None:
     rig, slept = make_rig(tmp_path), list[float]()
     driver = rig.driver(infra={1, 2, 3, 4})
-    status, _ = _round(rig, driver, slept)
-    assert status == "done"
+    try:
+        status, _ = _round(rig, driver, slept)
+    except RoundError as exc:
+        status = f"refused: {exc.context.get('refused_because')}"
+    # No cap: the baseline's plan refuses the set until a cap rule for the trial exists.
+    assert status == "done_without_caps"
     assert [d.resume for d in driver.drives] == [False, True]
     assert _halts(rig, "0000-1") == ["infrastructure_exhausted", "infrastructure_exhausted"]
     assert _outcome(rig) == "unscored"
@@ -135,6 +147,11 @@ def test_a_decomposition_the_machine_ended_is_superseded_by_one_fresh_decomposit
     assert [(x["attempt"], x["cause"], x["tokens"]) for x in record["superseded"]] == [
         (1, "api_error", 70)
     ]
+    # The cap is the counted run's spend alone: the superseded run's is in no cap.
+    counted = harness_total(rig.run_root / summary["round"] / "0000-2")
+    (assembled,) = _ledger(rig, "assembled")
+    assert assembled["harness_total"] == counted
+    assert [t["harness_total"] for t in record["trials"]] == [counted]
     # Superseded, not erased: it stays beneath the run root, where the exposure scan reads it.
     first = rig.run_root / summary["round"] / "0000-1"
     assert (first / "events.jsonl").is_file()
@@ -147,7 +164,8 @@ def test_a_second_decomposition_the_machine_ended_is_unscored_and_there_is_no_th
     rig, slept = make_rig(tmp_path), list[float]()
     driver = rig.driver(fails={1: "api_error", 2: "sandbox_unavailable"})
     status, _ = _round(rig, driver, slept)
-    assert status == "done"
+    # No cap: the baseline's plan refuses the set until a cap rule for the trial exists.
+    assert status == "done_without_caps"
     assert [c.run_dir.name for c in driver.decomposed] == ["0000-1", "0000-2"]
     assert driver.drives == []
     assert _outcome(rig) == "unscored" and _run_dirs(rig) == ["0000-2"]
@@ -160,7 +178,8 @@ def test_a_decomposition_that_failed_on_its_own_is_the_harness_s_fail_and_gives_
     rig, slept = make_rig(tmp_path), list[float]()
     driver = rig.driver(fails={1: "invalid_plan"})
     status, _ = _round(rig, driver, slept)
-    assert status == "done"
+    # No cap: the baseline's plan refuses the set until a cap rule for the trial exists.
+    assert status == "done_without_caps"
     assert [c.run_dir.name for c in driver.decomposed] == ["0000-1"]
     assert _ledger(rig, "superseded") == [] and slept == []
     assert _outcome(rig) == "fail"
@@ -176,7 +195,9 @@ def test_a_decomposition_ended_on_the_usage_limit_waits_for_the_reset_and_spends
     status, summary = _round(rig, first, slept)
     assert status == "waiting_for_limit" and summary["done"] is False
     assert [c.run_dir.name for c in first.decomposed] == ["0000-1"]
-    assert [x["cause"] for x in _ledger(rig, "superseded")] == ["usage_limit"]
+    # Named with its spend, and no attempt: nothing is superseded on the limit.
+    assert [(x["attempt"], x["tokens"]) for x in _ledger(rig, "limit")] == [(1, 70)]
+    assert _ledger(rig, "superseded") == []
     placed = len(_ledger(rig, "placed"))
     # Started again before the person says the limit reset: still waiting, nothing made.
     again = rig.driver()
@@ -224,7 +245,8 @@ def test_a_trial_whose_fresh_decomposition_halts_on_the_machine_is_not_resumed_b
     rig, slept = make_rig(tmp_path), list[float]()
     driver = rig.driver(fails={1: "api_error"}, infra={1, 2})
     status, _ = _round(rig, driver, slept)
-    assert status == "done"
+    # No cap: the baseline's plan refuses the set until a cap rule for the trial exists.
+    assert status == "done_without_caps"
     assert [c.run_dir.name for c in driver.decomposed] == ["0000-1", "0000-2"]
     assert [(d.run_dir.name, d.resume) for d in driver.drives] == [("0000-2", False)]
     assert _halts(rig, "0000-2") == ["infrastructure_exhausted"]
@@ -244,10 +266,7 @@ def test_the_word_that_the_limit_reset_is_for_the_wait_it_was_given_at_and_no_la
     status, _ = _round(rig, after, slept, resume=True, limit_reset=True, trials=2)
     assert status == "waiting_for_limit"
     assert [c.run_dir.name for c in after.decomposed] == ["0000-2", "0001-1"]
-    assert [(x["index"], x["cause"]) for x in _ledger(rig, "superseded")] == [
-        (0, "usage_limit"),
-        (1, "usage_limit"),
-    ]
+    assert [(x["index"], x["attempt"]) for x in _ledger(rig, "limit")] == [(0, 1), (1, 1)]
 
 
 def test_a_decomposition_on_a_refused_credential_waits_for_a_person_and_spends_no_attempt(

@@ -13,8 +13,7 @@ session wrote.
 
 The other row is the same run with the plan's module directory in another layout (not directly
 under ``modules/``): the session writes the answer where it is told to, the attempt merges, and
-the extraction finds no answer file (``contract_lost``), the harness's own fail. Nothing is
-changed here to read it; what that layout costs is said in the row.
+the extraction, which reads the module directory the run's own plan names, finds it there.
 """
 
 from __future__ import annotations
@@ -47,11 +46,12 @@ from physgate.evaluation.harness_round import (  # noqa: E402
     Drive,
 )
 from physgate.evaluation.per_role.arms.compare import ENDED_STEPS, harness_total  # noqa: E402
-from physgate.evaluation.per_role.arms.harness import extract  # noqa: E402
+from physgate.evaluation.per_role.arms.harness import extract, planned_module_dirs  # noqa: E402
 from physgate.evaluation.tiers.exposure import MOST_DEPTH  # noqa: E402
 from physgate.evaluation.tiers.task import parse_task  # noqa: E402
 from physgate.knowledge import loader  # noqa: E402
 from physgate.orchestrator.cli import Registrations  # noqa: E402
+from physgate.orchestrator.events import read_events  # noqa: E402
 from physgate.orchestrator.git import commit_all  # noqa: E402
 from physgate.orchestrator.run_config import ModelStrings  # noqa: E402
 
@@ -207,7 +207,7 @@ def test_a_control_brief_s_answer_is_found_on_the_run_branch_where_the_harness_a
     # Merged, and ended as the loop's rules end such a run: nothing left for it to do.
     assert printed["subtasks"] and set(printed["subtasks"].values()) == {"done"}, printed
     assert printed["step"] in ENDED_STEPS, printed
-    got = extract(repo, "run-1", TASK.answer.path, tmp_path / "answer" / TASK.answer.path)
+    got = _extracted(repo, run_dir, tmp_path)
     assert got.status == "found", got
     assert got.paths == (f"modules/ctl/{TASK.answer.path}",)
     assert (tmp_path / "answer" / TASK.answer.path).read_text() == ANSWER
@@ -215,20 +215,27 @@ def test_a_control_brief_s_answer_is_found_on_the_run_branch_where_the_harness_a
     assert harness_total(run_dir) > 0
 
 
-def test_a_module_directory_in_another_layout_leaves_the_answer_where_the_arm_never_reads(
+def _extracted(repo: Path, run_dir: Path, tmp_path: Path) -> Any:  # noqa: ANN401
+    """The extraction as the round makes it: from the module directories the run's plan names."""
+    planned = planned_module_dirs(read_events(run_dir / "events.jsonl"), "control")
+    out = tmp_path / "answer" / TASK.answer.path
+    return extract(repo, "run-1", TASK.answer.path, out, module_dirs=planned)
+
+
+def test_a_module_directory_in_another_layout_is_where_the_arm_reads_the_answer(
     tmp_path: Path,
     install: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reported, not changed: the plan check takes this layout, and the extraction finds nothing.
+    """The plan check takes a module directory outside ``modules/``, and the answer is read there.
 
     The planner is asked for ``modules/<name>`` and nothing holds it to that form, so a plan
-    whose module lies elsewhere runs as any other, and its answer, written where the session is
-    told to write, is not where the extraction looks (directly inside a ``modules/`` directory).
-    The trial counts as the harness's own fail.
+    whose module lies elsewhere runs as any other; its answer, written where the session is told
+    to write, is read from the directory the run's plan names.
     """
-    repo, _, printed = _run(tmp_path, install, monkeypatch, "control/ctl")
+    repo, run_dir, printed = _run(tmp_path, install, monkeypatch, "control/ctl")
     assert printed["subtasks"] and set(printed["subtasks"].values()) == {"done"}, printed
-    got = extract(repo, "run-1", TASK.answer.path, tmp_path / "answer" / TASK.answer.path)
-    assert got.status == "contract_lost", got
-    assert not (tmp_path / "answer").exists()
+    got = _extracted(repo, run_dir, tmp_path)
+    assert got.status == "found", got
+    assert got.paths == (f"control/ctl/{TASK.answer.path}",)
+    assert (tmp_path / "answer" / TASK.answer.path).read_text() == ANSWER

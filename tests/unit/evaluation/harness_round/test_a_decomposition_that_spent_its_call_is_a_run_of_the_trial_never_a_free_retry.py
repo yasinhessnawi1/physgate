@@ -192,8 +192,8 @@ def test_a_void_a_person_must_fix_says_so_when_it_stops_the_round(
     assert status == "waiting_for_a_person"
     assert [c.run_dir.name for c in driver.decomposed] == ["0000-1", "0000-2"]
     waiting = summary["waiting"]
-    assert waiting["cause"] == "ModelSeparationError" and waiting["fix_first"] is True
-    assert _gone(rig, 1)[0][1] == "ModelSeparationError"
+    assert waiting["cause"] == "model_separation" and waiting["fix_first"] is True
+    assert _gone(rig, 1)[0][1] == "model_separation"
 
 
 def test_a_decomposition_killed_during_its_plan_s_review_leaves_nothing_running_or_unread(
