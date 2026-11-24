@@ -141,8 +141,22 @@ def make_layout(base: Path) -> SimpleNamespace:
     _write(store / "control" / "withheld" / "pool" / "task.json", "{}\n")
     (store / "control" / "work").mkdir(parents=True)
     (home / "install" / "bin").mkdir(parents=True)
+    # A stand-in for the checkout the orchestrator runs from. The real one is the checkout these
+    # rows run in, where other test processes compile bytecode while a session's sentinel would
+    # put its source tree back.
+    harness = home / "harness"
+    _write(harness / "pyproject.toml", "[project]\nname = 'stand-in'\n")
+    _write(harness / "src" / "physgate" / "gate" / "check.py", "CHECK = True\n")
+    _write(harness / "knowledge" / "control" / "skill.md", "a skill\n")
     return SimpleNamespace(
-        home=home, run=run, run_dir=run_dir, repo=repo, other=other, review=review, store=store
+        harness=harness,
+        home=home,
+        run=run,
+        run_dir=run_dir,
+        repo=repo,
+        other=other,
+        review=review,
+        store=store,
     )
 
 
@@ -416,6 +430,7 @@ RAW = ("raw-trial", "raw-outside-a-round")
 def installed(kind: str, base: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """One session of ``kind``, installed and started, in a fresh stand-in home."""
     lay = make_layout(Path(os.path.realpath(base)))
+    monkeypatch.setattr(dispatch, "harness_root", lambda: lay.harness)
     extra: dict[str, Path] = {}
     if kind in ROLE:
         worktree, settings = install_role(
@@ -649,21 +664,24 @@ def test_a_write_inside_the_worktree_is_allowed_as_before(
 
 
 @pytest.mark.parametrize("kind", list(WRITING_KINDS), ids=list(WRITING_KINDS))
-def test_every_refusal_a_listed_rule_gives_in_the_worktree_keeps_its_reason(
+def test_every_refusal_a_listed_rule_gives_keeps_its_reason(
     kind: str, outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     s = installed(kind, outside_tmp, monkeypatch)
-    harness = str(Path(hooks_cli.__file__).resolve())
     rows = [
         (str(s.worktree / ".claude" / "settings.json"), WT_SETTINGS),
-        (harness, HOOK_CODE if kind == "orchestrator" else HARNESS),
+        (str(Path(hooks_cli.__file__).resolve()), HOOK_CODE),
+        (
+            str(s.lay.harness / "src" / "physgate" / "gate" / "check.py"),
+            OUTSIDE if kind == "orchestrator" else HARNESS,
+        ),
     ]
     wrong = [
         f"{tool} {path}: wanted {want!r}, told {said[:300]!r}"
         for path, want in rows
         for tool in WRITERS
         for code, said, _ in [s.hooks.write(tool, path)]
-        if code == 0 or want not in said or OUTSIDE in said
+        if code == 0 or want not in said or (want != OUTSIDE and OUTSIDE in said)
     ]
     assert not wrong, "\n".join(wrong)
 
