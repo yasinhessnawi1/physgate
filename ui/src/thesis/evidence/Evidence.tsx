@@ -1,7 +1,8 @@
 /**
  * Evidence: what the recorded runs measured, read-only. Five tabs over the evaluation's read
  * routes: the runs side by side with their kind, settings and pins; the two gaps each time they
- * were measured, as the gap trend's reader read them; a run's spend per role; two runs compared,
+ * were measured, as the gap trend's reader read them, headed by each role's current tier version as
+ * last published from the tier store; a run's spend per role; two runs compared,
  * or the refusal naming the settings that differ; and the gate's catches per kind of run. Every
  * figure is a route's answer and names the run it came from; none is made here.
  *
@@ -31,6 +32,7 @@ import { CompareTab } from "./Compare";
 import { GapsTab } from "./Gaps";
 import { RunsTab } from "./Runs";
 import { SpendTab } from "./Spend";
+import { TierPanel } from "./Tiers";
 import { EVIDENCE_COPY } from "./words";
 
 export const TABS = ["runs", "gaps", "spend", "compare", "catches"] as const;
@@ -117,7 +119,10 @@ export default function Evidence({ setHeader, query }: ViewProps) {
       />
       <section className="evidence-panel" aria-label={TAB_WORDS[tab]} data-tab={tab}>
         {tab === "gaps" ? (
-          <Gaps />
+          <>
+            <TierPanel />
+            <Gaps />
+          </>
         ) : runs.result === null ? (
           <LoadingState reading={EVIDENCE_COPY.readingRuns} />
         ) : runs.result.ok ? (

@@ -177,6 +177,44 @@ export const EVIDENCE_COPY = {
   noNumbers: "None of the measurements' numbers can be shown: the table says why for each.",
   noNumberOfIt: "No number of it is shown.",
   readAtAsSent: (readAt: string) => `Read from the gap trend at ${readAt}.`,
+  tierPanelTitle: "Tier versions",
+  tierPanelLead:
+    "The version of each role's tasks that runs are measured on: how many tasks each tier holds, what the blind check of its held-out tasks found, and whether anything has seen them. These are the tiers' sizes and properties, fixed before any result; no result of any run is shown here.",
+  readingTiers: "the tier versions",
+  tiersRefused: "The tier versions could not be read",
+  noTiers: "No tier status of this role has been published for this page.",
+  tiersNotShown: (role: string) => `The tier version of the ${role} role is not shown`,
+  tiersVersion: "Version",
+  tiersTasks: "Tasks",
+  tierCounts: (visible: number, validation: number, heldOut: number) =>
+    `${String(visible)} visible · ${String(validation)} validation · ${String(heldOut)} held-out tasks`,
+  blindCheck: "Blind check",
+  checkCounts: (allYes: number, tasks: number, leftOut: number) =>
+    `${String(allYes)} of ${String(tasks)}, ${String(leftOut)} left out by a rule fixed in advance`,
+  checkSource: {
+    check: "answered by the check itself",
+    imported: "imported from the check's kept session",
+  },
+  noBlindCheck: "none recorded, so its held-out tasks are not scored",
+  checkRefused: (reason: string) => `its record is refused (${reason})`,
+  exposureLabel: "Exposure",
+  exposureWords: {
+    none: "none",
+    exposed: "seen by a run or a person",
+    exposed_unchecked: "possibly seen: a session nobody checked had its tasks",
+  },
+  stateLabel: "State",
+  stateWords: {
+    fresh: "fresh: written to today's question",
+    stale: "stale: the question has changed or the tasks were seen",
+  },
+  measured: "Measured: no result of it is shown here.",
+  notMeasuredYet: "No measured run yet.",
+  tiersReadAt: (day: string, time: string, zone: string, age: string | null) =>
+    `Read from the tier store on ${day} at ${time} ${zone}${age === null ? "" : ` (${age})`}.`,
+  tiersReadAtAsSent: (readAt: string) => `Read from the tier store at ${readAt}.`,
+  tiersStale:
+    "This copy is more than a week old: a version written or seen since is not on it. Publish the tier status again for a current copy.",
 } as const;
 
 /** Each kind's section heading, in the order the screen shows them. */

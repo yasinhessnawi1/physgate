@@ -778,3 +778,170 @@ export function evidenceGaps(value: unknown): GapTrend {
     throw new ShapeError("each role once");
   return { roles };
 }
+
+// -- the tier versions ----------------------------------------------------------------------
+
+export const TIERS_ROUTE = "/api/evidence/tiers";
+
+/** The words a version's exposure, its state and its check's source are sent in, and no other. */
+export const EXPOSURES = ["none", "exposed", "exposed_unchecked"] as const;
+export type Exposure = (typeof EXPOSURES)[number];
+export const VERSION_STATES = ["fresh", "stale"] as const;
+export type VersionState = (typeof VERSION_STATES)[number];
+export const CHECK_SOURCES = ["check", "imported"] as const;
+export type CheckSource = (typeof CHECK_SOURCES)[number];
+/** Why a version's check record is refused, as the server sends it. */
+export const CHECK_REFUSALS = [
+  "check_record_changed",
+  "check_record_invalid",
+  "check_record_not_the_version",
+  "check_record_unreadable",
+  "check_record_unsynced",
+  "check_record_unwritten",
+] as const;
+export type CheckRefusal = (typeof CHECK_REFUSALS)[number];
+
+/** The three tiers' task counts: the tiers' sizes, never a result. */
+export interface TierCounts {
+  readonly visible: number;
+  readonly validation: number;
+  readonly heldOut: number;
+}
+
+/** The blind check: none recorded, its counts and source, or why its record is refused. */
+export type BlindCheck =
+  | { readonly state: "none" }
+  | {
+      readonly state: "read";
+      readonly tasks: number;
+      readonly allYes: number;
+      readonly leftOut: number;
+      readonly source: CheckSource;
+    }
+  | { readonly state: "refused"; readonly refused: CheckRefusal };
+
+/** A role's current tier version: none published, as published, or why it is not shown. */
+export type RoleTiers =
+  | { readonly role: TrendRole; readonly state: "none" }
+  | {
+      readonly role: TrendRole;
+      readonly state: "read";
+      readonly readAt: string;
+      readonly version: string;
+      readonly counts: TierCounts;
+      readonly check: BlindCheck;
+      readonly exposure: Exposure;
+      readonly versionState: VersionState;
+      readonly measured: boolean;
+    }
+  | {
+      readonly role: TrendRole;
+      readonly state: "refused";
+      readonly error: string;
+      readonly reason: string;
+      readonly readAt: string | null;
+    };
+
+export interface TierStatus {
+  readonly roles: readonly RoleTiers[];
+}
+
+function tierCounts(value: unknown): TierCounts {
+  const c = exact(value, "the tiers' task counts", ["visible", "validation", "held_out"]);
+  return {
+    visible: count(c.visible, "the visible tier's task count"),
+    validation: count(c.validation, "the validation tier's task count"),
+    heldOut: count(c.held_out, "the held-out tier's task count"),
+  };
+}
+
+function blindCheck(value: unknown, heldOut: number): BlindCheck {
+  if (value === null) return { state: "none" };
+  const record = object(value, "the blind check");
+  if (Object.hasOwn(record, "refused")) {
+    const no = exact(value, "a refused blind check", ["refused"]);
+    return { state: "refused", refused: oneOf(no.refused, CHECK_REFUSALS, "why it is refused") };
+  }
+  const c = exact(value, "the blind check", ["tasks", "all_yes", "left_out", "source"]);
+  const tasks = count(c.tasks, "the tasks checked");
+  const allYes = count(c.all_yes, "the tasks with every answer yes");
+  const leftOut = count(c.left_out, "the tasks left out");
+  // The check reads every held-out task, and each is either kept or left out.
+  if (tasks === 0 || allYes + leftOut !== tasks || tasks !== heldOut)
+    throw new ShapeError("the blind check's counts");
+  return {
+    state: "read",
+    tasks,
+    allYes,
+    leftOut,
+    source: oneOf(c.source, CHECK_SOURCES, "where the check's answer came from"),
+  };
+}
+
+const TIERS_READ = [
+  "role",
+  "state",
+  "read_at",
+  "version",
+  "counts",
+  "check",
+  "exposure",
+  "version_state",
+  "measured",
+];
+
+function roleTiers(value: unknown): RoleTiers {
+  const r = object(value, "a role's tier version");
+  const role = oneOf(r.role, TREND_ROLES, "a role");
+  switch (r.state) {
+    case "none":
+      exact(value, "a role with no tier status", ["role", "state"]);
+      return { role, state: "none" };
+    case "read": {
+      const read = exact(value, "a role's tier version", TIERS_READ);
+      const counts = tierCounts(read.counts);
+      const exposure = oneOf(read.exposure, EXPOSURES, "a version's exposure");
+      const versionState = oneOf(read.version_state, VERSION_STATES, "a version's state");
+      // An exposed version is stale: a record that says otherwise is not the server's.
+      if (exposure !== "none" && versionState !== "stale")
+        throw new ShapeError("a version's exposure and state");
+      return {
+        role,
+        state: "read",
+        readAt: text(read.read_at, "when the status was read"),
+        version: matching(read.version, VERSION, "a tier version"),
+        counts,
+        check: blindCheck(read.check, counts.heldOut),
+        exposure,
+        versionState,
+        measured: flag(read.measured, "whether the version was measured"),
+      };
+    }
+    case "refused": {
+      const no = exact(value, "a refused tier status", [
+        "role",
+        "state",
+        "error",
+        "reason",
+        "read_at",
+      ]);
+      return {
+        role,
+        state: "refused",
+        error: text(no.error, "why a tier status is not shown"),
+        reason: text(no.reason, "a reason"),
+        readAt: optionalText(no.read_at, "when the status was read"),
+      };
+    }
+    default:
+      throw new ShapeError("a role's tier version");
+  }
+}
+
+export function evidenceTiers(value: unknown): TierStatus {
+  const answer = exact(value, "the tier versions", ["roles"]);
+  const roles = list(answer.roles, "the roles' tier versions").map(roleTiers);
+  if (new Set(roles.map((r) => r.role)).size !== roles.length)
+    throw new ShapeError("each role once");
+  return { roles };
+}
