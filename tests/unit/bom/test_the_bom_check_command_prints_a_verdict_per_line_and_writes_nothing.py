@@ -10,6 +10,7 @@ shown, what the lines are, and what this check leaves out.
 from __future__ import annotations
 
 import json
+import socket
 from pathlib import Path
 from typing import Any
 
@@ -59,13 +60,14 @@ def test_the_table_names_the_line_its_verdict_and_marks_an_example_value(
     assert "7 d (Norway)" in row and "7 d (Norway)*" not in row  # a figure read is not
     assert "* example value" in out
     assert "quantities: operator's input" in out
+    assert "quantity needed: 1 (unit 1, operator's input)" in out
 
 
 def test_a_line_left_without_a_quantity_is_incomplete_with_its_reason_printed(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     status, out, _ = _run(capsys, tmp_path, "--sheet", _sheet(tmp_path))
-    assert status == EXIT_INCOMPLETE
+    assert status == EXIT_INCOMPLETE == 3
     assert "quantity needed not recorded: the minimum-order rule is not judged" in out
     assert "INCOMPLETE" in out
 
@@ -76,7 +78,7 @@ def test_a_failing_line_fails_the_command(
     lead = {"value": 5, "unit": "week", "scope": "norway", "source": EXAMPLE}
     sheet = _sheet(tmp_path, lead_time_to_norway=lead)
     status, out, _ = _run(capsys, tmp_path, "--sheet", sheet, "--quantities", _one(tmp_path))
-    assert status == EXIT_FAILS
+    assert status == EXIT_FAILS == 1
     assert "above the four-week limit" in out
 
 
@@ -117,7 +119,7 @@ def test_a_run_with_no_parts_decision_has_no_lines_and_that_is_not_a_pass(
 ) -> None:
     run = write_run(tmp_path / "off", not_asking())
     status, out, _ = _run(capsys, tmp_path, run=run)
-    assert status == EXIT_NO_LINES
+    assert status == EXIT_NO_LINES == 4
     assert "no lines" in out
     assert "No lines is not a pass." in out
 
@@ -169,15 +171,76 @@ def test_a_sheet_with_a_bare_number_is_refused_by_the_command(
     assert "unit_price" in json.loads(err)["error"]
 
 
-def test_the_command_writes_nothing_into_the_run(
+def _everything(root: Path) -> dict[Path, tuple[bytes, int] | None]:
+    return {
+        p: (p.read_bytes(), p.stat().st_mtime_ns) if p.is_file() else None for p in root.rglob("*")
+    }
+
+
+def test_the_command_writes_nothing_in_the_run_its_home_or_its_working_directory(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = write_run(tmp_path / "run")
+    sheet, quantities = _sheet(tmp_path), _one(tmp_path)
+    home, work = tmp_path / "home", tmp_path / "work"
+    home.mkdir()
+    work.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(work)
+    before_all = _everything(tmp_path)
+    for extra in (["--json"], [], ["--quantities", quantities], ["--sheet", "absent.json"]):
+        _run(capsys, tmp_path, "--sheet", sheet, *extra, run=run)
+    _run(capsys, tmp_path, run=run)
+    assert _everything(tmp_path) == before_all
+
+
+def test_the_command_runs_with_every_way_to_the_network_refused(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    opened: list[str] = []
+
+    def refused(*args: object, **kwargs: object) -> None:
+        opened.append(repr(args))
+        msg = "the check opened the network"
+        raise AssertionError(msg)
+
+    for name in ("socket", "create_connection", "getaddrinfo", "socketpair"):
+        monkeypatch.setattr(socket, name, refused)
+    status, out, _ = _run(capsys, tmp_path, "--json")
+    assert opened == []
+    assert status == json.loads(out)["exit_status"] == 3
+    status, out, _ = _run(
+        capsys, tmp_path, "--sheet", _sheet(tmp_path), "--quantities", _one(tmp_path)
+    )
+    assert opened == []
+    assert status == 0
+
+
+def test_an_empty_run_event_log_is_refused_as_no_run(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    run = write_run(tmp_path / "empty", [])
+    status, out, err = _run(capsys, tmp_path, run=run)
+    assert status == 2
+    assert out == ""
+    assert "holds no line" in json.loads(err)["error"]
+
+
+def test_a_last_line_cut_mid_write_is_left_out_and_said(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     run = write_run(tmp_path / "run")
-    before_files = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in run.rglob("*")}
-    _run(capsys, tmp_path, "--sheet", _sheet(tmp_path), "--json", run=run)
-    _run(capsys, tmp_path, "--sheet", _sheet(tmp_path), run=run)
-    after_files = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in run.rglob("*")}
-    assert after_files == before_files
+    with (run / "events.jsonl").open("ab") as log:
+        log.write(b'{"kind": "ru')
+    sheet = _sheet(tmp_path)
+    status, out, _ = _run(capsys, tmp_path, "--sheet", sheet, run=run)
+    assert status == 3
+    assert "its last line is cut mid-write" in out
+    status, out, _ = _run(capsys, tmp_path, "--sheet", sheet, "--json", run=run)
+    assert json.loads(out)["torn_last_line"] is True
+    whole = write_run(tmp_path / "whole")
+    _, out, _ = _run(capsys, tmp_path, "--sheet", sheet, "--json", run=whole)
+    assert json.loads(out)["torn_last_line"] is False
 
 
 def test_the_command_runs_on_the_committed_example_sheet_by_default(

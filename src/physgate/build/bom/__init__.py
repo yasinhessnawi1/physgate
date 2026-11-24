@@ -10,7 +10,7 @@ frozen risk table sets for sourcing in Norway.
 - :mod:`.check`: the lines of a run and the verdict rules.
 - :mod:`.cli`: ``physgate bom check <run>``.
 
-Deliberately not here: a live distributor (it needs credentials, and which one is the owner's
-decision), the orchestrator sending a failing line back to a role, and the measurement the risk
-row asks for. There is no way to order: the check only reads (ARCH-121).
+Deliberately not here: a live distributor (it needs credentials, and which distributor to
+use is not chosen here), the orchestrator sending a failing line back to a role, and the
+measurement the risk row asks for. There is no way to order: the check only reads (ARCH-121).
 """

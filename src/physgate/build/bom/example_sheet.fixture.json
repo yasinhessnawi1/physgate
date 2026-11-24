@@ -2,7 +2,7 @@
  "header": {
   "kind": "example fixture",
   "statement": "An example price sheet for demonstration, not live distributor data. Every availability, price, order quantity, order multiple and lead time in it is an example value written by hand to show each verdict of the check; none was read from a distributor, and none is a price to rely on. A maker's part number is given only where the reference brief's plan names it.",
-  "written_for": "the part names the reference brief's plans have used",
+  "written_for": "the node ids that recorded plans for the reference brief have given their parts; a plan that names its parts otherwise finds them not in the sheet",
   "written_on": "2026-11-24"
  },
  "entries": [

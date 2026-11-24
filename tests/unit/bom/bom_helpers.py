@@ -8,6 +8,7 @@ or changed where a row needs another shape.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -100,3 +101,42 @@ def write_json(path: Path, data: object) -> Path:
     """``data`` as a JSON file at ``path``."""
     path.write_text(json.dumps(data))
     return path
+
+
+#: The fixture run's one part a person answered "find".
+FIXTURE_FIND = "electrical.wheel_encoder"
+
+
+def renamed(node: str) -> list[dict[str, Any]]:
+    """The fixture run with its part to find named ``node``, its release record digest remade.
+
+    The release line names the digest and length of the decisions' record (each component's
+    node, label, choice and what it stated, as canonical JSON), so a renamed part needs it remade
+    from the renamed lines for replay to take the log.
+    """
+    lines = [
+        json.loads(json.dumps(one).replace(json.dumps(FIXTURE_FIND), json.dumps(node)))
+        for one in LINES
+    ]
+    (planned,) = [one for one in lines if one["kind"] == "decomposed"]
+    (release,) = [one for one in lines if one["kind"] == "parts_released"]
+    labels = {one["node"]: one["label"] for one in planned["components"]}
+    record = json.dumps(
+        {
+            "components": [
+                {
+                    "node": one["node"],
+                    "label": labels[one["node"]],
+                    "choice": one["choice"],
+                    "declared": (one["parts"] or {}).get("declared", {}),
+                    "texts": list((one["parts"] or {}).get("texts", [])),
+                }
+                for one in release["components"]
+            ]
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    release["record_sha256"] = hashlib.sha256(record).hexdigest()
+    release["record_length"] = len(record)
+    return lines

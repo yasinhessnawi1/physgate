@@ -44,6 +44,10 @@ DAYS_PER_UNIT: dict[str, int] = {"d": 1, "week": 7}
 
 Text = Annotated[str, StringConstraints(min_length=1)]
 
+#: A price or a lead time: above zero. A free part or one that arrives at once is no figure a
+#: distributor gives, so a zero is refused as a slip, not checked as a pass.
+Positive = Annotated[float | int, Field(gt=0)]
+
 
 class SheetError(ValueError):
     """The sheet, or the quantities a person gave, cannot be read as this check needs them."""
@@ -87,7 +91,7 @@ class Availability(_Frozen):
 class Price(_Frozen):
     """The price of one piece: an amount and its currency code."""
 
-    value: Annotated[float | int, Field(ge=0)]
+    value: Positive
     unit: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
     source: Source
 
@@ -108,7 +112,7 @@ class SourcedCount(Count):
 class LeadTime(_Frozen):
     """How long the part takes to arrive, and whether that is to Norway or only in general."""
 
-    value: Annotated[float | int, Field(ge=0)]
+    value: Positive
     unit: Literal["d", "week"]
     scope: Literal["norway", "generic"]
     source: Source

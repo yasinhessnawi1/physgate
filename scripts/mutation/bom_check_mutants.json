@@ -10,6 +10,7 @@
       "tests/unit/bom/test_the_lines_are_the_plans_parts_a_person_answered_find.py",
       "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
       "tests/unit/bom/test_the_check_can_only_read_and_never_order.py",
+      "tests/unit/bom/test_the_example_sheet_gives_each_verdict_its_header_promises.py",
       "tests/unit/bom/bom_helpers.py"
     ],
     "data": [
@@ -346,6 +347,140 @@
     ]
   },
   {
+    "name": "exit_value_for_a_failure_changed",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "EXIT_FAILS = 1\n",
+    "new": "EXIT_FAILS = 7\n",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "exit_value_for_incomplete_changed",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "EXIT_INCOMPLETE = 3\n",
+    "new": "EXIT_INCOMPLETE = 5\n",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/test_the_example_sheet_gives_each_verdict_its_header_promises.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "exit_value_for_no_lines_changed",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "EXIT_NO_LINES = 4\n",
+    "new": "EXIT_NO_LINES = 9\n",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_price_or_lead_time_of_zero_taken",
+    "file": "src/physgate/build/bom/sheet.py",
+    "old": "Positive = Annotated[float | int, Field(gt=0)]",
+    "new": "Positive = Annotated[float | int, Field(ge=0)]",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_file_written_in_the_working_directory",
+    "file": "src/physgate/build/bom/cli.py",
+    "old": "    results = check_lines(lines, sheet, quantities)\n",
+    "new": "    results = check_lines(lines, sheet, quantities)\n    Path(\"bom-cache.txt\").write_text(\"x\")\n",
+    "tests": [
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_name_looked_up_on_the_network",
+    "file": "src/physgate/build/bom/cli.py",
+    "old": "    status = exit_status(results)\n",
+    "new": "    __import__(\"socket\").getaddrinfo(\"localhost\", 80)\n    status = exit_status(results)\n",
+    "tests": [
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "an_empty_log_answered_as_no_lines",
+    "file": "src/physgate/build/bom/cli.py",
+    "old": "        if not log:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_cut_last_line_left_unsaid",
+    "file": "src/physgate/build/bom/cli.py",
+    "old": "torn = bool(raw) and not raw.endswith(b\"\\n\")",
+    "new": "torn = False",
+    "tests": [
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "the_quantity_s_unit_left_out",
+    "file": "src/physgate/build/bom/cli.py",
+    "old": "(unit {quantity.unit}, operator's input)",
+    "new": "(operator's input)",
+    "tests": [
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "the_sheet_s_failing_lead_time_passed",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "if held.days() > LEAD_TIME_LIMIT_DAYS:",
+    "new": "if held.days() > LEAD_TIME_LIMIT_DAYS * 2:",
+    "tests": [
+      "tests/unit/bom/test_the_example_sheet_gives_each_verdict_its_header_promises.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
     "name": "baseline_last",
     "file": "src/physgate/build/bom/check.py",
     "old": "",
@@ -356,6 +491,7 @@
       "tests/unit/bom/test_the_lines_are_the_plans_parts_a_person_answered_find.py",
       "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
       "tests/unit/bom/test_the_check_can_only_read_and_never_order.py",
+      "tests/unit/bom/test_the_example_sheet_gives_each_verdict_its_header_promises.py",
       "tests/unit/bom/bom_helpers.py"
     ],
     "data": [

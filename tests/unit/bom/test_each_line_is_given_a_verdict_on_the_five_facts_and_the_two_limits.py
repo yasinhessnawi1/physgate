@@ -18,6 +18,7 @@ from physgate.build.bom.check import (
     EXIT_INCOMPLETE,
     EXIT_NO_LINES,
     EXIT_PASSES,
+    EXIT_REFUSED,
     NO_QUANTITY,
     NOT_FOUND,
     UNVERIFIABLE,
@@ -160,4 +161,11 @@ def test_the_exit_status_says_whether_any_line_fails_and_no_lines_is_not_a_pass(
     assert exit_status(()) == EXIT_NO_LINES
     mixed = check_lines([line(NODE), line("electrical.gone")], failing, {NODE: count(1)})
     assert exit_status(mixed) == EXIT_FAILS
-    assert len({EXIT_PASSES, EXIT_FAILS, EXIT_INCOMPLETE, EXIT_NO_LINES}) == 4
+    # The numbers are the command's contract, stated in its help: held as numbers here.
+    assert (EXIT_PASSES, EXIT_FAILS, EXIT_REFUSED, EXIT_INCOMPLETE, EXIT_NO_LINES) == (
+        0,
+        1,
+        2,
+        3,
+        4,
+    )

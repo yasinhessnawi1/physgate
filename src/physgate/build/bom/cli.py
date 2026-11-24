@@ -36,7 +36,7 @@ from physgate.build.bom.sheet import (
     load_quantities,
     load_sheet,
 )
-from physgate.orchestrator.events import read_events
+from physgate.orchestrator.events import parse_events
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.replay import replay
 
@@ -51,9 +51,13 @@ LINES_ARE = (
     "a run with no parts decision has no lines, and no lines is not a pass"
 )
 LEFT_OUT = (
-    "not in this check: a live distributor (it needs credentials; which one is the owner's "
-    "decision), the orchestrator sending a failing line back to a role, and the measurement "
-    "the risk table asks for. The check only reads: it cannot order"
+    "not in this check: a live distributor (it needs credentials, and which distributor to use "
+    "is not chosen here), the orchestrator sending a failing line back to a role, and the "
+    "measurement the risk table asks for. The check only reads: it cannot order"
+)
+TORN = (
+    "log: its last line is cut mid-write (no line end) and is left out, as the run's reader "
+    "leaves it out"
 )
 EXAMPLE_MARK = "*"
 EXAMPLE_NOTE = (
@@ -118,7 +122,16 @@ def _check(args: argparse.Namespace) -> int:
     except SheetError as exc:
         return _refuse(str(exc))
     try:
-        lines = lines_of(replay(read_events(events)))
+        raw = events.read_bytes()
+        # A last line with no line end is a process stopped mid-write: the log's reader leaves it
+        # out, and the output says so rather than answer as if the log were whole.
+        torn = bool(raw) and not raw.endswith(b"\n")
+        log = parse_events(raw, log=str(events))
+        if not log:
+            return _refuse("the run-event log holds no line: it is not a run", run_dir=str(run_dir))
+        lines = lines_of(replay(log))
+    except OSError as exc:
+        return _refuse(f"the run-event log cannot be read: {exc.strerror}", run_dir=str(run_dir))
     except OrchestratorError as exc:
         return _refuse(str(exc), **exc.context)
     quantities: Mapping[str, Count] = {} if given is None else given.quantities
@@ -130,9 +143,10 @@ def _check(args: argparse.Namespace) -> int:
     results = check_lines(lines, sheet, quantities)
     status = exit_status(results)
     if args.json:
-        print(json.dumps(_data(run_dir, sheet, given, args.quantities, results, status), indent=1))
+        data = _data(run_dir, sheet, given, args.quantities, results, status, torn=torn)
+        print(json.dumps(data, indent=1))
     else:
-        print(_table(run_dir, sheet, given, args.quantities, results))
+        print(_table(run_dir, sheet, given, args.quantities, results, torn=torn))
     return status
 
 
@@ -188,12 +202,15 @@ def _data(
     quantities_file: Path | None,
     results: tuple[LineResult, ...],
     status: int,
+    *,
+    torn: bool,
 ) -> dict[str, object]:
     return {
         "shown": SHOWN,
         "lines_are": LINES_ARE,
         "left_out": LEFT_OUT,
         "run": str(run_dir),
+        "torn_last_line": torn,
         "sheet": sheet.header.model_dump(mode="json"),
         "quantities": (
             None
@@ -286,7 +303,8 @@ def _reasons(result: LineResult) -> list[str]:
     if result.entry is not None:
         said.append(f"  missing: {', '.join(result.missing) if result.missing else 'none'}")
     if result.quantity is not None:
-        said.append(f"  quantity needed: {result.quantity.value} (operator's input)")
+        quantity = result.quantity
+        said.append(f"  quantity needed: {quantity.value} (unit {quantity.unit}, operator's input)")
     said.extend(
         f"  {one.rule.replace('_', ' ')}: {one.outcome}: {one.message}" for one in result.findings
     )
@@ -299,11 +317,14 @@ def _table(
     given: Quantities | None,
     quantities_file: Path | None,
     results: tuple[LineResult, ...],
+    *,
+    torn: bool,
 ) -> str:
     header = sheet.header
     out = [
         f"physgate bom check: {SHOWN}.",
         f"run: {run_dir}",
+        *([TORN] if torn else []),
         f"lines: {LINES_ARE}.",
         f"sheet: {header.kind}, written for {header.written_for}, on {header.written_on}: "
         f"{header.statement}",

@@ -74,6 +74,13 @@ def test_a_count_in_another_unit_or_not_whole_is_refused(tmp_path: Path) -> None
     _refused(tmp_path, sheet_data(entry(["a.part"], order_multiple=half)), "order_multiple")
 
 
+def test_a_price_or_a_lead_time_of_zero_is_refused(tmp_path: Path) -> None:
+    free = {"value": 0, "unit": "NOK", "source": EXAMPLE}
+    _refused(tmp_path, sheet_data(entry(["a.part"], unit_price=free)), "unit_price")
+    now = {"value": 0, "unit": "d", "scope": "norway", "source": EXAMPLE}
+    _refused(tmp_path, sheet_data(entry(["a.part"], lead_time_to_norway=now)), "lead_time")
+
+
 def test_a_fact_with_no_source_note_is_refused(tmp_path: Path) -> None:
     fact = {"value": 12.5, "unit": "NOK"}
     _refused(tmp_path, sheet_data(entry(["a.part"], unit_price=fact)), "source")
