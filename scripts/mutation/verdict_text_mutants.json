@@ -1,0 +1,181 @@
+[
+  {
+    "name": "vt1-any-refusal-is-read",
+    "file": "src/physgate/reviewers/verdict_text.py",
+    "old": "    if answer != FORM_REFUSAL or not isinstance(given, dict) or set(given) != {WRAPPER}:\n",
+    "new": "    if not isinstance(given, dict) or set(given) != {WRAPPER}:\n",
+    "tests": [
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py",
+      "tests/unit/reviewers/test_the_text_verdict_check_reads_the_whole_schema_and_fails_closed.py"
+    ],
+    "data": [
+      "tests/unit/reviewers/schema_subset.py",
+      "tests/unit/reviewers/test_the_verdict_contract_is_the_rubric_s_own.py",
+      "tests/integration/orchestrator/replayed/review_submission_control.json",
+      "tests/integration/orchestrator/replayed/review_submission_firmware.json"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "vt2-the-schema-is-not-held",
+    "file": "src/physgate/reviewers/verdict_text.py",
+    "old": "    errors = unreadable(schema) or schema_errors(answer_object, schema)\n",
+    "new": "    errors: list[str] = []\n",
+    "tests": [
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "vt3-an-unread-clause-passes",
+    "file": "src/physgate/reviewers/verdict_text.py",
+    "old": "    errors = unreadable(schema) or schema_errors(answer_object, schema)\n",
+    "new": "    errors = schema_errors(answer_object, schema)\n",
+    "tests": [
+      "tests/unit/reviewers/test_the_text_verdict_check_reads_the_whole_schema_and_fails_closed.py",
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py"
+    ],
+    "data": [
+      "tests/unit/reviewers/schema_subset.py",
+      "tests/unit/reviewers/test_the_verdict_contract_is_the_rubric_s_own.py",
+      "tests/integration/orchestrator/replayed/review_submission_control.json",
+      "tests/integration/orchestrator/replayed/review_submission_firmware.json"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "vt4-more-after-the-object",
+    "file": "src/physgate/reviewers/verdict_text.py",
+    "old": "    if rest not in (\"\", \"}\"):\n",
+    "new": "    if rest.strip(\"}\"):\n",
+    "tests": [
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py",
+      "tests/unit/reviewers/test_the_text_verdict_check_reads_the_whole_schema_and_fails_closed.py"
+    ],
+    "data": [
+      "tests/unit/reviewers/schema_subset.py",
+      "tests/unit/reviewers/test_the_verdict_contract_is_the_rubric_s_own.py",
+      "tests/integration/orchestrator/replayed/review_submission_control.json",
+      "tests/integration/orchestrator/replayed/review_submission_firmware.json"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "vt5-the-first-try-not-the-last",
+    "file": "src/physgate/reviewers/verdict_text.py",
+    "old": "                    last_id, given = block.get(\"id\"), block.get(\"input\")\n",
+    "new": "                    if last_id is None:\n                        last_id, given = block.get(\"id\"), block.get(\"input\")\n",
+    "tests": [
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "vt6-nan-is-a-number",
+    "file": "src/physgate/reviewers/verdict_text.py",
+    "old": "    decoder = json.JSONDecoder(parse_constant=_no_constant, object_pairs_hook=_no_duplicates)\n",
+    "new": "    decoder = json.JSONDecoder(object_pairs_hook=_no_duplicates)\n",
+    "tests": [
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py",
+      "tests/unit/reviewers/test_the_text_verdict_check_reads_the_whole_schema_and_fails_closed.py"
+    ],
+    "data": [
+      "tests/unit/reviewers/schema_subset.py",
+      "tests/unit/reviewers/test_the_verdict_contract_is_the_rubric_s_own.py",
+      "tests/integration/orchestrator/replayed/review_submission_control.json",
+      "tests/integration/orchestrator/replayed/review_submission_firmware.json"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "vt7-a-boolean-is-a-number",
+    "file": "src/physgate/reviewers/verdict_text.py",
+    "old": "    if isinstance(a, bool) or isinstance(b, bool):\n        return isinstance(a, bool) and isinstance(b, bool) and a == b\n",
+    "new": "",
+    "tests": [
+      "tests/unit/reviewers/test_the_text_verdict_check_reads_the_whole_schema_and_fails_closed.py",
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py"
+    ],
+    "data": [
+      "tests/unit/reviewers/schema_subset.py",
+      "tests/unit/reviewers/test_the_verdict_contract_is_the_rubric_s_own.py",
+      "tests/integration/orchestrator/replayed/review_submission_control.json",
+      "tests/integration/orchestrator/replayed/review_submission_firmware.json"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "vt8-the-reading-is-not-held",
+    "file": "src/physgate/reviewers/claude.py",
+    "old": "        if not read_in_full(Path(installed.config), session_id):\n",
+    "new": "        if told is None and not read_in_full(Path(installed.config), session_id):\n",
+    "tests": [
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "vt9-read-after-any-end",
+    "file": "src/physgate/reviewers/claude.py",
+    "old": "            and (cut is None or cut[0] == \"invalid_verdict\")\n",
+    "new": "",
+    "tests": [
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "vt10-read-after-a-call-it-could-not-parse",
+    "file": "src/physgate/reviewers/claude.py",
+    "old": "            and (result or {}).get(\"terminal_reason\") != MALFORMED_TOOL_USE\n",
+    "new": "",
+    "tests": [
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "vt11-the-record-does-not-say-so",
+    "file": "src/physgate/reviewers/claude.py",
+    "old": "                **({\"verdict_from_text\": True} if told is not None else {}),\n",
+    "new": "",
+    "tests": [
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "vt12-every-tool-told-of-the-verdict",
+    "file": "src/physgate/hooks/reading.py",
+    "old": "        early = VERDICT_TOO_EARLY if hook_input.tool_name == \"StructuredOutput\" else \"\"\n",
+    "new": "        early = VERDICT_TOO_EARLY\n",
+    "tests": [
+      "tests/unit/hooks/test_a_verdict_called_before_the_reading_is_done_is_told_it_counted.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  }
+]

@@ -896,6 +896,10 @@ class ReviewResult(_Frozen):
     #: The context size before each compaction, in tokens, as each boundary named it; empty,
     #: and not written, where there was none or a boundary named no size.
     compaction_pre_tokens: tuple[Count, ...] = Field(default=(), exclude_if=lambda v: not v)
+    #: True where the verdict is the session's last try, sent as a text the binary refused only
+    #: for being one, read as the object it holds and held to the same schema and checks as any
+    #: verdict; ``None``, and not written, otherwise, so every other review is recorded as before.
+    verdict_from_text: Literal[True] | None = Field(default=None, exclude_if=lambda v: v is None)
 
     @model_validator(mode="after")
     def _sizes_are_one_per_compaction(self) -> ReviewResult:
