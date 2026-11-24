@@ -96,6 +96,15 @@ class OnTier:
     def run_dir(self) -> Path:
         return self.runs / "run"
 
+    def withholding(self, made: StandInStore) -> None:
+        """The ``decompose`` withholds every version ``made`` holds, as a run on the role must."""
+        path = Path(self.args[self.args.index("--params") + 1])
+        params = json.loads(path.read_text())
+        params["held_out"] = list(made.held_out)
+        params["held_out_sha256"] = [tier_digest(Path(root)) for root in made.held_out]
+        params["held_out_canaries"] = list(made.canaries)
+        path.write_text(json.dumps(params))
+
     def shown(self) -> str:
         """A stream line that shows one of the version's held-out canaries."""
         canary = self.made.canaries[-1]
@@ -338,8 +347,10 @@ def test_a_killed_decompose_s_exposure_marks_the_version_it_recorded_and_no_late
 def test_a_killed_decompose_that_recorded_no_held_out_tiers_marks_every_version_of_the_role(
     tier: OnTier,
 ) -> None:
-    # The second version is there first: once every version is exposed, none is checked again.
+    # The second version is there first (once every version is exposed, none is checked again),
+    # and the decompose withholds both, as a run on the role must.
     later = second_version(tier.made)
+    tier.withholding(later)
     _killed_in_its_review_showing(tier, tier.shown())
     (tier.run_dir / HELD_OUT_RECORD).unlink()  # as a decomposition made before the record
     assert tier.exposed() == frozenset({tier.made.version, later.version})
