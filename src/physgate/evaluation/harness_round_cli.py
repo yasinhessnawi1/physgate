@@ -7,9 +7,11 @@ one harness trial per task and trial of the named tiers, in a fixed order, each 
 and driven by this process on a fresh clone of ``T`` inside its own run directory beneath the
 registered run root ``R`` (:mod:`physgate.evaluation.harness_round`). It writes the visible
 tier's run set and records into the new directory ``O``, and everything of a protected tier,
-the combined run set, the ledger and the round's record beneath the role's withheld root. Until
-the core withholds every run root of a store whole from a run's sessions, only the visible tier
-is run.
+the combined run set, the ledger and the round's record beneath the role's withheld root. The
+parameters ``P`` of a round of any tier name in ``withheld_whole`` every registered run root of
+the store and nothing else, as the core's rule holds every measured run, or the round is refused
+before anything is made; ``R`` is given as its real path, spelt as the disk spells it, and holds
+no word in its path that would tell a reviewer what it reads, since each trial reviews beneath it.
 
 ``--resume`` goes on with the round ``O`` names, given the same inputs, on the same code, client
 and tools: a killed round resumes its killed run and repeats no trial. ``--limit-reset`` is the

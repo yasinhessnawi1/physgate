@@ -11,11 +11,14 @@ beneath the role's withheld root, which every run on the store withholds.
 round is started: inside a harness session's environment; while a session left in the work
 root still runs; a store a split or a session's work has not left clean; a version the role does
 not have, that the register marks exposed, or that has no record of its blind check; a run root
-that is not one of the role's registered run roots; parameters that are not reportable, that do
-not withhold every protected place of the store or do not look for every canary of the version
-and the store; a protected tier whose runs are not withheld from one another (every registered
-run root of the store withheld whole, by the core's own rule; until the core can, every protected
-tier); a target that is not a clean repository, or whose top holds a run's configuration; a
+that is not its real path spelt as the disk spells it, that is not one of the role's registered
+run roots, or beneath which the core would refuse a trial's review root (a word in its path that
+tells a reviewer what it reads, or a git checkout around it); parameters that are not
+reportable, that do not withhold every protected place of the store or do not look for every
+canary of the version and the store; parameters of any tier whose trials are not withheld from
+one another (``withheld_whole`` naming every registered run root of the store and nothing else,
+the run roots spelt as on disk, by the core's own rule, checked and never written); a target
+that is not a clean repository, or whose top holds a run's configuration; a
 harness checkout that is not a clean commit; an output directory inside the run root, the target
 or the store; a person's word (``set_aside``, ``limit_reset``) for a wait the round does not stand
 at. The core refuses what it refuses besides, at each decomposition, before its call.
@@ -118,7 +121,6 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Literal, Protocol, get_args
 
 from physgate.evaluation.baseline.record import VERSION_TIERS
@@ -181,7 +183,8 @@ from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.orchestrator.stop_signals import remove_left_credentials
 from physgate.orchestrator.usage_limit import resume_after, resume_refusal
 from physgate.orchestrator.waiting import EXIT_WAITING_FOR_LIMIT, limit_wait
-from physgate.reviewers.places import review_root_path
+from physgate.reviewers.exceptions import ReviewRootError
+from physgate.reviewers.places import require_review_root, review_root_path
 from physgate.toolenv.exceptions import ToolEnvironmentError
 
 #: Beneath the role's withheld root: every round's own directory.
@@ -689,10 +692,12 @@ def _refusals(inputs: Inputs) -> tuple[_Version, frozenset[str], str]:
         record = checked(store, role, known[inputs.version])
     except PerRoleError as exc:
         raise _refuse(exc.context.get("refused_because", "held_out_unchecked"), str(exc)) from None
+    _require_run_root_spelt(inputs.run_root)
     run_root = Path(os.path.realpath(inputs.run_root))
     if run_root not in roots:
         msg = "the run root is not one of the role's registered run roots"
         raise _refuse("run_root_not_registered", msg, run_root=str(inputs.run_root))
+    _require_reviews_may_run_beneath(run_root)
     out = Path(os.path.realpath(inputs.out))
     for name, place in (("run root", run_root), ("target", inputs.target_from), ("store", store)):
         there = Path(os.path.realpath(place))
@@ -714,6 +719,60 @@ def _refusals(inputs: Inputs) -> tuple[_Version, frozenset[str], str]:
     _target_head(inputs.target_from)
     check_sha256 = hashlib.sha256(check_path(store, role, inputs.version).read_bytes()).hexdigest()
     return found, flagged, check_sha256
+
+
+def _require_run_root_spelt(run_root: Path) -> None:
+    """Refuse a run root that is not its real path spelt as the disk spells each part.
+
+    The core's rule for a run root (:func:`.tiers.exposure.add_run_root`): the hooks match a
+    root by its spelling, and every trial's run directory is named beneath the root as given. A
+    root reached through a linked parent, or typed in another case on a volume that ignores case,
+    would spell its sessions' places otherwise than the run roots that withhold them.
+
+    Raises:
+        RoundError: the root is not so spelt, or a directory on its way cannot be listed.
+    """
+    from physgate.evaluation.tiers.exposure import _spelt_as_its_real_path
+
+    try:
+        spelt = _spelt_as_its_real_path(Path(run_root).absolute())
+    except OSError:
+        spelt = False
+    if not spelt:
+        msg = (
+            "the run root is not its real path spelt as the disk spells it (another case, or a "
+            "linked parent): every trial's run directory is named beneath it as it is on disk"
+        )
+        raise _refuse("run_root_not_spelt_as_on_disk", msg)
+
+
+def _require_reviews_may_run_beneath(run_root: Path) -> None:
+    """Refuse a run root beneath which no trial's review root may lie.
+
+    Each trial reviews inside its own run directory (:data:`REVIEW`), as every measured run does,
+    and the core refuses at the run a review root whose path holds a word that would tell a
+    reviewer what it reads, or that lies inside a git checkout
+    (:func:`physgate.reviewers.places.require_review_root`). Asked here of the place the round's
+    first trial reviews in, the round's own name in it a digest: a root the core would refuse
+    at every run is refused before anything is made.
+
+    Raises:
+        RoundError: the review root of a trial beneath this root would be refused.
+    """
+    try:
+        require_review_root(_run_dir(run_root, "0" * 16, 0, 1) / REVIEW)
+    except ReviewRootError as exc:
+        if exc.context.get("found"):
+            # The words are said, never the path.
+            msg = "the run root's path holds a word that would tell a reviewer what it reads"
+            raise _refuse("run_root_telltale", msg, found=exc.context["found"]) from None
+        msg = "the run root lies inside a git checkout, so no trial's review may run beneath it"
+        raise _refuse("run_root_in_a_checkout", msg) from None
+
+
+def _run_dir(run_root: Path, round_id: str, index: int, attempt: int) -> Path:
+    """A trial's run directory: ``<run root>/<round>/<iiii>-<n>``, the root as it really is."""
+    return Path(os.path.realpath(run_root)) / round_id / f"{index:04d}-{attempt}"
 
 
 def _require_params(inputs: Inputs, canaries: frozenset[str]) -> None:
@@ -757,36 +816,38 @@ def _require_params(inputs: Inputs, canaries: frozenset[str]) -> None:
     if missing:
         msg = "the run parameters do not look for every canary of the version and the store"
         raise _refuse("canaries_not_looked_for", msg, missing=str(len(missing)))
-    refusal = _whole_root_refusal(inputs, params)
+    refusal = _whole_root_refusal(params)
     if refusal is not None:
         raise _refuse(refusal[0], refusal[1])
 
 
-def _whole_root_refusal(inputs: Inputs, params: Mapping[str, Any]) -> tuple[str, str] | None:
-    """Why a protected tier may not run on these parameters, or None.
+def _whole_root_refusal(params: Mapping[str, Any]) -> tuple[str, str] | None:
+    """Why a round of any tier may not run on these parameters' roots withheld whole, or None.
 
     A round's trials lie beside one another beneath the store's run roots, each holding every
-    canary of the store, a plan written from its brief, and its answer. So a protected tier runs
-    only where a run's sessions are withheld every registered run root of the store, whole, as
-    the core's own rule holds a measured run to it: until the core has that withholding, never.
+    canary of the store, a plan written from its brief, and its answer. Every measured run, of
+    whatever tier, withholds whole exactly the registered run roots of the stores it names, by
+    the core's own rule (:func:`.tiers.exposure.run_roots_refusal`), which the core asks again at
+    each decomposition and a counted run is held to where it is counted: asked here, a round the
+    rule refuses makes nothing. The driver checks the field and never writes it, since the
+    parameters are held to their digest. An empty list passes only for a store with no run root,
+    and a round's store always has its own.
     """
-    if not any(tier in PROTECTED_TIERS for tier in inputs.tiers):
-        return None
-    from physgate.evaluation.tiers import exposure
+    from physgate.evaluation.tiers.exposure import run_roots_refusal
 
-    rule = getattr(exposure, "run_roots_refusal", None)
-    if "withheld_whole" not in RunConfig.model_fields or rule is None:
-        return "protected_tier_not_withheld", (
-            "a protected tier is not run: this code cannot withhold the store's run roots from "
-            "a run's sessions, so a later trial's sessions could read an earlier trial's plan "
-            "and answer; only the visible tier runs until it can"
-        )
-    named = SimpleNamespace(
-        held_out=tuple(params.get("held_out") or ()),
-        withheld_whole=tuple(params.get("withheld_whole") or ()),
+    whole = params.get("withheld_whole", [])
+    if not (isinstance(whole, list) and all(isinstance(root, str) for root in whole)):
+        msg = "the run parameters name the roots they withhold whole as a list of strings"
+        return "params_unreadable", msg
+    if len(set(whole)) != len(whole):
+        # The core's configuration refuses it at the first decomposition, after the round began.
+        return "params_unreadable", "the run parameters withhold whole one root twice"
+    # Only the two fields the rule reads: the rest of a run's configuration is measured by the
+    # command at each decomposition, and is not known before it.
+    named = RunConfig.model_construct(
+        held_out=tuple(params.get("held_out") or ()), withheld_whole=tuple(whole)
     )
-    refused: tuple[str, str] | None = rule(named, None)
-    return refused
+    return run_roots_refusal(named, None)
 
 
 # The round. ---------------------------------------------------------------------------------
@@ -886,9 +947,7 @@ class _Round:
         )
 
     def run_dir(self, index: int, attempt: int) -> Path:
-        return (
-            Path(os.path.realpath(self.inputs.run_root)) / self.round_id / f"{index:04d}-{attempt}"
-        )
+        return _run_dir(self.inputs.run_root, self.round_id, index, attempt)
 
     def run_id(self, index: int, attempt: int) -> str:
         return f"{self.round_id}-{index:04d}-{attempt}"
