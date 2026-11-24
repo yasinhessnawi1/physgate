@@ -337,6 +337,31 @@ class StandInDriver:
         measured: dict[str, Any] = json.loads(json.dumps(self.pin_record))
         return measured
 
+    def config_of(self, call: Decompose) -> RunConfig:
+        """The run's configuration: the round's parameters with what a run is given."""
+        fields = json.loads(call.params.read_bytes())
+        fields.update(
+            run_id=call.run_id,
+            seed=call.seed,
+            brief_sha256=hashlib.sha256(call.brief.read_bytes()).hexdigest(),
+            target_head=head_of(call.target, "HEAD"),
+        )
+        return RunConfig.model_validate_json(json.dumps(fields))
+
+    def plan_of(self, config: RunConfig) -> Plan:
+        """The plan every decomposition gives: one control module, its directory from its id."""
+        return Plan(
+            modules=(
+                PlannedModule(
+                    name="ctl",
+                    role="control",
+                    module_dir=self.module_dir(mint_id(config.seed, 0, "ctl")),
+                    spec="Design the controller. Answer here.",
+                ),
+            ),
+            interface_nodes=(Node.model_validate(node("iface.bus", kind="interface")),),
+        )
+
     def decompose(self, call: Decompose) -> int:
         self.decomposed.append(call)
         n = len(self.decomposed)
@@ -349,27 +374,9 @@ class StandInDriver:
         # The review root, recorded before the call as a measured run's decomposition records it
         # (its plan is reviewed), so a later reader looks for its reviews where they are.
         record_review_root(call.run_dir, review_root_path(call.review_root))
-        fields = json.loads(call.params.read_bytes())
-        fields.update(
-            run_id=call.run_id,
-            seed=call.seed,
-            brief_sha256=hashlib.sha256(call.brief.read_bytes()).hexdigest(),
-            target_head=head_of(call.target, "HEAD"),
-        )
-        config = RunConfig.model_validate_json(json.dumps(fields))
+        config = self.config_of(call)
         cause = self.fails.get(n)
-        minted = mint_id(config.seed, 0, "ctl")
-        plan = Plan(
-            modules=(
-                PlannedModule(
-                    name="ctl",
-                    role="control",
-                    module_dir=self.module_dir(minted),
-                    spec="Design the controller. Answer here.",
-                ),
-            ),
-            interface_nodes=(Node.model_validate(node("iface.bus", kind="interface")),),
-        )
+        plan = self.plan_of(config)
         usage = Usage(
             input_tokens=50,
             output_tokens=20,
@@ -385,6 +392,9 @@ class StandInDriver:
             usage=(MessageUsage(message_id=f"plan-{n}", usage=usage),),
             model=MODEL,
             num_turns=1,
+            # A call that ended on the account's usage limit carries the limit, as the core's own
+            # reading gives it: here with no reset read, so the round waits the core's stated wait.
+            usage_limit=UsageLimit(resets=None) if cause == "usage_limit" else None,
         )
         if config.design_review == "observe":
             try:
