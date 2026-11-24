@@ -213,6 +213,7 @@ def _decompose_args(tmp_path: Path, reportable: bool) -> list[str]:
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],
+        "withheld_whole": [],
         "network": "open",
         # A parameters file cannot name the harness: it is measured and overrules this.
         "harness": {"commit": "f" * 40, "clean": True, "uncommitted_sha256": None},

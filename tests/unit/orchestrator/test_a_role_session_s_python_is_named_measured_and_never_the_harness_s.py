@@ -109,6 +109,7 @@ def test_a_configuration_that_names_none_records_what_it_did_before() -> None:
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],
+        "withheld_whole": [],
         "network": "open",
         "network_enforced": None,
         "binary": None,
@@ -165,6 +166,7 @@ def _params(tmp_path: Path, role_python: object) -> object:
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],
+        "withheld_whole": [],
         "network": "open",
         "account": "a-test-account",
     }

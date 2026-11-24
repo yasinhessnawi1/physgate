@@ -245,6 +245,7 @@ def _config(version: str) -> RunConfig:
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),
+        withheld_whole=(),
         network="open",
         network_enforced=None,
         binary=None,

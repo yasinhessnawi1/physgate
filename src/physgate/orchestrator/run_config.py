@@ -460,9 +460,9 @@ class RunConfig(_Frozen):
     #: own worktree where the run's directory lies in one. A measured run on a tier-set store
     #: names here the store's run roots, where the earlier runs on it lie, each with the brief it
     #: was given, its plan and its answer; the evaluation holds it to exactly those. No digest:
-    #: every run made there changes what such a root holds. Empty for a run that names none,
-    #: which is what a run recorded before the field existed did, and reads so.
-    withheld_whole: tuple[AbsolutePath, ...] = ()
+    #: every run made there changes what such a root holds. A required parameter, empty for a run
+    #: that names none; a run recorded before the field existed named none, and reads so.
+    withheld_whole: tuple[AbsolutePath, ...]
     #: ``none`` refuses every role session's shell commands every remote host, through the
     #: OS layer, and every service on the machine's loopback. ``open`` leaves the
     #: network as the layer finds it. Where the layer is absent nothing enforces ``none``:
@@ -822,6 +822,7 @@ def load_run_config(path: Path) -> RunConfig:
         ("held_out", []),
         ("held_out_canaries", []),
         ("held_out_sha256", []),
+        ("withheld_whole", []),
         ("network", "open"),
         ("network_enforced", None),
         # Recorded before the field existed: nothing in the run acted on a decision.

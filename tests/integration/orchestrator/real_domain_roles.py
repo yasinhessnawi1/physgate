@@ -264,6 +264,7 @@ def params() -> dict[str, Any]:
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],
+        "withheld_whole": [],
         "network": "open",
     }
 
