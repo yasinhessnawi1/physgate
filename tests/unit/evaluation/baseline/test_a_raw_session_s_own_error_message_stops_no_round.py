@@ -98,6 +98,7 @@ def _round(
 
 
 def _run(made: StandInStore, runs: RunSet, out: Path, arm: StandInArm) -> BaselineRecord:
+    slept: list[float] = []
     return run_baseline(
         store=made.store,
         role="control",
@@ -108,7 +109,7 @@ def _run(made: StandInStore, runs: RunSet, out: Path, arm: StandInArm) -> Baseli
         score=_score,
         prices=load_price_sheet(PRICES),
         arm=arm,
-        sleep=[].append,
+        sleep=slept.append,
         development=False,
     )
 
