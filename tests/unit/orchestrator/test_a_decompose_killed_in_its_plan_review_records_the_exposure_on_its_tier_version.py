@@ -338,9 +338,10 @@ def test_a_killed_decompose_s_exposure_marks_the_version_it_recorded_and_no_late
 def test_a_killed_decompose_that_recorded_no_held_out_tiers_marks_every_version_of_the_role(
     tier: OnTier,
 ) -> None:
+    # The second version is there first: once every version is exposed, none is checked again.
+    later = second_version(tier.made)
     _killed_in_its_review_showing(tier, tier.shown())
     (tier.run_dir / HELD_OUT_RECORD).unlink()  # as a decomposition made before the record
-    later = second_version(tier.made)
     assert tier.exposed() == frozenset({tier.made.version, later.version})
 
 
