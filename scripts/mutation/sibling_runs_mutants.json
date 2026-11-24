@@ -460,7 +460,7 @@
   {
     "name": "the_raw_session_is_not_given_the_standing_review_root",
     "file": "src/physgate/evaluation/baseline/runner.py",
-    "old": "        withheld_reads=((os.path.realpath(standing_root(Path.home())),) if config.held_out else ()),\n",
+    "old": "        withheld_reads=standing_review_material(config.held_out),\n",
     "new": "        withheld_reads=(),\n",
     "tests": [
       "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
@@ -473,12 +473,13 @@
     ]
   },
   {
-    "name": "a_raw_session_on_no_tier_is_given_the_standing_review_root",
-    "file": "src/physgate/evaluation/baseline/runner.py",
-    "old": "        withheld_reads=((os.path.realpath(standing_root(Path.home())),) if config.held_out else ()),\n",
-    "new": "        withheld_reads=(os.path.realpath(standing_root(Path.home())),),\n",
+    "name": "a_session_on_no_tier_is_given_the_standing_review_root",
+    "file": "src/physgate/reviewers/places.py",
+    "old": "    return (os.path.realpath(standing_root(Path.home())),) if held_out else ()\n",
+    "new": "    return (os.path.realpath(standing_root(Path.home())),)\n",
     "tests": [
-      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py",
+      "tests/unit/orchestrator/test_a_role_session_is_withheld_its_run_roots_whole_but_its_own_place.py"
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -604,6 +605,51 @@
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
       "tests/unit/evaluation/exposure/exposure_fixtures.py",
       "tests/unit/evaluation/gaps/gap_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_role_session_is_not_given_the_standing_review_root",
+    "file": "src/physgate/orchestrator/dispatch.py",
+    "old": "            for root in standing_review_material(self._config.held_out)\n",
+    "new": "            for root in ()\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_run_directory_in_another_case_is_taken",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "    if run_dir is not None and not spelt_as_on_disk(run_dir.resolve()):\n",
+    "new": "    if run_dir is None and not spelt_as_on_disk(Path(\"/\")):\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_run_root_is_registered_and_withheld_only_as_the_disk_spells_it.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_review_root_in_a_session_place_is_taken",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "        for inner in (os.path.join(run, name) for name in RUN_SESSION_PLACES)\n",
+    "new": "        for inner in ()\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_measured_run_reviews_only_inside_its_own_run_directory.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
       "tests/unit/evaluation/per_role/task_fixtures.py",
       "tests/unit/orchestrator/orch_helpers.py"
     ]

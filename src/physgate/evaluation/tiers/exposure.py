@@ -1455,7 +1455,20 @@ def _run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, st
             "the run's directory is itself a run root, so its sessions would have no place of "
             "their own inside the root they withhold whole; a measured run is made inside one"
         )
+    # As the roots are: a directory typed in another case would spell its sessions' worktrees
+    # so, and the hooks, which match the spelling, would refuse nearly every command of theirs.
+    if run_dir is not None and not spelt_as_on_disk(run_dir.resolve()):
+        return "run_dir_not_spelt_as_on_disk", (
+            "the run's directory is not spelt as the disk spells it (another case), so its "
+            "sessions' places would be spelt otherwise than the run roots that hold them; a "
+            "measured run is named as its directory is on disk"
+        )
     return None
+
+
+#: The places in a run's directory its sessions work in: the modules' worktrees (each module's
+#: work is committed from its own) and the sessions' own directories. No review root lies there.
+RUN_SESSION_PLACES = ("worktrees", "sessions")
 
 
 def review_root_refusal(
@@ -1468,7 +1481,8 @@ def review_root_refusal(
     back. A measured run's directory lies strictly inside a run root of its stores, and every
     measured run on them and every raw session withholds those roots whole. So its reviews are
     withheld with it when its review root lies strictly inside that directory, where both really
-    are (``review_root_outside_the_run``). Then every review root of the stores' measured runs
+    are (``review_root_outside_the_run``), and not in its worktrees or session directories
+    (``review_root_in_a_session_place``). Then every review root of the stores' measured runs
     lies in their run roots. Nothing but the run roots is withheld whole, and no register of
     review roots is needed. ``reviewing``: the run is about to review (at run and resume), so a
     root not shown refuses it (``review_root_not_shown``); at decompose none is shown where the
@@ -1490,5 +1504,14 @@ def review_root_refusal(
             "stores could read what its reviews leave there (each packet with the brief and the "
             "answer, each reviewer's record, the key for labels): a measured run reviews inside "
             "its own run directory, which the run roots withhold whole"
+        )
+    if any(
+        place == inner or place.startswith(inner + "/")
+        for inner in (os.path.join(run, name) for name in RUN_SESSION_PLACES)
+    ):
+        return "review_root_in_a_session_place", (
+            "the run's review root lies in its worktrees or its session directories, where a "
+            "module's work is committed from and a session's own files lie: a measured run "
+            "reviews beside them in its run directory"
         )
     return None

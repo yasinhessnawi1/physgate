@@ -178,7 +178,7 @@ from physgate.orchestrator.run_config import (
 )
 from physgate.orchestrator.session_files import FileRefused, open_beneath, read_bounded
 from physgate.oslayer.probe import Absent, Present
-from physgate.reviewers.places import standing_root
+from physgate.reviewers.places import standing_review_material
 
 #: Where a round's finished visible trials lie, beneath the round's own directory.
 WORK = "work"
@@ -291,7 +291,7 @@ def setup_from_run(
         # the raw session whole, every packet, reviewer's record and the key for labels there,
         # where the harness run names a held-out tier. The harness run's own review root is
         # added for each trial (:func:`_one_trial`).
-        withheld_reads=((os.path.realpath(standing_root(Path.home())),) if config.held_out else ()),
+        withheld_reads=standing_review_material(config.held_out),
     )
 
 

@@ -176,7 +176,11 @@ from physgate.oslayer.reaper_install import CANARY_EXPORT
 from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
-from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
+from physgate.reviewers.places import (
+    SESSION_DIRNAME,
+    review_root_path,
+    standing_review_material,
+)
 from physgate.series.collect import collect, empty_outbox, temporary_roots
 from physgate.series.seal import SetAside
 from physgate.state.write_account import ACCOUNT_NAME, Settled, account_of, read_account
@@ -1824,6 +1828,15 @@ class ClaudeDispatcher:
         # Where reviews are prepared, each packet with its copy of a rubric: withheld
         # from the role session like the library's reviewer tree.
         protect += ["--review-material", str(self._review_root)]
+        # And the standing review root, where runs made by hand review by convention, where the
+        # run names a held-out tier: a measured run reviews inside its own run directory, so
+        # its review root is never the standing one, which would otherwise lie open to it.
+        protect += [
+            arg
+            for root in standing_review_material(self._config.held_out)
+            if root != str(self._review_root)
+            for arg in ("--review-material", root)
+        ]
         # The run's records that name the held-out tier's canaries, and its parameters file:
         # no read of them, by any route, though they lie within reach of the worktree.
         try:

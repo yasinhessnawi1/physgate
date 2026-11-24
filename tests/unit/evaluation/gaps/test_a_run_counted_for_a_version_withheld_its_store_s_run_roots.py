@@ -18,6 +18,7 @@ from gap_fixtures import StandInStore, measured, stand_in_store
 from physgate.evaluation.gaps.vector import GapsError
 from physgate.evaluation.tiers.exposure import add_run_root, run_roots
 from physgate.evaluation.tiers.measure import census
+from physgate.evaluation.tiers.store import make_role_root, role_root
 
 
 @pytest.fixture
@@ -63,6 +64,8 @@ def test_a_run_that_did_not_withhold_another_role_s_run_root_whole_is_not_counte
 ) -> None:
     base = tmp_path.resolve()
     roots = _registered(made, base / "runs")
+    # Another role's root in the same store, with its own run root registered.
+    make_role_root(role_root(made.store, "firmware"))
     (base / "firmware-runs").mkdir()
     assert add_run_root(made.store, "firmware", base / "firmware-runs")
     with pytest.raises(GapsError) as raised:

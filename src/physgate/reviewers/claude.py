@@ -1067,10 +1067,10 @@ class ClaudeReviewer:
         # The part of the sentinel's record that names the held-out entries is kept here,
         # beside every review's directory under the review root, never in one: a review's
         # directory is read and can be handed on. This place is refused to every reviewer (a
-        # root of its configuration) and to every role session, which is withheld the whole
-        # review root. A raw baseline session is refused it where this review root is the
-        # harness run's recorded one or the standing one: where the harness run names a
-        # held-out tier, both are given to it as review material. Made and judged before
+        # root of its configuration), and to every session given this review root as review
+        # material: a role session of the run that reviews here, a raw baseline session whose
+        # harness run recorded it, and, where it is the standing root, every role and raw
+        # session of a run naming a held-out tier. Made and judged before
         # anything of the session is written, a credential above all.
         apart = place_apart(self._root)
         state = sdir / "state"
