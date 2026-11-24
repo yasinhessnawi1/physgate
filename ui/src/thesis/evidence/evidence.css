@@ -248,3 +248,48 @@
 .evidence-gaps td .evidence-value {
   white-space: nowrap;
 }
+
+/* The tier versions at the head of the Gaps tab: one card per role, each fact a term and its
+   words. */
+.evidence-tiers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.evidence-tier-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: var(--space-3);
+}
+
+.evidence-tier-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.evidence-tier-card > h3 {
+  margin: 0;
+  font-size: var(--type-section-title-size);
+  line-height: var(--type-section-title-line);
+  font-weight: 600;
+}
+
+.evidence-tier-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+
+.evidence-tier-facts dt {
+  color: var(--color-text-2);
+}
+
+.evidence-tier-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

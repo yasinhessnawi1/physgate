@@ -216,6 +216,20 @@ def test_the_publication_is_written_only_to_a_folder_of_its_own(
     assert after == before, f"a publication was written {where}"
 
 
+def test_the_publication_is_not_written_into_a_folder_holding_the_published_tier_status(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    trend = _trend(tmp_path, made)
+    out = _out(tmp_path)
+    tier_status = api("physgate.evaluation.tiers.published.published_name")("firmware")
+    (out / tier_status).write_text("{}")
+    with pytest.raises(Exception) as caught:
+        _publish(trend, made, out)
+    assert _reason(caught.value) == "publish_refused", caught.value
+    assert "tier status" in str(caught.value), caught.value
+    assert os.listdir(out) == [tier_status]
+
+
 #: A review's directory as the review places name one: the instrument's id, with what it reads.
 REVIEW = "r0123456789ab"
 

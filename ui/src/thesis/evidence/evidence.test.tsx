@@ -17,6 +17,7 @@ import {
   source,
   SPEND,
   TAMPERED,
+  TIERS,
   UNREADABLE,
   VIEW,
 } from "./answers";
@@ -44,6 +45,7 @@ function serve(over: Record<string, Answer> = {}) {
     [DRIFTED_ROUTE]: [422, DRIFTED],
     "/api/evidence/catches": [200, CATCHES],
     "/api/evidence/gaps": [200, GAPS],
+    "/api/evidence/tiers": [200, TIERS],
     ...over,
   };
 }
@@ -186,7 +188,9 @@ describe("the screen", () => {
     await mount("tab=gaps");
     expect(asked.length).toBeGreaterThan(0);
     for (const { path, init } of asked) {
-      expect(path).toMatch(/^\/api\/(evidence\/(runs|spend|compare|catches|gaps)(\/|$)|prices$)/);
+      expect(path).toMatch(
+        /^\/api\/(evidence\/(runs|spend|compare|catches|gaps|tiers)(\/|$)|prices$)/,
+      );
       expect(init?.method ?? "GET").toBe("GET");
       expect(init?.body ?? null).toBeNull();
     }

@@ -15,9 +15,10 @@ import {
   REFUSED_TREND,
   RUNS,
   SECOND,
+  TIERS,
   UNVERIFIED,
 } from "./answers";
-import { evidenceGaps, GAPS_ROUTE } from "./api";
+import { evidenceGaps, GAPS_ROUTE, TIERS_ROUTE } from "./api";
 import Evidence from "./Evidence";
 import { ageWords } from "./Gaps";
 import { EVIDENCE_COPY } from "./words";
@@ -30,7 +31,12 @@ let answers: Record<string, Answer> = {};
 let asked: string[] = [];
 
 function serve(over: Record<string, Answer> = {}) {
-  answers = { "/api/evidence/runs": [200, RUNS], [GAPS_ROUTE]: [200, GAPS], ...over };
+  answers = {
+    "/api/evidence/runs": [200, RUNS],
+    [GAPS_ROUTE]: [200, GAPS],
+    [TIERS_ROUTE]: [200, TIERS],
+    ...over,
+  };
 }
 
 beforeEach(() => {
@@ -177,7 +183,7 @@ describe("the gap trend on the page", () => {
     const tabs = [...host.querySelectorAll('[role="group"][aria-label="What to show"] button')];
     expect(tabs.map((b) => text(b))).toEqual(["Runs", "Gaps", "Spend", "Compare", "Catches"]);
     expect(host.querySelector('section[data-tab="gaps"]')).not.toBeNull();
-    expect(asked).toEqual([GAPS_ROUTE]);
+    expect([...asked].sort()).toEqual([GAPS_ROUTE, TIERS_ROUTE].sort());
   });
 
   it("shows each role in its own section, in the server's order", async () => {

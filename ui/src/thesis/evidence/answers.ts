@@ -341,3 +341,49 @@ export const REFUSED_TREND = {
     { role: "firmware", state: "none" },
   ],
 };
+
+// -- the tier versions ------------------------------------------------------------------------
+
+/** The current version of the control role's tasks, as a tier status names it. */
+export const CURRENT_VERSION = `7d2e91b4${"e".repeat(56)}`;
+
+/** The control role's current version as the route serves it; ``over`` changes any field. */
+export function tierRole(over: Record<string, unknown> = {}) {
+  return {
+    role: "control",
+    state: "read",
+    read_at: READ_AT,
+    version: CURRENT_VERSION,
+    counts: { visible: 8, validation: 8, held_out: 8 },
+    check: { tasks: 8, all_yes: 7, left_out: 1, source: "check" },
+    exposure: "none",
+    version_state: "fresh",
+    measured: false,
+    ...over,
+  };
+}
+
+export const NO_FRESH =
+  "No version of this role is fresh (written to today's question and not seen), so none is shown.";
+
+/** Control's version as published; firmware refused, since none of its versions is fresh. */
+export const TIERS = {
+  roles: [
+    tierRole(),
+    {
+      role: "firmware",
+      state: "refused",
+      error: NO_FRESH,
+      reason: "no_fresh_version",
+      read_at: READ_AT,
+    },
+  ],
+};
+
+/** Neither role's status published. */
+export const NO_TIERS = {
+  roles: [
+    { role: "control", state: "none" },
+    { role: "firmware", state: "none" },
+  ],
+};
