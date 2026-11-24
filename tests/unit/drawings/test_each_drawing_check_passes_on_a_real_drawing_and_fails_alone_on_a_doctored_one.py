@@ -11,6 +11,7 @@ the way of the check under test.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,7 @@ def _drop_group(svg: str, group: str) -> str:
     return re.sub(rf'<g id="{group}"[^>]*>.*?</g>\n', "", svg, count=1, flags=re.S)
 
 
-def _in_group(svg: str, group: str, edit: Any) -> str:  # noqa: ANN401 - a function of a string
+def _in_group(svg: str, group: str, edit: Callable[[str], str]) -> str:
     start = svg.index(f'<g id="{group}"')
     end = svg.index("</g>", start)
     return svg[:start] + edit(svg[start:end]) + svg[end:]
