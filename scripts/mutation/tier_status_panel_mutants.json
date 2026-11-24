@@ -1,0 +1,275 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_tiers_route_serves_the_published_status_and_nothing_else.py",
+   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py"
+  ]
+ },
+ {
+  "name": "a_probe_counts_as_a_measured_run",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "line.version == version and line.measured not in NOT_A_RUN",
+  "new": "line.version == version",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
+  "name": "several_fresh_versions_are_not_refused",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "    if len(fresh) > 1:\n",
+  "new": "    if len(fresh) > 2:\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
+  "name": "a_refused_version_is_passed_over",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "    if unread:\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
+  "name": "an_unread_register_is_called_a_refused_version",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "        if any(reason in REGISTER_REFUSALS for reason in unread):\n",
+  "new": "        if False:\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
+  "name": "the_version_published_is_the_held_out_tier_s_digest",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "        version=version,\n",
+  "new": "        version=tiers[\"held_out\"][\"sha256\"],\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_tiers_route_serves_the_published_status_and_nothing_else.py"
+  ]
+ },
+ {
+  "name": "the_gap_trend_s_folder_is_published_into",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "            refusal = _beside_the_gap_trend(folder)\n",
+  "new": "            refusal = None\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
+  "name": "a_session_may_publish",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "    _inside_a_session()\n    folder, home",
+  "new": "    folder, home",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
+  "name": "the_exposure_word_is_read_backwards",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "    if \"exposed\" in because:\n",
+  "new": "    if \"exposed\" not in because:\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
+  "name": "the_record_ignores_a_key_it_does_not_know",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "    model_config = ConfigDict(frozen=True, extra=\"forbid\", strict=True)",
+  "new": "    model_config = ConfigDict(frozen=True, extra=\"ignore\", strict=True)",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_tiers_route_serves_the_published_status_and_nothing_else.py"
+  ]
+ },
+ {
+  "name": "the_record_takes_a_value_of_another_kind",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "    model_config = ConfigDict(frozen=True, extra=\"forbid\", strict=True)",
+  "new": "    model_config = ConfigDict(frozen=True, extra=\"forbid\", strict=False)",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_tiers_route_serves_the_published_status_and_nothing_else.py"
+  ]
+ },
+ {
+  "name": "the_parser_reads_past_its_bound",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "    if len(data) > MOST_STATUS_BYTES:\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_tiers_route_serves_the_published_status_and_nothing_else.py"
+  ]
+ },
+ {
+  "name": "the_parser_takes_another_role_s_file",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "    if published.role != role:\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
+  "name": "a_check_need_not_count_every_task",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "        if isinstance(check, Check) and not (\n",
+  "new": "        if False and isinstance(check, Check) and not (\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
+  "name": "an_exposed_version_may_be_fresh",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "        if self.exposure != \"none\" and self.version_state != \"stale\":\n",
+  "new": "        if False:\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
+  "name": "a_refusal_carries_a_sentence_of_the_file",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "    refused: Reason\n",
+  "new": "    refused: Reason\n    error: str | None = None\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
+  "name": "two_publications_are_chosen_between",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "            return _trend_refused(role, msg, \"publications_more_than_one\")\n        try:\n            published = tiers.parse(",
+  "new": "            pass\n        try:\n            published = tiers.parse(",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_tiers_route_serves_the_published_status_and_nothing_else.py"
+  ]
+ },
+ {
+  "name": "a_refusal_is_said_in_the_file_s_words",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "return _trend_refused(role, tiers.said(reason), reason, published[\"read_at\"])",
+  "new": "return _trend_refused(role, str(published), reason, published[\"read_at\"])",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_tiers_route_serves_the_published_status_and_nothing_else.py"
+  ]
+ },
+ {
+  "name": "the_route_also_opens_the_gap_trend_s_file",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "            found = _publications(context, tiers.name(role), tiers.most)\n",
+  "new": "            found = _publications(context, tiers.name(role), tiers.most) + _publications(\n                context, self.census.trend.name(role), tiers.most\n            )\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_tiers_route_serves_the_published_status_and_nothing_else.py"
+  ]
+ },
+ {
+  "name": "the_answer_carries_a_field_it_does_not_name",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "            \"measured\": published[\"measured\"],\n        }\n",
+  "new": "            \"measured\": published[\"measured\"],\n            \"format\": 1,\n        }\n",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_tiers_route_serves_the_published_status_and_nothing_else.py"
+  ]
+ },
+ {
+  "name": "the_route_is_not_registered",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        Route(\"GET\", TIERS_STATUS, \"read\", TierStatus(census)),\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
+  ]
+ },
+ {
+  "name": "baseline_last",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_tiers_route_serves_the_published_status_and_nothing_else.py",
+   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py"
+  ]
+ }
+]
