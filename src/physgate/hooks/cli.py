@@ -114,13 +114,16 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         action="append",
         default=[],
         help="a root withheld from the session whole, by rule, but for its worktree in its own "
-        "place there (--own-place): refused to every read and write on every layer, whatever is "
-        "made in it later; repeatable; given with --own-place only",
+        "place there (--own-place) where it holds the worktree: refused to every read and write "
+        "on every layer, whatever is made in it later; repeatable; a root holding the worktree "
+        "is given with --own-place, one holding none of the session's is withheld with nothing "
+        "opened",
     )
     p.add_argument(
         "--own-place",
-        help="the session's own place inside every --withheld-whole root: a real directory, "
-        "reached through no link, holding the worktree; given with --withheld-whole only",
+        help="the session's own place inside every --withheld-whole root that holds the "
+        "worktree: a real directory, reached through no link, holding the worktree; given only "
+        "with such a root",
     )
     p.add_argument(
         "--harness",

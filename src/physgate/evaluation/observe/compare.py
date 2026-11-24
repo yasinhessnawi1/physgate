@@ -130,6 +130,9 @@ PER_RUN: tuple[str, ...] = (
     "seed",
     "held_out",
     "held_out_canaries",
+    # The run roots a measured run withholds whole: where earlier runs lie, which every run on a
+    # store must name, and which name places, not what the run was asked.
+    "withheld_whole",
     "network_enforced",
     "account",
 )

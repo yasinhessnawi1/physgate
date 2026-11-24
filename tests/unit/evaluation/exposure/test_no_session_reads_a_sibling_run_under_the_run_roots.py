@@ -40,6 +40,7 @@ from baseline_fixtures import config, harness_run, setup_for  # noqa: E402
 from orch_helpers import SCRIPTED_BOUNDS  # noqa: E402
 
 from physgate.evaluation.per_role.arms import raw  # noqa: E402
+from physgate.evaluation.tiers.exposure import run_roots  # noqa: E402
 from physgate.evaluation.tiers.store import work_root  # noqa: E402
 from physgate.hooks import cli as hooks_cli  # noqa: E402
 from physgate.hooks import paths, shell_paths  # noqa: E402
@@ -71,8 +72,9 @@ class Siblings:
 
 
 def _withheld(made: StandInStore) -> dict[str, Any]:
-    """What a measured run on the store withholds beyond its held-out roots, as master allows."""
-    return {}
+    """What a measured run on the store withholds beyond its held-out roots: its run roots, whole."""
+    roots = run_roots(made.store, "control")
+    return {"withheld_whole": [str(root) for root in roots]}
 
 
 @pytest.fixture

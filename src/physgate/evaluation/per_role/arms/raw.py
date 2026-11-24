@@ -44,7 +44,7 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -194,8 +194,10 @@ class RawSetup:
     #: them; empty where the session is no raw arm of a run.
     held_out_sha256: tuple[str, ...] = ()
     #: Roots withheld from the session whole, by rule, but for its own place there (the
-    #: directory holding its worktree): a blind check's store. A protected trial's root is
-    #: added from the run's held-out roots that hold ``held_out_carved``. Whatever is made in
+    #: directory holding its worktree) where one holds it: a blind check's store, and a harness
+    #: run's run roots (``withheld_whole`` of its record), where the round's harness runs lie,
+    #: which hold none of the place and are withheld with nothing opened. A protected trial's root
+    #: is added from the run's held-out roots that hold ``held_out_carved``. Whatever is made in
     #: such a root after the install is withheld as what was there before (``--withheld-whole``).
     withheld_whole: tuple[str, ...] = ()
 
@@ -603,6 +605,12 @@ def _withheld_whole(setup: RawSetup, place: Path) -> tuple[str, ...]:
     return tuple(dict.fromkeys(os.path.realpath(r) for r in roots))
 
 
+def _around(roots: Sequence[str], worktree: Path) -> bool:
+    """Whether one of ``roots`` (named where it really is) holds the session's place."""
+    place = os.path.realpath(worktree.parent)
+    return any(place.startswith(root.rstrip("/") + "/") for root in roots)
+
+
 def _install(
     setup: RawSetup,
     worktree: Path,
@@ -657,8 +665,10 @@ def _install(
         # And the roots that hold the session's own place, withheld whole by rule but for that
         # place: an entry made in them after the install, by anything, is on no list above and
         # withheld all the same.
+        # A root that holds none of the place (a run root where the harness runs lie) is withheld
+        # whole with nothing opened.
         *(arg for root in whole for arg in ("--withheld-whole", root)),
-        *(["--own-place", os.path.realpath(worktree.parent)] if whole else []),
+        *(["--own-place", os.path.realpath(worktree.parent)] if _around(whole, worktree) else []),
         *(arg for root in setup.withheld_reads for arg in ("--review-material", root)),
         *(arg for root in setup.write_protected for arg in ("--protect", root)),
         *(arg for place in setup.writable_within for arg in ("--protect-except", place)),
@@ -1147,6 +1157,8 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
         "held_out_also": sorted(setup.held_out_also),
         # The canaries its stream was scanned for, which the harness run's must equal.
         "held_out_canaries_sha256": canaries_sha256(setup.held_out_canaries),
+        # The roots withheld whole from it; left out where there are none, as before the pin.
+        **({"withheld_whole": sorted(setup.withheld_whole)} if setup.withheld_whole else {}),
         "model": setup.model,
         "claude_version": setup.claude_version,
         "effort": setup.effort,

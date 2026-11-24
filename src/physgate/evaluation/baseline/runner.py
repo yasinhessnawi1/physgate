@@ -280,6 +280,8 @@ def setup_from_run(
         tool_environment=config.tool_environment,
         tool_servers=config.tool_servers,
         held_out_sha256=tuple(config.held_out_sha256),
+        # The run roots the harness run withheld whole, where the round's harness runs lie.
+        withheld_whole=tuple(config.withheld_whole),
     )
 
 
@@ -554,6 +556,8 @@ def _require_withheld(
     Raises:
         BaselineError: a place or a canary is missing; places by path, canaries by count.
     """
+    from physgate.evaluation.tiers.exposure import run_roots_refusal
+
     others = [r for r in get_args(Role) if r != role and os.path.lexists(role_root(store, r))]
     also = [(store, role), *((store, other) for other in others)]
     for refusal in (
@@ -561,6 +565,9 @@ def _require_withheld(
         withheld_refusal(config.held_out, also=also),
         work_refusal(config.held_out),
         protected_tier_refusal(config.held_out, also=also),
+        # The run roots, whole, where the round's harness runs lie: the raw session is given
+        # them as the harness run withheld them.
+        run_roots_refusal(config, None),
     ):
         if refusal is not None:
             msg = (

@@ -1378,3 +1378,50 @@ def _version_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str]
         if (s, r, v) == (store, role, version)
     }
     return _scan_refusal(config, run_dir, role_root(store, role) / version, named)
+
+
+def run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str] | None:
+    """Why a measured run does not withhold whole the run roots every run on its stores must.
+
+    The earlier runs on a store lie under its roles' run roots, each with every canary of the
+    store in its record, the plan and specifications written from its brief, and its answer. A
+    measured run withholds whole, in ``withheld_whole``, exactly the run roots of every role
+    whose root it names, spelt as the run-roots log holds them: all of them
+    (``run_root_not_withheld``), and nothing else (``withheld_whole_not_a_run_root``). Its
+    sessions reach only their own worktree inside them, so its directory lies strictly inside a
+    run root, never at one (``run_dir_is_a_run_root``). Only counts are said, never a path.
+    ``None`` if the run may go on.
+    """
+    try:
+        return _run_roots_refusal(config, run_dir)
+    except Exception as exc:  # noqa: BLE001 - anything unchecked is a refusal, never a pass
+        reason = exc.context.get("refused_because") if isinstance(exc, PerRoleError) else None
+        return reason or "register_unreadable", (
+            f"the run roots the run must withhold cannot be read: {type(exc).__name__}"
+        )
+
+
+def _run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str] | None:
+    registered: set[str] = set()
+    for store, role in role_roots(tuple(config.held_out)):
+        registered |= {str(root) for root in run_roots(store, role)}
+    given = set(config.withheld_whole)
+    missing = registered - given
+    if missing:
+        return "run_root_not_withheld", (
+            f"the run does not withhold whole {len(missing)} of the run roots of the stores it "
+            "names, where the earlier runs on them lie: a measured run withholds each of them "
+            "whole, spelt as the run roots record it"
+        )
+    other = given - registered
+    if other:
+        return "withheld_whole_not_a_run_root", (
+            f"{len(other)} of the roots the run withholds whole are no run root of a store it "
+            "names: a measured run withholds whole the run roots of its stores, and nothing else"
+        )
+    if run_dir is not None and str(run_dir.resolve()) in registered:
+        return "run_dir_is_a_run_root", (
+            "the run's directory is itself a run root, so its sessions would have no place of "
+            "their own inside the root they withhold whole; a measured run is made inside one"
+        )
+    return None
