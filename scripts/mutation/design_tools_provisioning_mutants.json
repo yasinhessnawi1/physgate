@@ -1,0 +1,124 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "toolenv/provision.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/integration/toolenv/test_a_provisioned_tool_environment_is_one_the_harness_accepts.py",
+   "tests/integration/toolenv/test_the_circuit_library_loads_no_gpl_library_and_its_source_builds_repeat.py",
+   "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
+  ],
+  "data": [
+   "tests/integration/hooks/claude-code/package.json",
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code-2.1.322/package.json",
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json"
+  ],
+  "paths": [
+   "toolenv"
+  ],
+  "args": [
+   "-m",
+   "integration or not integration"
+  ],
+  "tool_environment": true
+ },
+ {
+  "name": "merge_locks_lose_the_simulator",
+  "file": "toolenv/provision.py",
+  "old": "            \"locks_sha256\": {name: sha256_of(HERE / name) for name in built_from()},",
+  "new": "            \"locks_sha256\": {name: sha256_of(HERE / name) for name in built_from()[:5]},",
+  "tests": [
+   "tests/integration/toolenv/test_a_provisioned_tool_environment_is_one_the_harness_accepts.py",
+   "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
+  ],
+  "data": [
+   "tests/integration/hooks/claude-code/package.json",
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code-2.1.322/package.json",
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json"
+  ],
+  "paths": [
+   "toolenv"
+  ],
+  "args": [
+   "-m",
+   "integration or not integration"
+  ],
+  "tool_environment": true
+ },
+ {
+  "name": "merge_simulator_self_check_not_its_own",
+  "file": "toolenv/provision.py",
+  "old": "            \"avrsim\": _check_avrsim(dest, work, balboa_elf),\n",
+  "new": "            \"avrsim\": _check_avrsim(dest, work, balboa_elf) | {\"version\": \"\"},\n",
+  "tests": [
+   "tests/integration/toolenv/test_a_provisioned_tool_environment_is_one_the_harness_accepts.py",
+   "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
+  ],
+  "data": [
+   "tests/integration/hooks/claude-code/package.json",
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code-2.1.322/package.json",
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json"
+  ],
+  "paths": [
+   "toolenv"
+  ],
+  "args": [
+   "-m",
+   "integration or not integration"
+  ],
+  "tool_environment": true
+ },
+ {
+  "name": "merge_circuit_self_check_empty",
+  "file": "toolenv/provision.py",
+  "old": "            \"circuit\": _check_circuit(dest, work),\n",
+  "new": "            \"circuit\": {},\n",
+  "tests": [
+   "tests/integration/toolenv/test_the_circuit_library_loads_no_gpl_library_and_its_source_builds_repeat.py",
+   "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
+  ],
+  "data": [
+   "tests/integration/hooks/claude-code/package.json",
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code-2.1.322/package.json",
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json"
+  ],
+  "paths": [
+   "toolenv"
+  ],
+  "args": [
+   "-m",
+   "integration or not integration"
+  ],
+  "tool_environment": true
+ },
+ {
+  "name": "baseline_last",
+  "file": "toolenv/provision.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/integration/toolenv/test_a_provisioned_tool_environment_is_one_the_harness_accepts.py",
+   "tests/integration/toolenv/test_the_circuit_library_loads_no_gpl_library_and_its_source_builds_repeat.py",
+   "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
+  ],
+  "data": [
+   "tests/integration/hooks/claude-code/package.json",
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code-2.1.322/package.json",
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json"
+  ],
+  "paths": [
+   "toolenv"
+  ],
+  "args": [
+   "-m",
+   "integration or not integration"
+  ],
+  "tool_environment": true
+ }
+]
