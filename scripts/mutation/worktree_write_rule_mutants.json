@@ -1,0 +1,122 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_worktree_is_not_asked",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "    if writing:\n        for spelling in spellings:\n",
+    "new": "    if False:\n        for spelling in spellings:\n",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_worktree_is_asked_of_a_role_alone",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "    if writing:\n        for spelling in spellings:\n",
+    "new": "    if writing and config.profile == \"role\":\n        for spelling in spellings:\n",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_expanded_spelling_is_not_asked",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "        for spelling in spellings:\n            written = (",
+    "new": "        for spelling in spellings[:1]:\n            written = (",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_normalised_spelling_is_asked",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "                spelling if os.path.isabs(spelling) else os.path.join(hook_input.cwd, spelling)\n",
+    "new": "                os.path.normpath(os.path.join(hook_input.cwd, spelling))\n",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_listed_rules_are_not_asked_of_a_write",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "    writing = tool in _PATH_KEYS\n    for spelling in spellings:\n",
+    "new": "    writing = tool in _PATH_KEYS\n    for spelling in () if writing else spellings:\n",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_refusal_names_the_path",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "                return refuse(OUTSIDE_THE_WORKTREE.format(tool=tool))\n",
+    "new": "                return refuse(f\"{target}: \" + OUTSIDE_THE_WORKTREE.format(tool=tool))\n",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_link_on_the_way_is_not_seen",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "            if stat.S_ISLNK(st.st_mode):\n                return False\n    return True\n",
+    "new": "            if False:\n                return False\n    return True\n",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_resolved_spelling_is_not_asked",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "    if not spelt or not any(_under(resolved, p) for p in places):\n",
+    "new": "    if not spelt:\n",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  }
+]
