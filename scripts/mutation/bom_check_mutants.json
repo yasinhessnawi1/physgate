@@ -1,0 +1,501 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/test_the_lines_are_the_plans_parts_a_person_answered_find.py",
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/test_the_check_can_only_read_and_never_order.py",
+      "tests/unit/bom/test_the_example_sheet_gives_each_verdict_its_header_promises.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_bare_price_taken",
+    "file": "src/physgate/build/bom/sheet.py",
+    "old": "    unit_price: Price | None = None\n",
+    "new": "    unit_price: Price | float | None = None\n",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "lead_time_edge_taken_as_a_failure",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "if held.days() > LEAD_TIME_LIMIT_DAYS:",
+    "new": "if held.days() >= LEAD_TIME_LIMIT_DAYS:",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "lead_time_limit_widened_to_five_weeks",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "LEAD_TIME_LIMIT_DAYS = Fraction(28)",
+    "new": "LEAD_TIME_LIMIT_DAYS = Fraction(35)",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_week_counted_as_a_day",
+    "file": "src/physgate/build/bom/sheet.py",
+    "old": "DAYS_PER_UNIT: dict[str, int] = {\"d\": 1, \"week\": 7}",
+    "new": "DAYS_PER_UNIT: dict[str, int] = {\"d\": 1, \"week\": 1}",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "minimum_order_edge_taken_as_a_failure",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "if held.value > limit:",
+    "new": "if held.value >= limit:",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "minimum_order_factor_widened",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "MINIMUM_ORDER_FACTOR = 5",
+    "new": "MINIMUM_ORDER_FACTOR = 6",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "generic_lead_time_judged_as_norway",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "if held.scope != \"norway\":",
+    "new": "if False:",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "an_unjudged_rule_lets_the_line_pass",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "if entry is None or missing or any(one.outcome == \"not judged\" for one in found):",
+    "new": "if entry is None or missing:",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_missing_fact_lets_the_line_pass",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "if entry is None or missing or any(",
+    "new": "if entry is None or any(",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_part_not_in_the_sheet_passes",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "return LineResult(line, None, FACTS, (), quantity, \"incomplete\")",
+    "new": "return LineResult(line, None, FACTS, (), quantity, \"passes\")",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_part_not_purchasable_is_available",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "if held.status == \"not_purchasable\":",
+    "new": "if False:",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_failing_rule_gives_way_to_a_missing_fact",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "if any(one.outcome == \"fails\" for one in found):\n        return \"fails\"",
+    "new": "if any(one.outcome == \"fails\" for one in found) and not missing:\n        return \"fails\"",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_line_had_by_a_person_is_a_line",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "if held is not None and held.choice == \"find\":",
+    "new": "if held is not None and held.choice != \"make\":",
+    "tests": [
+      "tests/unit/bom/test_the_lines_are_the_plans_parts_a_person_answered_find.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_part_the_release_does_not_name_is_a_line",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "if held is not None and held.choice == \"find\":",
+    "new": "if held is None or held.choice == \"find\":",
+    "tests": [
+      "tests/unit/bom/test_the_lines_are_the_plans_parts_a_person_answered_find.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "no_lines_exits_as_a_pass",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "        return EXIT_NO_LINES\n",
+    "new": "        return EXIT_PASSES\n",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "an_incomplete_line_outweighs_a_failure_in_the_exit",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "    if \"fails\" in verdicts:\n        return EXIT_FAILS\n    if \"incomplete\" in verdicts:\n        return EXIT_INCOMPLETE\n",
+    "new": "    if \"incomplete\" in verdicts:\n        return EXIT_INCOMPLETE\n    if \"fails\" in verdicts:\n        return EXIT_FAILS\n",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "matching_by_a_prefix_or_case",
+    "file": "src/physgate/build/bom/sheet.py",
+    "old": "            if node in entry.answers:",
+    "new": "            if any(a.lower().startswith(node.lower()) for a in entry.answers):",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_node_answered_twice_is_taken",
+    "file": "src/physgate/build/bom/sheet.py",
+    "old": "                if node in seen:",
+    "new": "                if False:",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_count_in_any_unit",
+    "file": "src/physgate/build/bom/sheet.py",
+    "old": "    unit: Literal[\"1\"]\n",
+    "new": "    unit: str\n",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_price_without_a_currency_code",
+    "file": "src/physgate/build/bom/sheet.py",
+    "old": "StringConstraints(pattern=r\"^[A-Z]{3}$\")",
+    "new": "StringConstraints(min_length=1)",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_lead_time_in_any_unit",
+    "file": "src/physgate/build/bom/sheet.py",
+    "old": "    unit: Literal[\"d\", \"week\"]\n",
+    "new": "    unit: str\n",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_sheet_not_called_an_example",
+    "file": "src/physgate/build/bom/sheet.py",
+    "old": "    kind: Literal[\"example fixture\"]\n",
+    "new": "    kind: Text\n",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_fact_without_a_source",
+    "file": "src/physgate/build/bom/sheet.py",
+    "old": "    unit: Annotated[str, StringConstraints(pattern=r\"^[A-Z]{3}$\")]\n    source: Source\n",
+    "new": "    unit: Annotated[str, StringConstraints(pattern=r\"^[A-Z]{3}$\")]\n    source: Source | None = None\n",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "an_example_value_left_unmarked",
+    "file": "src/physgate/build/bom/cli.py",
+    "old": "return text + (EXAMPLE_MARK if _is_example(fact) else \"\")",
+    "new": "return text",
+    "tests": [
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_quantity_for_no_line_is_taken",
+    "file": "src/physgate/build/bom/cli.py",
+    "old": "    if strays:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "exit_value_for_a_failure_changed",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "EXIT_FAILS = 1\n",
+    "new": "EXIT_FAILS = 7\n",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "exit_value_for_incomplete_changed",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "EXIT_INCOMPLETE = 3\n",
+    "new": "EXIT_INCOMPLETE = 5\n",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/test_the_example_sheet_gives_each_verdict_its_header_promises.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "exit_value_for_no_lines_changed",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "EXIT_NO_LINES = 4\n",
+    "new": "EXIT_NO_LINES = 9\n",
+    "tests": [
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_price_or_lead_time_of_zero_taken",
+    "file": "src/physgate/build/bom/sheet.py",
+    "old": "Positive = Annotated[float | int, Field(gt=0)]",
+    "new": "Positive = Annotated[float | int, Field(ge=0)]",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_file_written_in_the_working_directory",
+    "file": "src/physgate/build/bom/cli.py",
+    "old": "    results = check_lines(lines, sheet, quantities)\n",
+    "new": "    results = check_lines(lines, sheet, quantities)\n    Path(\"bom-cache.txt\").write_text(\"x\")\n",
+    "tests": [
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_name_looked_up_on_the_network",
+    "file": "src/physgate/build/bom/cli.py",
+    "old": "    status = exit_status(results)\n",
+    "new": "    __import__(\"socket\").getaddrinfo(\"localhost\", 80)\n    status = exit_status(results)\n",
+    "tests": [
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "an_empty_log_answered_as_no_lines",
+    "file": "src/physgate/build/bom/cli.py",
+    "old": "        if not log:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "a_cut_last_line_left_unsaid",
+    "file": "src/physgate/build/bom/cli.py",
+    "old": "torn = bool(raw) and not raw.endswith(b\"\\n\")",
+    "new": "torn = False",
+    "tests": [
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "the_quantity_s_unit_left_out",
+    "file": "src/physgate/build/bom/cli.py",
+    "old": "(unit {quantity.unit}, operator's input)",
+    "new": "(operator's input)",
+    "tests": [
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "the_sheet_s_failing_lead_time_passed",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "if held.days() > LEAD_TIME_LIMIT_DAYS:",
+    "new": "if held.days() > LEAD_TIME_LIMIT_DAYS * 2:",
+    "tests": [
+      "tests/unit/bom/test_the_example_sheet_gives_each_verdict_its_header_promises.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/build/bom/check.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/bom/test_the_price_sheet_refuses_a_bare_number_and_says_it_is_an_example.py",
+      "tests/unit/bom/test_each_line_is_given_a_verdict_on_the_five_facts_and_the_two_limits.py",
+      "tests/unit/bom/test_the_lines_are_the_plans_parts_a_person_answered_find.py",
+      "tests/unit/bom/test_the_bom_check_command_prints_a_verdict_per_line_and_writes_nothing.py",
+      "tests/unit/bom/test_the_check_can_only_read_and_never_order.py",
+      "tests/unit/bom/test_the_example_sheet_gives_each_verdict_its_header_promises.py",
+      "tests/unit/bom/bom_helpers.py"
+    ],
+    "data": [
+      "tests/parts_bom_fixture.py"
+    ]
+  }
+]
