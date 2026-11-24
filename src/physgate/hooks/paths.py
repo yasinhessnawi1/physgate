@@ -17,6 +17,12 @@ whether or not a result exists yet. Nothing else under the experiments
 directory is: code evolves, and only what the thesis's measurements rest on is
 held still.
 
+**A file tool writes in the session's worktree, and nowhere else.** The rules below name
+what is protected, and are asked first, so each keeps its reason. A write they leave open is
+then held to the worktree as an allowance: the target as written and as resolved lies exactly
+beneath it, never case-folded, with no link on the way. Nothing could list every place outside
+the worktree where a write would matter, and a file tool runs outside the OS layer.
+
 **A path is compared by what it reaches, not by how it is spelt.** Two tests,
 either of which protects:
 
@@ -118,6 +124,16 @@ HARD_LINKED_READ = (
     "command could have given a file the session may not read that second name"
 )
 REFUSED = "{path} is protected: {reason}. The {tool} call is refused."
+#: A write outside the worktree. It names no path: the target is the session's own words, but
+#: the refusal is written to the hook log too, and a path outside the worktree is not labelled.
+OUTSIDE_THE_WORKTREE = (
+    "The {tool} call is refused: this session's file tools write only in its own worktree, and "
+    "the target lies outside it, as written or as resolved, or is reached through a link. Name "
+    "the file by its own path in the worktree. A throwaway helper script belongs in the worktree "
+    "as well (a role session's in its module's directory: anything it leaves elsewhere in the "
+    "worktree puts its attempt out of scope), and is removed before the session ends unless it "
+    "is part of the work."
+)
 RELATIVE_TO_UNKNOWN = (
     "{path} is a relative path and this call's working directory ({cwd!r}) is not an "
     "absolute one, so where it lands cannot be known. The {tool} call is refused."
@@ -396,7 +412,7 @@ def _own_reading(path: str, place: str) -> bool:
 
 
 def _own_writing(path: str, place: str) -> bool:
-    """Whether ``path`` is ``place``, a protected root's exception, or beneath it, and written.
+    """Whether ``path`` is ``place`` (a root's exception, the worktree) or beneath it, and written.
 
     An allowance, so it is not met by any spelling that reaches ``place``, as a refusal is. The
     path as spelt and the path as resolved both lie exactly beneath ``place`` (as given or
@@ -625,10 +641,28 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     if not os.path.isabs(target) and not os.path.isabs(hook_input.cwd):
         return refuse(RELATIVE_TO_UNKNOWN.format(path=target, cwd=hook_input.cwd, tool=tool))
     # Judged as the shell layer judges a word: as written, and with ``~`` expanded.
-    for spelling in dict.fromkeys((target, os.path.expanduser(target))):
-        reason = protection(spelling, hook_input.cwd, config, writing=tool in _PATH_KEYS)
+    spellings = tuple(dict.fromkeys((target, os.path.expanduser(target))))
+    writing = tool in _PATH_KEYS
+    for spelling in spellings:
+        reason = protection(spelling, hook_input.cwd, config, writing=writing)
         if reason is not None:
             return refuse(REFUSED.format(path=target, reason=reason, tool=tool))
+    # A file tool writes in the session's worktree and nowhere else, for every profile. The
+    # listed rules name what is protected, and nothing can list every place outside the
+    # worktree a write would matter (the operator's home, another run, a round's output): a
+    # file tool runs in the binary's own process, outside the OS layer, so this is the one
+    # bound it meets. Asked after the listed rules, so each refusal there keeps its reason. The
+    # path as written (made absolute, not normalised, so each link on the way is seen) and as
+    # resolved both lie beneath the worktree, exactly, with no link on the way: the allowance
+    # a round's trial is held to inside the roots withheld from it. A shell command's word is
+    # not asked this: the OS layer judges where a command writes.
+    if writing:
+        for spelling in spellings:
+            written = (
+                spelling if os.path.isabs(spelling) else os.path.join(hook_input.cwd, spelling)
+            )
+            if not _own_writing(written, config.worktree):
+                return refuse(OUTSIDE_THE_WORKTREE.format(tool=tool))
     return ALLOW
 
 

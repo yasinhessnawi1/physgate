@@ -102,7 +102,9 @@ BASELINE = {
     "library_rubric": "R R R R R T T -",
     "series_writer": "A A A A A F F -",
     "series_outbox": "A A A A A F F -",
-    "git_user_config": "A A A A A F F -",
+    # Its own git configuration is open to its commands; a file tool writes only in the
+    # worktree, for every profile.
+    "git_user_config": "A R R A A F F -",
 }
 #: The reviewer reads only beneath its allowance (``run``) and has no shell.
 REVIEWER = {
