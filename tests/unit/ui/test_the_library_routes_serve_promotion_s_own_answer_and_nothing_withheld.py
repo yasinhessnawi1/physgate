@@ -41,7 +41,7 @@ from physgate.gate import catalogue
 from physgate.gate.bounds_table import KNOWLEDGE_DIR, load_table
 from physgate.gate.catalogue import QUANTITIES, STORE_CLASSES, Entry, catalogue_digest
 from physgate.gate.laws import LAWS_PATH, PROMOTIONS_PATH, load_laws
-from physgate.knowledge.promote import _apply, canaries
+from physgate.knowledge.promote import PROMOTIONS_NAME, _apply, canaries
 from physgate.knowledge.staging import Candidate
 from physgate.orchestrator.credentials import KEY_FILE, KEY_HELPER, LOGIN_FILE
 from physgate.ui import assets, guard
@@ -402,7 +402,7 @@ def _gate_digest(world: dict[str, Any]) -> dict[str, Any]:
 
 def test_the_law_table_is_read_where_the_gate_reads_it_in_its_own_checkout() -> None:
     assert Path(*library_routes.LAW_TABLE) == LAWS_PATH.relative_to(KNOWLEDGE_DIR)
-    assert PROMOTIONS_PATH.relative_to(KNOWLEDGE_DIR) == Path(library_routes.PROMOTIONS_NAME)
+    assert PROMOTIONS_PATH.relative_to(KNOWLEDGE_DIR) == Path(PROMOTIONS_NAME)
 
 
 def test_the_served_digest_is_the_gate_s_and_moves_when_a_law_or_a_catalogue_entry_changes(
@@ -449,6 +449,57 @@ def test_with_no_law_table_the_digest_is_refused_in_words_and_the_ratings_are_se
         "file": "knowledge/laws/laws.toml",
         "reason": "this library holds no law table, so no gate is built from it",
     }
+
+
+def _refused_without_a_digest(world: dict[str, Any]) -> str:
+    """The gate's digest as served, which must be refused and carry no digest: its reason."""
+    digest = _gate_digest(world)
+    assert digest["state"] == "refused", digest
+    assert set(digest) == {"state", "file", "reason"}, digest
+    assert str(world["checkout"]) not in digest["reason"]
+    reason: str = digest["reason"]
+    return reason
+
+
+def test_a_promotion_record_that_is_a_link_gives_no_digest(world: dict[str, Any]) -> None:
+    _, promotions = _with_the_checkout_s_laws(world)
+    # A link to a faithful copy inside the library: followed, it would load and be digested.
+    copy = world["lib"] / "laws" / "promotions-copy.jsonl"
+    shutil.copyfile(promotions, copy)
+    promotions.unlink()
+    promotions.symlink_to(copy)
+    assert "link" in _refused_without_a_digest(world)
+
+
+def test_a_promotion_record_larger_than_the_page_reads_gives_no_digest(
+    world: dict[str, Any],
+) -> None:
+    _, promotions = _with_the_checkout_s_laws(world)
+    # Still a record the law table loads against: its own lines, then blank lines past the cap.
+    with promotions.open("a") as record:
+        record.write("\n" * (CAP + 1))
+    assert "larger" in _refused_without_a_digest(world)
+
+
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0, reason="the superuser ignores permission bits"
+)
+def test_a_promotion_record_the_server_may_not_read_gives_no_digest(
+    world: dict[str, Any],
+) -> None:
+    _, promotions = _with_the_checkout_s_laws(world)
+    promotions.chmod(0)
+    try:
+        assert "not permitted" in _refused_without_a_digest(world)
+    finally:
+        promotions.chmod(0o644)
+
+
+def test_a_promotion_record_that_is_not_utf_8_gives_no_digest(world: dict[str, Any]) -> None:
+    _, promotions = _with_the_checkout_s_laws(world)
+    with promotions.open("ab") as record:
+        record.write(b"\xff\xfe\n")
+    _refused_without_a_digest(world)
 
 
 def test_without_the_gate_s_digest_handed_in_the_screen_shows_none_in_its_place(
