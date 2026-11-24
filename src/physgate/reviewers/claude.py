@@ -1068,8 +1068,9 @@ class ClaudeReviewer:
         # beside every review's directory under the review root, never in one: a review's
         # directory is read and can be handed on. This place is refused to every reviewer (a
         # root of its configuration) and to every role session, which is withheld the whole
-        # review root. A raw baseline session is not withheld the review root yet, so it is
-        # not refused this place either until its setup withholds it. Made and judged before
+        # review root. A raw baseline session is refused it where this review root is the
+        # harness run's recorded one or the standing one: where the harness run names a
+        # held-out tier, both are given to it as review material. Made and judged before
         # anything of the session is written, a credential above all.
         apart = place_apart(self._root)
         state = sdir / "state"

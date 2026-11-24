@@ -3,9 +3,9 @@
 A reviewer's sentinel keeps the part of its record that names the held-out entries in the review
 root's place apart, beside every review's directory, with the key that maps every label back.
 A reviewer is refused that place by its own configuration, and a role session by being withheld
-the whole review root. A raw baseline session, set up from the harness run's record, is not yet
-withheld the review root, so these rows wait for the change that withholds it from every raw
-session; each is marked as waiting, never skipped, and turns red the day it holds.
+the whole review root. A raw baseline session, set up from the harness run's record where that run
+names a held-out tier, is given the standing review root as review material, refused on every
+layer, so it is refused that place too.
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ from physgate.oslayer.session_temp import session_temps_root
 from physgate.reviewers.places import standing_root
 
 SESSION_ID = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
-WAITING = "a raw session is not yet withheld the review root; the change that withholds it lands"
 
 
 def _installed(
@@ -61,7 +60,6 @@ def _installed(
     return SessionConfig.model_validate_json(Path(printed["config"]).read_text())
 
 
-@pytest.mark.xfail(strict=True, reason=WAITING)
 @pytest.mark.parametrize("name", ["labels.key", f"{SESSION_ID}.json"])
 def test_a_raw_session_is_refused_a_read_of_the_reviewers_place_apart(
     outside_tmp: Path,
