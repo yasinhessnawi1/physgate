@@ -868,12 +868,9 @@ def _decompose_run(args: argparse.Namespace, *, registrations: Registrations | N
         # Refused unless fresh and holding only its own; then the parameters, which name the
         # held-out canaries, recorded first with the target (where its clone lies in the run
         # directory, it is the decomposition's own).
+        named = None if args.review_root is None else review_root_path(args.review_root)
         open_decomposition(
-            run_dir,
-            params=args.params,
-            target=args.target,
-            brief=args.brief,
-            review_root=None if args.review_root is None else review_root_path(args.review_root),
+            run_dir, params=args.params, target=args.target, brief=args.brief, review_root=named
         )
         reviewing = _plan_reviewer(args, config, credential, registrations)
         # The root the reviewer runs under, as every reader takes it: recorded before the review

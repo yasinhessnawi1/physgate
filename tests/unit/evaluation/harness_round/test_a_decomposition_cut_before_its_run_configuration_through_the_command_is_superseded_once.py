@@ -128,17 +128,17 @@ def test_a_decomposition_the_command_left_without_its_configuration_is_supersede
     with pytest.raises(Killed):
         _go(rig, _driver(rig, cut={1: how}), slept, resume=False)
     left = rig.run_root / _place(rig).name / "0000-1"
-    # What the command left: its log opened, no configuration, the target's clone with the run
-    # branch's refs deeper than the register's walk goes, and its parameters recorded with the
-    # target first.
+    # What the command left: its log opened, no configuration, and the target's clone with the
+    # run branch's refs deeper than the register's walk goes.
     assert (left / "events.jsonl").is_file() and not (left / "run.json").exists()
     assert _deepest(left / "target", rig.run_root) > MOST_DEPTH
-    recorded = json.loads((left / "params_source.json").read_bytes())
-    assert recorded["target"] == str((left / "target").resolve())
-    # The register reads the store whole, and finds nothing exposed.
-    assert exposed_versions(rig.made.store, "control") == frozenset()
+    # The restart reads the register whole: the clone is the decomposition's own, by the
+    # parameters record the command wrote first, with the target.
     then = _driver(rig)
     assert _go(rig, then, slept, resume=True) == "done"
+    recorded = json.loads((left / "params_source.json").read_bytes())
+    assert recorded.get("target") == str((left / "target").resolve())
+    assert exposed_versions(rig.made.store, "control") == frozenset()
     gone = [(x["attempt"], x["cause"], x["tokens"], x["by"]) for x in _ledger(rig, "superseded")]
     assert len(gone) == 1, gone
     ((attempt, cause, tokens, by),) = gone
