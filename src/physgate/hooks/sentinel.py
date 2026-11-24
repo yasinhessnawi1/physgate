@@ -77,10 +77,10 @@ protection and a digest of the path keyed by a key the session does not read, ke
 apart (made there the first time a label is needed; refused to reviewers and role sessions, and
 to a raw baseline session where the review root is the harness run's or the standing one, both
 given to it as review material where the harness run names a held-out tier), or, where none is
-named, in the session's own record, beside the paths it holds already. One path has one label, so two
-are told apart; the operator finds the path from the key and the record kept apart. A label made
-with a key for one call alone says so. A halt kept by a record made before the labels is
-returned as it was kept. An exception that escapes the check is written by its kind alone
+named, in the session's own record, beside the paths it holds already. One path has one label,
+so two are told apart; the operator finds the path from the key and the record kept apart.
+A label made with a key for one call alone says so. A halt kept by a record made before the
+labels is returned as it was kept. An exception that escapes the check is written by its kind alone
 (:func:`physgate.hooks.runtime.failure`).
 """
 
