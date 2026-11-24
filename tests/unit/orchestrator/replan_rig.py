@@ -210,7 +210,7 @@ class Script:
             num_turns=1,
             stream_seal=seal(stream.read_bytes()),
             # A call that ended on the account's usage limit carries the limit, its reset unread.
-            **({"usage_limit": UsageLimit(resets=None)} if step.call == "usage_limit" else {}),
+            usage_limit=UsageLimit(resets=None) if step.call == "usage_limit" else None,
             **sent_as_the_call_records_it(given.get("prompt")),
         )
 
