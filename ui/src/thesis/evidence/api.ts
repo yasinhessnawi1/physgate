@@ -800,6 +800,10 @@ export const CHECK_REFUSALS = [
   "check_record_unwritten",
 ] as const;
 export type CheckRefusal = (typeof CHECK_REFUSALS)[number];
+/** The most tasks a tier's or a check's count may say: the publisher's own bound, generous. */
+export const MOST_TASKS = 10_000;
+/** The one form the time a status was read is written in: UTC, to the second. */
+export const READ_AT_FORM = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 
 /** The three tiers' task counts: the tiers' sizes, never a result. */
 export interface TierCounts {
@@ -846,12 +850,28 @@ export interface TierStatus {
   readonly roles: readonly RoleTiers[];
 }
 
+/** A count of tasks: a whole number from nought to the publisher's bound. */
+function tasksCount(value: unknown, what: string): number {
+  const found = count(value, what);
+  if (found > MOST_TASKS) throw new ShapeError(what);
+  return found;
+}
+
+/** When a status was read: a time in its one form that a calendar holds, and nothing else. */
+function readAt(value: unknown, what: string): string {
+  const found = matching(value, READ_AT_FORM, what);
+  const at = Date.parse(found);
+  if (Number.isNaN(at) || `${new Date(at).toISOString().slice(0, 19)}Z` !== found)
+    throw new ShapeError(what);
+  return found;
+}
+
 function tierCounts(value: unknown): TierCounts {
   const c = exact(value, "the tiers' task counts", ["visible", "validation", "held_out"]);
   return {
-    visible: count(c.visible, "the visible tier's task count"),
-    validation: count(c.validation, "the validation tier's task count"),
-    heldOut: count(c.held_out, "the held-out tier's task count"),
+    visible: tasksCount(c.visible, "the visible tier's task count"),
+    validation: tasksCount(c.validation, "the validation tier's task count"),
+    heldOut: tasksCount(c.held_out, "the held-out tier's task count"),
   };
 }
 
@@ -863,9 +883,9 @@ function blindCheck(value: unknown, heldOut: number): BlindCheck {
     return { state: "refused", refused: oneOf(no.refused, CHECK_REFUSALS, "why it is refused") };
   }
   const c = exact(value, "the blind check", ["tasks", "all_yes", "left_out", "source"]);
-  const tasks = count(c.tasks, "the tasks checked");
-  const allYes = count(c.all_yes, "the tasks with every answer yes");
-  const leftOut = count(c.left_out, "the tasks left out");
+  const tasks = tasksCount(c.tasks, "the tasks checked");
+  const allYes = tasksCount(c.all_yes, "the tasks with every answer yes");
+  const leftOut = tasksCount(c.left_out, "the tasks left out");
   // The check reads every held-out task, and each is either kept or left out.
   if (tasks === 0 || allYes + leftOut !== tasks || tasks !== heldOut)
     throw new ShapeError("the blind check's counts");
@@ -908,7 +928,7 @@ function roleTiers(value: unknown): RoleTiers {
       return {
         role,
         state: "read",
-        readAt: text(read.read_at, "when the status was read"),
+        readAt: readAt(read.read_at, "when the status was read"),
         version: matching(read.version, VERSION, "a tier version"),
         counts,
         check: blindCheck(read.check, counts.heldOut),
@@ -930,7 +950,7 @@ function roleTiers(value: unknown): RoleTiers {
         state: "refused",
         error: text(no.error, "why a tier status is not shown"),
         reason: text(no.reason, "a reason"),
-        readAt: optionalText(no.read_at, "when the status was read"),
+        readAt: no.read_at === null ? null : readAt(no.read_at, "when the status was read"),
       };
     }
     default:

@@ -27,34 +27,50 @@ shapes, each with an exact key set and every value of a fixed type:
   not one);
 - refused: ``role``, ``read_at`` and ``refused``, a closed word (:data:`SENTENCES`).
 
-No string is free: every one is a closed word, the version id or the time it was read. No task
+No string is free: every one is a closed word, the version id or the time it was read, which is
+written in one form alone (:data:`READ_AT_FORM`: UTC, to the second) and read in no other. Every
+count is a whole number from nought to :data:`MOST_TASKS`, far more than any tier holds. No task
 id, brief, canary, path, tier or canary-list digest, check digest, register line or number from
 a run is published, and no sentence of an error is: a refusal is published as its word alone,
 and the page is given the sentence for that word from :data:`SENTENCES`. The blind check's
 counts are a property of the tier fixed before any result exists; ``measured`` is one bit.
 
 **Where it is written.** Into a folder of its own, judged exactly as the gap trend's
-publication judges one (:func:`physgate.evaluation.gaps.published.folder_refusal`), and never
-into the gap trend's own folder: a folder holding a published gap trend is refused. It is
-written by a person, never inside a harness session. A publish that fails once the folder is
-judged publishes the failure in place of the copy before it, so no older copy reads as current.
+publication judges one (:func:`physgate.evaluation.gaps.published.folder_refusal`), never into
+the gap trend's own folder (a folder holding a published gap trend is refused, as the gap trend's
+publisher refuses one holding this), and never beneath a role's withheld root: neither one of the
+store it reads, followed through a link, nor a folder named as one is (``<role>/withheld``) in
+any store, so a ``--store`` named wrongly does not let it write into another store's. It is
+written by a person, never inside a harness session. Every role's file is written or none is:
+each is written whole under a temporary name first, and only then are they renamed into place;
+if any of that fails, every role's copy is removed, so the page shows no tier status rather than
+one role's new copy beside another's old one, or an old copy as if it were current.
 
 **Its parser** (:func:`read_published_status`) refuses anything its writer could not have
 written: a file over :data:`MOST_STATUS_BYTES`, a cut file, a key it does not know at any
-depth, a value of another kind, a broken count, another role's file. Its refusals are its own
+depth, a value of another kind, a word outside its list, a time in another form, a count below
+nought or past :data:`MOST_TASKS`, a broken count, another role's file. Its refusals are its own
 fixed sentences and never repeat what the file holds.
+
+**Stated limits.** The publication is a copy as it was read: a version cut, checked, seen or
+measured later is not on it until it is published again. And the page shows what the file says:
+whoever can write the folder can write the file, in any shape its parser takes. A card on the page
+is therefore not proof that a version is unexposed; the register, read at a terminal, is. The
+parser holds a planted file to closed words, counts and one form of time, so no free text reaches
+the page, but it cannot tell a planted record from one its writer wrote.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast, get_args
 
 from pydantic import (
-    AwareDatetime,
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -67,10 +83,13 @@ from physgate.evaluation import tierset_cli
 from physgate.evaluation.gaps import published as gap_publication
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers import exposure
+from physgate.evaluation.tiers.store import WITHHELD, withheld_root
 from physgate.evaluation.tiers.task import Sha256
 
 __all__ = [
     "MOST_STATUS_BYTES",
+    "MOST_TASKS",
+    "READ_AT_FORM",
     "ROLES",
     "SENTENCES",
     "TierStatusError",
@@ -136,7 +155,32 @@ CheckReason = Literal[
 ]
 Exposure = Literal["none", "exposed", "exposed_unchecked"]
 VersionState = Literal["fresh", "stale"]
-Count = Annotated[int, Field(ge=0)]
+#: The most tasks a tier's or a check's count may say: a tier holds a few dozen at most, so this
+#: is generous, and it holds a planted file to a number and not a run of digits.
+MOST_TASKS = 10_000
+Count = Annotated[int, Field(ge=0, le=MOST_TASKS)]
+#: The one form the time a status was read is written in, and read in: UTC, to the second.
+READ_AT_FORM = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+_READ_AT_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def _in_its_form(value: str) -> str:
+    """``value`` if it is a time in :data:`READ_AT_FORM` that a calendar holds; else refuse."""
+    if READ_AT_FORM.fullmatch(value) is None:
+        msg = "the time it was read is not in its one form"
+        raise ValueError(msg)
+    datetime.strptime(value, _READ_AT_FORMAT)  # noqa: DTZ007 - the form says UTC; a 13th month raises
+    return value
+
+
+ReadAt = Annotated[str, AfterValidator(_in_its_form)]
+
+
+def _stamp(when: datetime) -> str:
+    """``when`` as a publication says it: in UTC, to the second (a time with no zone is UTC)."""
+    aware = when if when.tzinfo is not None else when.replace(tzinfo=UTC)
+    return aware.astimezone(UTC).strftime(_READ_AT_FORMAT)
+
 
 #: What the register's measurement of a version is that does not make it measured: the
 #: isolation probe scores answers built for one requirement alone, and is no run.
@@ -170,7 +214,7 @@ class Counts(_Closed):
 class Check(_Closed):
     """The version's blind check, by its counts alone, and where its answer came from."""
 
-    tasks: Annotated[int, Field(ge=1)]
+    tasks: Annotated[int, Field(ge=1, le=MOST_TASKS)]
     all_yes: Count
     left_out: Count
     source: Literal["check", "imported"]
@@ -186,7 +230,7 @@ class TierStatusRead(_Closed):
     """A role's current version as ``tiers status`` read it at ``read_at``."""
 
     role: StatusRole
-    read_at: AwareDatetime
+    read_at: ReadAt
     version: Sha256
     counts: Counts
     check: Check | CheckRefused | None
@@ -212,7 +256,7 @@ class TierStatusRefused(_Closed):
     """A role whose current version cannot be told, or read: why, in a closed word."""
 
     role: StatusRole
-    read_at: AwareDatetime
+    read_at: ReadAt
     refused: Reason
 
 
@@ -260,7 +304,7 @@ def _exposure(because: Sequence[str]) -> Exposure:
 
 
 def _role_status(
-    store: Path, role: StatusRole, versions: Sequence[Mapping[str, Any]], read_at: datetime
+    store: Path, role: StatusRole, versions: Sequence[Mapping[str, Any]], read_at: str
 ) -> TierStatus:
     """The role's one fresh version as read, or why there is not exactly one."""
     mine = [v for v in versions if v["role"] == role]
@@ -307,7 +351,7 @@ def read_for_publication(store: Path, *, now: datetime | None = None) -> tuple[T
 
     Never raises for what the store holds: any failure of the read is published as a refusal.
     """
-    read_at = now or datetime.now(UTC)
+    read_at = _stamp(now or datetime.now(UTC))
     whole: Reason
     try:
         versions = tierset_cli.status(store)["versions"]
@@ -340,19 +384,28 @@ def _inside_a_session() -> None:
         raise _refuse("inside_a_session", msg)
 
 
-def _beside_the_gap_trend(out: Path) -> str | None:
-    """Why ``out`` is the gap trend's folder, or ``None``.
+def _withheld_refusal(out: Path, store: Path) -> str | None:
+    """Why ``out`` lies beneath a role's withheld root, or holds one, or ``None``.
 
-    Raises:
-        OSError: ``out`` cannot be listed.
+    The store's own withheld roots are judged by their real paths, so one that is a link out of
+    the store is judged where it leads; and any folder named as a withheld root is
+    (``<role>/withheld``) is refused in whatever store it lies, since the command reads only the
+    store it is given and a store named wrongly must not let it write into another's.
     """
-    with os.scandir(out) as entries:
-        held = sorted(entry.name for entry in entries if entry.name in GAP_TREND_NAMES)
-    if held:
-        return (
-            "the folder to publish into holds the published gap trend; the tier status is "
-            "published into a folder of its own"
-        )
+    real = Path(os.path.realpath(out))
+    for role in ROLES:
+        root = Path(os.path.realpath(withheld_root(store, role)))
+        if real == root or root in real.parents or real in root.parents:
+            return (
+                "the folder to publish into lies beneath a withheld root of the store, or holds "
+                "one, and no reader of the page may reach a withheld root"
+            )
+    for folder in (real, *real.parents):
+        if folder.name == WITHHELD and folder.parent.name in ROLES:
+            return (
+                "the folder to publish into lies beneath a folder named as a role's withheld root "
+                "is, in this store or another, and no reader of the page may reach a withheld root"
+            )
     return None
 
 
@@ -361,34 +414,34 @@ def publish_status(
 ) -> tuple[TierStatus, ...]:
     """Publish each role's status, as ``tiers status`` reads ``store`` now, into ``out``.
 
-    Every role's file is written, whole; a role whose status is refused is published as that
-    refusal, in place of whatever was there.
+    Every role's file is written, whole, or none is: a role whose status is refused is published
+    as that refusal, in place of whatever was there; and a write that fails removes every role's
+    copy, so no older copy reads as current beside a newer one.
 
     Raises:
         TierStatusError: asked for inside a harness session; ``out`` is not a folder of its own
-            (judged as the gap trend's publication judges one) or holds the gap trend; or a
-            file cannot be written, and the copy before it is then removed.
+            (judged as the gap trend's publication judges one), holds the gap trend, or lies
+            beneath a withheld root; or the files cannot be written, and every role's copy
+            before them is then removed.
     """
     _inside_a_session()
     folder, home = Path(out), Path(store)
     refusal = gap_publication.folder_refusal(folder, home, gap_publication.known_places())
     if refusal is None:
-        try:
-            refusal = _beside_the_gap_trend(folder)
-        except OSError:
-            refusal = "the folder to publish into cannot be listed"
+        refusal = _withheld_refusal(folder, home)
+    if refusal is None:
+        refusal = gap_publication.beside_another(folder, GAP_TREND_NAMES, "the published gap trend")
     if refusal is not None:
         msg = f"{refusal}. {gap_publication.WHERE_TO_PUBLISH}"
         raise _refuse("publish_refused", msg)
     records = read_for_publication(home, now=now)
-    for record in records:
-        data = record.model_dump_json().encode() + b"\n"
-        try:
-            gap_publication.write_whole(
-                folder, published_name(record.role), data, what="the tier status"
-            )
-        except gap_publication.GapsError as exc:
-            raise _refuse("publish_failed", str(exc)) from None
+    files = {
+        published_name(record.role): record.model_dump_json().encode() + b"\n" for record in records
+    }
+    try:
+        gap_publication.write_all(folder, files, what="the tier status")
+    except gap_publication.GapsError as exc:
+        raise _refuse("publish_failed", str(exc)) from None
     return records
 
 

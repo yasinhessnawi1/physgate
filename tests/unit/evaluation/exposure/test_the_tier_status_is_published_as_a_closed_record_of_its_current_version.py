@@ -194,7 +194,7 @@ def test_no_task_id_brief_canary_or_path_reaches_a_publication_or_the_command_s_
     tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = _out(tmp_path)
-    assert main(["tiers", "status", "--store", str(made.store), "--publish", str(out)]) == 1
+    main(["tiers", "status", "--store", str(made.store), "--publish", str(out)])
     said = capsys.readouterr().out
     written = b"".join((out / name).read_bytes() for name in sorted(os.listdir(out))).decode()
     ids = [task.id for tier in made.tasks.values() for task in tier]
@@ -207,6 +207,48 @@ def test_no_task_id_brief_canary_or_path_reaches_a_publication_or_the_command_s_
             assert canary not in text, f"{where} holds a canary"
         for place in (STORE_MARK, str(made.store), str(tmp_path), "withheld", "/"):
             assert place not in text.replace("\\/", ""), f"{where} holds a path: {place}"
+
+
+def test_the_command_s_line_holds_no_digest_but_the_version_id(
+    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main(["tiers", "status", "--store", str(made.store), "--publish", str(_out(tmp_path))])
+    said = capsys.readouterr().out
+    assert set(HEX64.findall(said)) == {made.version}, said
+    for what, digest in _digests(made).items():
+        assert digest not in said, f"the command's line holds the {what} digest"
+
+
+def _exit(made: StandInStore, out: Path, capsys: pytest.CaptureFixture[str]) -> tuple[int, Any]:
+    code = main(["tiers", "status", "--store", str(made.store), "--publish", str(out)])
+    return code, json.loads(capsys.readouterr().out)
+
+
+def test_the_command_exits_nought_when_each_role_is_published_as_read_or_as_holding_no_version(
+    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, said = _exit(made, _out(tmp_path), capsys)
+    assert [r.get("refused") for r in said["published"]] == [None, "no_fresh_version"], said
+    assert code == 0
+
+
+def test_the_command_exits_one_when_a_role_is_refused_for_a_failure_or_nothing_is_published(
+    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    register = made.store / "control" / "withheld" / "register.jsonl"
+    kept = register.read_bytes()
+    register.write_bytes(kept + b'{"cut')
+    code, said = _exit(made, _out(tmp_path, "unread"), capsys)
+    assert said["published"][0].get("refused") == "register_unreadable", said
+    assert code == 1
+    register.write_bytes(kept)
+    second_version(made)
+    code, said = _exit(made, _out(tmp_path, "two"), capsys)
+    assert said["published"][0].get("refused") == "fresh_versions_several", said
+    assert code == 1
+    code, said = _exit(made, made.store / "control", capsys)
+    assert said.get("refused_because") == "publish_refused", said
+    assert code == 1
 
 
 def test_no_digest_reaches_a_publication_but_the_version_id(
@@ -253,6 +295,52 @@ def test_a_measured_run_on_the_version_is_said_as_one_bit_and_a_probe_is_not_one
     published = _publish(made, _out(tmp_path, "measured"))["control"]
     assert published["measured"] is True
     assert "e" * 64 not in json.dumps(published) and "f" * 64 not in json.dumps(published)
+
+
+def test_an_older_version_s_measurement_does_not_mark_the_current_one_measured(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    record = api(f"{EXPOSURE}.record_measurement")
+    record(made.store, "control", made.version, measured="gaps", key="f" * 64)
+    api(f"{EXPOSURE}.mark_exposed")(
+        made.store, "control", made.version, by="a person", reason="the tiers were cut again"
+    )
+    fresh = second_version(made)
+    control = _publish(made, _out(tmp_path))["control"]
+    assert control.get("version") == fresh.version, control
+    assert control["measured"] is False, "the older version's measurement marked the fresh one"
+
+
+def test_a_check_refused_for_a_reason_the_list_does_not_hold_is_published_as_unreadable(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.evaluation import tierset_cli
+
+    read = tierset_cli.status
+
+    def status(store: Path) -> dict[str, Any]:
+        found = read(store)
+        for version in found["versions"]:
+            version["check"] = {"refused_because": PLANTED, "error": PLANTED}
+        return found
+
+    monkeypatch.setattr(tierset_cli, "status", status)
+    control = _publish(made, _out(tmp_path))["control"]
+    assert control.get("check") == {"refused": "check_record_unreadable"}, control
+
+
+def test_the_time_it_was_read_is_written_in_one_form_utc_to_the_second(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    from datetime import timedelta, timezone
+
+    later = datetime(2026, 11, 24, 13, 0, 5, 123456, tzinfo=timezone(timedelta(hours=1)))
+    out = _out(tmp_path)
+    api(PUBLISH)(made.store, out=out, now=later)
+    for role in ROLES:
+        data = (out / api(NAME)(role)).read_bytes()
+        assert json.loads(data)["read_at"] == "2026-11-24T12:00:05Z", data
+        assert api(PARSE)(data, role).model_dump(mode="json") == json.loads(data)
 
 
 def _refused_as(made: StandInStore, tmp_path: Path, name: str) -> dict[str, Any]:
@@ -405,6 +493,49 @@ def test_a_publication_that_cannot_be_written_removes_the_copy_before_it(
     assert str(tmp_path) not in str(caught.value)
 
 
+def test_a_publish_that_fails_for_one_role_leaves_no_role_s_older_copy_to_read_as_current(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    out = _out(tmp_path)
+    _publish(made, out)
+    (out / api(NAME)("control")).unlink()
+    (out / api(NAME)("control")).mkdir()
+    with pytest.raises(Exception) as caught:
+        api(PUBLISH)(made.store, out=out, now=NOW)
+    assert _reason(caught.value) == "publish_failed", caught.value
+    assert not (out / api(NAME)("firmware")).exists(), "firmware's older copy reads as current"
+    assert sorted(os.listdir(out)) == [api(NAME)("control")], "a temporary file is left"
+    assert str(tmp_path) not in str(caught.value)
+
+
+def test_the_status_is_not_published_beneath_a_withheld_root_of_the_store_it_reads(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    import shutil
+
+    withheld = made.store / "control" / "withheld"
+    elsewhere = tmp_path / "kept-apart"
+    shutil.move(withheld, elsewhere)
+    withheld.symlink_to(elsewhere, target_is_directory=True)
+    for out in (elsewhere, _out(elsewhere, "beneath")):
+        with pytest.raises(Exception) as caught:
+            api(PUBLISH)(made.store, out=out, now=NOW)
+        assert _reason(caught.value) == "publish_refused", caught.value
+        assert "withheld" in str(caught.value), caught.value
+    assert [p for p in tmp_path.rglob("tier-status-*")] == []
+
+
+def test_the_status_is_not_published_beneath_a_role_s_withheld_root_of_another_store(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    other = stand_in_store(tmp_path / "other", checked=False)
+    out = _out(made.store / "control" / "withheld", "published-here")
+    with pytest.raises(Exception) as caught:
+        api(PUBLISH)(other.store, out=out, now=NOW)
+    assert _reason(caught.value) == "publish_refused", caught.value
+    assert os.listdir(out) == []
+
+
 def test_its_parser_takes_what_its_writer_wrote(tmp_path: Path, made: StandInStore) -> None:
     out = _out(tmp_path)
     published = _publish(made, out)
@@ -446,11 +577,49 @@ def _edited(read: dict[str, Any], refused: dict[str, Any], how: str) -> bytes:
         body["exposure"] = "exposed"
     elif how == "both-shapes":
         body["refused"] = "no_fresh_version"
+    elif how == "a-free-word-for-why-a-check-is-refused":
+        body["check"] = {"refused": PLANTED}
+    elif how == "a-free-word-for-where-a-check-came-from":
+        body["check"]["source"] = PLANTED
+    elif how == "a-free-word-for-the-state":
+        body["version_state"] = PLANTED
+    elif how == "a-negative-count":
+        body["counts"]["visible"] = -1
+    elif how == "a-negative-count-in-the-check":
+        body["check"].update(all_yes=9, left_out=-1)
+    elif how == "a-check-of-another-number-of-tasks-than-its-tier":
+        body["counts"]["held_out"] = 9
+    elif how == "a-count-of-thousands-of-digits":
+        return json.dumps(body).replace('"visible": 8', '"visible": ' + "9" * 3500).encode()
+    elif how == "a-count-past-the-bound":
+        body["counts"]["validation"] = 10_001
     elif how == "a-refusal-with-a-sentence":
         return json.dumps({**refused, "error": PLANTED}).encode()
     elif how == "a-refusal-of-a-free-word":
         return json.dumps({**refused, "refused": PLANTED}).encode()
+    elif how.startswith("a-refusal-time-"):
+        return json.dumps(
+            {**refused, "read_at": TIMES[how.removeprefix("a-refusal-time-")]}
+        ).encode()
+    elif how.startswith("a-time-"):
+        body["read_at"] = TIMES[how.removeprefix("a-time-")]
     return json.dumps(body).encode()
+
+
+#: A publication's time in every form its writer does not write; it writes UTC to the second.
+TIMES = {
+    "a-path": PLANTED,
+    "a-unix-time": "1795000000",
+    "an-offset-of-nought": "2026-11-24T12:00:00+00:00",
+    "an-offset-of-hours": "2026-11-24T12:00:00+23:59",
+    "a-fraction-of-a-second": "2026-11-24T12:00:00.5Z",
+    "no-seconds": "2026-11-24T12:00Z",
+    "a-month-that-is-none": "2026-13-24T12:00:00Z",
+    "a-day-that-is-none": "2026-02-30T12:00:00Z",
+    "a-space-for-the-t": "2026-11-24 12:00:00Z",
+    "a-line-after-it": "2026-11-24T12:00:00Z\n",
+    "markup": "<b>2026-11-24T12:00:00Z</b>",
+}
 
 
 EDITS = [
@@ -469,6 +638,16 @@ EDITS = [
     "both-shapes",
     "a-refusal-with-a-sentence",
     "a-refusal-of-a-free-word",
+    "a-free-word-for-why-a-check-is-refused",
+    "a-free-word-for-where-a-check-came-from",
+    "a-free-word-for-the-state",
+    "a-negative-count",
+    "a-negative-count-in-the-check",
+    "a-check-of-another-number-of-tasks-than-its-tier",
+    "a-count-of-thousands-of-digits",
+    "a-count-past-the-bound",
+    *(f"a-time-{form}" for form in TIMES),
+    *(f"a-refusal-time-{form}" for form in TIMES),
 ]
 
 
@@ -518,3 +697,5 @@ def test_the_command_s_help_says_which_folder_to_publish_into_and_what_it_cannot
     assert "given no run" in said, said
     assert "not the gap trend's" in said, said
     assert "physgate ui --root" in said, said
+    assert "Exits 0 when every role is published as read or as having no fresh version" in said
+    assert "1 when a role is published as any other refusal, or when nothing is published" in said

@@ -87,6 +87,27 @@ function withControl(over: Record<string, unknown>) {
   return { roles: [tierRole(over), TIERS.roles[1]] };
 }
 
+/** The refused firmware role with ``over`` changed; a key set to ``undefined`` is dropped. */
+function withFirmware(over: Record<string, unknown>) {
+  const firmware = JSON.parse(JSON.stringify({ ...TIERS.roles[1], ...over })) as unknown;
+  return { roles: [tierRole(), firmware] };
+}
+
+/** A time in every form the publisher does not write; it writes UTC, to the second. */
+const TIMES: readonly unknown[] = [
+  "/srv/zqplantedzq/held_out/task.json",
+  "1795000000",
+  1795000000,
+  "2026-11-18T10:02:00+00:00",
+  "2026-11-18T10:02:00.5Z",
+  "2026-11-18T10:02Z",
+  "2026-02-30T10:02:00Z",
+  "2026-11-18T24:00:00Z",
+  "2026-11-18 10:02:00Z",
+  "2026-11-18T10:02:00Z\n",
+  "<b>2026-11-18T10:02:00Z</b>",
+];
+
 /** ``value`` with ``key`` at ``path`` set to ``to`` (a copy). */
 function edited(path: readonly string[], to: unknown) {
   const control = JSON.parse(JSON.stringify(tierRole())) as Record<string, unknown>;
@@ -136,6 +157,20 @@ describe("the tier versions' guard", () => {
     ["a version that is no id", edited(["version"], "/srv/held_out/task.json")],
     ["a role it does not know", edited(["role"], "whole_run")],
     ["a role twice", { roles: [tierRole(), tierRole()] }],
+    ["a word it does not know for why a check is refused", edited(["check"], { refused: "/srv" })],
+    ["a refused role carrying a key it does not know", withFirmware({ path: "/srv/held_out" })],
+    ["a refused role with no reason", withFirmware({ reason: undefined })],
+    ["a count past the bound", edited(["counts", "visible"], 10_001)],
+    ["a count of more digits than any number holds", edited(["counts", "visible"], 1e308 * 10)],
+    ["a check's count past the bound", edited(["check", "tasks"], 10_001)],
+    ...TIMES.map((at) => [`the time ${JSON.stringify(at)}`, edited(["read_at"], at)] as const),
+    ...TIMES.map(
+      (at) =>
+        [
+          `the time ${JSON.stringify(at)} on a refused role`,
+          withFirmware({ read_at: at }),
+        ] as const,
+    ),
   ])("refuses %s, and never a part of the answer", (_, value) => {
     expect(() => evidenceTiers(value)).toThrow(ShapeError);
   });
@@ -173,8 +208,24 @@ describe("the tier versions on the page", () => {
     );
     expect(text(control?.querySelector('[data-fact="measured"]'))).toBe("No measured run yet.");
     expect(text(control?.querySelector('[data-note="read-at"]'))).toContain(
-      "Read from the tier store on 2026-11-18 at 10:02 UTC",
+      "A copy as published from the tier store on 2026-11-18 at 10:02 UTC",
     );
+  });
+
+  it("says once, at the head of the panel, that a card is the published file's word and no proof", async () => {
+    const host = await mount();
+    const panel = host.querySelector('section[data-panel="tiers"]');
+    const trust = panel?.querySelectorAll('[data-note="trust"]');
+    expect(trust?.length).toBe(1);
+    expect(text(trust?.[0])).toBe(
+      "Each card shows only what its published file says, and anyone who can write to the folder that file is in can change it, so a card is not proof that a version's tasks have not been seen.",
+    );
+  });
+
+  it("takes a refused role's time when it is published, and none when it is not", () => {
+    const status = evidenceTiers(withFirmware({ read_at: null }));
+    expect(status.roles[1]).toMatchObject({ state: "refused", readAt: null });
+    expect(evidenceTiers(TIERS).roles[1]).toMatchObject({ state: "refused", readAt: READ_AT });
   });
 
   it("says a measured version as a word with no number of any result", async () => {

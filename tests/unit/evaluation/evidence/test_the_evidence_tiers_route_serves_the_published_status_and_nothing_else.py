@@ -240,11 +240,29 @@ def _plant(folder: Path, how: str) -> None:
         body["counts"]["held_out"] = PLANTED
     elif how == "a-free-word":
         body["exposure"] = PLANTED
+    elif how == "a-path-for-the-time":
+        body["read_at"] = PLANTED
+    elif how == "a-time-in-another-form":
+        body["read_at"] = "2026-11-24T12:00:00+00:00"
+    elif how == "a-count-of-thousands-of-digits":
+        text = json.dumps(body).replace('"visible": 8', '"visible": ' + "7" * 3500)
+        path.write_text(text)
+        return
     path.write_text(json.dumps(body))
 
 
 #: A publication edited into one its writer could not have written, each way.
-PLANTS = ["cut", "not-json", "too-large", "an-extra-key", "a-value-of-another-kind", "a-free-word"]
+PLANTS = [
+    "cut",
+    "not-json",
+    "too-large",
+    "an-extra-key",
+    "a-value-of-another-kind",
+    "a-free-word",
+    "a-path-for-the-time",
+    "a-time-in-another-form",
+    "a-count-of-thousands-of-digits",
+]
 
 
 @pytest.mark.parametrize("how", PLANTS)
@@ -257,6 +275,32 @@ def test_a_publication_its_writer_could_not_have_written_is_refused_in_a_sentenc
     entry = _refused_entry(world, tmp_path, folder)
     assert entry["reason"] == "publication_unreadable", entry
     assert "/" not in entry["error"], entry
+    assert "7777" not in _answer(world, folder)["_body"].decode()
+
+
+def test_a_publication_whose_place_the_guard_refuses_at_the_open_is_a_refused_role_not_a_failure(
+    world: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The allowlist judged the place, then it was swapped before the open, so the request's guard
+    # refuses the open itself: the role is refused in a fixed sentence, the other still read.
+    from physgate.ui.paths import Allowlist
+
+    folder = _folder(tmp_path)
+    _publish(world, folder)
+    swapped = str(folder / api(NAME)("control"))
+    readable = Allowlist.readable
+
+    def judged_then_swapped(self: Allowlist, path: str) -> bool:
+        return os.path.realpath(path) != os.path.realpath(swapped) and readable(self, path)
+
+    monkeypatch.setattr(Allowlist, "readable", judged_then_swapped)
+    answer = _answer(world, folder)
+    entry = _role(answer, "control")
+    assert entry.get("state") == "refused", entry
+    assert set(entry) == REFUSED_KEYS, entry
+    assert entry["reason"] == "publication_refused", entry
+    assert "/" not in entry["error"] and world["made"].version not in entry["error"], entry
+    assert _role(answer, "firmware").get("reason") == "no_fresh_version"
 
 
 def test_a_link_in_place_of_the_publication_toward_the_held_out_tier_is_refused_unopened(

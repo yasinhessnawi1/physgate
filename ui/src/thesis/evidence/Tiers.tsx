@@ -17,14 +17,16 @@ import { ageWords, STALE_AFTER } from "./Gaps";
 import { ShortId } from "./parts";
 import { EVIDENCE_COPY } from "./words";
 
-/** When the copy was read, in words: its day, its time to the minute, its zone and its age. */
+/**
+ * When the copy was read, in words: its day, its time to the minute and its age. The guard holds
+ * it to its one form (UTC, to the second), so its day and minute are where that form puts them.
+ */
 export function tiersReadAtWords(readAt: string, now: number): string {
-  const found = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.exec(
-    readAt,
+  return EVIDENCE_COPY.tiersReadAt(
+    readAt.slice(0, 10),
+    readAt.slice(11, 16),
+    ageWords(readAt, now),
   );
-  if (found === null) return EVIDENCE_COPY.tiersReadAtAsSent(readAt);
-  const zone = found[3] === "Z" || found[3] === "+00:00" ? "UTC" : `UTC${found[3] ?? ""}`;
-  return EVIDENCE_COPY.tiersReadAt(found[1] ?? "", found[2] ?? "", zone, ageWords(readAt, now));
 }
 
 function checkWords(check: BlindCheck): string {
@@ -110,6 +112,9 @@ export function TierPanel() {
     >
       <h2 className="pg-panel-title">{EVIDENCE_COPY.tierPanelTitle}</h2>
       <p className="evidence-note">{EVIDENCE_COPY.tierPanelLead}</p>
+      <p className="evidence-note" data-note="trust">
+        {EVIDENCE_COPY.tierPanelTrust}
+      </p>
       {roles.length === 0 ? (
         <EmptyState title={EVIDENCE_COPY.noTiers} icon="microscope" />
       ) : (

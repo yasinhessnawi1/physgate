@@ -84,7 +84,7 @@ from physgate.orchestrator.events import Event, SessionEnded, SubtaskPlanned, re
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.gate_events import GateEvent, gate_events
 from physgate.orchestrator.run_config import RunConfig, load_run_config
-from physgate.ui.exceptions import PathRefusedError
+from physgate.ui.exceptions import GuardRefusedError, PathRefusedError
 from physgate.ui.readers import HELD_OUT_FIELDS, run_dir_of
 from physgate.ui.routes import Context, Response, Route, json_response, run_directories
 
@@ -622,6 +622,13 @@ class GapTrend:
 
 #: The fields a published check's counts are served by, and the three tiers' counts.
 CHECK_SHOWN = ("tasks", "all_yes", "left_out", "source")
+#: How the request's guard ends its refusal of an open beyond the roots, as it words it.
+OUTSIDE_THE_ROOTS = "outside the roots it may read"
+#: Why a publication is not read when its place changed between the judgement and the open.
+TIERS_SWAPPED = (
+    "the published tier status is not read: its place changed while it was being read, so "
+    "nothing of it was opened; load the page again"
+)
 
 
 def _shown_check(check: Mapping[str, Any] | None) -> dict[str, object] | None:
@@ -654,6 +661,12 @@ class TierStatus:
             found = _publications(context, tiers.name(role), tiers.most)
         except PathRefusedError as exc:
             return _trend_refused(role, f"the published tier status is not read: {exc}", REFUSED)
+        except GuardRefusedError as exc:
+            # The place was judged, then swapped before the open, and the request's guard refused
+            # the open itself: nothing was read. Any other guard refusal is this package's fault.
+            if exc.context.get("event") != "open" or not str(exc).endswith(OUTSIDE_THE_ROOTS):
+                raise
+            return _trend_refused(role, TIERS_SWAPPED, REFUSED)
         if not found:
             return {"role": role, "state": "none"}
         if len(found) > 1:

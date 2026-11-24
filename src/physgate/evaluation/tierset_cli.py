@@ -22,10 +22,14 @@ refusal line (``store_unreadable``) instead and exits 1.
 role (:mod:`physgate.evaluation.tiers.published`): the version id, the three tiers' task counts,
 the blind check's counts and source, an exposure word, whether it was measured, its state and
 when it was read; or, where none or more than one version is fresh, a refusal word. It then
-prints what it published, one JSON line, in place of the status, and exits 1 if a role is
-published as a refusal. ``DIR`` is a folder of its own, judged as the gap trend's publication
-judges one, and not the gap trend's folder; the UI's server is given it as a root and never the
-store.
+prints what it published, one JSON line, in place of the status. It exits 0 when every role is
+published as read, or as having no fresh version (a role with no version yet is the normal state
+of a new store); and 1 when a role is published as any other refusal (the store or a register
+could not be read, a version is not what its manifest says, several versions are fresh, the read
+failed), or when nothing is published (the folder is refused, or the files could not be written).
+``DIR`` is a folder of its own, judged as the gap trend's publication judges one, not the gap
+trend's folder and not beneath a withheld root; the UI's server is given it as a root and never
+the store.
 
 An exposure, read from the role's register as freshly scanned, marks a version's held-out tier
 stale as well (``because``: ``exposed``); a register that cannot be read prints one refusal line
@@ -110,12 +114,14 @@ def add_parser(subparsers: Any) -> None:
 #: command's help imports nothing of the tier machinery.
 _PUBLISH_HELP = (
     "the folder to publish each role's current tier version into, for the operator UI's Evidence "
-    "page: a folder of its own, not the gap trend's. Refused inside the store, the harness "
-    "checkout or any git checkout or worktree, a run's directory or a folder of runs, an "
-    "installation, a review root, or the machine's shared temporary directories. This command "
-    "is given no run, so it cannot know every place a run's sessions may read: publish into a "
-    "folder of its own that no run names and nothing else writes, and give that folder to the "
-    "operator UI as a root (physgate ui --root)."
+    "page: a folder of its own, not the gap trend's. Refused inside the store, beneath a role's "
+    "withheld root, the harness checkout or any git checkout or worktree, a run's directory or a "
+    "folder of runs, an installation, a review root, or the machine's shared temporary "
+    "directories. This command is given no run, so it cannot know every place a run's sessions "
+    "may read: publish into a folder of its own that no run names and nothing else writes, and "
+    "give that folder to the operator UI as a root (physgate ui --root). Exits 0 when every role "
+    "is published as read or as having no fresh version; 1 when a role is published as any other "
+    "refusal, or when nothing is published."
 )
 
 
@@ -190,6 +196,11 @@ def status(store: Path) -> dict[str, Any]:
     return {"versions": versions, "left": leftovers(store)}
 
 
+#: The one refusal ``--publish`` exits 0 on: the role holds no fresh version, which is a state of
+#: the store (a new store, or every version stale) and not a failure to read it.
+_NO_FRESH_VERSION = "no_fresh_version"
+
+
 def _publish(args: argparse.Namespace) -> int:
     """Publish each role's current version into ``--publish``; print what was published."""
     from physgate.evaluation.tiers.published import TierStatusError, publish_status
@@ -202,7 +213,9 @@ def _publish(args: argparse.Namespace) -> int:
         return 1
     said = [record.model_dump(mode="json") for record in records]
     print(json.dumps({"published": said}, sort_keys=True))
-    return 1 if any("refused" in record for record in said) else 0
+    # A role with no fresh version is a state of the store, not a failure to read it.
+    failed = [r for r in said if r.get("refused", _NO_FRESH_VERSION) != _NO_FRESH_VERSION]
+    return 1 if failed else 0
 
 
 def _status(args: argparse.Namespace) -> int:

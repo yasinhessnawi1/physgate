@@ -210,9 +210,10 @@ export const EVIDENCE_COPY = {
   },
   measured: "Measured: no result of it is shown here.",
   notMeasuredYet: "No measured run yet.",
-  tiersReadAt: (day: string, time: string, zone: string, age: string | null) =>
-    `Read from the tier store on ${day} at ${time} ${zone}${age === null ? "" : ` (${age})`}.`,
-  tiersReadAtAsSent: (readAt: string) => `Read from the tier store at ${readAt}.`,
+  tierPanelTrust:
+    "Each card shows only what its published file says, and anyone who can write to the folder that file is in can change it, so a card is not proof that a version's tasks have not been seen.",
+  tiersReadAt: (day: string, time: string, age: string | null) =>
+    `A copy as published from the tier store on ${day} at ${time} UTC${age === null ? "" : ` (${age})`}.`,
   tiersStale:
     "This copy is more than a week old: a version written or seen since is not on it. Publish the tier status again for a current copy.",
 } as const;

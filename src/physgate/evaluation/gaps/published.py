@@ -26,7 +26,10 @@ run's directory (its ``run.json`` or ``instrument.json``) or a folder that holds
 checkout or worktree (the harness's own, a run's target and its worktrees), an installation (its
 manifest) or a folder that holds one, a review root or a review's directory, the machine's
 shared temporary directories (which every session's OS layer leaves open to read and write), and
-a folder the operator UI would refuse to read as a root. Its parser (:func:`read_published`)
+a folder the operator UI would refuse to read as a root. Nor into a folder that holds the
+published tier status (:mod:`physgate.evaluation.tiers.published`), whose publisher refuses a
+folder holding this in turn: each is published into a folder of its own, so neither publish can
+be blocked by the other's file. Its parser (:func:`read_published`)
 refuses anything its writer could not have written, a file cut part way, a publication of
 another role and one over its size bound.
 
@@ -44,6 +47,7 @@ import contextlib
 import os
 import re
 import time
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -69,12 +73,14 @@ __all__ = [
     "GapsError",
     "KnownPlaces",
     "PublishedTrend",
+    "beside_another",
     "folder_refusal",
     "known_places",
     "publish_trend",
     "published_name",
     "read_for_publication",
     "read_published",
+    "write_all",
     "write_whole",
 ]
 
@@ -328,8 +334,27 @@ def folder_refusal(out: Path, store: Path, places: KnownPlaces) -> str | None:
     return None
 
 
-def _replace_whole(fd: int, name: str, data: bytes) -> None:
-    """Write ``data`` to ``name`` beneath ``fd`` whole: a temporary file beside it, renamed."""
+def beside_another(out: Path, names: Iterable[str], what: str) -> str | None:
+    """Why ``out`` holds another publication made for the page (``what``, in words), or ``None``.
+
+    Each publication is written into a folder of its own, so one never blocks the other's.
+    """
+    found = frozenset(names)
+    try:
+        with os.scandir(out) as entries:
+            held = any(entry.name in found for entry in entries)
+    except OSError:
+        return "the folder to publish into cannot be listed"
+    if held:
+        return (
+            f"the folder to publish into holds {what}; each publication made for the page is "
+            "published into a folder of its own"
+        )
+    return None
+
+
+def _stage(fd: int, name: str, data: bytes) -> str:
+    """Write ``data`` whole beneath ``fd`` under a temporary name beside ``name``; that name."""
     partial = f".{name}.{os.getpid()}.{time.monotonic_ns()}"
     handle = os.open(
         partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=fd
@@ -340,50 +365,81 @@ def _replace_whole(fd: int, name: str, data: bytes) -> None:
             os.fsync(handle)
         finally:
             os.close(handle)
-        os.replace(partial, name, src_dir_fd=fd, dst_dir_fd=fd)
     except BaseException:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(partial, dir_fd=fd)
         raise
-    os.fsync(fd)
+    return partial
 
 
-def write_whole(out: Path, name: str, data: bytes, *, what: str) -> None:
-    """Write ``data`` (``what`` it is, in words) to ``out/name`` whole, or remove the copy before.
+def _remove_every(fd: int, names: Iterable[str]) -> bool:
+    """Remove each of ``names`` beneath ``fd``; whether none of them is left."""
+    gone = True
+    for name in names:
+        try:
+            os.unlink(name, dir_fd=fd)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            gone = False
+    return gone
+
+
+def write_all(out: Path, files: Mapping[str, bytes], *, what: str) -> None:
+    """Write every one of ``files`` (``what`` they are, in words) into ``out`` whole, or none.
+
+    Each is written whole under a temporary name first, and only once all are written are they
+    renamed into place. If any step fails, every temporary file and every copy published before
+    under the names is removed, so no older copy reads as current, and none beside a newer one.
 
     Raises:
-        GapsError: the folder cannot be opened, or the copy cannot be written; the one before it
-            is then removed, so no older copy reads as current, and the sentence says whether it
-            could be.
+        GapsError: the folder cannot be opened, or a file cannot be written; the copies before
+            them are then removed, and the sentence says whether they could be.
     """
     try:
         fd = os.open(out, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError as exc:
         msg = f"the folder to publish into cannot be opened ({os.strerror(exc.errno or 0)})"
         raise _refuse("publish_failed", msg) from None
+    staged: list[str] = []
     try:
         try:
-            _replace_whole(fd, name, data)
+            for name, data in files.items():
+                staged.append(_stage(fd, name, data))
+            for partial, name in zip(staged, files, strict=True):
+                os.replace(partial, name, src_dir_fd=fd, dst_dir_fd=fd)
+            os.fsync(fd)
         except OSError as exc:
-            try:
-                os.unlink(name, dir_fd=fd)
-            except FileNotFoundError:
-                gone = True
-            except OSError:
-                gone = False
-            else:
-                gone = True
+            _remove_every(fd, staged)
+            gone = _remove_every(fd, files)
             done = (
-                "the copy published before is removed, so the page shows none rather than an "
-                "older one"
+                "what was published before is removed, so the page shows none rather than an "
+                "older copy"
                 if gone
-                else "the copy published before could not be removed either: remove it by hand, "
+                else "what was published before could not all be removed: remove it by hand, "
                 "or the page shows it as it was"
             )
             msg = f"{what} could not be written ({os.strerror(exc.errno or 0)}); {done}"
             raise _refuse("publish_failed", msg) from None
     finally:
         os.close(fd)
+
+
+def write_whole(out: Path, name: str, data: bytes, *, what: str) -> None:
+    """Write ``data`` (``what`` it is, in words) to ``out/name`` whole, or remove the copy before.
+
+    Raises:
+        GapsError: as :func:`write_all` does for one file.
+    """
+    write_all(out, {name: data}, what=what)
+
+
+def _tier_status_names() -> frozenset[str]:
+    """The tier status's publications' names, as its own module gives them."""
+    from physgate.evaluation.tiers.published import ROLES as TIER_ROLES
+    from physgate.evaluation.tiers.published import published_name as tier_status_name
+
+    return frozenset(tier_status_name(role) for role in TIER_ROLES)
 
 
 def publish_trend(
@@ -396,15 +452,17 @@ def publish_trend(
 
     Raises:
         GapsError: asked for inside a harness session; ``out`` is not a folder of its own (it
-            is missing, a link, in the store or holds it, or in a place a run's sessions, a
-            reviewer or a commit reach); or the publication cannot be written, and the copy
-            before it is then removed.
+            is missing, a link, in the store or holds it, holds the published tier status, or
+            in a place a run's sessions, a reviewer or a commit reach); or the publication
+            cannot be written, and the copy before it is then removed.
     """
     found = sorted(name for name in SESSION_MARKERS if name in os.environ)
     if found:
         msg = f"the gap trend is published by a person, never from a session ({', '.join(found)})"
         raise _refuse("inside_a_session", msg)
     refusal = folder_refusal(Path(out), Path(store), known_places())
+    if refusal is None:
+        refusal = beside_another(Path(out), _tier_status_names(), "the published tier status")
     if refusal is not None:
         raise _refuse("publish_refused", f"{refusal}. {WHERE_TO_PUBLISH}")
     read_at = now or datetime.now(UTC)
