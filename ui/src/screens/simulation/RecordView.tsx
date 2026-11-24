@@ -38,6 +38,7 @@ import {
 } from "../../words/series";
 import { useJson } from "../common/read";
 import { type PlotPlan, plotsOf, SamplesMismatchError } from "./model";
+import { shownPath, withoutAbsolutePaths } from "./paths";
 import { Tag } from "./Tag";
 
 /** What the reader reported about a record it would not serve: shown under "Details". */
@@ -66,7 +67,7 @@ export function SealRefusal({
   const rows: [string, string | null][] = [
     ["record", recordId],
     ["place in the run", seal.record],
-    ["reason", seal.reason],
+    ["reason", withoutAbsolutePaths(seal.reason)],
     ["sealed sha256", seal.sealedSha256],
     ["sealed length", seal.sealedLength === null ? null : `${seal.sealedLength} B`],
     ["found sha256", seal.foundSha256],
@@ -230,7 +231,7 @@ function Produced({ record }: { readonly record: ShownRecord }) {
               ))}
               {record.environment.map((file) => (
                 <li key={file.path} className="pg-sim-file-row">
-                  <span className="pg-sim-file">{file.path}</span>
+                  <span className="pg-sim-file">{shownPath(file.path)}</span>
                   <span className="pg-muted">{SERIES_COPY.environment}</span>
                 </li>
               ))}
