@@ -13,7 +13,7 @@ import json
 from typing import Any
 
 import pytest
-from answer_form_cases import Case, cases, example, precedence
+from answer_form_cases import Case, cases, example, precedence, stated_and_refused
 
 import physgate.evaluation.whole.form as form
 from physgate.evaluation.per_role.exceptions import TaskFormatError
@@ -53,6 +53,35 @@ def test_an_answer_built_to_break_one_rule_is_read_as_the_block_says(key: str, c
         if rule.name is not None:
             assert rule.name in str(refusal), (rule.name, str(refusal))
     assert case.outcome == ("unscored" if case.parse == "outside" else "fail")
+
+
+def _refused_saying(case: Case) -> str:
+    assert case.changed, f"{case.label}: the edit found its text in the example not exactly once"
+    refusal = _read(case)
+    assert isinstance(refusal, TaskFormatError) and not isinstance(refusal, OutsideScope), refusal
+    said = str(refusal)
+    for words in case.said:
+        assert words in said, (words, said)
+    return said
+
+
+def test_a_sign_written_true_is_refused_as_a_sign_that_is_no_number() -> None:
+    _refused_saying(stated_and_refused()["sign_true"])
+
+
+def test_two_states_marked_as_holding_the_applied_command_are_refused_and_both_are_named() -> None:
+    _refused_saying(stated_and_refused()["applied_twice"])
+
+
+def test_a_key_written_twice_is_refused_by_name_at_the_top_of_the_answer_and_inside_it() -> None:
+    _refused_saying(stated_and_refused()["key_twice"])
+    _refused_saying(stated_and_refused()["key_twice_inside"])
+
+
+def test_a_key_written_twice_in_a_version_2_answer_is_refused_too() -> None:
+    text = b'{"form": "whole_run", "version": 2, "version": 2, "controller": {}, "parameters": {}}'
+    with pytest.raises(TaskFormatError, match="key_written_twice"):
+        parse_answer(text)
 
 
 def test_a_fault_of_the_answer_beats_a_term_that_is_not_judged() -> None:

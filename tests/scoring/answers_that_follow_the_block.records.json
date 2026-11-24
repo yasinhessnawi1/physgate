@@ -1,0 +1,3396 @@
+{
+ "about": "records of answers that follow the answer-form block, scored on master at aa474d7b on the frozen plant; a row scores each answer again and compares",
+ "answers": [
+  {
+   "answer": {
+    "controller": {
+     "coefficients": {
+      "k_angle": {
+       "unit": "1/rad",
+       "value": 1
+      },
+      "k_rate": {
+       "unit": "s/rad",
+       "value": 1
+      },
+      "k_speed": {
+       "unit": "s/rad",
+       "value": 1
+      },
+      "k_wheel": {
+       "unit": "1/rad",
+       "value": 1
+      },
+      "leak": {
+       "unit": "1",
+       "value": 0.8
+      }
+     },
+     "command": "command",
+     "command_limit": {
+      "unit": "1",
+      "value": 0.6
+     },
+     "compute_delay": {
+      "unit": "s",
+      "value": 0.004
+     },
+     "lines": [
+      {
+       "name": "tilt_est_now",
+       "terms": [
+        {
+         "coefficients": [
+          "leak"
+         ],
+         "of": "previous.tilt_est",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "period"
+         ],
+         "of": "tilt_rate",
+         "sign": 1
+        }
+       ],
+       "unit": "rad"
+      },
+      {
+       "name": "command",
+       "terms": [
+        {
+         "coefficients": [
+          "k_angle"
+         ],
+         "of": "line.tilt_est_now",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_rate"
+         ],
+         "of": "tilt_rate",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_wheel"
+         ],
+         "of": "wheel_angle",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_speed"
+         ],
+         "of": "wheel_speed",
+         "sign": 1
+        }
+       ],
+       "unit": "1"
+      }
+     ],
+     "memory": [
+      {
+       "name": "tilt_est",
+       "next": "tilt_est_now",
+       "unit": "rad"
+      }
+     ],
+     "period": {
+      "unit": "s",
+      "value": 0.02
+     },
+     "sensor_delay": {
+      "unit": "s",
+      "value": 0.01
+     },
+     "structure": "sampled_law"
+    },
+    "form": "whole_run",
+    "parameters": {
+     "encoder_counts_per_wheel_revolution": {
+      "unit": "count",
+      "value": 512
+     },
+     "gyro_full_scale": {
+      "unit": "deg/s",
+      "value": 500
+     },
+     "output_data_rate": {
+      "unit": "Hz",
+      "value": 120
+     },
+     "pwm_frequency": {
+      "unit": "Hz",
+      "value": 10000
+     },
+     "pwm_full_scale": {
+      "unit": "count",
+      "value": 255
+     },
+     "update_rate": {
+      "unit": "Hz",
+      "value": 50
+     }
+    },
+    "version": 3
+   },
+   "label": "the example the block quotes",
+   "record": {
+    "answer_valid": true,
+    "compute_delay_flags": [],
+    "compute_delay_omitted": [],
+    "held_modes": [],
+    "held_state_flags": [],
+    "law_signals": [
+     "tilt_rate",
+     "wheel_angle",
+     "wheel_speed"
+    ],
+    "no_interface_statement": [],
+    "outcome": "fail",
+    "plant": {
+     "sha256": "cfa93bec3323af6ecc8f41916f63762bfc3ae0f1c35f60da3b44f91e7244b4a1",
+     "status": "frozen",
+     "version": "v0"
+    },
+    "scale_factors": [],
+    "scenario": "whole.fixture",
+    "specs": [
+     {
+      "composes": [
+       "c5"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 0.6
+      },
+      "metric": "command_limit",
+      "name": "limit",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 50.0
+      },
+      "metric": "update_rate",
+      "name": "rate",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 50.0
+      },
+      "metric": "controller_rate",
+      "name": "period",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c6"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1,
+       "high": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.08
+       },
+       "low": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.08
+       },
+       "passing": 1,
+       "ranged": [],
+       "unstable": 0
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "A",
+       "value": 1.08
+      },
+      "metric": "stall_current",
+      "name": "stall",
+      "no_interface_statement": [],
+      "reason": "passes at the nominal values and at every corner of the ranges; the ranges' interior is not searched",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c15"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 0,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 1024
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": null,
+      "metric": "phase_margin",
+      "name": "pm",
+      "no_interface_statement": [],
+      "reason": "fails at the nominal values and at every corner of the ranges; the closed loop is unstable at 1024 of 1024 corners and at the nominal values, and an unstable loop has no margin",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 0,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 1024
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": null,
+      "metric": "gain_margin_upward",
+      "name": "up",
+      "no_interface_statement": [],
+      "reason": "fails at the nominal values and at every corner of the ranges; the closed loop is unstable at 1024 of 1024 corners and at the nominal values, and an unstable loop has no margin",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 0,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 1024
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": null,
+      "metric": "gain_margin_downward",
+      "name": "down",
+      "no_interface_statement": [],
+      "reason": "fails at the nominal values and at every corner of the ranges; the closed loop is unstable at 1024 of 1024 corners and at the nominal values, and an unstable loop has no margin",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "fail"
+     }
+    ],
+    "structure": "sampled_law",
+    "unit_circle": {
+     "algebraic_at_one": 0,
+     "at_minus_one": 0,
+     "at_one_not_set_aside": 0,
+     "set_aside": 0
+    },
+    "work": {
+     "bound": {
+      "unit": "1",
+      "value": 100000000
+     },
+     "corners": {
+      "unit": "1",
+      "value": 1025
+     },
+     "states": {
+      "unit": "1",
+      "value": 6
+     },
+     "steps": {
+      "unit": "1",
+      "value": 3229
+     },
+     "total": {
+      "unit": "1",
+      "value": 19858350
+     }
+    }
+   }
+  },
+  {
+   "answer": {
+    "controller": {
+     "coefficients": {
+      "k_angle": {
+       "unit": "1/rad",
+       "value": 1
+      },
+      "k_rate": {
+       "unit": "s/rad",
+       "value": 1
+      },
+      "k_speed": {
+       "unit": "s/rad",
+       "value": 1
+      },
+      "k_wheel": {
+       "unit": "1/rad",
+       "value": 1
+      },
+      "leak": {
+       "unit": "1",
+       "value": 1
+      }
+     },
+     "command": "command",
+     "command_limit": {
+      "unit": "1",
+      "value": 0.6
+     },
+     "compute_delay": {
+      "unit": "s",
+      "value": 0.004
+     },
+     "lines": [
+      {
+       "name": "tilt_est_now",
+       "terms": [
+        {
+         "coefficients": [
+          "leak"
+         ],
+         "of": "previous.tilt_est",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "period"
+         ],
+         "of": "tilt_rate",
+         "sign": 1
+        }
+       ],
+       "unit": "rad"
+      },
+      {
+       "name": "command",
+       "terms": [
+        {
+         "coefficients": [
+          "k_angle"
+         ],
+         "of": "line.tilt_est_now",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_rate"
+         ],
+         "of": "tilt_rate",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_wheel"
+         ],
+         "of": "wheel_angle",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_speed"
+         ],
+         "of": "wheel_speed",
+         "sign": 1
+        }
+       ],
+       "unit": "1"
+      }
+     ],
+     "memory": [
+      {
+       "name": "tilt_est",
+       "next": "tilt_est_now",
+       "unit": "rad"
+      }
+     ],
+     "period": {
+      "unit": "s",
+      "value": 0.02
+     },
+     "sensor_delay": {
+      "unit": "s",
+      "value": 0.01
+     },
+     "structure": "sampled_law"
+    },
+    "form": "whole_run",
+    "parameters": {
+     "encoder_counts_per_wheel_revolution": {
+      "unit": "count",
+      "value": 512
+     },
+     "gyro_full_scale": {
+      "unit": "deg/s",
+      "value": 500
+     },
+     "output_data_rate": {
+      "unit": "Hz",
+      "value": 120
+     },
+     "pwm_frequency": {
+      "unit": "Hz",
+      "value": 10000
+     },
+     "pwm_full_scale": {
+      "unit": "count",
+      "value": 255
+     },
+     "update_rate": {
+      "unit": "Hz",
+      "value": 50
+     }
+    },
+    "version": 3
+   },
+   "label": "the example with a state that keeps its value exactly",
+   "record": {
+    "answer_valid": true,
+    "compute_delay_flags": [],
+    "compute_delay_omitted": [],
+    "held_modes": [
+     {
+      "fed_by_memory_states": [
+       "tilt_est"
+      ],
+      "fed_by_signals": [
+       "tilt_rate"
+      ],
+      "fed_by_the_reference": false,
+      "involves_wheel_angle": true,
+      "memory_states": [
+       "tilt_est"
+      ],
+      "note": "A held state is set aside in the stability test and its margins are those of the rest of the loop. In the firmware it can grow without bound under a sensor bias (the gyro's, the encoder's) or a constant reference, to overflow or saturation, which this score cannot see.",
+      "read_by_the_command": true
+     }
+    ],
+    "held_state_flags": [
+     "held_state_fed_by_reference_or_bias_and_read"
+    ],
+    "law_signals": [
+     "tilt_rate",
+     "wheel_angle",
+     "wheel_speed"
+    ],
+    "no_interface_statement": [],
+    "outcome": "fail",
+    "plant": {
+     "sha256": "cfa93bec3323af6ecc8f41916f63762bfc3ae0f1c35f60da3b44f91e7244b4a1",
+     "status": "frozen",
+     "version": "v0"
+    },
+    "scale_factors": [],
+    "scenario": "whole.fixture",
+    "specs": [
+     {
+      "composes": [
+       "c5"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [
+       "held_state_fed_by_reference_or_bias_and_read"
+      ],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 0.6
+      },
+      "metric": "command_limit",
+      "name": "limit",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [
+       "held_state_fed_by_reference_or_bias_and_read"
+      ],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 50.0
+      },
+      "metric": "update_rate",
+      "name": "rate",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [
+       "held_state_fed_by_reference_or_bias_and_read"
+      ],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 50.0
+      },
+      "metric": "controller_rate",
+      "name": "period",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c6"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1,
+       "high": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.08
+       },
+       "low": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.08
+       },
+       "passing": 1,
+       "ranged": [],
+       "unstable": 0
+      },
+      "counts": "headline",
+      "held_state_flags": [
+       "held_state_fed_by_reference_or_bias_and_read"
+      ],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "A",
+       "value": 1.08
+      },
+      "metric": "stall_current",
+      "name": "stall",
+      "no_interface_statement": [],
+      "reason": "passes at the nominal values and at every corner of the ranges; the ranges' interior is not searched",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c15"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 0,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 1024
+      },
+      "counts": "headline",
+      "held_state_flags": [
+       "held_state_fed_by_reference_or_bias_and_read"
+      ],
+      "kind": "computed",
+      "measured": null,
+      "metric": "phase_margin",
+      "name": "pm",
+      "no_interface_statement": [],
+      "reason": "fails at the nominal values and at every corner of the ranges; the closed loop is unstable at 1024 of 1024 corners and at the nominal values, and an unstable loop has no margin",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 0,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 1024
+      },
+      "counts": "headline",
+      "held_state_flags": [
+       "held_state_fed_by_reference_or_bias_and_read"
+      ],
+      "kind": "computed",
+      "measured": null,
+      "metric": "gain_margin_upward",
+      "name": "up",
+      "no_interface_statement": [],
+      "reason": "fails at the nominal values and at every corner of the ranges; the closed loop is unstable at 1024 of 1024 corners and at the nominal values, and an unstable loop has no margin",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 0,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 1024
+      },
+      "counts": "headline",
+      "held_state_flags": [
+       "held_state_fed_by_reference_or_bias_and_read"
+      ],
+      "kind": "computed",
+      "measured": null,
+      "metric": "gain_margin_downward",
+      "name": "down",
+      "no_interface_statement": [],
+      "reason": "fails at the nominal values and at every corner of the ranges; the closed loop is unstable at 1024 of 1024 corners and at the nominal values, and an unstable loop has no margin",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "fail"
+     }
+    ],
+    "structure": "sampled_law",
+    "unit_circle": {
+     "algebraic_at_one": 1,
+     "at_minus_one": 0,
+     "at_one_not_set_aside": 0,
+     "set_aside": 1
+    },
+    "work": {
+     "bound": {
+      "unit": "1",
+      "value": 100000000
+     },
+     "corners": {
+      "unit": "1",
+      "value": 1025
+     },
+     "states": {
+      "unit": "1",
+      "value": 6
+     },
+     "steps": {
+      "unit": "1",
+      "value": 3229
+     },
+     "total": {
+      "unit": "1",
+      "value": 19858350
+     }
+    }
+   }
+  },
+  {
+   "answer": {
+    "controller": {
+     "coefficients": {
+      "k_rate": {
+       "unit": "s/rad",
+       "value": 0.191
+      },
+      "k_speed": {
+       "unit": "s/rad",
+       "value": 0.053684
+      },
+      "k_tilt": {
+       "unit": "1/rad",
+       "value": 1.6643
+      },
+      "k_wheel": {
+       "unit": "1/rad",
+       "value": 0.011412
+      }
+     },
+     "command": "command",
+     "command_limit": {
+      "unit": "1",
+      "value": 0.6
+     },
+     "compute_delay": {
+      "unit": "s",
+      "value": 0.004
+     },
+     "lines": [
+      {
+       "name": "command",
+       "terms": [
+        {
+         "coefficients": [
+          "k_tilt"
+         ],
+         "of": "tilt",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_rate"
+         ],
+         "of": "tilt_rate",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_wheel"
+         ],
+         "of": "wheel_angle",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_speed"
+         ],
+         "of": "wheel_speed",
+         "sign": 1
+        }
+       ],
+       "unit": "1"
+      }
+     ],
+     "memory": [],
+     "period": {
+      "unit": "s",
+      "value": 0.02
+     },
+     "sensor_delay": {
+      "unit": "s",
+      "value": 0.01
+     },
+     "structure": "sampled_law"
+    },
+    "form": "whole_run",
+    "parameters": {
+     "encoder_counts_per_wheel_revolution": {
+      "unit": "count",
+      "value": 512
+     },
+     "gyro_full_scale": {
+      "unit": "deg/s",
+      "value": 500
+     },
+     "output_data_rate": {
+      "unit": "Hz",
+      "value": 120
+     },
+     "pwm_frequency": {
+      "unit": "Hz",
+      "value": 10000
+     },
+     "pwm_full_scale": {
+      "unit": "count",
+      "value": 255
+     },
+     "update_rate": {
+      "unit": "Hz",
+      "value": 50
+     }
+    },
+    "version": 3
+   },
+   "label": "a state feedback on the tilt, its rate and the wheels",
+   "record": {
+    "answer_valid": true,
+    "compute_delay_flags": [],
+    "compute_delay_omitted": [],
+    "held_modes": [],
+    "held_state_flags": [],
+    "law_signals": [
+     "tilt",
+     "tilt_rate",
+     "wheel_angle",
+     "wheel_speed"
+    ],
+    "no_interface_statement": [],
+    "outcome": "fail",
+    "plant": {
+     "sha256": "cfa93bec3323af6ecc8f41916f63762bfc3ae0f1c35f60da3b44f91e7244b4a1",
+     "status": "frozen",
+     "version": "v0"
+    },
+    "scale_factors": [],
+    "scenario": "whole.fixture",
+    "specs": [
+     {
+      "composes": [
+       "c5"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 0.6
+      },
+      "metric": "command_limit",
+      "name": "limit",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 50.0
+      },
+      "metric": "update_rate",
+      "name": "rate",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 50.0
+      },
+      "metric": "controller_rate",
+      "name": "period",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c6"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1,
+       "high": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.08
+       },
+       "low": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.08
+       },
+       "passing": 1,
+       "ranged": [],
+       "unstable": 0
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "A",
+       "value": 1.08
+      },
+      "metric": "stall_current",
+      "name": "stall",
+      "no_interface_statement": [],
+      "reason": "passes at the nominal values and at every corner of the ranges; the ranges' interior is not searched",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c15"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 511,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 122
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "deg",
+       "value": 46.050755099430575
+      },
+      "metric": "phase_margin",
+      "name": "pm",
+      "no_interface_statement": [],
+      "reason": "passes at 511 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 694,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 122
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 2.0387468863343106
+      },
+      "metric": "gain_margin_upward",
+      "name": "up",
+      "no_interface_statement": [],
+      "reason": "passes at 694 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 448,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 122
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 0.4538427901927712
+      },
+      "metric": "gain_margin_downward",
+      "name": "down",
+      "no_interface_statement": [],
+      "reason": "passes at 448 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     }
+    ],
+    "structure": "sampled_law",
+    "unit_circle": {
+     "algebraic_at_one": 0,
+     "at_minus_one": 0,
+     "at_one_not_set_aside": 0,
+     "set_aside": 0
+    },
+    "work": {
+     "bound": {
+      "unit": "1",
+      "value": 100000000
+     },
+     "corners": {
+      "unit": "1",
+      "value": 1025
+     },
+     "states": {
+      "unit": "1",
+      "value": 5
+     },
+     "steps": {
+      "unit": "1",
+      "value": 3229
+     },
+     "total": {
+      "unit": "1",
+      "value": 16548625
+     }
+    }
+   }
+  },
+  {
+   "answer": {
+    "controller": {
+     "coefficients": {
+      "k_rate": {
+       "unit": "s/rad",
+       "value": 0.191
+      },
+      "k_speed": {
+       "unit": "s/rad",
+       "value": 0.053684
+      },
+      "k_tilt": {
+       "unit": "1/rad",
+       "value": 1.6643
+      },
+      "k_wheel": {
+       "unit": "1/rad",
+       "value": -0.011412
+      },
+      "two": {
+       "unit": "1",
+       "value": 2
+      }
+     },
+     "command": "command",
+     "command_limit": {
+      "unit": "1",
+      "value": 0.6
+     },
+     "compute_delay": {
+      "unit": "s",
+      "value": 0.004
+     },
+     "lines": [
+      {
+       "name": "command",
+       "terms": [
+        {
+         "coefficients": [
+          "k_tilt"
+         ],
+         "of": "tilt",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_rate"
+         ],
+         "of": "tilt_rate",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_wheel"
+         ],
+         "of": "wheel_angle",
+         "sign": -1
+        },
+        {
+         "coefficients": [
+          "k_speed"
+         ],
+         "number": 2,
+         "of": "wheel_speed",
+         "per": [
+          "two"
+         ],
+         "sign": 1
+        }
+       ],
+       "unit": "1"
+      }
+     ],
+     "memory": [],
+     "period": {
+      "unit": "s",
+      "value": 0.02
+     },
+     "sensor_delay": {
+      "unit": "s",
+      "value": 0.01
+     },
+     "structure": "sampled_law"
+    },
+    "form": "whole_run",
+    "parameters": {
+     "encoder_counts_per_wheel_revolution": {
+      "unit": "count",
+      "value": 512
+     },
+     "gyro_full_scale": {
+      "unit": "deg/s",
+      "value": 500
+     },
+     "output_data_rate": {
+      "unit": "Hz",
+      "value": 120
+     },
+     "pwm_frequency": {
+      "unit": "Hz",
+      "value": 10000
+     },
+     "pwm_full_scale": {
+      "unit": "count",
+      "value": 255
+     },
+     "update_rate": {
+      "unit": "Hz",
+      "value": 50
+     }
+    },
+    "version": 3
+   },
+   "label": "the same feedback written with a sign of -1, a number and a per",
+   "record": {
+    "answer_valid": true,
+    "compute_delay_flags": [],
+    "compute_delay_omitted": [],
+    "held_modes": [],
+    "held_state_flags": [],
+    "law_signals": [
+     "tilt",
+     "tilt_rate",
+     "wheel_angle",
+     "wheel_speed"
+    ],
+    "no_interface_statement": [],
+    "outcome": "fail",
+    "plant": {
+     "sha256": "cfa93bec3323af6ecc8f41916f63762bfc3ae0f1c35f60da3b44f91e7244b4a1",
+     "status": "frozen",
+     "version": "v0"
+    },
+    "scale_factors": [],
+    "scenario": "whole.fixture",
+    "specs": [
+     {
+      "composes": [
+       "c5"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 0.6
+      },
+      "metric": "command_limit",
+      "name": "limit",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 50.0
+      },
+      "metric": "update_rate",
+      "name": "rate",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 50.0
+      },
+      "metric": "controller_rate",
+      "name": "period",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c6"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1,
+       "high": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.08
+       },
+       "low": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.08
+       },
+       "passing": 1,
+       "ranged": [],
+       "unstable": 0
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "A",
+       "value": 1.08
+      },
+      "metric": "stall_current",
+      "name": "stall",
+      "no_interface_statement": [],
+      "reason": "passes at the nominal values and at every corner of the ranges; the ranges' interior is not searched",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c15"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 511,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 122
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "deg",
+       "value": 46.050755099430575
+      },
+      "metric": "phase_margin",
+      "name": "pm",
+      "no_interface_statement": [],
+      "reason": "passes at 511 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 694,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 122
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 2.0387468863343106
+      },
+      "metric": "gain_margin_upward",
+      "name": "up",
+      "no_interface_statement": [],
+      "reason": "passes at 694 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 448,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 122
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 0.4538427901927712
+      },
+      "metric": "gain_margin_downward",
+      "name": "down",
+      "no_interface_statement": [],
+      "reason": "passes at 448 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     }
+    ],
+    "structure": "sampled_law",
+    "unit_circle": {
+     "algebraic_at_one": 0,
+     "at_minus_one": 0,
+     "at_one_not_set_aside": 0,
+     "set_aside": 0
+    },
+    "work": {
+     "bound": {
+      "unit": "1",
+      "value": 100000000
+     },
+     "corners": {
+      "unit": "1",
+      "value": 1025
+     },
+     "states": {
+      "unit": "1",
+      "value": 5
+     },
+     "steps": {
+      "unit": "1",
+      "value": 3229
+     },
+     "total": {
+      "unit": "1",
+      "value": 16548625
+     }
+    }
+   }
+  },
+  {
+   "answer": {
+    "controller": {
+     "coefficients": {
+      "alpha": {
+       "unit": "1",
+       "value": 0.5
+      },
+      "beta": {
+       "unit": "1",
+       "value": 0.5
+      },
+      "k_rate": {
+       "unit": "s/rad",
+       "value": 0.191
+      },
+      "k_speed": {
+       "unit": "s/rad",
+       "value": 0.053684
+      },
+      "k_tilt": {
+       "unit": "1/rad",
+       "value": 1.6643
+      },
+      "k_wheel": {
+       "unit": "1/rad",
+       "value": 0.011412
+      }
+     },
+     "command": "command",
+     "command_limit": {
+      "unit": "1",
+      "value": 0.6
+     },
+     "compute_delay": {
+      "unit": "s",
+      "value": 0.004
+     },
+     "lines": [
+      {
+       "name": "raw",
+       "terms": [
+        {
+         "coefficients": [
+          "k_tilt"
+         ],
+         "of": "tilt",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_rate"
+         ],
+         "of": "tilt_rate",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_wheel"
+         ],
+         "of": "wheel_angle",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_speed"
+         ],
+         "of": "wheel_speed",
+         "sign": 1
+        }
+       ],
+       "unit": "1"
+      },
+      {
+       "name": "command",
+       "terms": [
+        {
+         "coefficients": [
+          "alpha"
+         ],
+         "of": "previous.u_prev",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "beta"
+         ],
+         "of": "line.raw",
+         "sign": 1
+        }
+       ],
+       "unit": "1"
+      }
+     ],
+     "memory": [
+      {
+       "applied": true,
+       "name": "u_prev",
+       "next": "command",
+       "unit": "1"
+      }
+     ],
+     "period": {
+      "unit": "s",
+      "value": 0.02
+     },
+     "sensor_delay": {
+      "unit": "s",
+      "value": 0.01
+     },
+     "structure": "sampled_law"
+    },
+    "form": "whole_run",
+    "parameters": {
+     "encoder_counts_per_wheel_revolution": {
+      "unit": "count",
+      "value": 512
+     },
+     "gyro_full_scale": {
+      "unit": "deg/s",
+      "value": 500
+     },
+     "output_data_rate": {
+      "unit": "Hz",
+      "value": 120
+     },
+     "pwm_frequency": {
+      "unit": "Hz",
+      "value": 10000
+     },
+     "pwm_full_scale": {
+      "unit": "count",
+      "value": 255
+     },
+     "update_rate": {
+      "unit": "Hz",
+      "value": 50
+     }
+    },
+    "version": 3
+   },
+   "label": "the feedback through one state that holds the command as applied",
+   "record": {
+    "answer_valid": true,
+    "compute_delay_flags": [],
+    "compute_delay_omitted": [],
+    "held_modes": [],
+    "held_state_flags": [],
+    "law_signals": [
+     "tilt",
+     "tilt_rate",
+     "wheel_angle",
+     "wheel_speed"
+    ],
+    "no_interface_statement": [],
+    "outcome": "fail",
+    "plant": {
+     "sha256": "cfa93bec3323af6ecc8f41916f63762bfc3ae0f1c35f60da3b44f91e7244b4a1",
+     "status": "frozen",
+     "version": "v0"
+    },
+    "scale_factors": [],
+    "scenario": "whole.fixture",
+    "specs": [
+     {
+      "composes": [
+       "c5"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 0.6
+      },
+      "metric": "command_limit",
+      "name": "limit",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 50.0
+      },
+      "metric": "update_rate",
+      "name": "rate",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 50.0
+      },
+      "metric": "controller_rate",
+      "name": "period",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c6"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1,
+       "high": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.08
+       },
+       "low": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.08
+       },
+       "passing": 1,
+       "ranged": [],
+       "unstable": 0
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "A",
+       "value": 1.08
+      },
+      "metric": "stall_current",
+      "name": "stall",
+      "no_interface_statement": [],
+      "reason": "passes at the nominal values and at every corner of the ranges; the ranges' interior is not searched",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c15"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 192,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 114
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "deg",
+       "value": 31.017410877177497
+      },
+      "metric": "phase_margin",
+      "name": "pm",
+      "no_interface_statement": [],
+      "reason": "passes at 192 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 484,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 114
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 2.12896855179393
+      },
+      "metric": "gain_margin_upward",
+      "name": "up",
+      "no_interface_statement": [],
+      "reason": "passes at 484 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 398,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 114
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 0.45412601142173964
+      },
+      "metric": "gain_margin_downward",
+      "name": "down",
+      "no_interface_statement": [],
+      "reason": "passes at 398 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     }
+    ],
+    "structure": "sampled_law",
+    "unit_circle": {
+     "algebraic_at_one": 0,
+     "at_minus_one": 0,
+     "at_one_not_set_aside": 0,
+     "set_aside": 0
+    },
+    "work": {
+     "bound": {
+      "unit": "1",
+      "value": 100000000
+     },
+     "corners": {
+      "unit": "1",
+      "value": 1025
+     },
+     "states": {
+      "unit": "1",
+      "value": 6
+     },
+     "steps": {
+      "unit": "1",
+      "value": 3229
+     },
+     "total": {
+      "unit": "1",
+      "value": 19858350
+     }
+    }
+   }
+  },
+  {
+   "answer": {
+    "controller": {
+     "coefficients": {
+      "k_rate": {
+       "unit": "s/rad",
+       "value": 0.191
+      },
+      "k_speed": {
+       "unit": "s/rad",
+       "value": 0.053684
+      },
+      "k_sum": {
+       "unit": "1/(rad*s)",
+       "value": 0.001
+      },
+      "k_tilt": {
+       "unit": "1/rad",
+       "value": 1.6643
+      },
+      "k_wheel": {
+       "unit": "1/rad",
+       "value": 0.011412
+      },
+      "keep": {
+       "unit": "1",
+       "value": 1
+      }
+     },
+     "command": "command",
+     "command_limit": {
+      "unit": "1",
+      "value": 0.6
+     },
+     "compute_delay": {
+      "unit": "s",
+      "value": 0.004
+     },
+     "lines": [
+      {
+       "name": "acc_now",
+       "terms": [
+        {
+         "coefficients": [
+          "keep"
+         ],
+         "of": "previous.acc",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "period"
+         ],
+         "of": "wheel_angle",
+         "sign": 1
+        }
+       ],
+       "unit": "rad*s"
+      },
+      {
+       "name": "command",
+       "terms": [
+        {
+         "coefficients": [
+          "k_tilt"
+         ],
+         "of": "tilt",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_rate"
+         ],
+         "of": "tilt_rate",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_wheel"
+         ],
+         "of": "wheel_angle",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_speed"
+         ],
+         "of": "wheel_speed",
+         "sign": 1
+        },
+        {
+         "coefficients": [
+          "k_sum"
+         ],
+         "of": "line.acc_now",
+         "sign": 1
+        }
+       ],
+       "unit": "1"
+      }
+     ],
+     "memory": [
+      {
+       "name": "acc",
+       "next": "acc_now",
+       "unit": "rad*s"
+      }
+     ],
+     "period": {
+      "unit": "s",
+      "value": 0.02
+     },
+     "sensor_delay": {
+      "unit": "s",
+      "value": 0.01
+     },
+     "structure": "sampled_law"
+    },
+    "form": "whole_run",
+    "parameters": {
+     "encoder_counts_per_wheel_revolution": {
+      "unit": "count",
+      "value": 512
+     },
+     "gyro_full_scale": {
+      "unit": "deg/s",
+      "value": 500
+     },
+     "output_data_rate": {
+      "unit": "Hz",
+      "value": 120
+     },
+     "pwm_frequency": {
+      "unit": "Hz",
+      "value": 10000
+     },
+     "pwm_full_scale": {
+      "unit": "count",
+      "value": 255
+     },
+     "update_rate": {
+      "unit": "Hz",
+      "value": 50
+     }
+    },
+    "version": 3
+   },
+   "label": "the feedback with a read sum of the wheel angle that keeps its value",
+   "record": {
+    "answer_valid": true,
+    "compute_delay_flags": [],
+    "compute_delay_omitted": [],
+    "held_modes": [],
+    "held_state_flags": [],
+    "law_signals": [
+     "tilt",
+     "tilt_rate",
+     "wheel_angle",
+     "wheel_speed"
+    ],
+    "no_interface_statement": [],
+    "outcome": "fail",
+    "plant": {
+     "sha256": "cfa93bec3323af6ecc8f41916f63762bfc3ae0f1c35f60da3b44f91e7244b4a1",
+     "status": "frozen",
+     "version": "v0"
+    },
+    "scale_factors": [],
+    "scenario": "whole.fixture",
+    "specs": [
+     {
+      "composes": [
+       "c5"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 0.6
+      },
+      "metric": "command_limit",
+      "name": "limit",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 50.0
+      },
+      "metric": "update_rate",
+      "name": "rate",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 50.0
+      },
+      "metric": "controller_rate",
+      "name": "period",
+      "no_interface_statement": [],
+      "reason": "reads no plant parameter",
+      "verdict": "fail"
+     },
+     {
+      "composes": [
+       "c6"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1,
+       "high": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.08
+       },
+       "low": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.08
+       },
+       "passing": 1,
+       "ranged": [],
+       "unstable": 0
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "A",
+       "value": 1.08
+      },
+      "metric": "stall_current",
+      "name": "stall",
+      "no_interface_statement": [],
+      "reason": "passes at the nominal values and at every corner of the ranges; the ranges' interior is not searched",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c15"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 511,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 122
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "deg",
+       "value": 46.05114845665034
+      },
+      "metric": "phase_margin",
+      "name": "pm",
+      "no_interface_statement": [],
+      "reason": "passes at 511 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 694,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 122
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 2.0387477141330472
+      },
+      "metric": "gain_margin_upward",
+      "name": "up",
+      "no_interface_statement": [],
+      "reason": "passes at 694 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "compute_delay_flags": [],
+      "compute_delay_omitted": [],
+      "corners": {
+       "count": 1024,
+       "high": null,
+       "low": null,
+       "passing": 448,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 122
+      },
+      "counts": "headline",
+      "held_state_flags": [],
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 0.4676599718539025
+      },
+      "metric": "gain_margin_downward",
+      "name": "down",
+      "no_interface_statement": [],
+      "reason": "passes at 448 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 157.07963267948966
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     }
+    ],
+    "structure": "sampled_law",
+    "unit_circle": {
+     "algebraic_at_one": 0,
+     "at_minus_one": 0,
+     "at_one_not_set_aside": 0,
+     "set_aside": 0
+    },
+    "work": {
+     "bound": {
+      "unit": "1",
+      "value": 100000000
+     },
+     "corners": {
+      "unit": "1",
+      "value": 1025
+     },
+     "states": {
+      "unit": "1",
+      "value": 6
+     },
+     "steps": {
+      "unit": "1",
+      "value": 3229
+     },
+     "total": {
+      "unit": "1",
+      "value": 19858350
+     }
+    }
+   }
+  },
+  {
+   "answer": {
+    "analysed_controller": {
+     "angle_gain": {
+      "unit": "1/rad",
+      "value": 1.6643
+     },
+     "command_limit": {
+      "unit": "1",
+      "value": 0.75
+     },
+     "compute_delay": {
+      "unit": "s",
+      "value": 0.002
+     },
+     "distance_gain": {
+      "unit": "1/m",
+      "value": 0.2853
+     },
+     "period": {
+      "unit": "s",
+      "value": 0.01
+     },
+     "rate_gain": {
+      "unit": "s/rad",
+      "value": 0.191
+     },
+     "sensor_delay": {
+      "unit": "s",
+      "value": 0.0048
+     },
+     "speed_gain": {
+      "unit": "s/m",
+      "value": 1.3421
+     },
+     "structure": "state_feedback"
+    },
+    "controller": {
+     "angle_gain": {
+      "unit": "1/rad",
+      "value": 1.6643
+     },
+     "command_limit": {
+      "unit": "1",
+      "value": 0.75
+     },
+     "compute_delay": {
+      "unit": "s",
+      "value": 0.002
+     },
+     "distance_gain": {
+      "unit": "1/m",
+      "value": 0.2853
+     },
+     "period": {
+      "unit": "s",
+      "value": 0.01
+     },
+     "rate_gain": {
+      "unit": "s/rad",
+      "value": 0.191
+     },
+     "sensor_delay": {
+      "unit": "s",
+      "value": 0.0048
+     },
+     "speed_gain": {
+      "unit": "s/m",
+      "value": 1.3421
+     },
+     "structure": "state_feedback"
+    },
+    "form": "whole_run",
+    "parameters": {
+     "encoder_counts_per_wheel_revolution": {
+      "unit": "count",
+      "value": 1322.9
+     },
+     "gyro_full_scale": {
+      "unit": "deg/s",
+      "value": 1000
+     },
+     "gyro_output_data_rate": {
+      "unit": "Hz",
+      "value": 208
+     },
+     "gyro_sensitivity": {
+      "unit": "count*s/deg",
+      "value": 28.571
+     },
+     "pwm_frequency": {
+      "unit": "Hz",
+      "value": 20000
+     },
+     "pwm_full_scale": {
+      "unit": "count",
+      "value": 400
+     },
+     "update_rate": {
+      "unit": "Hz",
+      "value": 100
+     }
+    },
+    "version": 2
+   },
+   "label": "a version 2 state feedback",
+   "record": {
+    "answer_valid": true,
+    "outcome": "unscored",
+    "plant": {
+     "sha256": "cfa93bec3323af6ecc8f41916f63762bfc3ae0f1c35f60da3b44f91e7244b4a1",
+     "status": "frozen",
+     "version": "v0"
+    },
+    "scale_factors": [],
+    "scenario": "whole.fixture",
+    "specs": [
+     {
+      "composes": [
+       "c5"
+      ],
+      "counts": "headline",
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 0.75
+      },
+      "metric": "command_limit",
+      "name": "limit",
+      "reason": "reads no plant parameter",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "counts": "headline",
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 100.0
+      },
+      "metric": "update_rate",
+      "name": "rate",
+      "reason": "reads no plant parameter",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c9"
+      ],
+      "counts": "headline",
+      "kind": "static",
+      "measured": {
+       "infinite": false,
+       "unit": "Hz",
+       "value": 100.0
+      },
+      "metric": "controller_rate",
+      "name": "period",
+      "reason": "reads no plant parameter",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c6"
+      ],
+      "corners": {
+       "count": 1,
+       "high": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.35
+       },
+       "low": {
+        "infinite": false,
+        "unit": "A",
+        "value": 1.35
+       },
+       "passing": 1,
+       "ranged": [],
+       "unstable": 0
+      },
+      "counts": "headline",
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "A",
+       "value": 1.35
+      },
+      "metric": "stall_current",
+      "name": "stall",
+      "reason": "passes at the nominal values and at every corner of the ranges; the ranges' interior is not searched",
+      "verdict": "pass"
+     },
+     {
+      "composes": [
+       "c15"
+      ],
+      "corners": {
+       "count": 1024,
+       "high": {
+        "infinite": false,
+        "unit": "deg",
+        "value": 80.0997951265615
+       },
+       "low": {
+        "infinite": false,
+        "unit": "deg",
+        "value": 14.547084102827938
+       },
+       "passing": 760,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 0
+      },
+      "counts": "headline",
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "deg",
+       "value": 68.22897626211918
+      },
+      "metric": "phase_margin",
+      "name": "pm",
+      "reason": "passes at 760 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 314.1592653589793
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "corners": {
+       "count": 1024,
+       "high": {
+        "infinite": false,
+        "unit": "1",
+        "value": 15.546077591986128
+       },
+       "low": {
+        "infinite": false,
+        "unit": "1",
+        "value": 1.2249666082977384
+       },
+       "passing": 896,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 0
+      },
+      "counts": "headline",
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 4.06669309013652
+      },
+      "metric": "gain_margin_upward",
+      "name": "up",
+      "reason": "passes at 896 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 314.1592653589793
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     },
+     {
+      "composes": [
+       "c16"
+      ],
+      "corners": {
+       "count": 1024,
+       "high": {
+        "infinite": false,
+        "unit": "1",
+        "value": 0.6239280125294315
+       },
+       "low": {
+        "infinite": false,
+        "unit": "1",
+        "value": 0.34673090004885104
+       },
+       "passing": 512,
+       "ranged": [
+        "wheel_radius",
+        "kit_mass",
+        "wheel_mass",
+        "cell_mass",
+        "com_height",
+        "body_inertia",
+        "wheel_inertia_factor",
+        "rotor_inertia",
+        "motor_no_load_speed",
+        "motor_no_load_current"
+       ],
+       "unstable": 0
+      },
+      "counts": "headline",
+      "kind": "computed",
+      "measured": {
+       "infinite": false,
+       "unit": "1",
+       "value": 0.4536952826178145
+      },
+      "metric": "gain_margin_downward",
+      "name": "down",
+      "reason": "passes at 512 of 1024 corners of the ranges of wheel_radius, kit_mass, wheel_mass, cell_mass, com_height, body_inertia, wheel_inertia_factor, rotor_inertia, motor_no_load_speed, motor_no_load_current: the verdict rests on values no source fixes",
+      "search": {
+       "gain_limit": {
+        "unit": "1",
+        "value": 1000.0
+       },
+       "gain_step": {
+        "unit": "1",
+        "value": 1.02
+       },
+       "gain_tolerance": {
+        "unit": "1",
+        "value": 1e-09
+       },
+       "highest_frequency": {
+        "unit": "rad/s",
+        "value": 314.1592653589793
+       },
+       "lowest_frequency": {
+        "unit": "rad/s",
+        "value": 0.0001
+       },
+       "points_per_decade": {
+        "unit": "1",
+        "value": 400
+       }
+      },
+      "verdict": "unscored"
+     }
+    ],
+    "structure": "state_feedback",
+    "work": {
+     "bound": {
+      "unit": "1",
+      "value": 100000000
+     },
+     "corners": {
+      "unit": "1",
+      "value": 1025
+     },
+     "states": {
+      "unit": "1",
+      "value": 5
+     },
+     "steps": {
+      "unit": "1",
+      "value": 3349
+     },
+     "total": {
+      "unit": "1",
+      "value": 17163625
+     }
+    }
+   }
+  }
+ ],
+ "plant": "plant_v0.json",
+ "specs": [
+  {
+   "bound": {
+    "unit": "1",
+    "value": 0.75
+   },
+   "composes": [
+    "c5"
+   ],
+   "metric": "command_limit",
+   "name": "limit",
+   "op": "<="
+  },
+  {
+   "bound": [
+    {
+     "unit": "Hz",
+     "value": 99
+    },
+    {
+     "unit": "Hz",
+     "value": 101
+    }
+   ],
+   "composes": [
+    "c9"
+   ],
+   "metric": "update_rate",
+   "name": "rate",
+   "op": "in"
+  },
+  {
+   "bound": [
+    {
+     "unit": "Hz",
+     "value": 99
+    },
+    {
+     "unit": "Hz",
+     "value": 101
+    }
+   ],
+   "composes": [
+    "c9"
+   ],
+   "metric": "controller_rate",
+   "name": "period",
+   "op": "in"
+  },
+  {
+   "bound": {
+    "unit": "A",
+    "value": 1.8
+   },
+   "composes": [
+    "c6"
+   ],
+   "metric": "stall_current",
+   "name": "stall",
+   "op": "<="
+  },
+  {
+   "bound": {
+    "unit": "deg",
+    "value": 30
+   },
+   "composes": [
+    "c15"
+   ],
+   "metric": "phase_margin",
+   "name": "pm",
+   "op": ">="
+  },
+  {
+   "bound": {
+    "unit": "1",
+    "value": 2
+   },
+   "composes": [
+    "c16"
+   ],
+   "metric": "gain_margin_upward",
+   "name": "up",
+   "op": ">="
+  },
+  {
+   "bound": {
+    "unit": "1",
+    "value": 0.5
+   },
+   "composes": [
+    "c16"
+   ],
+   "metric": "gain_margin_downward",
+   "name": "down",
+   "op": "<="
+  }
+ ]
+}

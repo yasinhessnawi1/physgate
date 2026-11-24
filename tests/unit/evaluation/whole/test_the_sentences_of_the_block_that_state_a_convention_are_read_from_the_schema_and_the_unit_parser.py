@@ -6,8 +6,9 @@ grammar the block prints is held to the one parser a law's units are read with: 
 shows as written is read, every one it shows as refused is refused, and the reviewer's own
 accepted and refused spellings are read as they were found. The block no longer promises that a
 delay is taken as stated, that a mode is set aside, or that every other rule it states is refused:
-the four rules the scorer reads without refusing are named in :func:`accepted_gaps` and held as
-accepted, so the block cannot promise a refusal that is not there.
+the one rule the scorer reads without refusing (a number written with more significant digits
+than the block asks for) is named in :func:`accepted_gaps` and held as accepted, so the block
+cannot promise a refusal that is not there.
 """
 
 from __future__ import annotations

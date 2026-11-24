@@ -225,6 +225,27 @@ def test_a_point_whose_verdict_differs_counts_neither_way_and_leaves_the_row_uns
     assert "contested" in row["reason"]
 
 
+def test_the_contested_count_is_said_to_be_at_least_the_fragile_points_one_perturbation_finds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stable: Any
+) -> None:
+    # one perturbation finds some of the points whose verdict is fragile, not every one: the
+    # record says that the count is a lower bound, in the row's meaning and in its reason
+    for name in (dynamic.STEADY_SPEED, dynamic.PUSH_PEAK_TILT):
+        assert "at least" in _rows(stable)[name]["sensitivity"]["meaning"]
+
+    def alter(res: Any) -> Any:
+        speed = res.speed.copy()
+        speed[5] = 0.5
+        return dataclasses.replace(res, speed=speed)
+
+    _with_second_run_altered(monkeypatch, alter)
+    specs = [HEADLINE, _speed_at_least(1.0)]
+    row = _rows(_record(tmp_path, specs, helpers._recorded_controller()))[dynamic.STEADY_SPEED]
+    assert row["corners"]["contested"] == 1
+    assert "1 are contested" in row["reason"]
+    assert "at least that many points are fragile" in row["reason"]
+
+
 def test_a_row_that_fails_at_some_points_and_at_the_nominal_one_is_unscored_not_failed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -566,18 +587,36 @@ def _slow_period_peak() -> float:
     return float(result.peak[:, 0].max())
 
 
-def test_at_a_50_ms_period_the_peak_is_within_a_stated_tolerance_of_a_fine_propagation(
+def test_at_a_50_ms_period_the_peak_is_low_by_at_most_the_spacing_s_bound_against_a_fine_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Between two output points h apart, a smooth tilt with a peak at t* (where its rate is 0)
+    # is below the peak by at most (h**2 / 8) * max|tilt acceleration|: the sampled peak is low by
+    # at most that. The acceleration is the plant's own, A·x + B·u, at each point of the fine run.
     reported = _slow_period_peak()
     _fine(monkeypatch, 0.05 / 64)
+    seen: list[tuple[Any, Any]] = []
+    freeze = dynamic._Sim._freeze
+
+    def watched(self: Any, track_peak: bool, at: float) -> None:
+        freeze(self, track_peak, at)
+        if track_peak:
+            seen.append((self.x.copy(), self.active.copy()))
+
+    monkeypatch.setattr(dynamic._Sim, "_freeze", watched)
     fine = _slow_period_peak()
+    a, b = continuous(nominal(_plant()))
+    acceleration = max(float(np.abs(x @ a[1] + u * b[1, 0]).max()) for x, u in seen)
+    spacing = 0.05 / dynamic.output_points(0.05)
+    assert spacing <= dynamic.OUTPUT_SPACING
+    bound = math.degrees(spacing**2 / 8 * acceleration)
+    assert 0 < fine - reported <= bound, (fine - reported, bound)
     assert reported <= fine * (1.0 + 1e-9)
-    assert reported >= fine * (1.0 - PEAK_TOLERANCE)
 
 
-#: The stated tolerance of the reported peak against a fine propagation, relative.
-PEAK_TOLERANCE = 5e-4
+def test_the_push_row_says_how_low_a_sampled_peak_can_be_read(stable: Any) -> None:
+    meaning = _rows(stable)[dynamic.PUSH_PEAK_TILT]["linear_run"]["peak_meaning"]
+    assert "the output spacing squared over 8 times the largest tilt acceleration" in meaning
 
 
 # ── lows ─────────────────────────────────────────────────────────────────────────────────────
@@ -612,6 +651,14 @@ def test_the_work_counts_the_size_of_the_law_so_a_large_law_cannot_hide_in_the_b
     assert dynamic.work(1025, period, states, dynamic.law_size(small)) < dynamic.MAX_DYNAMIC_WORK
     assert dynamic.work(1025, period, states, 100) > dynamic.work(1025, period, states, 10)
     assert dynamic.work(2050, period, states, 10) == 2 * dynamic.work(1025, period, states, 10)
+
+
+def test_the_work_counts_the_set_up_s_exponentials_so_a_long_period_cannot_hide_its_cost() -> None:
+    # one exponential of a period's cut costs about 30 us on a laptop, over 10,000 units of the
+    # bound's 2.6 ns; at a period of 1 s each of the 1,025 points takes one per cut and run
+    exponentials = dynamic.RUNS * 1025 * (dynamic.output_points(1.0) + 2)
+    assert dynamic.work(1025, 1.0, 8, 10) >= exponentials * 10_000
+    assert dynamic.work(1025, 1.0, 8, 10) < dynamic.MAX_DYNAMIC_WORK
 
 
 def test_the_timeline_puts_the_hold_window_just_before_the_push_whatever_the_constants() -> None:

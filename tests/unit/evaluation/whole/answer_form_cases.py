@@ -37,6 +37,8 @@ class Case:
     parse: str
     outcome: str
     changed: bool = True
+    #: Words the refusal says, naming the rule it breaks (empty where a row asks for none).
+    said: tuple[str, ...] = ()
 
 
 @functools.cache
@@ -298,6 +300,7 @@ def cases() -> dict[str, list[Case]]:
         "bad_sign": [
             _refused("a sign of 2", _put(("controller", "lines", 1, "terms", 0, "sign"), 2)),
             _refused("a sign of 0", _put(("controller", "lines", 1, "terms", 0, "sign"), 0)),
+            _a_sign_written_true(),
         ],
         "period_declared": [
             _refused(
@@ -372,32 +375,62 @@ def _shared_name(doc: dict[str, Any]) -> None:
     doc["controller"]["lines"][0]["terms"][0]["coefficients"] = ["tilt_est"]
 
 
-def accepted_gaps() -> list[Case]:
-    """Answers that break a rule the block states, which the scorer reads without refusing.
+def _a_sign_written_true() -> Case:
+    edit = _put(("controller", "lines", 1, "terms", 0, "sign"), True)
+    return Case("a sign written true", _edited(edit), "refused", "fail", said=("truth value",))
 
-    The block says no more than the scorer does: it asks for these to be written correctly and
-    never says they are refused. Each gap is a follow-up for the scorer (refuse it, or leave it and
-    keep the block's wording); the rows that hold these to ``parses`` and to a valid record are
-    the ones to change when the scorer changes. ``outcome`` is the scorer's: ``valid``.
+
+def stated_and_refused() -> dict[str, Case]:
+    """Answers that break a rule the block states, each refused with words naming that rule.
+
+    A sign written ``true`` breaks a rule the block lists as refused (a sign that is not 1 or
+    -1); two states marked ``applied`` and a key written twice break rules the block states as
+    how an answer is written ("only on the one state", "each key once") and does not list. Each is
+    a failed answer, and its refusal says which rule it broke (:attr:`Case.said`).
     """
     text = json.dumps(example())
     twice = '"version": 2, "version": 3'
+    leak = '"leak": {"value": 0.8, "unit": "1"}'
+    return {
+        "sign_true": _a_sign_written_true(),
+        "applied_twice": Case(
+            "two states marked applied",
+            _edited(_two_applied),
+            "refused",
+            "fail",
+            said=("malformed", "'held1' and 'held2' are both marked applied"),
+        ),
+        "key_twice": Case(
+            "a key written twice",
+            text.replace('"version": 3', twice).encode(),
+            "refused",
+            "fail",
+            text.count('"version": 3') == 1,
+            said=("key_written_twice", "'version'"),
+        ),
+        "key_twice_inside": Case(
+            "a coefficient written twice",
+            text.replace(leak, f"{leak}, {leak.replace('0.8', '0.9')}").encode(),
+            "refused",
+            "fail",
+            text.count(leak) == 1,
+            said=("key_written_twice", "'leak'"),
+        ),
+    }
+
+
+def accepted_gaps() -> list[Case]:
+    """Answers that break a rule the block states, which the scorer reads without refusing.
+
+    The block says no more than the scorer does: it asks for this to be written correctly and
+    never says it is refused. One is left: a number of a law written with more significant digits
+    than the block asks for, which the scorer reads and decides as written (refusing it would also
+    refuse a harness answer whose period the exporter takes as a rate's reciprocal, a number no
+    designer wrote). The rows that hold it to ``parses`` and to a valid record are the ones to
+    change when the scorer changes. ``outcome`` is the scorer's: ``valid``.
+    """
     return [
         _text("a number of 16 significant digits", "0.8", "0.8000000000000001", "parses", "valid"),
-        Case("two states marked applied", _edited(_two_applied), "parses", "valid"),
-        Case(
-            "a sign written true",
-            _edited(_put(("controller", "lines", 1, "terms", 0, "sign"), True)),
-            "parses",
-            "valid",
-        ),
-        Case(
-            "a key written twice (the last wins)",
-            text.replace('"version": 3', twice).encode(),
-            "parses",
-            "valid",
-            text.count('"version": 3') == 1,
-        ),
     ]
 
 
