@@ -323,6 +323,11 @@ class StandInArm:
     left: Callable[[Path, Path], None] | None = None
     #: Per call: the tokens of responses cut short that the binary's totals left out.
     cut_off: dict[int, int] = field(default_factory=dict)
+    #: Per call: messages the client wrote itself (an API error's notice, the usage limit's),
+    #: between the model's first message and its second.
+    notices: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
+    #: Per call: no model's message at all; the stream holds the client's notices alone.
+    unanswered: set[int] = field(default_factory=set)
 
     def __call__(
         self, task: Task, setup: RawSetup, work: Path, *, cap: int, harness: Path | None = None
@@ -346,11 +351,16 @@ class StandInArm:
         }
         result = self.ended.get(n, {"is_error": False, "terminal_reason": "completed"})
         content = f"tool output {task.canary}" if n in self.seen else "tool output"
-        lines = [
+        said = [
             {"type": "assistant", "message": {"id": "m", "model": model, "usage": usage}},
             {"type": "user", "message": {"content": content}},
-            {"type": "result", "session_id": f"s-{n}", **result},
         ]
+        if n in self.notices:
+            after = {"type": "assistant", "message": {"id": "m2", "model": model, "usage": usage}}
+            said = [*said, *self.notices[n], after]
+        if n in self.unanswered:
+            said = list(self.notices.get(n, []))
+        lines = [*said, {"type": "result", "session_id": f"s-{n}", **result}]
         stream = session / "stdout.jsonl"
         stream.write_text("".join(json.dumps(line) + "\n" for line in lines))
         kept = work if harness is None else harness
@@ -369,7 +379,7 @@ class StandInArm:
             "tokens": 400,
             "tokens_not_in_binary_totals": self.cut_off.get(n, 0),
             "cap": cap,
-            "answered_by": [model],
+            "answered_by": [] if n in self.unanswered else [model],
             "held_out_seen": held_out_seen(stream, setup.held_out_canaries),
             "watch_failure": None,
             "sentinel_after_stop": None,
