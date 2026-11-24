@@ -363,10 +363,16 @@ def cases() -> dict[str, list[Case]]:
     }
 
 
-def _two_applied(doc: dict[str, Any]) -> None:
-    doc["controller"]["memory"] += [
-        {"name": f"held{at}", "unit": "1", "next": "command", "applied": True} for at in (1, 2)
-    ]
+def _applied(*at: int) -> Callable[[dict[str, Any]], None]:
+    def edit(doc: dict[str, Any]) -> None:
+        doc["controller"]["memory"] += [
+            {"name": f"held{n}", "unit": "1", "next": "command", "applied": True} for n in at
+        ]
+
+    return edit
+
+
+_two_applied = _applied(1, 2)
 
 
 def _shared_name(doc: dict[str, Any]) -> None:
@@ -398,7 +404,14 @@ def stated_and_refused() -> dict[str, Case]:
             _edited(_two_applied),
             "refused",
             "fail",
-            said=("malformed", "'held1' and 'held2' are both marked applied"),
+            said=("malformed", "2 memory states, 'held1' and 'held2', are marked applied"),
+        ),
+        "applied_thrice": Case(
+            "three states marked applied",
+            _edited(_applied(0, 1, 2)),
+            "refused",
+            "fail",
+            said=("malformed", "3 memory states, 'held0', 'held1' and 'held2', are marked applied"),
         ),
         "key_twice": Case(
             "a key written twice",
