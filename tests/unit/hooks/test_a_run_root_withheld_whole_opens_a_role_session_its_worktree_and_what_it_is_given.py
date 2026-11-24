@@ -204,3 +204,15 @@ def test_its_own_records_in_the_root_are_kept_by_digest_only(rig: Path) -> None:
         assert not paths.read_refused(str(path), before), path
     # The worktree stays readable, so its bytes are kept as ever.
     assert not paths.read_refused(str(rig / "runs" / "run-b" / "worktrees" / "m1" / "x"), whole)
+
+
+def test_a_file_given_to_read_in_its_run_outside_the_session_directories_stays_refused(
+    rig: Path,
+) -> None:
+    """The opening for what it is given stops at the run's session directories."""
+    run = rig / "runs" / "run-b"
+    plan = run / "decomposition" / "plan.md"
+    plan.write_text("the run's plan, written from the brief\n")
+    given = (*_fields(rig)["required_reading"], str(plan))  # type: ignore[misc]
+    config = _config(rig, required_reading=given)
+    assert not _reads(config, plan) and not _shell_reads(config, plan)
