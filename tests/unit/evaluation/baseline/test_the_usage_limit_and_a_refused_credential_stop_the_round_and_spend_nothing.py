@@ -86,7 +86,7 @@ class Scorer:
         return dict(SCORED)
 
 
-def _start(
+def _outcome(
     made: StandInStore,
     runs: RunSet,
     out: Path,
@@ -97,28 +97,48 @@ def _start(
     word: bool = False,
     slept: list[float] | None = None,
     scorer: Callable[[Task, Path], dict[str, Any]] | None = None,
-) -> BaselineRecord:
-    return run_baseline(
-        store=made.store,
-        role="control",
-        version=made.version,
-        runs=runs,
-        out=out,
-        setup_for=setup_for,
-        score=scorer if scorer is not None else Scorer(),
-        prices=load_price_sheet(PRICES),
-        arm=arm,
-        sleep=(slept if slept is not None else []).append,
-        resume=resume,
-        limit_reset=word,
-        now=lambda: at,
-    )
+) -> BaselineRecord | Exception:
+    """What the round gave: its record, or what it raised (a wait, a refusal), as a value."""
+    try:
+        return run_baseline(
+            store=made.store,
+            role="control",
+            version=made.version,
+            runs=runs,
+            out=out,
+            setup_for=setup_for,
+            score=scorer if scorer is not None else Scorer(),
+            prices=load_price_sheet(PRICES),
+            arm=arm,
+            sleep=(slept if slept is not None else []).append,
+            resume=resume,
+            limit_reset=word,
+            now=lambda: at,
+        )
+    except Exception as exc:  # noqa: BLE001 - asserted by the caller, so a stop is a failed row
+        return exc
+
+
+def _start(
+    made: StandInStore, runs: RunSet, out: Path, arm: StandInArm, **how: Any
+) -> BaselineRecord:  # noqa: ANN401
+    outcome = _outcome(made, runs, out, arm, **how)
+    assert isinstance(outcome, BaselineRecord), f"the round did not end: {outcome!r}"
+    return outcome
 
 
 def _waits(made: StandInStore, runs: RunSet, out: Path, arm: StandInArm, **how: Any) -> RoundWaits:  # noqa: ANN401
-    with pytest.raises(RoundWaits) as stopped:
-        _start(made, runs, out, arm, **how)
-    return stopped.value
+    outcome = _outcome(made, runs, out, arm, **how)
+    assert isinstance(outcome, RoundWaits), f"the round did not wait: {outcome!r}"
+    return outcome
+
+
+def _refused(
+    made: StandInStore, runs: RunSet, out: Path, arm: StandInArm, **how: Any
+) -> BaselineError:  # noqa: ANN401
+    outcome = _outcome(made, runs, out, arm, **how)
+    assert isinstance(outcome, BaselineError), f"the round was not refused: {outcome!r}"
+    return outcome
 
 
 def _ledger(out: Path) -> list[dict[str, Any]]:
@@ -311,9 +331,8 @@ def test_a_person_s_word_for_a_round_that_waits_for_no_limit_is_refused(
     out, runs = tmp_path / "round", _one(tmp_path, store)
     arm = StandInArm(refused={1})
     _waits(store, runs, out, arm, at=BEFORE)
-    with pytest.raises(BaselineError) as refused:
-        _start(store, runs, out, arm, at=BEFORE, resume=True, word=True)
-    assert refused.value.context["refused_because"] == "limit_reset_not_waiting"
+    refused = _refused(store, runs, out, arm, at=BEFORE, resume=True, word=True)
+    assert refused.context["refused_because"] == "limit_reset_not_waiting"
     assert len(arm.calls) == 1
 
 
@@ -407,17 +426,15 @@ def test_a_start_again_on_other_inputs_is_refused(tmp_path: Path, store: StandIn
     out, runs = tmp_path / "round", _one(tmp_path, store)
     _waits(store, runs, out, StandInArm(limited={1: RESET_EPOCH}), at=BEFORE)
     other = harness_run(tmp_path / "other", store.tasks["visible"][1], store)
-    with pytest.raises(BaselineError) as refused:
-        _start(store, run_set((other, 0)), out, StandInArm(), at=AFTER, resume=True)
-    assert refused.value.context["refused_because"] == "inputs_changed"
+    refused = _refused(store, run_set((other, 0)), out, StandInArm(), at=AFTER, resume=True)
+    assert refused.context["refused_because"] == "inputs_changed"
 
 
 def test_a_round_that_ended_is_not_started_again(tmp_path: Path, store: StandInStore) -> None:
     out, runs = tmp_path / "round", _one(tmp_path, store)
     _start(store, runs, out, StandInArm(), at=BEFORE)
-    with pytest.raises(BaselineError) as refused:
-        _start(store, runs, out, StandInArm(), at=BEFORE, resume=True)
-    assert refused.value.context["refused_because"] == "round_ended"
+    refused = _refused(store, runs, out, StandInArm(), at=BEFORE, resume=True)
+    assert refused.context["refused_because"] == "round_ended"
 
 
 def test_an_entry_the_round_stopped_on_for_another_cause_waits_for_a_rule_not_set_yet(
@@ -425,20 +442,19 @@ def test_an_entry_the_round_stopped_on_for_another_cause_waits_for_a_rule_not_se
 ) -> None:
     out, runs = tmp_path / "round", _one(tmp_path, store)
     arm = StandInArm(answered={1: "claude-other"})
-    with pytest.raises(BaselineError, match="differs from the harness run"):
-        _start(store, runs, out, arm, at=BEFORE)
-    with pytest.raises(BaselineError, match="not set yet") as refused:
-        _start(store, runs, out, StandInArm(), at=BEFORE, resume=True)
-    assert refused.value.context["refused_because"] == "rule_not_set_yet"
+    assert "differs from the harness run" in str(_refused(store, runs, out, arm, at=BEFORE))
+    refused = _refused(store, runs, out, StandInArm(), at=BEFORE, resume=True)
+    assert "not set yet" in str(refused)
+    assert refused.context["refused_because"] == "rule_not_set_yet"
 
 
 def test_a_harness_trial_that_gives_no_cap_waits_for_a_rule_not_set_yet(
     tmp_path: Path, store: StandInStore
 ) -> None:
     run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store, ended=False)
-    with pytest.raises(BaselineError, match="not set yet") as refused:
-        _start(store, run_set((run, 0)), tmp_path / "round", StandInArm(), at=BEFORE)
-    assert refused.value.context["refused_because"] == "cap_rule_not_set_yet"
+    refused = _refused(store, run_set((run, 0)), tmp_path / "round", StandInArm(), at=BEFORE)
+    assert "not set yet" in str(refused)
+    assert refused.context["refused_because"] == "cap_rule_not_set_yet"
 
 
 # -- the command -----------------------------------------------------------------------------------
