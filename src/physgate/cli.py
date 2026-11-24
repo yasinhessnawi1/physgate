@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from physgate.build.bom import cli as bom_cli
+from physgate.build.drawings import cli as drawing_cli
 from physgate.evaluation import evidence, gaps_cli, tierset_cli
 from physgate.evaluation import requirements as evaluation_requirements
 from physgate.evaluation.baseline import cli as baseline_cli
@@ -89,6 +90,7 @@ def main(
     baseline_cli.add_parser(subparsers)
     ui_cli.add_parser(subparsers)
     bom_cli.add_parser(subparsers)
+    drawing_cli.add_parser(subparsers)
     args = parser.parse_args(argv)
     result: int = args.func(args)
     return result
