@@ -194,6 +194,22 @@
     ]
   },
   {
+    "name": "a_shown_dimension_read_in_any_form",
+    "file": "src/physgate/build/drawings/check.py",
+    "old": "if text is not None and _SHOWN.fullmatch(text) else None",
+    "new": "if text is not None else None",
+    "tests": [
+      "tests/unit/drawings/test_each_drawing_check_passes_on_a_real_drawing_and_fails_alone_on_a_doctored_one.py",
+      "tests/unit/drawings/drawing_helpers.py"
+    ],
+    "data": [
+      "tests/unit/drawings/plate_drawing/plate.result.json",
+      "tests/unit/drawings/plate_drawing/plate.svg",
+      "tests/unit/drawings/plate_drawing/plate.drawing.json",
+      "tests/unit/drawings/plate_drawing/plate.projection.json"
+    ]
+  },
+  {
     "name": "agreement_widened_to_a_tenth",
     "file": "src/physgate/build/drawings/sheet.py",
     "old": "AGREEMENT_MM = 0.05",

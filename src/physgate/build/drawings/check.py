@@ -55,6 +55,8 @@ MAX_SVG_BYTES = 8 << 20
 SVG = "{http://www.w3.org/2000/svg}"
 #: A move or a line in a path's data, with its two coordinates.
 _STEP = re.compile(r"[ML]\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)")
+#: A dimension as the drawing shows it: millimetres to one decimal.
+_SHOWN = re.compile(r"[0-9]{1,6}\.[0-9]")
 #: Room for a sum of two numbers each written to three decimals to differ in its last bit.
 _EPSILON = 1e-9
 
@@ -246,10 +248,9 @@ def check_dimensions(record: DrawingRecord, part: PartRecord, svg: _Svg) -> Find
             problems.append(f"the record gives no {name}")
         elif abs(recorded.value - actual) > AGREEMENT_MM + _EPSILON:
             problems.append(f"the record's {name} is {recorded.value} mm, the part's {actual:.3f}")
-        try:
-            shown = None if text is None else float(text)
-        except ValueError:
-            shown = None
+        # Read only as the writer writes it: digits, a point and one decimal. Anything else
+        # (a sign, an exponent, "nan", which no comparison would ever find apart) is no dimension.
+        shown = float(text) if text is not None and _SHOWN.fullmatch(text) else None
         if shown is None:
             problems.append(f"the drawing shows no {name}")
         elif abs(shown - actual) > AGREEMENT_MM + _EPSILON:

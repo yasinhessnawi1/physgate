@@ -203,6 +203,14 @@ def test_a_record_that_gives_another_length_fails_the_dimensions_check(copy: Cop
     assert "the record's length_x is 110.2 mm" in copy.message("dimensions")
 
 
+@pytest.mark.parametrize("written", ["nan", "inf", "1.1e2", "-110.0", "110"])
+def test_a_length_not_written_as_a_dimension_is_no_dimension(copy: Copy, written: str) -> None:
+    shown = r'(data-quantity="length_x"[^>]*>)110\.0<'
+    copy.svg_text(lambda svg: re.sub(shown, rf"\g<1>{written}<", svg))
+    assert copy.verdicts() == all_pass_but(dimensions="fails")
+    assert "shows no length_x" in copy.message("dimensions")
+
+
 def test_a_drawing_that_does_not_show_the_width_fails_the_dimensions_check(copy: Copy) -> None:
     copy.svg_text(lambda svg: svg.replace('data-quantity="width_y"', 'data-quantity="w"'))
     assert copy.verdicts() == all_pass_but(dimensions="fails")
