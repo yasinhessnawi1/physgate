@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import stat
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -64,11 +65,73 @@ class Copy:
     def part_record(self, edit: Callable[[dict[str, Any]], None]) -> None:
         _edit_json(self.part, edit)
 
+    def projection(self, edit: Callable[[dict[str, Any]], None], *, restamp: bool = True) -> None:
+        """Change the projection file; with ``restamp`` the record names the changed file."""
+        path = self.root / "plate.projection.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        edit(data)
+        text = json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n"
+        path.write_text(text, encoding="utf-8", newline="\n")
+        if restamp:
+            written = path.read_bytes()
+
+            def stamp(record: dict[str, Any]) -> None:
+                record["files"]["projection"]["sha256"] = hashlib.sha256(written).hexdigest()
+                record["files"]["projection"]["size"]["value"] = len(written)
+
+            self.record(stamp)
+
 
 def _edit_json(path: Path, edit: Callable[[dict[str, Any]], None]) -> None:
     data = json.loads(path.read_text(encoding="utf-8"))
     edit(data)
     path.write_text(json.dumps(data, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+
+def module_with_step(root: Path, step: bytes, named: bytes) -> Path:
+    """A module holding ``step`` as the plate's STEP file and the plate's record naming ``named``.
+
+    The record is the committed plate's, with its exports reduced to that one STEP file.
+    """
+    module = root / "module"
+    (module / "exports").mkdir(parents=True)
+    (module / "exports" / "plate.step").write_bytes(step)
+    part = json.loads((FIXTURE / "plate.result.json").read_text(encoding="utf-8"))
+    part["exports"] = [
+        {
+            "file": "exports/plate.step",
+            "size": {"value": len(named), "unit": "byte"},
+            "sha256": hashlib.sha256(named).hexdigest(),
+        }
+    ]
+    path = module / "plate.result.json"
+    path.write_text(json.dumps(part), encoding="utf-8")
+    return path
+
+
+def stand_in_tree(root: Path, said: str) -> Path:
+    """A tool environment whose interpreter is a stand-in that prints ``said`` and nothing else.
+
+    It holds what a provisioned environment is recognised by (``provisioned.json``,
+    ``venv/bin/python`` and ``helpers/geometry.py``); its interpreter is a shell script that
+    prints the text and ignores the script it is handed. No kernel is needed.
+    """
+    tree = root / "stand-in-tree"
+    (tree / "venv" / "bin").mkdir(parents=True)
+    (tree / "helpers").mkdir()
+    (tree / "provisioned.json").write_text("{}\n", encoding="utf-8")
+    (tree / "helpers" / "geometry.py").write_text("", encoding="utf-8")
+    told = tree / "said.txt"
+    told.write_text(said + "\n", encoding="utf-8")
+    interpreter = tree / "venv" / "bin" / "python"
+    interpreter.write_text(f"#!/bin/sh\nexec /bin/cat '{told}'\n", encoding="utf-8")
+    interpreter.chmod(interpreter.stat().st_mode | stat.S_IXUSR)
+    return tree
+
+
+def projection_said() -> str:
+    """What the kernel prints for the committed plate: its projection, after its marker."""
+    return "PROJECTION " + (FIXTURE / "plate.projection.json").read_text(encoding="utf-8").strip()
 
 
 def all_pass_but(**changed: str) -> dict[str, str]:

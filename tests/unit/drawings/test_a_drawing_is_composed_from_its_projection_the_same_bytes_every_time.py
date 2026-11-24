@@ -4,18 +4,23 @@ Composition is code over numbers: the committed projection of the chassis plate 
 gave it on a provisioned tool environment) composes into exactly the committed SVG and records,
 here, with no kernel. The record keeps every number as a value with its unit and holds no time
 and no path of the machine it was made on. A projection of another shape is refused, and the
-scale is the largest at which the views fit one sheet.
+scale is the largest at which the views fit one sheet. Each overall dimension is the part's own
+length (from its record's bounding box), rounded once, half up, to a tenth of a millimetre: the
+rule the checker judges it by, so a drawing just made always passes, even where the kernel's
+box, rounded to three decimals first, would have rounded the other way.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 import pytest
 from drawing_helpers import FIXTURE
 
+from physgate.build.drawings.check import check_drawing
 from physgate.build.drawings.record import (
     PartRecord,
     Projection,
@@ -119,3 +124,52 @@ def test_the_svg_keeps_the_title_block_and_the_dimensions_as_plain_text() -> Non
     assert "<!DOCTYPE" not in svg
     for name in ("front", "top", "side", "isometric"):
         assert f'<g id="view-{name}" class="view">' in svg
+
+
+#: A length along one of the part's axes, and how the drawing writes it: the part's own length,
+#: rounded once, half up, to a tenth. The first is a control: any rounding writes it so.
+ROUNDED = [
+    ("length_x", 0, 112.3496, "112.3"),
+    ("length_x", 0, 112.35, "112.4"),
+    ("length_x", 0, 112.3504, "112.4"),
+    ("length_x", 0, 112.3506, "112.4"),
+    ("width_y", 1, 60.05, "60.1"),
+    ("height_z", 2, 3.05, "3.1"),
+]
+
+
+@pytest.mark.parametrize(
+    ("quantity", "axis", "length", "written"),
+    ROUNDED,
+    ids=[f"{q}-{length}" for q, _, length, _ in ROUNDED],
+)
+def test_a_length_is_written_once_rounded_half_up_from_the_part_and_a_fresh_drawing_passes(
+    tmp_path: Path, quantity: str, axis: int, length: float, written: str
+) -> None:
+    folder = tmp_path / "drawing"
+    folder.mkdir()
+    data = json.loads((FIXTURE / "plate.result.json").read_text(encoding="utf-8"))
+    box = data["values"]["bounding_box"]
+    box["low_corner"]["value"][axis] = -length / 2000
+    box["high_corner"]["value"][axis] = length / 2000
+    (folder / "plate.result.json").write_text(json.dumps(data), encoding="utf-8")
+    # The kernel's own box, as its projection gives it: to three decimals.
+    told = json.loads((FIXTURE / "plate.projection.json").read_text(encoding="utf-8"))
+    told["box_mm"][axis] = round(-length / 2, 3)
+    told["box_mm"][axis + 3] = round(length / 2, 3)
+    part = load_part(folder / "plate.result.json")
+    made = compose(parse_projection(told), part, part.step())
+
+    assert re.search(rf'data-quantity="{quantity}"[^>]*>{re.escape(written)}</text>', made.svg)
+    assert made.record.overall[quantity].value == float(written)  # type: ignore[index]
+    (folder / "plate.svg").write_text(made.svg, encoding="utf-8", newline="\n")
+    (folder / "plate.projection.json").write_text(made.projection, encoding="utf-8", newline="\n")
+    (folder / "plate.drawing.json").write_text(render(made.record), encoding="utf-8", newline="\n")
+    findings = check_drawing(folder / "plate.drawing.json", folder / "plate.result.json")
+    assert [(f.check, f.verdict) for f in findings] == [
+        ("part", "passes"),
+        ("file", "passes"),
+        ("views", "passes"),
+        ("title block", "passes"),
+        ("dimensions", "passes"),
+    ]

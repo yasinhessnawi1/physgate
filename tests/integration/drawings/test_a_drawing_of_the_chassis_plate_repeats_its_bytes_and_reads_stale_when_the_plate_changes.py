@@ -5,6 +5,13 @@ fixture's plate is written into a module, its drawing is made twice, checked, an
 then made 10 mm longer, after which the same drawing reads stale; made again, it passes. What
 was written is read: the SVG, the record and the projection, byte for byte.
 
+Two more cases need the kernel. The plate made at lengths just around a half tenth of a
+millimetre is drawn with its length written by the one rounding the checker judges it by, and
+its fresh drawing passes. And a part that is not symmetric (a block with a step cut from the top
+of its +x end and a hole near its -x, +y corner) is drawn with each feature where first-angle
+placement and the stated directions put it, so a view seen from the other side, or mirrored,
+fails here even though the plate, symmetric in x and y, cannot show it.
+
 ``PHYSGATE_TOOL_ENVIRONMENT`` names a provisioned environment (``toolenv/provision.py``); with
 none named one is built here, which needs the network once (``PHYSGATE_TOOLENV_CACHE`` keeps
 the downloads).
@@ -16,6 +23,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -25,6 +33,7 @@ import pytest
 from design_fixtures import GEOMETRY_HASH
 
 from physgate.build.drawings.check import EXIT_PASSES, EXIT_STALE
+from physgate.build.drawings.kernel import run_script
 from physgate.cli import main
 from physgate.toolenv.manifest import scan
 
@@ -203,3 +212,120 @@ def test_a_longer_plate_makes_the_drawing_stale_and_a_drawing_made_again_passes(
     assert again["geometry_hash"] == longer
     assert again["overall"]["length_x"] == {"value": 120.0, "unit": "mm"}
     assert _run("drawing", "check", str(record), str(part)) == EXIT_PASSES
+
+
+# --- one rounding, at lengths around a half tenth ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("length", "written"),
+    [("112.3496", "112.3"), ("112.35", "112.4"), ("112.3504", "112.4"), ("112.3506", "112.4")],
+)
+def test_the_plate_s_length_is_written_by_the_checker_s_rounding_and_its_drawing_passes(
+    env: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], length: str, written: str
+) -> None:
+    module, out = tmp_path / "modules" / "chassis", tmp_path / "drawings"
+    tree = ("--tool-environment", str(env))
+    assert _run("drawing", "example-part", str(module), "--length", length, *tree) == EXIT_PASSES
+    part = module / "plate.result.json"
+    assert _run("drawing", "make", str(part), "--out", str(out), *tree) == EXIT_PASSES
+    svg = (out / "plate.svg").read_text(encoding="utf-8")
+    shown = re.search(r'data-quantity="length_x"[^>]*>([^<]*)</text>', svg)
+    assert shown is not None and shown.group(1) == written
+    record = json.loads((out / "plate.drawing.json").read_text(encoding="utf-8"))
+    assert record["overall"]["length_x"] == {"value": float(written), "unit": "mm"}
+    capsys.readouterr()
+    assert _run("drawing", "check", str(out / "plate.drawing.json"), str(part)) == EXIT_PASSES
+
+
+# --- an asymmetric part, drawn unmirrored -----------------------------------------------------
+
+#: A 100 by 60 by 20 mm block, the top 10 mm of its +x end (x from 30 to 50) cut away, and a
+#: 10 mm hole through it at x -30, y +20; recorded with the tool environment's geometry helper.
+BRACKET = """
+import json, os, sys
+sys.path.insert(0, sys.argv[1])
+module = sys.argv[2]
+import geometry, result_file
+from build123d import Box, BuildPart, Cylinder, Locations, Mode
+with BuildPart() as built:
+    Box(100, 60, 20)
+    with Locations((40, 0, 5)):
+        Box(20, 60, 10, mode=Mode.SUBTRACT)
+    with Locations((-30, 20, 0)):
+        Cylinder(5, 20, mode=Mode.SUBTRACT)
+exports = geometry.export(built.part, module, "bracket")
+result = geometry.geometry_result(
+    "bracket", built.part, density={"value": 1240, "unit": "kg/m**3"},
+    density_source="a figure for the row only", exports=exports)
+result_file.write(os.path.join(module, "bracket.result.json"), result)
+print("BRACKET " + json.dumps({"geometry_hash": result["geometry_hash"]}))
+"""
+
+_STEP = re.compile(r"[ML](-?[0-9.]+) (-?[0-9.]+)")
+
+
+def _view(svg: str, name: str, scale: float) -> list[tuple[str, list[tuple[float, float]]]]:
+    """A view's lines, each point in mm from the view's top left, as the sheet shows it."""
+    group = re.search(rf'<g id="view-{name}"[^>]*>(.*?)</g>', svg, re.S)
+    assert group is not None, name
+    lines = [
+        (kind, [(float(x), float(y)) for x, y in _STEP.findall(d)])
+        for kind, d in re.findall(r'<path class="(visible|hidden)" d="([^"]+)"', group.group(1))
+    ]
+    left = min(x for _, points in lines for x, _ in points)
+    top = min(y for _, points in lines for _, y in points)
+    return [
+        (kind, [((x - left) / scale, (y - top) / scale) for x, y in points])
+        for kind, points in lines
+    ]
+
+
+def _near(points: list[tuple[float, float]], at: tuple[float, float]) -> bool:
+    return any(abs(x - at[0]) < 0.5 and abs(y - at[1]) < 0.5 for x, y in points)  # noqa: PLR2004
+
+
+def _xs(lines: list[tuple[str, list[tuple[float, float]]]], kind: str) -> list[float]:
+    return [x for k, points in lines if k == kind for x, _ in points]
+
+
+def test_an_asymmetric_part_is_drawn_with_each_feature_where_first_angle_puts_it(
+    env: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module, out = tmp_path / "modules" / "bracket", tmp_path / "drawings"
+    module.mkdir(parents=True)
+    told = run_script(env, BRACKET, "BRACKET", str(module))
+    part = module / "bracket.result.json"
+    assert json.loads(part.read_text(encoding="utf-8"))["geometry_hash"] == told["geometry_hash"]
+    tree = ("--tool-environment", str(env))
+    assert _run("drawing", "make", str(part), "--out", str(out), *tree) == EXIT_PASSES
+    capsys.readouterr()
+    assert _run("drawing", "check", str(out / "bracket.drawing.json"), str(part)) == EXIT_PASSES
+    svg = (out / "bracket.svg").read_text(encoding="utf-8")
+    scale = json.loads((out / "bracket.drawing.json").read_text(encoding="utf-8"))["scale"]["value"]
+
+    # The front, seen from -y with +z up: +x to the right, so the step is at the top right.
+    front = _view(svg, "front", scale)
+    visible = [p for kind, points in front if kind == "visible" for p in points]
+    assert _near(visible, (80.0, 0.0)) and _near(visible, (100.0, 10.0))
+    assert not _near(visible, (100.0, 0.0)) and not _near(visible, (0.0, 10.0))
+
+    # The view from above, from +z with +y up: the hole (x -30, y +20) is 20 mm from the left
+    # and 10 mm from the top.
+    top = _view(svg, "top", scale)
+    # The hole's edges are the view's only curves, however many pieces the kernel cuts them in.
+    curved = [p for _, points in top if len(points) > 3 for p in points]  # noqa: PLR2004
+    assert curved, "the view from above draws no hole"
+    xs, ys = [x for x, _ in curved], [y for _, y in curved]
+    centre = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
+    assert _near([centre], (20.0, 10.0)), centre
+    assert abs(max(xs) - min(xs) - 10.0) < 0.5, (min(xs), max(xs))  # noqa: PLR2004
+
+    # The view from the left, from -x with +z up: -y is to the right, so the hole (y +20) is
+    # behind the face 5 to 15 mm from the left, and the step is behind it too, 10 mm down.
+    side = _view(svg, "side", scale)
+    hidden = _xs(side, "hidden")
+    assert any(abs(x - 5.0) < 0.5 for x in hidden) and any(abs(x - 15.0) < 0.5 for x in hidden)  # noqa: PLR2004
+    assert not any(abs(x - 45.0) < 0.5 or abs(x - 55.0) < 0.5 for x in hidden)  # noqa: PLR2004
+    hidden_points = [p for kind, points in side if kind == "hidden" for p in points]
+    assert _near(hidden_points, (0.0, 10.0)) and _near(hidden_points, (60.0, 10.0))

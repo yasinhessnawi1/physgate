@@ -10,15 +10,18 @@ the way of the check under test.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
-from drawing_helpers import PLATE_HASH, Copy, all_pass_but
+from drawing_helpers import FIXTURE, PLATE_HASH, Copy, all_pass_but
 
 from physgate.build.drawings.check import EXIT_FAILS, EXIT_PASSES, EXIT_STALE, exit_status
+from physgate.build.drawings.record import DrawingRecord, RecordError
 
 OTHER_HASH = "sha256:" + "0" * 64
 
@@ -93,6 +96,19 @@ def test_a_drawing_file_changed_in_place_to_the_same_size_fails_the_file_check(
     assert copy.verdicts() == all_pass_but(file="fails")
 
 
+def test_a_drawing_file_that_is_a_link_is_not_read_even_to_the_right_bytes(
+    copy: Copy, tmp_path: Path
+) -> None:
+    elsewhere = tmp_path / "elsewhere.svg"
+    elsewhere.write_bytes(copy.svg.read_bytes())
+    copy.svg.unlink()
+    copy.svg.symlink_to(elsewhere)
+    assert copy.verdicts() == all_pass_but(
+        file="fails", views="fails", title_block="fails", dimensions="fails"
+    )
+    assert "is not there" in copy.message("file")
+
+
 def test_a_missing_drawing_file_fails_every_check_of_the_drawing_but_not_the_part(
     copy: Copy,
 ) -> None:
@@ -137,9 +153,28 @@ def test_a_view_with_a_line_fewer_than_its_record_says_fails_the_views_check(cop
     assert "the record says" in copy.message("views")
 
 
+def test_a_view_with_a_visible_line_fewer_than_its_record_says_fails_the_views_check(
+    copy: Copy,
+) -> None:
+    def drop_one_visible(group: str) -> str:
+        return re.sub(r'<path class="visible" d="[^"]*"/>\n', "", group, count=1)
+
+    copy.svg_text(lambda svg: _in_group(svg, "view-top", drop_one_visible))
+    assert copy.verdicts() == all_pass_but(views="fails")
+    assert "the top view draws" in copy.message("views")
+
+
 def test_a_record_that_lists_three_views_fails_the_views_check(copy: Copy) -> None:
     copy.record(lambda r: r.update(views=r["views"][:3]))
     assert copy.verdicts() == all_pass_but(views="fails")
+
+
+def test_a_record_that_lists_the_views_in_another_order_fails_the_views_check(
+    copy: Copy,
+) -> None:
+    copy.record(lambda r: r.update(views=[r["views"][i] for i in (1, 0, 2, 3)]))
+    assert copy.verdicts() == all_pass_but(views="fails")
+    assert "the record lists the views top, front" in copy.message("views")
 
 
 # --- title block ------------------------------------------------------------------------------
@@ -180,6 +215,31 @@ def test_a_record_and_its_title_block_that_agree_on_another_hash_still_fail(copy
     copy.record(other)
     assert copy.verdicts() == all_pass_but(title_block="fails")
     assert "the record's geometry hash is" in copy.message("title block")
+
+
+def _title_field(field: str, now: str, then: str) -> Callable[[str], str]:
+    def edit(svg: str) -> str:
+        return re.sub(rf'(data-field="{field}"[^>]*>){re.escape(now)}<', rf"\g<1>{then}<", svg)
+
+    return edit
+
+
+def test_a_title_block_and_its_record_that_agree_on_another_file_drawn_from_still_fail(
+    copy: Copy,
+) -> None:
+    # The SVG and the record's title block both name another file; the record's own drawn_from
+    # still names the plate's STEP file.
+    copy.svg_text(_title_field("drawn_from", "exports/plate.step", "exports/other.step"))
+    copy.record(lambda r: r["title_block"].update(drawn_from="exports/other.step"))
+    assert copy.verdicts() == all_pass_but(title_block="fails")
+    assert "the record's drawn from is exports/plate.step" in copy.message("title block")
+
+
+def test_a_title_block_and_its_record_that_agree_on_another_scale_still_fail(copy: Copy) -> None:
+    copy.svg_text(_title_field("scale", "1:1", "1:2"))
+    copy.record(lambda r: r["title_block"].update(scale="1:2"))
+    assert copy.verdicts() == all_pass_but(title_block="fails")
+    assert "the record's scale is 1:1" in copy.message("title block")
 
 
 def test_a_drawing_without_a_title_block_fails_the_title_block_check(copy: Copy) -> None:
@@ -230,9 +290,29 @@ def test_a_part_wider_than_the_drawing_shows_by_more_than_half_a_tenth_fails(cop
     assert "width_y" in copy.message("dimensions")
 
 
-def test_a_part_wider_by_exactly_half_a_tenth_still_agrees_with_the_drawing(copy: Copy) -> None:
-    copy.part_record(_wider(0.05e-3))
+def test_a_part_wider_by_less_than_half_a_tenth_is_still_shown_as_drawn(copy: Copy) -> None:
+    copy.part_record(_wider(0.04e-3))
     assert copy.verdicts() == all_pass_but()
+
+
+def test_a_part_wider_by_exactly_half_a_tenth_is_shown_a_tenth_wider_so_the_drawing_fails(
+    copy: Copy,
+) -> None:
+    # 60.05 mm, rounded half up, is written 60.1: a drawing that shows 60.0 is not this part's.
+    copy.part_record(_wider(0.05e-3))
+    assert copy.verdicts() == all_pass_but(dimensions="fails")
+    said = copy.message("dimensions")
+    assert "shows width_y 60.0 mm" in said and "60.05 mm" in said and "60.1" in said
+
+
+def test_a_dimension_s_message_gives_the_part_s_length_in_full(copy: Copy) -> None:
+    # 110.0504 mm is written 110.1; the message shows all of it, not three decimals of it.
+    def longer(part: dict[str, Any]) -> None:
+        part["values"]["bounding_box"]["high_corner"]["value"][0] = 0.0550504
+
+    copy.part_record(longer)
+    assert copy.verdicts() == all_pass_but(dimensions="fails")
+    assert "110.0504 mm" in copy.message("dimensions")
 
 
 # --- each check on its own --------------------------------------------------------------------
@@ -242,3 +322,140 @@ def test_two_things_doctored_fail_two_checks(copy: Copy) -> None:
     copy.svg_text(lambda svg: _drop_group(_drop_group(svg, "view-isometric"), "title-block"))
     copy.part_record(lambda part: part.update(geometry_hash=OTHER_HASH))
     assert copy.verdicts() == all_pass_but(part="stale", views="fails", title_block="fails")
+
+
+# --- every field of the drawing's record ------------------------------------------------------
+
+OTHER_SHA = "0" * 64
+
+
+def _set(*where: str | int, to: object) -> Callable[[dict[str, Any]], None]:
+    def edit(record: dict[str, Any]) -> None:
+        held: Any = record
+        for key in where[:-1]:
+            held = held[key]
+        held[where[-1]] = to
+
+    return edit
+
+
+#: Each field of the drawing's record, edited in the record alone, and the verdicts that follow.
+#: "refused" means the record is not read at all. A field the help names as recorded and not
+#: checked changes no verdict.
+FIELD_EDITS: dict[str, tuple[Callable[[dict[str, Any]], None], dict[str, str] | str]] = {
+    "schema": (_set("schema", to=2), "refused"),
+    "kind": (_set("kind", to="projection"), "refused"),
+    "shown": (_set("shown", to="measured"), all_pass_but()),
+    "left_out": (_set("left_out", to="nothing"), all_pass_but()),
+    "part": (_set("part", to="motor_mount"), all_pass_but(part="fails", title_block="fails")),
+    "geometry_hash": (
+        _set("geometry_hash", to=OTHER_HASH),
+        all_pass_but(part="stale", file="fails", title_block="fails"),
+    ),
+    "drawn_from.sha256": (_set("drawn_from", "sha256", to=OTHER_SHA), all_pass_but(part="fails")),
+    "drawn_from.size": (_set("drawn_from", "size", "value", to=1), all_pass_but(part="fails")),
+    "files.svg.sha256": (_set("files", "svg", "sha256", to=OTHER_SHA), all_pass_but(file="fails")),
+    "files.projection.sha256": (
+        _set("files", "projection", "sha256", to=OTHER_SHA),
+        all_pass_but(file="fails"),
+    ),
+    "files.projection.size": (
+        _set("files", "projection", "size", "value", to=1),
+        all_pass_but(file="fails"),
+    ),
+    "sheet.width": (_set("sheet", "width", "value", to=400.0), all_pass_but(file="fails")),
+    "sheet.height": (_set("sheet", "height", "value", to=210.0), all_pass_but(file="fails")),
+    "sheet.size": (_set("sheet", "size", to="A4 landscape"), all_pass_but()),
+    "scale.value": (_set("scale", "value", to=2.0), all_pass_but(title_block="fails")),
+    "units": (_set("units", to="in"), "refused"),
+    "projection_method": (
+        _set("projection_method", to="third angle"),
+        all_pass_but(title_block="fails"),
+    ),
+    "views.side.viewed_from": (
+        _set("views", 2, "viewed_from", "value", to=[1.0, 0.0, 0.0]),
+        all_pass_but(views="fails"),
+    ),
+    "views.front.up": (
+        _set("views", 0, "up", "value", to=[0.0, 0.0, -1.0]),
+        all_pass_but(views="fails"),
+    ),
+    "views.front.hidden_paths": (
+        _set("views", 0, "hidden_paths", "value", to=0),
+        all_pass_but(views="fails", file="fails"),
+    ),
+    "overall.height_z": (
+        _set("overall", "height_z", "value", to=3.1),
+        all_pass_but(dimensions="fails"),
+    ),
+    "shown_to": (_set("shown_to", "value", to=1.0), all_pass_but(dimensions="fails")),
+    "agreement_within": (
+        _set("agreement_within", "value", to=0.5),
+        all_pass_but(dimensions="fails"),
+    ),
+    "rounding": (_set("rounding", to="half even"), all_pass_but(dimensions="fails")),
+    "title_block.units": (_set("title_block", "units", to="in"), all_pass_but(title_block="fails")),
+    "generator.version": (_set("generator", "version", to="9"), all_pass_but(title_block="fails")),
+    "generator.name": (
+        _set("generator", "name", to="another drawer"),
+        all_pass_but(title_block="fails"),
+    ),
+    "libraries": (
+        _set("libraries", "build123d", to="0.0.0"),
+        all_pass_but(file="fails"),
+    ),
+}
+
+
+@pytest.mark.parametrize("field", sorted(FIELD_EDITS))
+def test_a_record_edited_in_one_field_alone_gives_the_verdicts_that_field_is_checked_by(
+    copy: Copy, field: str
+) -> None:
+    edit, then = FIELD_EDITS[field]
+    copy.record(edit)
+    if then == "refused":
+        with pytest.raises(RecordError):
+            copy.check()
+    else:
+        assert copy.verdicts() == then
+
+
+def test_every_field_of_the_drawing_s_record_has_a_row_above() -> None:
+    fields = {info.alias or name for name, info in DrawingRecord.model_fields.items()}
+    edited = {field.split(".")[0] for field in FIELD_EDITS}
+    assert edited == fields
+
+
+# --- the projection file ----------------------------------------------------------------------
+
+
+def test_a_missing_projection_file_fails_the_file_check(copy: Copy) -> None:
+    (copy.root / "plate.projection.json").unlink()
+    assert copy.verdicts() == all_pass_but(file="fails")
+    assert "plate.projection.json" in copy.message("file")
+
+
+def test_a_projection_file_of_another_shape_fails_the_file_check(copy: Copy) -> None:
+    copy.projection(lambda p: p.update(geometry_hash=OTHER_HASH))
+    assert copy.verdicts() == all_pass_but(file="fails")
+    assert OTHER_HASH in copy.message("file")
+
+
+def test_a_projection_file_from_other_libraries_fails_the_file_check(copy: Copy) -> None:
+    copy.projection(lambda p: p["libraries"].update(build123d="0.0.0"))
+    assert copy.verdicts() == all_pass_but(file="fails")
+    assert "0.0.0" in copy.message("file")
+
+
+def test_a_projection_file_with_a_line_fewer_than_the_record_says_fails_the_file_check(
+    copy: Copy,
+) -> None:
+    copy.projection(lambda p: p["views"]["top"]["visible"].pop())
+    assert copy.verdicts() == all_pass_but(file="fails")
+    assert "top" in copy.message("file")
+
+
+def test_the_committed_projection_is_the_one_the_committed_record_names() -> None:
+    record = json.loads((FIXTURE / "plate.drawing.json").read_text(encoding="utf-8"))
+    data = (FIXTURE / "plate.projection.json").read_bytes()
+    assert record["files"]["projection"]["sha256"] == hashlib.sha256(data).hexdigest()

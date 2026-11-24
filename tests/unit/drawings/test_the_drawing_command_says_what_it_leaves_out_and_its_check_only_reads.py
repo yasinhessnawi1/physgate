@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 import pytest
-from drawing_helpers import PLATE_HASH, Copy
+from drawing_helpers import PLATE_HASH, Copy, module_with_step
 
 from physgate.build.drawings.check import EXIT_PASSES, EXIT_REFUSED, EXIT_STALE
 from physgate.build.drawings.kernel import ENVIRONMENT_VARIABLE
@@ -40,6 +40,46 @@ def test_the_help_says_shown_not_measured_and_names_what_is_left_out(
         assert left in said, left
     assert "nothing here claims the drawing is fit to manufacture from" in said
     assert "never patched" in said
+
+
+def test_the_check_help_says_what_check_defends_against_and_what_it_does_not(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    said = _help(capsys, "check")
+    # What it holds the drawing to.
+    for defended in (
+        "a part that changed",
+        "an SVG edited without its record",
+        "a missing view or title field",
+        "a dimension that does not match the part",
+    ):
+        assert defended in said, defended
+    # What it does not: it redraws nothing.
+    assert "does not redraw the views" in said
+    for undefended in (
+        "a drawing and its record edited together and their digests written again",
+        "a view of another part with the same numbers of lines",
+        "a label or a title that says another projection than the lines are drawn in",
+    ):
+        assert undefended in said, undefended
+
+
+def test_the_check_help_names_what_the_record_holds_and_check_does_not_read(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    said = _help(capsys, "check")
+    assert (
+        "recorded and not checked: the record's shown and left_out words and the sheet's name"
+        in said
+    )
+
+
+def test_the_help_states_the_one_rounding_a_dimension_is_shown_and_checked_by(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for action in ("make", "check"):
+        said = _help(capsys, action)
+        assert "rounded half up to 0.1 mm, so within 0.05 mm of it" in said, action
 
 
 def test_check_prints_a_verdict_per_line_and_says_stale_plainly(
@@ -100,27 +140,10 @@ def test_check_refuses_a_record_it_cannot_read(
     assert main(["drawing", "check", str(tmp_path / "none.json"), str(copy.part)]) == EXIT_REFUSED
 
 
-def _module_with_step(root: Path, step: bytes, named: bytes) -> Path:
-    module = root / "module"
-    (module / "exports").mkdir(parents=True)
-    (module / "exports" / "plate.step").write_bytes(step)
-    part = json.loads((Copy(root / "fixture").part).read_text(encoding="utf-8"))
-    part["exports"] = [
-        {
-            "file": "exports/plate.step",
-            "size": {"value": len(named), "unit": "byte"},
-            "sha256": hashlib.sha256(named).hexdigest(),
-        }
-    ]
-    path = module / "plate.result.json"
-    path.write_text(json.dumps(part), encoding="utf-8")
-    return path
-
-
 def test_make_refuses_a_step_file_that_is_not_the_part_s_before_the_kernel_is_asked(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    part = _module_with_step(tmp_path, b"ISO-10303-21; changed", b"ISO-10303-21; recorded")
+    part = module_with_step(tmp_path, b"ISO-10303-21; changed", b"ISO-10303-21; recorded")
     out = tmp_path / "out"
     # The tool environment named is no environment at all: the refusal comes before it is used.
     tree = tmp_path / "no-environment"
@@ -135,7 +158,7 @@ def test_make_refuses_a_step_file_that_is_not_the_part_s_before_the_kernel_is_as
 def test_make_refuses_without_a_provisioned_tool_environment(
     capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    part = _module_with_step(tmp_path, b"ISO-10303-21; same", b"ISO-10303-21; same")
+    part = module_with_step(tmp_path, b"ISO-10303-21; same", b"ISO-10303-21; same")
     out = tmp_path / "out"
     monkeypatch.delenv(ENVIRONMENT_VARIABLE, raising=False)
     assert main(["drawing", "make", str(part), "--out", str(out)]) == EXIT_REFUSED
