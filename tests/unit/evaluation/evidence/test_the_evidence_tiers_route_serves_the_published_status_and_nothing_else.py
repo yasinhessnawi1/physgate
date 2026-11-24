@@ -107,7 +107,8 @@ def _answer(world: dict[str, Any], *roots: Path, held: tuple[str, ...] = ()) -> 
 
 
 def _role(answer: dict[str, Any], role: str) -> dict[str, Any]:
-    (found,) = [entry for entry in answer["roles"] if entry.get("role") == role] or [{}]
+    entries: list[dict[str, Any]] = answer["roles"]
+    (found,) = [entry for entry in entries if entry.get("role") == role] or [{}]
     return found
 
 
