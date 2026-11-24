@@ -3,8 +3,10 @@
 The pinned client writes messages of its own into a session's stream under the model name
 ``<synthetic>``: an API error's notice, the usage limit's. A raw session that met one and was then
 answered by the pinned model differs from the harness arm in nothing, and its trial is counted as
-any other. A real model other than the pinned one still stops the round on ``answered_by``; a
-session only the client wrote to was answered by no model and is never a counted trial.
+any other. A real model other than the pinned one still stops the round on ``answered_by``. A
+session only the client wrote to was answered by no model: the machine's end, each time it comes,
+so it is run once more and then recorded unscored, like any other end by the infrastructure, and
+never stops the round.
 
 Every row runs on the stand-in store and harness runs the round's other rows use; the raw arm is
 the stand-in that leaves what the real one leaves. No session is started and no model is called.
@@ -12,6 +14,7 @@ the stand-in that leaves what the real one leaves. No session is started and no 
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -180,10 +183,10 @@ def test_a_real_model_other_than_the_pin_after_a_notice_still_stops_the_round(
 
 
 @NOTICES
-def test_a_session_only_the_client_wrote_to_is_no_counted_trial(
+def test_a_session_only_the_client_wrote_to_is_unscored_after_its_one_re_run_and_stops_no_round(
     tmp_path: Path, store: StandInStore, notice: list[dict[str, Any]]
 ) -> None:
-    """Answered by no model, twice: run once more as the machine's end, then never counted."""
+    """Answered by no model, twice: the machine's end both times; run once more, then unscored."""
     run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
     arm = StandInArm(
         ended={1: ENDED_ON_AN_API_ERROR, 2: ENDED_ON_AN_API_ERROR},
@@ -191,10 +194,28 @@ def test_a_session_only_the_client_wrote_to_is_no_counted_trial(
         unanswered={1, 2},
     )
     out = tmp_path / "round"
-    stopped = _round(store, run_set((run, 0)), out, arm)
+    record = _round(store, run_set((run, 0)), out, arm)
+    assert isinstance(record, BaselineRecord), (
+        f"a session no model answered stopped the round: {record}"
+    )
+    assert len(arm.calls) == 2
+    counts = record.counts["visible"]
+    assert (counts.trials, counts.unscored, counts.passed, counts.failed) == (1, 1, 0, 0)
+    (line,) = [json.loads(x) for x in (out / TRIALS).read_text().splitlines()]
+    assert line["outcome"] == "unscored"
+
+
+def test_a_real_model_other_than_the_pin_in_a_session_the_machine_ended_still_stops_the_round(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """Only a session no model answered is spared the pair check's ``answered_by``."""
+    run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
+    arm = StandInArm(
+        ended={1: ENDED_ON_AN_API_ERROR, 2: ENDED_ON_AN_API_ERROR},
+        notices={1: API_ERROR, 2: API_ERROR},
+        answered={2: "claude-sonnet-5"},
+    )
+    stopped = _round(store, run_set((run, 0)), tmp_path / "round", arm)
     assert isinstance(stopped, BaselineError), stopped
     assert str(stopped).endswith("more than the harness: answered_by"), stopped
-    # The first attempt was the machine's end and was run once more; the second is not counted.
     assert len(arm.calls) == 2
-    trials = out / TRIALS
-    assert not trials.exists() or trials.read_text() == "", "a trial no model answered is counted"

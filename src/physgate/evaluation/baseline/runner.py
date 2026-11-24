@@ -171,6 +171,7 @@ from physgate.orchestrator.common import utc_stamp
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import MAX_SESSION_FILE_BYTES, read_captured, read_stream_file
 from physgate.orchestrator.exceptions import InvocationError, RunConfigError, RunStateError
+from physgate.orchestrator.managed import answering_models
 from physgate.orchestrator.review_root_record import recorded_review_root
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.run_config import (
@@ -1497,6 +1498,10 @@ def _one_trial(
                 write_new(harness / SCORE, canonical_json(dict(scored)))
             found = differences(run_dir, work, role=role, task=task, record_dir=harness)
             allowed = DEVELOPMENT_DIFFERENCES if development else frozenset()
+            if end == "machine" and not answering_models(read_captured(stream).answered):
+                # No model answered: the machine's end, as it was on the first go; there is no
+                # model to hold to the pin, and the trial is recorded unscored, never a stop.
+                allowed |= {"answered_by"}
             named = sorted({f.split(":", 1)[0] for f in found} - allowed)
             if named:
                 _finish(trial_dir, working, protected_root, out, name)

@@ -79,6 +79,8 @@ from physgate.evaluation.per_role.assemble import ExcludedTrial
 from physgate.evaluation.per_role.report import TrialRecord
 from physgate.evaluation.tiers.store import version_dir, withheld_root
 from physgate.evaluation.tiers.task import PROTECTED_TIERS, Role, Task, canonical_json
+from physgate.orchestrator.dispatch import read_captured
+from physgate.orchestrator.managed import answering_models
 from physgate.orchestrator.run_config import load_run_config
 
 #: Every kind of difference the audit names, each the field or the step that differs:
@@ -89,6 +91,9 @@ from physgate.orchestrator.run_config import load_run_config
 #:   flags), ``gate``, ``review``: that field of the record;
 #: - ``count``: a tier's count in the round's ``baseline.json``;
 #: - ``sessions``: sessions kept after the one the round's rule records;
+#: - ``answered_by``: the recorded session's own record names other models as having answered
+#:   than its stream does, each read as the round reads who answered (the client's own notices
+#:   are no model's, so an earlier record that lists them beside the pin is no difference);
 #: - ``unrederivable``: a file the record is derived from cannot be read, or the scorer or the
 #:   assembly refused it (its kind only is kept).
 KINDS = (
@@ -104,6 +109,7 @@ KINDS = (
     "review",
     "count",
     "sessions",
+    "answered_by",
     "unrederivable",
 )
 #: The kind of a difference in each field of a record.
@@ -248,6 +254,10 @@ def _rederive_raw(
             continue
         if step != "record":
             continue  # a wait: no trial, never scored
+        given = record.get("answered_by")
+        named = [str(m) for m in given] if isinstance(given, list) else [repr(given)]
+        if answering_models(named) != answering_models(read_captured(stream).answered):
+            odd.append("answered_by")
         scored = None
         if record.get("answer") == "found":
             scored = score(trial.task, harness / "answer" / trial.task.answer.path)

@@ -202,6 +202,16 @@ def _unreadable(out: Path, _store: StandInStore) -> None:
     (out / WORK / "0000-1" / "harness" / "raw.json").write_text("{not json")
 
 
+def _raw_records(out: Path) -> list[Path]:
+    return sorted((out / WORK).glob("*/harness/raw.json"))
+
+
+def _answered_by_another(out: Path, _store: StandInStore) -> None:
+    raw = out / WORK / "0000-1" / "harness" / "raw.json"
+    record = json.loads(raw.read_text())
+    raw.write_text(json.dumps({**record, "answered_by": ["claude-other"]}))
+
+
 #: Each doctoring, the kind it is caught by, the tier and the trial's place it is said at.
 DOCTORED: dict[str, tuple[Callable[[Path, StandInStore], None], str, str, int | None]] = {
     "a record deleted": (_drop_line, "missing", "visible", 0),
@@ -215,11 +225,30 @@ DOCTORED: dict[str, tuple[Callable[[Path, StandInStore], None], str, str, int | 
     "a tier's count changed": (_count, "count", "visible", None),
     "a session kept after the one recorded": (_session_after, "sessions", "visible", 0),
     "a session's record unreadable": (_unreadable, "unrederivable", "visible", 0),
+    "another model named as having answered": (
+        _answered_by_another,
+        "answered_by",
+        "visible",
+        0,
+    ),
 }
 
 
 def test_a_round_left_as_it_ran_shows_no_difference(tmp_path: Path, store: StandInStore) -> None:
     runs, out = _cell(tmp_path, store)
+    assert _audit(store, runs, out) == []
+
+
+def test_an_earlier_record_that_lists_the_client_s_notices_beside_the_pin_shows_no_difference(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """Records written before the notices were left out name ``<synthetic>`` as having answered."""
+    runs, out = _cell(tmp_path, store)
+    for raw in _raw_records(out):
+        record = json.loads(raw.read_text())
+        raw.write_text(
+            json.dumps({**record, "answered_by": ["<synthetic>", *record["answered_by"]]})
+        )
     assert _audit(store, runs, out) == []
 
 

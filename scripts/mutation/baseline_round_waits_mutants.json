@@ -247,5 +247,69 @@
     "paths": [
       "knowledge"
     ]
+  },
+  {
+    "name": "a_session_no_model_answered_stops_the_round",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            if end == \"machine\" and not answering_models(read_captured(stream).answered):\n",
+    "new": "            if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "another_model_in_a_machine_end_is_spared_the_pair_check",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            if end == \"machine\" and not answering_models(read_captured(stream).answered):\n",
+    "new": "            if end == \"machine\":\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_audit_counts_the_client_s_notices_as_a_model",
+    "file": "src/physgate/evaluation/baseline/audit.py",
+    "old": "        if answering_models(named) != answering_models(read_captured(stream).answered):\n",
+    "new": "        if sorted(named) != answering_models(read_captured(stream).answered):\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_record_audit_re_derives_every_record_and_names_each_difference.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_audit_reads_no_one_who_answered",
+    "file": "src/physgate/evaluation/baseline/audit.py",
+    "old": "            odd.append(\"answered_by\")\n",
+    "new": "            pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_record_audit_re_derives_every_record_and_names_each_difference.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
   }
 ]
