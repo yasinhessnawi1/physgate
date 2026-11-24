@@ -2,7 +2,12 @@ name: check
 
 on:
   push:
+    branches: [master]
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 # The job reads the repository and writes nothing. Naming that here replaces
 # whatever the repository default happens to be, which on a public repository
