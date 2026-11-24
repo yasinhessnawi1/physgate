@@ -229,3 +229,31 @@ def test_the_command_says_its_refusal_as_one_json_line_and_exits_1(
     said = json.loads(printed[0])
     assert said["refused_because"] == "params_not_reportable" and said["error"]
     assert not (rig.root / "out").exists()
+
+
+@pytest.mark.parametrize(
+    ("word", "reason"),
+    [
+        ({"set_aside": 0}, "set_aside_not_waiting"),
+        ({"limit_reset": True}, "limit_reset_not_waiting"),
+    ],
+)
+def test_a_fresh_round_given_a_person_s_word_is_refused_before_anything_is_made(
+    tmp_path: Path, word: dict[str, Any], reason: str
+) -> None:
+    rig = make_rig(tmp_path)
+    driver = rig.driver()
+    with pytest.raises(RoundError) as refused:
+        run_round(rig.inputs(), driver=driver, scorer=_score, sleep=lambda _: None, **word)
+    assert refused.value.context["refused_because"] == reason
+    assert not (rig.root / "out").exists() and list(rig.run_root.iterdir()) == []
+
+
+@pytest.mark.parametrize("inside", ["run root", "target", "store"])
+def test_a_round_whose_output_directory_lies_in_its_run_root_target_or_store_is_refused(
+    tmp_path: Path, inside: str
+) -> None:
+    rig = make_rig(tmp_path)
+    where = {"run root": rig.run_root, "target": rig.target, "store": rig.made.store}[inside]
+    assert _refused(rig, out=where / "round-out") == "out_misplaced"
+    assert not (where / "round-out").exists()

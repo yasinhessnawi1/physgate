@@ -119,12 +119,19 @@ __all__ = [
     "setup_for",
 ]
 
-#: What the stand-in driver measures as the harness, the client and its version: a clean
-#: checkout at one commit and the suite's stand-in build.
+#: What the stand-in driver measures as the harness, the client, its version and the rest the
+#: command measures for every run (as the rig's parameters record them): a clean checkout at one
+#: commit and the suite's stand-in build.
 PINS: dict[str, Any] = {
     "harness": {"commit": "c" * 40, "clean": True, "uncommitted_sha256": None},
     "binary": BUILT.model_dump(mode="json"),
     "claude_version": "2.1.301",
+    "git_binary": None,
+    "role_python": None,
+    "tool_environment": None,
+    "tool_servers": None,
+    "endpoint": "default",
+    "tool_search": "denied",
 }
 #: The plan's reviewer, on another model than the decomposition's.
 PLAN_REVIEWER = "claude-sonnet-5"
@@ -229,8 +236,9 @@ class AnswerSession(FakeSession):
     silent: set[int] = field(default_factory=set)
     #: The calls the process is killed in, before the session runs.
     killed: set[int] = field(default_factory=set)
-    #: The calls that end on the account's usage limit, its reset not read.
+    #: The calls that end on the account's usage limit, its reset not read (or read, as given).
     limited: set[int] = field(default_factory=set)
+    limit_resets_at: str | None = None
     #: The calls whose credential is refused.
     refused_credential: set[int] = field(default_factory=set)
     #: Counted across every drive of the row, so a call's number names it in any process.
@@ -269,7 +277,11 @@ class AnswerSession(FakeSession):
                 reading_verified=False,
                 node_files_halted=False,
                 usage=(),
-                usage_limit=UsageLimit(resets="later"),
+                usage_limit=(
+                    UsageLimit(resets="later")
+                    if self.limit_resets_at is None
+                    else UsageLimit(resets="1:20pm (Europe/Oslo)", resets_at=self.limit_resets_at)
+                ),
             )
         if call not in self.silent and call not in self.infra:
             module = worktree / request.module_dir
@@ -298,6 +310,8 @@ class StandInDriver:
     silent: set[int] = field(default_factory=set)
     killed: set[int] = field(default_factory=set)
     limited: set[int] = field(default_factory=set)
+    #: The instant a limited session's stream gives its reset at; ``None``: its reset not read.
+    limit_resets_at: str | None = None
     refused_credential: set[int] = field(default_factory=set)
     #: The module directory the plan gives, from the minted id; ``modules/<id>`` by default.
     module_dir: Callable[[str], str] = lambda minted: f"modules/{minted}"
@@ -331,8 +345,8 @@ class StandInDriver:
     sessions: list[int] = field(default_factory=lambda: [0])
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
 
-    def pins(self) -> dict[str, Any]:
-        """The harness, the client and its version, as the command would measure them."""
+    def pins(self, inputs: Inputs | None = None) -> dict[str, Any]:  # noqa: ARG002
+        """The harness, the client and the rest, as the command would measure them for a run."""
         measured: dict[str, Any] = json.loads(json.dumps(self.pin_record))
         return measured
 
@@ -507,6 +521,7 @@ class StandInDriver:
             role="control",
             infra=self.infra,
             limited=self.limited,
+            limit_resets_at=self.limit_resets_at,
             refused_credential=self.refused_credential,
             answer_name=self.answer_name,
             silent=self.silent,

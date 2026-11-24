@@ -16,7 +16,13 @@ from typing import Any
 
 from round_rig import SCORED, Rig, StandInDriver, make_rig
 
-from physgate.evaluation.harness_round import HARNESS_ROUNDS, LEDGER, ROUND_RECORD, run_round
+from physgate.evaluation.harness_round import (
+    HARNESS_ROUNDS,
+    LEDGER,
+    ROUND_RECORD,
+    RoundError,
+    run_round,
+)
 from physgate.evaluation.tiers.store import withheld_root
 from physgate.orchestrator.events import Halted, read_events
 
@@ -149,3 +155,21 @@ def test_a_machine_halt_resumed_then_a_session_on_the_limit_waits_and_is_scored(
     assert status == "done"
     assert _halts(rig, "0000-1") == ["infrastructure_exhausted", "usage_limit"]
     assert _outcomes(rig) == ["pass"]
+
+
+def test_the_word_on_the_limit_given_to_a_round_that_waits_for_no_limit_is_refused(
+    tmp_path: Path,
+) -> None:
+    rig = make_rig(tmp_path)
+    status, _ = _round(rig, rig.driver(fails={1: "credential_refused"}))
+    assert status == "waiting_for_a_person"
+    held = (_place(rig) / LEDGER).read_bytes()
+    driver = rig.driver()
+    try:
+        _round(rig, driver, resume=True, limit_reset=True)
+    except RoundError as exc:
+        reason = exc.context.get("refused_because")
+    else:
+        reason = "not refused"
+    assert reason == "limit_reset_not_waiting"
+    assert driver.decomposed == [] and (_place(rig) / LEDGER).read_bytes() == held

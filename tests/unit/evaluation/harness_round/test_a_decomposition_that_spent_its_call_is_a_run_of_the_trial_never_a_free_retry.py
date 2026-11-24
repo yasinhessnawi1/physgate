@@ -267,3 +267,61 @@ def test_a_restart_that_names_a_trial_the_round_is_not_stopped_at_is_refused(
     status, _ = _go(rig, named, slept, resume=True, set_aside=0)
     assert status == "refused:set_aside_not_waiting"
     assert named.decomposed == [] and (_place(rig) / LEDGER).read_bytes() == lines
+
+
+def test_the_operator_s_word_sets_aside_one_directory_and_a_void_after_it_stops_the_round_again(
+    tmp_path: Path, drivers: list[StandInDriver]
+) -> None:
+    rig, slept = make_rig(tmp_path, design_review="observe"), list[float]()
+    _killed(rig, _driver(rig, drivers, killed_after_call={1}))
+    _killed(rig, _driver(rig, drivers, killed_after_call={1}), resume=True)
+    named = _driver(rig, drivers, review_errs={1: "model_separation"})
+    status, summary = _go(rig, named, slept, resume=True, set_aside=0)
+    # The word took the second directory; the third ended void in the same process, and the
+    # round stops for a person again rather than taking the word for it too.
+    assert status == "waiting_for_a_person"
+    assert [c.run_dir.name for c in named.decomposed] == ["0000-3"]
+    assert Path(summary["waiting"]["run_dir"]).name == "0000-3"
+    assert [(x["attempt"], x["by"]) for x in _ledger(rig, "superseded")] == [
+        (1, "rule"),
+        (2, "operator"),
+    ]
+
+
+def test_a_directory_whose_review_root_holds_anything_is_never_set_aside_free(
+    tmp_path: Path, drivers: list[StandInDriver]
+) -> None:
+    rig, slept = make_rig(tmp_path, design_review="observe"), list[float]()
+    _killed(rig, _driver(rig, drivers, killed_in_decompose={1}))
+    # A review session's directory beneath the run's review root: a session may have started.
+    left = rig.run_root / _place(rig).name / "0000-1" / "review" / "a-session"
+    left.mkdir(parents=True)
+    status, _ = _go(rig, _driver(rig, drivers), slept, resume=True)
+    assert status == "done" and _outcomes(rig) == ["pass"]
+    assert _ledger(rig, "left") == []
+    assert _gone(rig, 1) == [(1, "killed", "unread", "rule")]
+
+
+def test_a_call_its_schema_refused_is_counted_in_the_superseded_decomposition_s_spend(
+    tmp_path: Path, drivers: list[StandInDriver]
+) -> None:
+    rig, slept = make_rig(tmp_path, design_review="observe"), list[float]()
+    driver = _driver(rig, drivers, schema_refused_first={1}, start_raises={1})
+    status, _ = _go(rig, driver, slept)
+    assert status == "done"
+    # The refused call (70), the call made once more (70) and the plan's review (10).
+    assert _gone(rig, 1) == [(1, "RunStateError", 2 * CALL_TOKENS + 10, "rule")]
+
+
+def test_a_decomposition_superseded_with_no_run_spends_the_trial_s_one_more_go(
+    tmp_path: Path, drivers: list[StandInDriver]
+) -> None:
+    rig, slept = make_rig(tmp_path, design_review="observe"), list[float]()
+    _killed(rig, _driver(rig, drivers, killed_after_call={1}))
+    then = _driver(rig, drivers, fails={1: "api_error"})
+    status, _ = _go(rig, then, slept, resume=True)
+    # The fresh decomposition was the one more go: the machine's end there is the trial's.
+    assert status == "done_without_caps"
+    assert [c.run_dir.name for c in then.decomposed] == ["0000-2"]
+    assert [x["attempt"] for x in _ledger(rig, "superseded")] == [1]
+    assert _outcomes(rig) == ["unscored"]
