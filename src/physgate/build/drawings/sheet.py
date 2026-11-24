@@ -50,8 +50,8 @@ from physgate.build.drawings.record import (
     View,
     ViewLines,
     ViewName,
+    compact,
     entry_of,
-    render,
 )
 
 SHOWN = (
@@ -332,7 +332,7 @@ def compose(projection: Projection, part: PartRecord, drawn_from: FileEntry) -> 
     body += _title_block(fields)
     body.append("</svg>")
     svg = "\n".join(body) + "\n"
-    projection_text = render(projection)
+    projection_text = compact(projection)
     stem = part.part
     record = DrawingRecord.model_validate(
         {

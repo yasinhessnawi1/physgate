@@ -348,6 +348,12 @@ def render(data: BaseModel | dict[str, Any]) -> str:
     return json.dumps(dumped, sort_keys=True, indent=2, allow_nan=False) + "\n"
 
 
+def compact(data: BaseModel) -> str:
+    """A large record's text: sorted keys, no spaces, one line end."""
+    dumped = data.model_dump(mode="json", by_alias=True)
+    return json.dumps(dumped, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
+
+
 def entry_of(data: bytes, name: str) -> FileEntry:
     """A file's bytes as a record names the file: ``name``, its size and its sha256."""
     return FileEntry(
