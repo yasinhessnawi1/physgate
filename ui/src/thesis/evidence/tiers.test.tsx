@@ -137,7 +137,7 @@ describe("the tier versions' guard", () => {
     expect(evidenceTiers(NO_TIERS).roles.map((r) => r.state)).toEqual(["none", "none"]);
   });
 
-  it.each([
+  it.each<readonly [string, unknown]>([
     ["a key it does not know", edited(["store"], "/srv/held_out")],
     ["a key it does not know in the counts", edited(["counts", "path"], "/srv/held_out")],
     ["a key it does not know in the check", edited(["check", "digest"], DIGEST)],
@@ -163,14 +163,14 @@ describe("the tier versions' guard", () => {
     ["a count past the bound", edited(["counts", "visible"], 10_001)],
     ["a count of more digits than any number holds", edited(["counts", "visible"], 1e308 * 10)],
     ["a check's count past the bound", edited(["check", "tasks"], 10_001)],
-    ...TIMES.map((at) => [`the time ${JSON.stringify(at)}`, edited(["read_at"], at)] as const),
-    ...TIMES.map(
-      (at) =>
-        [
-          `the time ${JSON.stringify(at)} on a refused role`,
-          withFirmware({ read_at: at }),
-        ] as const,
-    ),
+    ...TIMES.map((at): readonly [string, unknown] => [
+      `the time ${JSON.stringify(at)}`,
+      edited(["read_at"], at),
+    ]),
+    ...TIMES.map((at): readonly [string, unknown] => [
+      `the time ${JSON.stringify(at)} on a refused role`,
+      withFirmware({ read_at: at }),
+    ]),
   ])("refuses %s, and never a part of the answer", (_, value) => {
     expect(() => evidenceTiers(value)).toThrow(ShapeError);
   });
