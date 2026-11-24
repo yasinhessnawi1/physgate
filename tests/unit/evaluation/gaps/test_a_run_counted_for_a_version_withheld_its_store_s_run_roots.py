@@ -68,7 +68,10 @@ def test_a_run_that_did_not_withhold_another_role_s_run_root_whole_is_not_counte
     make_role_root(role_root(made.store, "firmware"))
     (base / "firmware-runs").mkdir()
     assert add_run_root(made.store, "firmware", base / "firmware-runs")
-    with pytest.raises(GapsError) as raised:
-        _count(made, base, withheld_whole=roots)
-    assert raised.value.context.get("refused_because") == "run_roots_not_withheld"
-    assert str(base) not in str(raised.value), raised.value
+    try:
+        counted: object = _count(made, base, withheld_whole=roots)
+    except GapsError as exc:
+        counted = exc
+    assert isinstance(counted, GapsError), "a run that left another role's run root was counted"
+    assert counted.context.get("refused_because") == "run_roots_not_withheld", counted.context
+    assert str(base) not in str(counted), counted

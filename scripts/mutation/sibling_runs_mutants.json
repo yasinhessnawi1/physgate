@@ -655,6 +655,52 @@
     ]
   },
   {
+    "name": "a_review_root_shown_with_no_run_directory_is_taken",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "    if run is None or not place.startswith(run.rstrip(\"/\") + \"/\"):\n",
+    "new": "    if run is None:\n        return None\n    if not place.startswith(run.rstrip(\"/\") + \"/\"):\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_measured_run_reviews_only_inside_its_own_run_directory.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_counted_run_is_held_to_its_own_role_s_run_roots_only",
+    "file": "src/physgate/evaluation/tiers/measure.py",
+    "old": "        for each in get_args(Role)\n        if os.path.lexists(role_root(store, each))\n",
+    "new": "        for each in (role,)\n        if os.path.lexists(role_root(store, each))\n",
+    "tests": [
+      "tests/unit/evaluation/gaps/test_a_run_counted_for_a_version_withheld_its_store_s_run_roots.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/gaps/gap_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "an_unreadable_review_root_record_is_raised_as_it_came",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    except RunStateError:\n        recorded = None\n",
+    "new": "    except RunStateError:\n        raise\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
     "name": "baseline_last",
     "file": "src/physgate/evaluation/tiers/exposure.py",
     "old": "",
