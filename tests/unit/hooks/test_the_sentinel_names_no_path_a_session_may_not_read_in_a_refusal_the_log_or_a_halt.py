@@ -276,7 +276,8 @@ def test_an_answer_key_or_a_withheld_record_changed_is_named_by_its_kind_and_lab
     where.parent.mkdir()
     where.write_text('{"kept": true}\n')
     value = str(where.parent) if field == "answer_keys" else str(where)
-    config = _config(root, **{field: (value,)})
+    fields = _request(root) | {field: (value,)}
+    config = build_config(InstallRequest(**fields), installation())  # type: ignore[arg-type]
     assert _check(root, config, "SessionStart") == "allow"
     where.write_text('{"kept": false}\n')
     reason = _check(root, config)

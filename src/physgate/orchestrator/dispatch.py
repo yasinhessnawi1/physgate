@@ -2271,10 +2271,10 @@ class ClaudeDispatcher:
             moved, unread = [], f"a put-back root could not be read: {_os_error(exc, named)}"
         # A second name for a held record, where the session could write: its worktree, and its
         # directory, which holds what the sentinel moved aside. An attempt commit never holds one.
-        seen = second_names(
+        names_seen = second_names(
             roots.held_identities(), (worktree, sdir)
         ) if unread is None else []  # fmt: skip
-        linked = [named(p) for p in seen]
+        linked = [named(p) for p in names_seen]
         # And each held record has exactly one name, wherever another was made, before the spawn
         # or since: the others the run directory holds are named, any further one is counted.
         for path in roots.held:
@@ -2283,7 +2283,7 @@ class ClaudeDispatcher:
                 elsewhere = [
                     f"{named(p)} (a name of {named(path)})"
                     for p in second_names(roots.held_identities(), (self._run.run_dir,))
-                    if p not in roots.held and p not in seen
+                    if p not in roots.held and p not in names_seen
                 ]
                 linked += elsewhere or [f"{named(path)} ({links} names)"]
         # The tool environment, scanned once more: a change now was made while this session
