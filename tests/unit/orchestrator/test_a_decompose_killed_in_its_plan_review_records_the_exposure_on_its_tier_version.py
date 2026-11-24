@@ -186,6 +186,8 @@ def test_a_decompose_killed_in_its_plan_review_marks_its_version_exposed_once_fo
 
 
 def _killed_before_its_opening(tier: OnTier, monkeypatch: pytest.MonkeyPatch) -> None:
+    start_run = design_rounds.start_run
+
     def dies_before_the_opening(*args: Any, **kwargs: Any) -> None:  # noqa: ANN401
         raise Stopped
 
@@ -196,7 +198,8 @@ def _killed_before_its_opening(tier: OnTier, monkeypatch: pytest.MonkeyPatch) ->
     with pytest.raises(BaseException) as stopped:  # noqa: PT011 - the stop is the point
         _exit(tier.args, reviewer)
     assert stopped.type is Stopped
-    monkeypatch.undo()
+    # Put back by hand: undoing every patch would take the session's stand-in credential too.
+    monkeypatch.setattr(design_rounds, "start_run", start_run)
     assert not (tier.run_dir / "run.json").exists()
 
 
@@ -217,7 +220,7 @@ def _killed_before_its_opening_s_exposure_line(
     with pytest.raises(BaseException) as stopped:  # noqa: PT011 - the stop is the point
         _exit(tier.args, reviewer)
     assert stopped.type is Stopped
-    monkeypatch.undo()
+    monkeypatch.setattr(RunRecord, "emit", emit)
     assert (tier.run_dir / "run.json").exists()
     events = (tier.run_dir / "events.jsonl").read_text()
     assert "held_out_read" not in events
@@ -399,6 +402,8 @@ JOURNAL = Path("decomposition", "rounds.jsonl")
 def test_a_kill_between_the_round_s_end_line_and_the_review_s_record_going_records_it_once(
     tier: OnTier, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    review_over = design_rounds.review_over
+
     def dies_as_the_record_goes(run_dir: Path) -> None:
         raise Stopped
 
@@ -408,7 +413,8 @@ def test_a_kill_between_the_round_s_end_line_and_the_review_s_record_going_recor
     )
     with pytest.raises(Stopped):
         _exit(tier.args, reviewer)
-    monkeypatch.undo()
+    # Put back by hand: undoing every patch would take the session's stand-in credential too.
+    monkeypatch.setattr(design_rounds, "review_over", review_over)
     # The journal's end line and the review's record both show it: one exposure, one key.
     assert (tier.run_dir / REVIEW_RECORD).is_file()
     assert "held_out_exposed" in (tier.run_dir / JOURNAL).read_text()
