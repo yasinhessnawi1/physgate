@@ -40,6 +40,7 @@ from wait_cycle_rig import (
     Shape,
     first_run,
     resumed,
+    resumed_expecting,
 )
 
 from physgate import roles
@@ -74,7 +75,13 @@ def held_for_good_run(
     rows = lines(rig)
     decide(rig.run_dir, "reject", "no design", item_id=item_of(rows, CONTROL))
     decide(rig.run_dir, "approve", item_id=item_of(rows, SIZING))
-    step = resumed(rig, monkeypatch, shape)
+    step = resumed_expecting(
+        rig,
+        monkeypatch,
+        shape,
+        "the run with its builder held for good stops at the step its mark gives it, and writes "
+        "no incident for a wait with nothing to decide unless it began under release_2",
+    )
     return rig, step, lines(rig)
 
 

@@ -130,6 +130,10 @@ def test_the_status_serves_the_incident_a_halt_rests_on_and_none_where_there_is_
     assert _incident_of(events, second_halt) == {"cause": "no_progress", "detail": "again"}
     assert _incident_of(events, 0) is None
     served = {e.seq: _halt_served(events, e) for e in events if e.kind == "halted"}
+    for seq in (first_halt, second_halt):
+        assert "incident" in served[seq], (
+            f"a halt on an incident serves the incident it rests on, not {served[seq]!r}"
+        )
     assert served[first_halt]["incident"] == {"cause": "waits_on_nothing", "detail": waits}
     assert served[second_halt]["incident"] == {"cause": "no_progress", "detail": "again"}
     # A halt that is not an incident's rests on none, whatever incident came before it.

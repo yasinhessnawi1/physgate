@@ -38,6 +38,7 @@ from wait_cycle_rig import (
     first_run,
     resumed,
     resumed_before,
+    resumed_expecting,
     under_release,  # noqa: F401 - the fixture, by name
 )
 
@@ -112,7 +113,13 @@ def decided_run(
     rig = shape.rig(tmp_path, verdicts)
     assert first_run(rig, monkeypatch, shape) == "wait"
     decide(rig.run_dir, verb, "no attempt is left" if verb == "reject" else None)
-    step = resumed(rig, monkeypatch, shape)
+    step = resumed_expecting(
+        rig,
+        monkeypatch,
+        shape,
+        f"once sizing's item is decided ({verb}) the run stops at the step its mark gives it, and "
+        "writes no incident for a wait with nothing to decide unless it began under release_2",
+    )
     return rig, step, lines(rig)
 
 

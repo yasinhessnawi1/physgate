@@ -53,6 +53,7 @@ from wait_cycle_rig import (
     first_run,
     resumed,
     resumed_before,
+    resumed_expecting,
 )
 
 from physgate import roles
@@ -132,7 +133,13 @@ def reopen_then(
     (item,) = [i for i in read_queue(rig.run_dir).open_items() if i.subtask_id == FIRMWARE]
     note = {"reject": "fix it", "approve": "it is fine" if source == "blocked" else None}[verb]
     decide(rig.run_dir, verb, note, item_id=item.item_id)
-    step = resumed(rig, monkeypatch, REAL)
+    step = resumed_expecting(
+        rig,
+        monkeypatch,
+        REAL,
+        f"after a person's {verb} the run stops at the step its mark gives it: a wait with nothing "
+        "to decide is written as an incident under release_2 only",
+    )
     return rig, step, lines(rig)
 
 

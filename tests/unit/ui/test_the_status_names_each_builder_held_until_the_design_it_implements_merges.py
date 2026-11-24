@@ -133,6 +133,9 @@ def test_an_escalated_end_that_owes_a_sign_off_is_served_with_the_module_that_ne
 def test_a_halt_on_an_incident_is_served_with_what_the_incident_says(live: Live) -> None:
     found = served(live, "halted-on-nothing")
     assert found["halted"]["reason"] == "incident"
+    assert "incident" in found["halted"], (
+        f"a halt on an incident serves what the incident says; it served {found['halted']!r}"
+    )
     assert found["halted"]["incident"]["cause"] == "waits_on_nothing"
     assert "no item is open" in found["halted"]["incident"]["detail"]
     # A run that is not halted serves no halt, and so no incident.
