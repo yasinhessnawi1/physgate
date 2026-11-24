@@ -593,7 +593,13 @@ def test_a_split_that_fails_part_way_leaves_no_task_outside_the_protected_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def half_a_split(
-        staging: Path, visible: Path, held_out: Path, *, validation: Path, seed: int
+        staging: Path,
+        visible: Path,
+        held_out: Path,
+        *,
+        validation: Path,
+        seed: int,
+        per_tier: int,
     ) -> Any:
         visible.mkdir(parents=True)
         first = sorted(staging.iterdir())[0]
@@ -648,7 +654,13 @@ def test_half_a_tier_that_cannot_be_removed_refuses_loudly_after_securing_the_st
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def half_a_split(
-        staging: Path, visible: Path, held_out: Path, *, validation: Path, seed: int
+        staging: Path,
+        visible: Path,
+        held_out: Path,
+        *,
+        validation: Path,
+        seed: int,
+        per_tier: int,
     ) -> Any:
         visible.mkdir(parents=True)
         raise OSError("the disk filled part-way")
