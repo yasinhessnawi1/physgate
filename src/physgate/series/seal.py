@@ -96,12 +96,35 @@ class SetAside(_Frozen):
         return self
 
 
+class Bytecode(_Frozen):
+    """A compiled file the session left in its worktree, found at its end and then removed.
+
+    By a printable form of its path, with the digest and length of its bytes (``None`` where
+    they could not be read: a link, a file too large to read whole, one gone). An interpreter
+    runs such a file in place of its source, so it is evidence of what may have run, not litter;
+    the bytes are not kept.
+    """
+
+    path: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    sha256: Sha256 | None = None
+    length: Annotated[int, Field(ge=0)] | None = None
+
+
 class SessionSeries(_Frozen):
-    """Everything one session left in its outbox: sealed, refused or discarded."""
+    """Everything one session left in its outbox: sealed, refused or discarded.
+
+    And the bytecode found in its worktree at its end (``bytecode``, the first
+    :data:`MAX_ENTRIES`, and ``bytecode_found``, how many in all): both left out of a dump where
+    there was none, so every end line before them is recorded exactly as it was.
+    """
 
     records: Annotated[tuple[SealedRecord, ...], Field(max_length=MAX_ENTRIES)] = ()
     refused: Annotated[tuple[SetAside, ...], Field(max_length=MAX_ENTRIES)] = ()
     discarded: Annotated[tuple[SetAside, ...], Field(max_length=MAX_ENTRIES)] = ()
+    bytecode: Annotated[tuple[Bytecode, ...], Field(max_length=MAX_ENTRIES)] = Field(
+        default=(), exclude_if=lambda v: not v
+    )
+    bytecode_found: Annotated[int, Field(ge=0)] = Field(default=0, exclude_if=lambda v: v == 0)
 
 
 class SeriesCheck(_Frozen):
@@ -147,6 +170,14 @@ class AttemptDiscard(_Frozen):
     entry: SetAside
 
 
+class AttemptBytecode(_Frozen):
+    """Bytecode one of the attempt's sessions left in its worktree, as its end line lists it."""
+
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    found: Annotated[int, Field(ge=0)]
+    files: tuple[Bytecode, ...]
+
+
 class AttemptSeries(_Frozen):
     """What a review is told about an attempt's simulation records.
 
@@ -165,3 +196,5 @@ class AttemptSeries(_Frozen):
     #: Left out of a dump when empty, so an attempt that discarded no record is recorded
     #: exactly as before.
     discarded: tuple[AttemptDiscard, ...] = Field(default=(), exclude_if=lambda v: not v)
+    #: Each session that left bytecode in the worktree, with what it left; left out when none.
+    bytecode: tuple[AttemptBytecode, ...] = Field(default=(), exclude_if=lambda v: not v)

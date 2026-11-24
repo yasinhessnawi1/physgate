@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
@@ -308,6 +309,67 @@ def test_what_a_session_made_unwritable_in_the_scratch_folder_is_removed_too(
     assert _left(worktree) == []
 
 
+def _outside(tmp_path: Path) -> Path:
+    """A directory outside the worktree, read-only to its owner, holding one file."""
+    outside = Path(os.path.realpath(tmp_path)) / "outside"
+    outside.mkdir()
+    (outside / "law.cpython-312.pyc").write_bytes(b"not the session's")
+    (outside / "kept.txt").write_text("not the session's\n")
+    outside.chmod(0o500)
+    return outside
+
+
+def _untouched(outside: Path) -> None:
+    assert stat.S_IMODE(outside.stat().st_mode) == 0o500
+    assert sorted(p.name for p in outside.iterdir()) == ["kept.txt", "law.cpython-312.pyc"]
+    outside.chmod(0o700)
+
+
+def test_a_link_named_as_bytecode_changes_and_removes_nothing_outside_the_worktree(
+    tmp_path: Path,
+) -> None:
+    run, worktree = _run(tmp_path)
+    outside = _outside(tmp_path)
+    (worktree / "modules" / "control" / "__pycache__").symlink_to(outside)
+    (worktree / "modules" / "control" / "stale.pyc").symlink_to(outside / "kept.txt")
+    (worktree / ".physgate" / "scratch").mkdir()
+    (worktree / ".physgate" / "scratch" / "__pycache__").symlink_to(outside)
+    _write(worktree, {f"{MODULE}/a.py": "x = 2\n"})
+    commit = _commit(run, worktree)
+    _untouched(outside)
+    # The link named as a bytecode folder is a link, which the scope check refuses as ever.
+    assert _scope(run, commit) == ["modules/control/__pycache__ (not a regular file)"]
+    assert not os.path.lexists(worktree / "modules" / "control" / "stale.pyc")
+
+
+def test_a_folder_swapped_for_a_link_while_it_is_removed_changes_nothing_outside(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run, worktree = _run(tmp_path)
+    outside = _outside(tmp_path)
+    _write(worktree, {f"{SCRATCH}/sub/locked/file.txt": "x\n"})
+    (worktree / SCRATCH / "sub" / "locked").chmod(0o500)
+    real_stat = os.stat
+    swapped: list[str] = []
+
+    def stat_then_swap(path: object, *args: object, **kwargs: object) -> os.stat_result:
+        found = real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+        if path in ("sub", "locked") and not swapped:
+            # Between the listing that found a directory and the use of its name.
+            held = worktree / SCRATCH / "sub"
+            os.rename(held, worktree / "moved-away")
+            held.symlink_to(outside)
+            swapped.append(str(path))
+        return found
+
+    monkeypatch.setattr(os, "stat", stat_then_swap)
+    commit = _commit(run, worktree)
+    monkeypatch.undo()
+    assert swapped, "the swap never happened, so the row proves nothing"
+    _untouched(outside)
+    assert SCRATCH not in " ".join(_changed(run, commit))
+
+
 def test_bytecode_the_run_branch_tracks_is_kept_and_a_change_to_it_left_out(
     tmp_path: Path,
 ) -> None:
@@ -369,7 +431,7 @@ def _recorded(run: RunGit, worktree: Path, script: str, prelude: str = "") -> Pa
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(SCRIPT.format(prelude=prelude))
     done = subprocess.run(
-        [sys.executable, "-E", "-s", str(path)],
+        [sys.executable, "-E", "-s", "-B", str(path)],
         cwd=worktree,
         capture_output=True,
         text=True,

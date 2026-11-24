@@ -157,6 +157,7 @@ def test_a_role_session_finds_the_variable_and_leaves_nothing_of_scratch_or_byte
     assert not (worktree / ".physgate" / "scratch").exists()
     assert not (worktree / "elsewhere" / "__pycache__").exists()
     sdir = run.session_dir()
+    assert (sdir / "left_out_before.json").is_file(), "the session's start cleared nothing"
     ended = json.loads((sdir / "left_out.json").read_text())
     assert ".physgate/scratch" in ended["removed"]
     assert "elsewhere/__pycache__/base.cpython-312.pyc" in ended["removed"]

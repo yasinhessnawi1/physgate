@@ -19,24 +19,30 @@ session there:
 
 What is removed: everything the scratch folder holds, whatever git says of it, reached without
 following a link (a link in the folder's place is removed as a link, and nothing it points at
-is touched); and every bytecode file git does not track, ignored ones included. Bytecode the
-run branch tracks is never removed, and a session's change to such a file is left out of the
-commit. When: as each session starts, so no session finds what an earlier one left, and as it
-ends, before its attempt is committed. A removal that fails is recorded, never fatal: the
-pathspecs still keep what stayed out of the commit, and the next session's start tries again.
+is touched); and every bytecode file git does not track, ignored ones included, each recorded
+first by its path and digest: an interpreter runs a compiled file in place of its source, so it
+is evidence of what may have run, and the session's end line carries it to the review. Bytecode
+the run branch tracks is never removed, and a session's change to such a file is left out of
+the commit. Every removal and every change of a mode goes by descriptor beneath the worktree.
+When: as each session starts, so no session finds what an earlier one left, and as it ends,
+before its attempt is committed. A removal that fails is recorded, never fatal: the pathspecs
+still keep what stayed out of the commit, and the next session's start tries again. A record
+whose process could have run a compiled file in place of a source is refused by the series
+writer when it is written, so removing the file loses no evidence a record stands on.
 """
 
 from __future__ import annotations
 
 import errno
+import hashlib
 import os
-import shutil
 import stat
 from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict
 
 from physgate.orchestrator.git import common_dir, git, verified_git_dir
+from physgate.series.seal import Bytecode
 
 #: The one folder in a session's worktree whose contents are never part of its attempt.
 SCRATCH_DIR = PurePosixPath(".physgate/scratch")
@@ -54,7 +60,11 @@ _BYTECODE_LISTED = tuple(f":(top,glob,icase){pattern}" for pattern in _BYTECODE)
 #: The most removed paths a record names one by one; past it they are counted.
 MAX_NAMED = 50
 
-_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+_NOFOLLOW_DIR = os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+_DIRECTORY = os.O_RDONLY | _NOFOLLOW_DIR
+_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+#: The most bytes of one compiled file read for its digest; a larger one is named undigested.
+MAX_COMPILED_BYTES = 16 * 1024 * 1024
 
 
 class LeftOut(BaseModel):
@@ -71,6 +81,10 @@ class LeftOut(BaseModel):
     removed_count: int = 0
     #: Each path that stays, with the reason.
     refused: tuple[tuple[str, str], ...] = ()
+    #: Every bytecode file found, removed or not, by path with its digest (the first
+    #: :data:`MAX_NAMED`), and how many were found in all: evidence of what may have run.
+    bytecode: tuple[Bytecode, ...] = ()
+    bytecode_found: int = 0
 
 
 def _shown(path: str) -> str:
@@ -83,6 +97,8 @@ class _Found:
         self.removed: list[str] = []
         self.count = 0
         self.refused: list[tuple[str, str]] = []
+        self.bytecode: list[Bytecode] = []
+        self.bytecode_found = 0
 
     def gone(self, path: str) -> None:
         self.count += 1
@@ -93,9 +109,20 @@ class _Found:
         if len(self.refused) < MAX_NAMED:
             self.refused.append((_shown(path), why))
 
+    def compiled(self, path: str, data: bytes | None) -> None:
+        self.bytecode_found += 1
+        if len(self.bytecode) < MAX_NAMED:
+            digest = None if data is None else hashlib.sha256(data).hexdigest()
+            length = None if data is None else len(data)
+            self.bytecode.append(Bytecode(path=_shown(path), sha256=digest, length=length))
+
     def done(self) -> LeftOut:
         return LeftOut(
-            removed=tuple(self.removed), removed_count=self.count, refused=tuple(self.refused)
+            removed=tuple(self.removed),
+            removed_count=self.count,
+            refused=tuple(self.refused),
+            bytecode=tuple(self.bytecode),
+            bytecode_found=self.bytecode_found,
         )
 
 
@@ -111,29 +138,72 @@ def _open_parents(worktree: Path, parts: tuple[str, ...]) -> int:
     return fd
 
 
-def _opened_up(parent: int, name: str) -> None:
-    """Make the directory ``name`` and every directory beneath it its owner's to list and change.
+def _mode_opened_without_following(parent: int, name: str) -> None:
+    """Make the directory ``name`` beneath ``parent`` its owner's, where it cannot be opened.
 
-    A session can leave a directory it may not list or change, which no removal gets past. Each
-    is found by a listing that follows no link and changed by name from its parent, as the
-    directory it was listed as.
+    A directory a session made unreadable cannot be opened for its mode, so the mode is changed
+    without following a link: where the platform changes a mode that way, by name; else (Linux)
+    on a descriptor that only names the very directory opened, through its entry in ``/proc``.
+    It must be a directory with the same identity before and after, else nothing goes on.
     """
-    stack = [(os.dup(parent), name)]
-    while stack:
-        above, here = stack.pop()
+    before = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    if not stat.S_ISDIR(before.st_mode):
+        raise NotADirectoryError(errno.ENOTDIR, "not a directory", name)
+    if os.chmod in os.supports_follow_symlinks and os.chmod in os.supports_dir_fd:
+        os.chmod(name, 0o700, dir_fd=parent, follow_symlinks=False)
+    elif hasattr(os, "O_PATH") and os.path.isdir("/proc/self/fd"):
+        handle = os.open(name, os.O_PATH | _NOFOLLOW_DIR, dir_fd=parent)
         try:
-            os.chmod(here, 0o700, dir_fd=above)
-            fd = os.open(here, _DIRECTORY, dir_fd=above)
-        except OSError:
-            continue  # left as it is: the removal then says why it stays
+            os.chmod(f"/proc/self/fd/{handle}", 0o700)
         finally:
-            os.close(above)
-        try:
-            for entry in os.listdir(fd):
-                if stat.S_ISDIR(os.stat(entry, dir_fd=fd, follow_symlinks=False).st_mode):
-                    stack.append((os.dup(fd), entry))
-        finally:
-            os.close(fd)
+            os.close(handle)
+    else:
+        raise PermissionError(errno.EACCES, "no way to change its mode without a link", name)
+    after = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    if not stat.S_ISDIR(after.st_mode) or (after.st_dev, after.st_ino) != (
+        before.st_dev,
+        before.st_ino,
+    ):
+        raise NotADirectoryError(errno.ENOTDIR, "it changed while its mode was changed", name)
+
+
+def _held_dir(parent: int, name: str) -> int:
+    """A descriptor on the directory ``name`` beneath ``parent``, made its owner's to change.
+
+    Opened without following a link, and its mode changed on that descriptor, so no name is
+    read twice: what was opened is what is changed.
+    """
+    try:
+        fd = os.open(name, _DIRECTORY, dir_fd=parent)
+    except PermissionError:
+        _mode_opened_without_following(parent, name)
+        fd = os.open(name, _DIRECTORY, dir_fd=parent)
+    try:
+        os.fchmod(fd, 0o700)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _remove_tree(parent: int, name: str) -> None:
+    """Remove ``name`` beneath ``parent`` and all it holds, by descriptor, following no link.
+
+    A link is removed as a link. An entry that is not what it was listed as when it is reached
+    (a directory swapped for a link, say) makes its removal fail, and nothing it points at is
+    touched.
+    """
+    found = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    if not stat.S_ISDIR(found.st_mode):
+        os.unlink(name, dir_fd=parent)
+        return
+    fd = _held_dir(parent, name)
+    try:
+        for entry in os.listdir(fd):
+            _remove_tree(fd, entry)
+    finally:
+        os.close(fd)
+    os.rmdir(name, dir_fd=parent)
 
 
 def _clear_scratch(worktree: Path, found: _Found) -> None:
@@ -151,24 +221,42 @@ def _clear_scratch(worktree: Path, found: _Found) -> None:
         # By its exact name: on a volume that ignores case another spelling would open too.
         if name not in os.listdir(parent):
             return
-        held = os.stat(name, dir_fd=parent, follow_symlinks=False)
-        if not stat.S_ISDIR(held.st_mode):
-            os.unlink(name, dir_fd=parent)
-        else:
-            _opened_up(parent, name)
-            shutil.rmtree(name, dir_fd=parent)
+        _remove_tree(parent, name)
         found.gone(str(SCRATCH_DIR))
-    except OSError as exc:
-        found.stays(str(SCRATCH_DIR), f"it could not be removed ({exc.strerror})")
+    except (OSError, RecursionError) as exc:
+        found.stays(str(SCRATCH_DIR), f"it could not be removed ({exc})")
     finally:
         os.close(parent)
 
 
+def _read_compiled(parent: int, name: str) -> bytes | None:
+    """The bytes of the compiled file ``name``, read without following a link; ``None`` if not."""
+    try:
+        fd = os.open(name, _FILE, dir_fd=parent)
+    except OSError:
+        return None
+    try:
+        held = os.fstat(fd)
+        if not stat.S_ISREG(held.st_mode) or held.st_size > MAX_COMPILED_BYTES:
+            return None
+        chunks, total = [], 0
+        while total <= MAX_COMPILED_BYTES:
+            chunk = os.read(fd, 1 << 20)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        return b"".join(chunks) if total <= MAX_COMPILED_BYTES else None
+    finally:
+        os.close(fd)
+
+
 def _remove_bytecode(worktree: Path, relative: str, found: _Found) -> None:
-    *above, name = relative.split("/")
+    *above, name = relative.rstrip("/").split("/")
     try:
         parent = _open_parents(worktree, tuple(above))
     except OSError as exc:
+        found.compiled(relative, None)
         found.stays(relative, f"a folder above it could not be opened ({exc.strerror})")
         return
     try:
@@ -176,7 +264,15 @@ def _remove_bytecode(worktree: Path, relative: str, found: _Found) -> None:
         if stat.S_ISDIR(held.st_mode):
             found.stays(relative, "it is a directory")
             return
-        os.unlink(name, dir_fd=parent)
+        found.compiled(relative, _read_compiled(parent, name))
+        try:
+            os.unlink(name, dir_fd=parent)
+        except PermissionError:
+            if not above or above[-1].casefold() != BYTECODE_DIR:
+                raise
+            # A bytecode folder the session made unwritable: changed on its own descriptor.
+            os.fchmod(parent, 0o700)
+            os.unlink(name, dir_fd=parent)
         found.gone(relative)
     except OSError as exc:
         found.stays(relative, f"it could not be removed ({exc.strerror})")
@@ -198,8 +294,10 @@ def _remove_bytecode(worktree: Path, relative: str, found: _Found) -> None:
 def clear_left_out(worktree: Path, *, repo: Path) -> LeftOut:
     """Remove the scratch folder and every untracked bytecode file from a session's worktree.
 
-    ``repo`` is the repository the worktree was made in; its pointer is verified, and the one
-    git command (the listing of untracked bytecode) runs pinned to its admin directory.
+    Each bytecode file is recorded by its path and digest before it is removed. ``repo`` is the
+    repository the worktree was made in; its pointer is verified, and the one git command (the
+    listing of untracked bytecode) runs pinned to its admin directory. Every change below the
+    worktree is made through descriptors opened without following a link.
 
     Raises:
         GitError: the worktree's pointer does not verify, or git cannot list its files.

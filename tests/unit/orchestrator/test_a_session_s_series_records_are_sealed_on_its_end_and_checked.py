@@ -275,7 +275,7 @@ def _attempt(tmp_path: Path) -> tuple[RunGit, Path, SessionSeries]:
     script = worktree / "modules" / "control" / "sim.py"
     script.write_text(SCRIPT)
     done = subprocess.run(
-        [sys.executable, "-E", "-s", str(script)],
+        [sys.executable, "-E", "-s", "-B", str(script)],
         cwd=worktree,
         capture_output=True,
         text=True,

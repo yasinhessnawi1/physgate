@@ -106,7 +106,7 @@ from physgate.orchestrator.invocation import (
     role_argv,
     session_search_path,
 )
-from physgate.orchestrator.left_out import SCRATCH_DIR, clear_left_out
+from physgate.orchestrator.left_out import SCRATCH_DIR, LeftOut, clear_left_out
 from physgate.orchestrator.managed import (
     ObservedTraffic,
     drift,
@@ -2549,8 +2549,14 @@ class ClaudeDispatcher:
         withheld_problems = withheld_before_commit(Path(installed.config))
         # What the session left in its scratch folder or as bytecode is never part of the attempt:
         # removed after every session, ended for whatever cause, and recorded; the commit leaves
-        # out whatever a removal could not take.
-        self._clear_left_out(worktree, sdir, LEFT_OUT_NAME)
+        # out whatever a removal could not take. Bytecode is evidence of what may have run in
+        # place of a source: each file goes on the session's end line with its digest, which the
+        # attempt's review is shown.
+        cleared = self._clear_left_out(worktree, sdir, LEFT_OUT_NAME)
+        if cleared.bytecode_found:
+            series = series.model_copy(
+                update={"bytecode": cleared.bytecode, "bytecode_found": cleared.bytecode_found}
+            )
         commit = (
             commit_attempt(
                 worktree,
@@ -2613,10 +2619,11 @@ class ClaudeDispatcher:
             account_windows=account_windows(streamed),
         )
 
-    def _clear_left_out(self, worktree: Path, sdir: Path, name: str) -> None:
+    def _clear_left_out(self, worktree: Path, sdir: Path, name: str) -> LeftOut:
         """Clear the worktree of what is never part of an attempt; record it in ``sdir``."""
         cleared = clear_left_out(worktree, repo=self._run.repo)
         (sdir / name).write_text(cleared.model_dump_json())
+        return cleared
 
     @staticmethod
     def _sweep(worktree: Path, before: placeholders.Snapshot, sdir: Path) -> str | None:

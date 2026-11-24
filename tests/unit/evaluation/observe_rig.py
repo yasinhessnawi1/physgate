@@ -319,7 +319,7 @@ class FakeSession:
         script = worktree / request.module_dir / "sim.py"
         script.write_text(self.scripts.get(self.calls, self.script))
         done = subprocess.run(
-            [sys.executable, "-E", "-s", str(script)],
+            [sys.executable, "-E", "-s", "-B", str(script)],
             cwd=worktree,
             capture_output=True,
             text=True,

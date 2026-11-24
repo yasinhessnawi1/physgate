@@ -1,0 +1,174 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_commit_stages_everything",
+    "file": "src/physgate/orchestrator/merge.py",
+    "old": "        leave_out=LEFT_OUT_OF_THE_COMMIT,\n",
+    "new": "        leave_out=(),\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_commit_removes_nothing",
+    "file": "src/physgate/orchestrator/merge.py",
+    "old": "    clear_left_out(worktree, repo=repo)\n    return commit_all(",
+    "new": "    return commit_all(",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_scratch_folder_is_never_removed",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        if name not in os.listdir(parent):\n",
+    "new": "        if True:\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_scratch_folder_s_link_is_followed",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        held = os.stat(name, dir_fd=parent, follow_symlinks=False)\n        if not stat.S_ISDIR(held.st_mode):\n            os.unlink",
+    "new": "        held = os.stat(name, dir_fd=parent, follow_symlinks=True)\n        if not stat.S_ISDIR(held.st_mode):\n            os.unlink",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "what_a_session_shut_is_not_opened",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "            _opened_up(parent, name)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "bytecode_is_listed_in_one_case",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "tuple(f\":(top,glob,icase){pattern}\"",
+    "new": "tuple(f\":(top,glob){pattern}\"",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "a_bytecode_folder_s_other_files_are_kept",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "_BYTECODE = (f\"**/{BYTECODE_DIR}/**\", \"**/*.pyc\")",
+    "new": "_BYTECODE = (f\"**/{BYTECODE_DIR}\", \"**/*.pyc\")",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "ignored_bytecode_is_carried",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        \"--others\",\n        \"--\",\n",
+    "new": "        \"--others\",\n        \"--exclude-standard\",\n        \"--\",\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_scope_check_skips_bytecode",
+    "file": "src/physgate/orchestrator/merge.py",
+    "old": "        path = PurePosixPath(change.path)\n        if path.is_relative_to(module):\n",
+    "new": "        path = PurePosixPath(change.path)\n        if path.suffix == \".pyc\":\n            continue\n        if path.is_relative_to(module):\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "code_in_the_scratch_folder_counts_as_the_module_s",
+    "file": "src/physgate/series/collect.py",
+    "old": "    if named != WRITER_PATH and not named.is_relative_to(module):\n",
+    "new": "    if named != WRITER_PATH and not (named.is_relative_to(module) or named.is_relative_to(\".physgate/scratch\")):\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "a_module_under_a_bytecode_folder_spelt_otherwise_is_planned",
+    "file": "src/physgate/orchestrator/decompose.py",
+    "old": "        if any(part.casefold() == BYTECODE_DIR for part in path.parts):\n",
+    "new": "        if any(part == BYTECODE_DIR for part in path.parts):\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "a_session_s_python_writes_bytecode",
+    "file": "src/physgate/orchestrator/invocation.py",
+    "old": "        **dict(SESSION_PYTHON),\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "a_session_s_start_clears_nothing",
+    "file": "src/physgate/orchestrator/dispatch.py",
+    "old": "        self._clear_left_out(worktree, sdir, LEFT_OUT_BEFORE_NAME)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_census_holds_bytecode_writing_equal_by_overlooking_it",
+    "file": "src/physgate/evaluation/observe/compare.py",
+    "old": "    \"tool_search\",\n    # Whether the sessions' Python wrote bytecode caches: written, a script importing another\n    # module's code left that module's cache in the worktree and its attempt out of scope.\n    \"python_bytecode\",\n",
+    "new": "    \"tool_search\",\n",
+    "tests": [
+      "tests/unit/orchestrator/test_every_field_of_a_run_is_refused_reported_or_named_as_never_compared.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_raw_arm_is_not_held_to_the_bytecode_pin",
+    "file": "src/physgate/evaluation/per_role/arms/compare.py",
+    "old": "        \"python_bytecode\": config.python_bytecode,\n",
+    "new": "        \"python_bytecode\": \"not_written\",\n",
+    "tests": [
+      "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
+    ],
+    "data": []
+  }
+]
