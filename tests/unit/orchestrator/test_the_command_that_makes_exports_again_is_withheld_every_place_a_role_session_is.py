@@ -120,8 +120,12 @@ def test_each_place_a_session_s_layers_name_is_in_the_set_by_its_own_name(
     """
     run = HeldOutRun(tmp_path, "writes-module")
     dispatcher = run.dispatcher(monkeypatch)
+    # Named here, so the row holds wherever the code it runs lies, in a checkout or not.
+    harness = tmp_path / "harness"
+    monkeypatch.setattr(dispatch, "harness_root", lambda: harness)
     withheld = dispatcher.regeneration_withheld()
     forbidden = dispatcher._forbidden()  # noqa: SLF001 - the places the set is built from
+    assert forbidden["the harness checkout"] == harness
     for name in ("the harness checkout", "the hooks' installation", "the target repository"):
         assert str(forbidden[name]) in withheld, (name, withheld)
     assert str(run.run.repo) in withheld, withheld
