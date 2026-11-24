@@ -499,6 +499,11 @@ def session_protected_roots(
     return reverted, refused
 
 
+def withheld_whole_roots(roots: Sequence[str]) -> list[str]:
+    """The roots the run withholds whole, each where it really is, as every withholder names it."""
+    return [os.path.realpath(root) for root in roots]
+
+
 def withheld_whole_args(run_dir: Path, roots: Sequence[str]) -> list[str]:
     """The installer's options for the roots the run withholds whole from every role session.
 
@@ -515,8 +520,7 @@ def withheld_whole_args(run_dir: Path, roots: Sequence[str]) -> list[str]:
     place = os.path.realpath(run_dir)
     args: list[str] = []
     around = False
-    for root in roots:
-        real = os.path.realpath(root)
+    for real in withheld_whole_roots(roots):
         if real == place or real.startswith(place.rstrip("/") + "/"):
             msg = (
                 "a root the run withholds whole is the run's own directory or lies in it, so no "
@@ -2140,8 +2144,12 @@ class ClaudeDispatcher:
         run's records, the place apart, the worktrees with their answer keys and reviewer trees),
         the harness checkout, the hooks' installation, the target repository, the review root, the
         held-out roots, the run's parameters file, the sessions' temporary directories and the
-        temporary directory every Claude Code session of the user shares. The command has no
-        worktree, so nothing inside them is opened again for it.
+        temporary directory every Claude Code session of the user shares. And, as the sessions of
+        a run naming a held-out tier are installed, the standing review root as review material
+        (:func:`~physgate.reviewers.places.standing_review_material`) and every root the run
+        withholds whole (:func:`withheld_whole_roots`): from the same definitions a session's
+        install reads. The command has no worktree, so nothing inside them is opened again for
+        it, the session's own place in a root withheld whole included.
 
         Raises:
             ContainmentError: the run's records name no parameters file, so what its sessions
@@ -2157,6 +2165,8 @@ class ClaudeDispatcher:
             raise ContainmentError(msg) from None
         places = [*self._forbidden_by_session(), *map(str, withheld)]
         places += [str(self._review_root), *self._config.held_out, *claude_temp_dirs()]
+        places += standing_review_material(self._config.held_out)
+        places += withheld_whole_roots(self._config.withheld_whole)
         return tuple(sorted(set(places)))
 
     def _forbidden_by_session(self) -> list[str]:
