@@ -686,6 +686,68 @@ def test_a_decomposition_s_folder_this_user_cannot_search_refuses_by_its_kind(ti
         (directory / "decomposition").chmod(0o700)
 
 
+def test_a_settled_directory_whose_parameters_record_does_not_read_is_not_walked(
+    tier: OnTier,
+) -> None:
+    # The round driver's layout: the target's clone in the directory, its refs deeper than the
+    # walk's bound beneath the run roots; and its parameters record cannot be read.
+    directory = _by_hand(tier, "round-1/0000-1")
+    (directory / "target" / ".git" / "refs" / "a" / "b" / "c" / "d" / "e" / "f").mkdir(parents=True)
+    _unreadable_params(tier, directory)
+    said = str(_refused(tier))
+    assert "--settles" in said and "moved out of it" in said, said
+    _settle(tier, directory)
+    assert _readable(tier) == frozenset({tier.made.version})
+    later = tier.later_refusal()
+    assert later is not None and "(version_exposed)" in later, later
+
+
+def test_a_settled_directory_whose_parameters_record_does_not_read_still_shows_what_it_showed(
+    tier: OnTier,
+) -> None:
+    later = second_version(tier.made)
+    directory = _by_hand(tier, "old", held_out=_recorded(tier))
+    (directory / EXPOSED_FILE).write_text(json.dumps({"session_id": "an-earlier-review"}))
+    _unreadable_params(tier, directory)
+    _refused(tier)
+    api(f"{EXPOSURE}.mark_exposed")(
+        tier.made.store,
+        ROLE,
+        later.version,
+        by="a person",
+        reason="looked at the directory and marked what it may have shown",
+        settles=directory,
+    )
+    assert _readable(tier) == frozenset({tier.made.version, later.version})
+
+
+def test_a_decomposition_s_directory_that_cannot_be_searched_refuses_until_it_can_be(
+    tier: OnTier, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.orchestrator import design_rounds  # noqa: PLC0415
+
+    directory = _by_hand(tier, "old", held_out=_recorded(tier))
+    real = design_rounds.exposed_reviews
+
+    def refused(run_dir: Path) -> tuple[str, ...]:
+        # A read the filesystem refuses in a way no step of the register's read expects.
+        msg = "Input/output error"
+        raise OSError(5, msg)
+
+    monkeypatch.setattr(design_rounds, "exposed_reviews", refused)
+    said = str(_refused(tier))
+    assert "cannot be searched" in said and "readable to this user again" in said, said
+    assert "--settles" not in said, said
+    # A settle does not clear it, as the words say: what the read found would be lost with it.
+    _settle(tier, directory)
+    assert "cannot be searched" in str(_refused(tier))
+    # The act its words name clears it: the directory reads again.
+    monkeypatch.setattr(design_rounds, "exposed_reviews", real)
+    assert _readable(tier) == frozenset({tier.made.version})
+    later = tier.later_refusal()
+    assert later is not None and "(version_exposed)" in later, later
+
+
 def test_a_settled_directory_keeps_what_it_showed_when_a_later_step_cannot_be_read(
     tier: OnTier, monkeypatch: pytest.MonkeyPatch
 ) -> None:

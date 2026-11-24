@@ -99,6 +99,7 @@ from physgate.orchestrator.managed import (
     system_managed_facts,
 )
 from physgate.orchestrator.merge import RunGit
+from physgate.orchestrator.params_record import record_params
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR as INTEGRATION_MODULE_DIR
 from physgate.orchestrator.plan import REQUIREMENT_MAX_CHARS as REQUIREMENT_MAX_CHARS
 from physgate.orchestrator.plan import SPEC_MAX_CHARS as SPEC_MAX_CHARS
@@ -1969,6 +1970,29 @@ def require_only_its_own(run_dir: Path, *, given: Sequence[Path]) -> None:
             "fresh run directory"
         )
         raise RunStateError(msg, run_dir=str(run_dir))
+
+
+def open_decomposition(
+    run_dir: Path, *, params: Path, target: Path, brief: Path, review_root: Path | None
+) -> None:
+    """What ``decompose`` refuses and writes first in its run directory, before anything runs.
+
+    The directory is refused unless fresh (:func:`require_fresh`) and holding only what is its
+    own (:func:`require_only_its_own`); then the parameters file is recorded with the target, the
+    first thing a decomposition writes. The parameters name the held-out canaries, so every
+    session of the run is installed with that file withheld, wherever it lies; and where the
+    target's clone lies in the run directory, the exposure register knows it as the
+    decomposition's own by this record. ``review_root`` is the root the plan's reviewer runs
+    under, as every reader takes it, where one is named.
+
+    Raises:
+        RunStateError: the directory is refused, or the record could not be written.
+    """
+    require_fresh(run_dir)
+    require_only_its_own(
+        run_dir, given=[target, params, brief, *([] if review_root is None else [review_root])]
+    )
+    record_params(run_dir, params, target=target)
 
 
 def _json_line(raw: bytes) -> dict[str, Any]:

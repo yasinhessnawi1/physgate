@@ -785,14 +785,14 @@ def _params_print(directory: Path) -> str:
     return f"{kind}:{info.st_dev}:{info.st_ino}:{info.st_size}:{info.st_mtime_ns}:{read}"
 
 
-def _unreadable(what: str) -> ExposureError:
+def _unreadable(what: str, *, also: str = "") -> ExposureError:
     """A refusal of a place beneath the run roots, said by its kind, with what a person does."""
     msg = (
         f"{what}, so what it holds cannot be ruled out. A person finds it beneath the run roots, "
         "looks at it, and marks by hand the versions it may have shown, naming it: "
         "physgate tiers mark-exposed --withheld <root> --version <version> --by <name> "
         "--reason <why> --settles <directory>. From then on what of it cannot be read is passed "
-        "over, and what it shows is still read"
+        f"over, and what it shows is still read{also}"
     )
     return _refuse("register_unreadable", msg)
 
@@ -825,10 +825,15 @@ def _own(here: Path, walk: _Walk) -> frozenset[str] | None:
     The record is read as the decomposition writes it: a plain file holding the absolute path of
     the parameters file and, since it was recorded, of the target. The decomposition's own are
     :data:`DECOMPOSITION_PLACES`, its target where that lies in ``here``, and its review root
-    where its record names one that lies there. A settled directory is walked as any other.
+    where its record names one that lies there. A settled directory is walked as any other, but
+    for one whose parameters record does not read: what it put there cannot then be told, and a
+    target's deep clone among it would pass the walk's depth bound, so every entry of it is taken
+    as its own (only an entry holding a run's configuration at its top is walked, as at every
+    decomposition's own place), and its other records are read for what they show.
 
     Raises:
-        ExposureError: the parameters record is there and does not read as one.
+        ExposureError: the parameters record is there and does not read as one, and the directory
+            is not settled; or, settled, it cannot be listed again.
     """
     fd = _dir_fd(here)
     if fd is None:
@@ -840,9 +845,20 @@ def _own(here: Path, walk: _Walk) -> frozenset[str] | None:
                 raise _refuse("register_unreadable", "the parameters record names no file")
         except ExposureError as exc:
             if _settle_key(here) in walk.settled:
-                return None
+                try:
+                    return frozenset(os.listdir(fd))
+                except OSError as listed:
+                    msg = (
+                        "a settled directory under the run roots cannot be listed again: a person "
+                        "makes it readable to this user again"
+                    )
+                    raise _refuse("register_unreadable", msg) from listed
             msg = "a decomposition's parameters record under the run roots cannot be read"
-            raise _unreadable(msg) from exc
+            also = (
+                "; settled, the directory is not walked but for a run at its top, so a run deeper "
+                "in it is moved out of it, within the run roots, before it is settled"
+            )
+            raise _unreadable(msg, also=also) from exc
         if params is None:
             return None
         own = set(DECOMPOSITION_PLACES)
@@ -944,9 +960,15 @@ def _decomposition_findings(
         return _reading(directory, known, settled, withheld)
     except OSError as exc:
         # Each read step of it catches its own; one left uncaught refuses, settled or not: a
-        # settled directory passes over only what cannot be read, never what was found.
-        what = "a decomposition's directory under the run roots cannot be searched"
-        raise _unreadable(what) from exc
+        # settled directory passes over only what cannot be read, never what was found, and what
+        # this read found is lost with it. So a settle does not clear it; its words say what does.
+        msg = (
+            "a decomposition's directory under the run roots cannot be searched (the filesystem "
+            f"refused a read no step of it expects: {type(exc).__name__}), so what it holds cannot "
+            "be ruled out, settled or not. A person makes it readable to this user again (its "
+            "permissions, its disk) and reads again"
+        )
+        raise _refuse("register_unreadable", msg) from exc
 
 
 def _reading(

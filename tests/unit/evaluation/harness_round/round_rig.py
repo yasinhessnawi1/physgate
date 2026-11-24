@@ -4,8 +4,9 @@ The store is the baseline's stand-in (:func:`baseline_fixtures.stand_in_store`):
 fixture tasks split by the real writer, its check recorded, a run root registered. The target
 is a repository with one commit. The driver stands in for the ``physgate`` command: its
 ``decompose`` does what the command's does with the call's outcome given, not asked of a model
-(the run directory refused unless fresh, the parameters recorded, the run started from a plan of
-one control module, or recorded as a failed decomposition); its ``drive`` is the real loop with
+(its first step the command's own, :func:`open_decomposition`: the run directory refused unless
+fresh and its own, the parameters recorded with the target; the run started from a plan of one
+control module, or recorded as a failed decomposition); its ``drive`` is the real loop with
 the real change checker, merger and store keeper, a stand-in session that writes the answer file
 in its module's directory, and the command's own refusal of a resume before a usage limit's
 reset. A row makes a call fail, end on the machine or be killed, by its number.
@@ -66,7 +67,7 @@ from physgate.orchestrator.decompose import (  # noqa: E402
     Plan,
     PlannedModule,
     mint_id,
-    require_fresh,
+    open_decomposition,
     start_run,
 )
 from physgate.orchestrator.design_rounds import (  # noqa: E402
@@ -85,7 +86,6 @@ from physgate.orchestrator.exceptions import (  # noqa: E402
 from physgate.orchestrator.git import head_of  # noqa: E402
 from physgate.orchestrator.loop import Loop  # noqa: E402
 from physgate.orchestrator.merge import GitMerger, RunGit  # noqa: E402
-from physgate.orchestrator.params_record import record_params  # noqa: E402
 from physgate.orchestrator.ports import SessionReport, SessionRequest, SpawnHook  # noqa: E402
 from physgate.orchestrator.processes import started_at  # noqa: E402
 from physgate.orchestrator.protocols import (  # noqa: E402
@@ -367,8 +367,15 @@ class StandInDriver:
         n = len(self.decomposed)
         if n in self.refused:
             return 2
-        require_fresh(call.run_dir)
-        record_params(call.run_dir, call.params)
+        # The command's own first step, called as the command calls it: the directory refused
+        # unless fresh and its own, then the parameters recorded with the target.
+        open_decomposition(
+            call.run_dir,
+            params=call.params,
+            target=call.target,
+            brief=call.brief,
+            review_root=review_root_path(call.review_root),
+        )
         if n in self.killed_in_decompose:
             raise Killed
         # The review root, recorded before the call as a measured run's decomposition records it

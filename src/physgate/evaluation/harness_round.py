@@ -646,6 +646,42 @@ def _register_head(store: Path, role: Role) -> dict[str, Any]:
     return {"lines": len(lines), "last_sha256": None if last is None else last.hexdigest()}
 
 
+def _not_from_a_session() -> None:
+    """Refuse a round started from inside a harness session, before anything is read or touched.
+
+    Raises:
+        RoundError: this process runs inside a session's environment.
+    """
+    from physgate.evaluation.tiers.exposure import ExposureError, _refuse_inside_a_session
+
+    try:
+        _refuse_inside_a_session()
+    except ExposureError as exc:
+        raise _refuse(
+            "inside_a_session", f"a round is never started from a session: {exc}"
+        ) from None
+
+
+def _checked(
+    inputs: Inputs, driver: Driver
+) -> tuple[_Version, frozenset[str], str, dict[str, Any], list[_Planned], dict[str, Any]]:
+    """Every refusal of the start that reads the store, the register or the machine, in order.
+
+    Returns the version's tasks, the flagged held-out tasks, the check record's digest, the
+    inputs as the ledger holds them, the round's order and the pins measured now.
+
+    Raises:
+        RoundError: a refusal, named by its reason.
+    """
+    found, flagged, check_sha256 = _refusals(inputs)
+    target_head = _target_head(inputs.target_from)
+    given = _inputs_record(inputs, target_head, check_sha256)
+    order = _order(inputs, found, flagged)
+    if not order:
+        raise _refuse("nothing_to_run", "the named tiers hold no task the round runs")
+    return found, flagged, check_sha256, given, order, _measured(driver, inputs)
+
+
 def _refusals(inputs: Inputs) -> tuple[_Version, frozenset[str], str]:
     """Everything that refuses the round before a trial starts, read now.
 
@@ -655,22 +691,11 @@ def _refusals(inputs: Inputs) -> tuple[_Version, frozenset[str], str]:
     Raises:
         RoundError: a refusal, named by its reason; or the register cannot be read whole.
     """
-    from physgate.evaluation.tiers.exposure import (
-        ExposureError,
-        _refuse_inside_a_session,
-        exposed_versions,
-        run_roots,
-        versions,
-    )
+    from physgate.evaluation.tiers.exposure import exposed_versions, run_roots, versions
     from physgate.evaluation.tiers.measure import checked
 
     store, role = inputs.store, inputs.role
-    try:
-        _refuse_inside_a_session()
-    except ExposureError as exc:
-        raise _refuse(
-            "inside_a_session", f"a round is never started from a session: {exc}"
-        ) from None
+    _not_from_a_session()
     living = running_session(store, role)
     if living is not None:
         msg = f"{living}: no round starts while a session left in the work root still runs"
@@ -1002,19 +1027,23 @@ def run_round(
         word = "set_aside" if set_aside is not None else "limit_reset"
         msg = "a fresh round stands at no wait a person's word is for"
         raise _refuse(f"{word}_not_waiting", msg)
-    found, flagged, check_sha256 = _refusals(inputs)
-    target_head = _target_head(inputs.target_from)
-    given = _inputs_record(inputs, target_head, check_sha256)
-    order = _order(inputs, found, flagged)
-    if not order:
-        raise _refuse("nothing_to_run", "the named tiers hold no task the round runs")
-    pins = _measured(driver, inputs)
     out = inputs.out
     withheld = withheld_root(inputs.store, inputs.role) / HARNESS_ROUNDS
     if resume:
+        # What the round's own earlier process left is dealt with first, before any refusal can
+        # end the start (the register's above all, which now finds a left review's exposure
+        # itself): never from a session, and only once the round is found and its lock held.
+        _not_from_a_session()
         round_id, place = _found(out, withheld)
         lock, dead = _locked(place)
+        try:
+            _what_its_earlier_process_left(place, round_id)
+            found, flagged, check_sha256, given, order, pins = _checked(inputs, driver)
+        except BaseException:
+            _release(lock, claimed=False)
+            raise
     else:
+        found, flagged, check_sha256, given, order, pins = _checked(inputs, driver)
         _require_clean(pins)
         # Made before anything else, and only if it is not there: two rounds started into one
         # output directory at once are one round and a refusal, and the refused one made nothing.
@@ -1406,32 +1435,91 @@ def _a_person_fixes(cause: str) -> bool:
     return cause != KILLED and cause not in INFRASTRUCTURE_CAUSES
 
 
-def _left_behind(ctx: _Round, planned: _Planned, attempt: int, run_dir: Path) -> None:
+def _deal_with(place: Path, index: int, attempt: int, run_dir: Path) -> bool:
     """Do what the core's commands do first with a directory a killed decomposition left.
 
     The credential files of its sessions no process runs as are removed; then the plan's review
     session a killed decomposition left running is stopped, its credential files removed, and
-    its streams redacted and scanned for the held-out canaries. What was done is written in the
-    trial's log beneath the withheld root.
-
-    Raises:
-        RoundError: the left review's streams showed held-out material.
+    its streams redacted and scanned for the held-out canaries (an exposure written to its own
+    file first). What was done is written in the trial's log beneath the withheld root. Done
+    again on a directory already dealt with, it finds nothing more to do. Returns whether the
+    directory's plan review showed held-out material, now or before.
     """
     review = review_root_path(run_dir / REVIEW)
     remove_left_credentials(run_dir, review)
     held = (os.environ.get(name, "") for name in SECRET_VARIABLE.values())
     left = stop_left_review(run_dir, secrets=tuple(secret for secret in held if secret))
     if left.said is not None:
-        log = _log(ctx, planned.index, attempt, "left")
+        log = _log_at(place, index, attempt, "left")
+        log.parent.mkdir(mode=0o700, exist_ok=True)
         with log.open("a") as handle:
             handle.write(left.said + "\n")
-    if left.exposed:
-        msg = (
-            "a plan review a killed decomposition left in the trial's directory showed "
-            "held-out material: the tier counts as exposed, and a person looks before the round "
-            "goes on"
-        )
-        raise _refuse("left_review_exposed", msg, index=str(planned.index), attempt=str(attempt))
+    return left.exposed
+
+
+def _left_exposed(index: int, attempt: int, **context: str) -> RoundError:
+    msg = (
+        "a plan review a killed decomposition left in the trial's directory showed "
+        "held-out material: the tier counts as exposed, and a person looks before the round "
+        "goes on"
+    )
+    return _refuse("left_review_exposed", msg, index=str(index), attempt=str(attempt), **context)
+
+
+def _left_behind(ctx: _Round, planned: _Planned, attempt: int, run_dir: Path) -> None:
+    """Deal with a directory before it is left behind (:func:`_deal_with`).
+
+    Raises:
+        RoundError: its plan review showed held-out material.
+    """
+    if _deal_with(ctx.place, planned.index, attempt, run_dir):
+        raise _left_exposed(planned.index, attempt)
+
+
+def _what_its_earlier_process_left(place: Path, round_id: str) -> None:
+    """Deal with every directory the round's earlier process placed, before the start can refuse.
+
+    Asked first of a restart, once the round is found and its lock held, so no other driver acts
+    on it: whatever ends the start after this (the register, the pins, the inputs), no left
+    review of the round still runs and no credential of its sessions stays on disk because of it.
+    A directory is the round's own when its own ledger placed it: the (trial, attempt) of each
+    ``placed`` line, at ``<run root>/<round>/<iiii>-<n>`` beneath the run root the ledger's first
+    line records (never the run root this start was given), each a directory, never a link. Only
+    those are touched; another round's, and anything else beneath the run root, are not.
+
+    Raises:
+        RoundError: the ledger cannot be read, so which directories are the round's cannot be
+            told (nothing is touched); or, once every one is dealt with, a plan review left in
+            one showed held-out material (the first named, and how many did).
+    """
+    ledger = place / LEDGER
+    lines = _read_ledger(ledger) if ledger.is_file() else []
+    if not lines:
+        return
+    header = lines[0]
+    given = header.get("inputs")
+    root = given.get("run_root") if isinstance(given, dict) else None
+    ours = header.get("kind") == "round" and header.get("round") == round_id
+    if not ours or not isinstance(root, str):
+        raise _refuse("ledger_unreadable", "the round's ledger does not begin with its round")
+    placed = sorted(
+        {
+            (line["index"], line["attempt"])
+            for line in lines
+            if line["kind"] == "placed"
+            and type(line.get("index")) is int
+            and type(line.get("attempt")) is int
+        }
+    )
+    exposed: list[tuple[int, int]] = []
+    for index, attempt in placed:
+        run_dir = _run_dir(Path(root), round_id, index, attempt)
+        if os.path.islink(run_dir) or not os.path.isdir(run_dir):
+            continue
+        if _deal_with(place, index, attempt, run_dir):
+            exposed.append((index, attempt))
+    if exposed:
+        raise _left_exposed(*exposed[0], directories=str(len(exposed)))
 
 
 def _prepare(ctx: _Round, run_dir: Path) -> None:
@@ -1458,7 +1546,11 @@ def _prepare(ctx: _Round, run_dir: Path) -> None:
 
 
 def _log(ctx: _Round, index: int, attempt: int, step: str) -> Path:
-    return ctx.place / "logs" / f"{index:04d}-{attempt}.{step}.log"
+    return _log_at(ctx.place, index, attempt, step)
+
+
+def _log_at(place: Path, index: int, attempt: int, step: str) -> Path:
+    return place / "logs" / f"{index:04d}-{attempt}.{step}.log"
 
 
 # Where the round stands when it is started. -------------------------------------------------
