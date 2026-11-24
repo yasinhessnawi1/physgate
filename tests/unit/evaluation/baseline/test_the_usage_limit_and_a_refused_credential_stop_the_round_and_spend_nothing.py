@@ -316,6 +316,24 @@ def test_a_reset_the_stream_did_not_give_waits_the_core_s_stated_time_or_a_perso
     assert _ledger(out)[3]["limit_reset"] == "operator"
 
 
+def test_a_reset_the_stream_gave_only_as_its_wall_clock_text_is_read_from_the_text(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """No refusal event: the result's text is read as the next such time after the halt."""
+    out, runs = tmp_path / "round", _one(tmp_path, store)
+    arm = StandInArm(limited={1: RESET_EPOCH}, text_only={1})
+    waits = _waits(store, runs, out, arm, at=BEFORE)
+    assert waits.waiting == {
+        "index": 0,
+        "why": "usage_limit",
+        "resume_after": RESET_STAMP,
+        "word_helps": False,
+    }
+    assert _ledger(out)[-1]["limit"]["resets_at"] == RESET_STAMP
+    record = _start(store, runs, out, arm, at=AFTER, resume=True)
+    assert record.counts["visible"].passed == 1
+
+
 def test_a_person_s_word_does_not_shorten_a_reset_the_stream_gave(
     tmp_path: Path, store: StandInStore
 ) -> None:

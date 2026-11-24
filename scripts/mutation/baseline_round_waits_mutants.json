@@ -32,6 +32,43 @@
     ]
   },
   {
+    "name": "the_raw_limit_is_held_unread",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "held = held_at(limit, at)",
+    "new": "held = limit",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_usage_limit_and_a_refused_credential_stop_the_round_and_spend_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_raw_wait_names_the_word_by_another_key",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        \"word_helps\": resume_refusal(halted, limit, now, limit_reset=True) is None,\n",
+    "new": "        \"word_would_help\": resume_refusal(halted, limit, now, limit_reset=True) is None,\n",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
     "name": "a_start_before_the_reset_goes_on",
     "file": "src/physgate/evaluation/baseline/runner.py",
     "old": "    if _waiting_for_limit(last, now, word=False) is None:\n        return \"waited\"\n",

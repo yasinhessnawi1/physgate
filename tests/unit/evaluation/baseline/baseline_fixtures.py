@@ -327,6 +327,9 @@ class StandInArm:
     #: refusal event's reset instant (epoch seconds), or ``None`` for a stream that gave none
     #: and a result whose reset does not parse.
     limited: dict[int, int | None] = field(default_factory=dict)
+    #: Per call: a limited session's stream gives its reset only as the result's wall-clock text,
+    #: with no refusal event.
+    text_only: set[int] = field(default_factory=set)
     #: Per call: the session's credential was refused (HTTP 401).
     refused: set[int] = field(default_factory=set)
     #: Per call: a session the limit or a refused credential ended wrote its answer first.
@@ -361,7 +364,7 @@ class StandInArm:
             {"type": "user", "message": {"content": content}},
         ]
         if n in self.limited:
-            lines += limit_lines(self.limited[n])
+            lines += limit_lines(None if n in self.text_only else self.limited[n])
             result = limit_result(self.limited[n])
         if n in self.refused:
             result = {"is_error": True, "terminal_reason": "api_error", "api_error_status": 401}
