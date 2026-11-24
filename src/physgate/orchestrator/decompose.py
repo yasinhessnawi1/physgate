@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, NamedTuple
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from physgate.contracts.pairs import ContractError, ContractPair, pairing_problems, plan_pairs
 from physgate.flags import Skills
@@ -136,6 +136,7 @@ from physgate.orchestrator.record import (
 from physgate.orchestrator.repair import quoted
 from physgate.orchestrator.run_config import RunConfig
 from physgate.orchestrator.trajectory import Seal, seal
+from physgate.orchestrator.usage_limit import UsageLimit, session_end
 from physgate.reviewers.contract import criterion_words, issued_criteria
 from physgate.reviewers.rubric import evaluation_words
 from physgate.roles import CrossCuttingDuty, owners_of
@@ -1344,6 +1345,17 @@ class Outcome(_Frozen):
     #: call made.
     prompt_sha256: str | None = None
     prompt_bytes: int | None = None
+    #: The account's usage limit the call ended on, as its stream gave it, read as a role
+    #: session's end is (:func:`~physgate.orchestrator.usage_limit.session_end`); ``None`` for
+    #: every other end.
+    usage_limit: UsageLimit | None = Field(default=None, exclude_if=lambda v: v is None)
+
+    @model_validator(mode="after")
+    def _a_limit_end_names_its_limit(self) -> Outcome:
+        if (self.cause == "usage_limit") != (self.usage_limit is not None):
+            msg = "a call that ended on the usage limit carries the limit, and no other call does"
+            raise ValueError(msg)
+        return self
 
 
 def read_stream(
@@ -1800,12 +1812,25 @@ def call(
         lost=writes_lost(stdout),
         accept_misorder=accept_misorder,
     )
+    limit: UsageLimit | None = None
+    if cause == "api_error":
+        # The API error a role session's stream names as the account's usage limit is that
+        # session's own cause, and the plan call's: read by the one reading every session's end
+        # is read by, so no retry and no attempt is spent on it and the run waits for its reset.
+        _, limit = session_end(stdout, result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
+        if limit is not None:
+            kind = f"a {limit.limit_type} limit, " if limit.limit_type else ""
+            cause = "usage_limit"
+            detail = (
+                f"the call ended on the account's usage limit "
+                f"({kind}resets {limit.resets or 'not given'})"
+            )
     changed = drift(workdir / "config", system_before)
     seen = traffic_refusal(observed, reported) if observed is not None else None
     if seen is not None:
         changed = f"{changed}; {seen}" if changed else seen
     if changed is not None:
-        cause, detail, plan = "managed_settings_changed", changed, None
+        cause, detail, plan, limit = "managed_settings_changed", changed, None, None
     return Outcome(
         session_id=session_id,
         ok=cause is None,
@@ -1824,6 +1849,7 @@ def call(
         stream_seal=stream_seal,
         prompt_sha256=hashlib.sha256(sent_bytes).hexdigest(),
         prompt_bytes=len(sent_bytes),
+        usage_limit=limit,
     )
 
 
@@ -2647,7 +2673,15 @@ def start_run(
             prompt_sha256=outcome.prompt_sha256,
             prompt_bytes=outcome.prompt_bytes,
         )
-        record.fail_decomposition(spent, detail, earlier, proposals, retried, sent=sent)
+        record.fail_decomposition(
+            spent,
+            detail,
+            earlier,
+            proposals,
+            retried,
+            sent=sent,
+            usage_limit=outcome.usage_limit if refused is None else None,
+        )
         return record
     plan = outcome.plan
     entries = [one.entry for one in planned]

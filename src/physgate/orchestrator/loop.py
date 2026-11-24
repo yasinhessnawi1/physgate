@@ -280,7 +280,7 @@ from physgate.orchestrator.sign_off import (
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.orchestrator.usage_limit import (
     UsageLimit,
-    read_reset,
+    held_at,
     resume_after,
     resume_refusal,
 )
@@ -550,14 +550,6 @@ def _follow_up_end(now: AttemptState | None, sub: SubtaskState) -> str:
         said += [f"failing items {_listed(failing)}"] if failing else []
         said += [f"blocking {_listed(blocking)}"] if blocking else []
     return "; ".join(said)
-
-
-def _reset_from(limit: UsageLimit | None, ts: str) -> UsageLimit | None:
-    """``limit`` with its reset read as the next instant after the line stamped ``ts``.
-
-    The one reading of a reset, shared with the baseline round's raw sessions (:func:`read_reset`).
-    """
-    return read_reset(limit, ts)
 
 
 class Loop:
@@ -2092,7 +2084,7 @@ class Loop:
                 policy_limits_unjudged=_unjudged(report),
                 issued_spec_sha256=report.issued_spec_sha256,
                 series=report.series,
-                usage_limit=_reset_from(report.usage_limit, env["ts"]),
+                usage_limit=held_at(report.usage_limit, env["ts"]),
                 account_windows=report.account_windows,
             )
         )
@@ -4481,7 +4473,7 @@ class Loop:
         the session after the reset runs in it, and the attempt's completed end commits it.
         """
         env = self._env()
-        held = _reset_from(limit, env["ts"])
+        held = held_at(limit, env["ts"])
         waits = (
             "its review is still owed"
             if review

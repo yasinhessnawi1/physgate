@@ -339,13 +339,11 @@ def bounded(limit: UsageLimit, *, read_at: datetime) -> UsageLimit:
     return limit.model_copy(update={"resets_at": None, "out_of_range_reset": limit.resets_at})
 
 
-def read_reset(limit: UsageLimit | None, ts: str) -> UsageLimit | None:
-    """``limit`` with its reset read as the next instant after the moment stamped ``ts``.
+def held_at(limit: UsageLimit | None, ts: str) -> UsageLimit | None:
+    """``limit`` as a line stamped ``ts`` holds it: its reset read as the next instant after ``ts``.
 
-    A reset the stream gave further out than any window after ``ts`` is not taken
-    (:func:`bounded`); where the stream gave no instant, the result's wall-clock text is read as
-    the next such time after ``ts`` (:func:`with_instant`). The loop reads a role session's limit
-    so, and the baseline round a raw session's.
+    A reset the stream gave further out than any window after ``ts`` is not taken (:func:`bounded`);
+    a reset the stream gave no instant for is read from its text (:func:`with_instant`).
     """
     if limit is None:
         return None

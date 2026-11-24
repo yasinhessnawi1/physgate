@@ -181,7 +181,7 @@ from physgate.orchestrator.run_config import (
 from physgate.orchestrator.session_files import FileRefused, open_beneath, read_bounded
 from physgate.orchestrator.usage_limit import (
     UsageLimit,
-    read_reset,
+    held_at,
     resume_after,
     resume_refusal,
     session_end,
@@ -1458,7 +1458,7 @@ def _one_trial(
             spent = {"index": index, "session": session, "tokens": int(record.get("tokens", 0))}
             if step == "wait_for_limit":
                 at = utc_stamp(now())
-                held = read_reset(limit, at)
+                held = held_at(limit, at)
                 line = {
                     "kind": "limit",
                     **spent,
