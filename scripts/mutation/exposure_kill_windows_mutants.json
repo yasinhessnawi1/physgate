@@ -14,14 +14,19 @@
    "tests/unit/evaluation/per_role/task_fixtures.py",
    "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
    "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -33,13 +38,13 @@
    "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
    "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
@@ -54,13 +59,13 @@
    "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
    "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
@@ -75,13 +80,13 @@
    "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
    "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
@@ -96,13 +101,13 @@
    "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
    "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
@@ -117,13 +122,13 @@
    "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
    "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
@@ -138,13 +143,13 @@
    "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
    "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
@@ -159,13 +164,13 @@
    "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
    "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
@@ -186,14 +191,19 @@
    "tests/unit/evaluation/per_role/task_fixtures.py",
    "tests/unit/orchestrator/accounted.py",
    "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
    "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -205,14 +215,19 @@
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -224,14 +239,19 @@
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -243,14 +263,19 @@
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -262,14 +287,19 @@
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -281,14 +311,19 @@
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -300,14 +335,19 @@
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -319,14 +359,19 @@
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -338,14 +383,19 @@
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -357,14 +407,19 @@
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -376,14 +431,19 @@
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -395,14 +455,19 @@
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  },
  {
@@ -414,14 +479,19 @@
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
   ],
   "data": [
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
    "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
    "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ]
  }
 ]
