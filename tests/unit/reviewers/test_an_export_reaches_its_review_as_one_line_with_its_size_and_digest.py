@@ -653,7 +653,10 @@ def test_the_diff_with_exports_left_out_is_git_s_with_them_excluded_byte_for_byt
 ) -> None:
     """A rename beside them, a file changed, one added: the same bytes as excluding each path."""
     moved = f"{MODULE}/frame.py"
-    before = {f"{MODULE}/bracket.py": b"width = 30\nheight = 12\n" * 20, STEP_PATH: STEP}
+    before: dict[str, bytes | None] = {
+        f"{MODULE}/bracket.py": b"width = 30\nheight = 12\n" * 20,
+        STEP_PATH: STEP,
+    }
     after: dict[str, bytes | None] = {
         f"{MODULE}/bracket.py": None,
         moved: b"width = 30\nheight = 12\n" * 20,
