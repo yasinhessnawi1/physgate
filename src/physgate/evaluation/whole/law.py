@@ -158,9 +158,10 @@ Dimension = tuple[tuple[str, int], ...]
 class LawRefused(Exception):  # noqa: N818 - a refusal by name, not an error of the scorer
     """The description cannot be used, for the reason named by ``code``.
 
-    ``code`` is one of ``malformed``, ``nonlinear``, ``out_of_scope``, ``units_do_not_balance``,
-    ``zero_divisor``, ``coefficient_not_held``, ``vector_not_reproduced``, ``vectors_too_few``,
-    ``vectors_do_not_exercise``, ``vectors_do_not_pin``, ``answer_not_valid``,
+    ``code`` is one of ``malformed``, ``key_written_twice``, ``nonlinear``, ``out_of_scope``,
+    ``units_do_not_balance``, ``zero_divisor``, ``coefficient_not_held``,
+    ``vector_not_reproduced``, ``vectors_too_few``, ``vectors_do_not_exercise``,
+    ``vectors_do_not_pin``, ``answer_not_valid``,
     ``delay_or_limit_not_stated_by_the_interface``, ``period_is_not_the_interface_s`` and
     ``written_numbers_do_not_match``;
     ``detail`` says what, in words. ``lines`` are the lines the vectors could not pin, for a
@@ -173,6 +174,48 @@ class LawRefused(Exception):  # noqa: N818 - a refusal by name, not an error of 
         self.code = code
         self.detail = detail
         self.lines = lines
+
+
+#: The refusal of a text that writes one key twice in an object: JSON's readers keep the last
+#: silently, so which of the two the writer meant would be the reader's guess.
+KEY_WRITTEN_TWICE = "key_written_twice"
+
+
+class _KeyTwice(Exception):  # noqa: N818 - carries the key out of the JSON reader's hook
+    def __init__(self, key: str) -> None:
+        super().__init__(key)
+        self.key = key
+
+
+def _once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    seen: set[str] = set()
+    for key, _ in pairs:
+        if key in seen:
+            raise _KeyTwice(key)
+        seen.add(key)
+    return dict(pairs)
+
+
+def refuse_a_key_written_twice(text: str) -> None:
+    """Refuse by name a JSON text that writes a key twice in any one of its objects.
+
+    The one check for both arms: the law file's reader (:func:`parse_file`) and the answer's
+    reader each call it before reading, so a key written twice is refused with the same name and
+    the same words whether the harness's file or a written answer holds it. The text is read once
+    with every object's pairs kept. A text Python's reader cannot read at all (a number past its
+    digits, a nest past its depth) is left to the reading that follows, which refuses it.
+
+    Raises:
+        LawRefused: ``key_written_twice``, naming the key.
+    """
+    try:
+        json.loads(text, object_pairs_hook=_once)
+    except _KeyTwice as twice:
+        key = twice.key if len(twice.key) <= 40 else f"{twice.key[:37]}..."
+        msg = f"the key {key!r} is written twice in one object; each key is written once"
+        raise LawRefused(KEY_WRITTEN_TWICE, msg) from None
+    except (ValueError, RecursionError):
+        return
 
 
 def dimension(unit: str) -> Dimension:
@@ -495,8 +538,8 @@ def check(body: Body, units: Mapping[str, str]) -> None:
     if len(applied) > 1:
         names = ", ".join(repr(name) for name in applied[:-1])
         msg = (
-            f"the memory states {names} and {applied[-1]!r} are both marked applied; one state "
-            "only holds the command as applied"
+            f"{len(applied)} memory states, {names} and {applied[-1]!r}, are marked applied; one "
+            "state only holds the command as applied"
         )
         raise LawRefused("malformed", msg)
 
@@ -1718,15 +1761,20 @@ def parse_file(raw: bytes, *, defer_scope: bool = False) -> LawFile:
     is returned with the term marked, and the caller runs every other check before refusing.
 
     Raises:
-        LawRefused: ``malformed`` (not JSON, not the schema, too large), ``nonlinear`` or
+        LawRefused: ``malformed`` (not JSON, not the schema, too large), ``key_written_twice``
+            (as an answer's, :func:`refuse_a_key_written_twice`), ``nonlinear`` or
             ``out_of_scope``.
     """
     if len(raw) > MAX_FILE_BYTES:
         raise LawRefused("malformed", f"the law file is larger than {MAX_FILE_BYTES} bytes")
     try:
         text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise LawRefused("malformed", "the law file is not JSON") from exc
+    refuse_a_key_written_twice(text)
+    try:
         document = json.loads(text)
-    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise LawRefused("malformed", "the law file is not JSON") from exc
     marked = mark(document)
     if marked.outside and not defer_scope:

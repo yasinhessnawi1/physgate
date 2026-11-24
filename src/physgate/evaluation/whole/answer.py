@@ -885,48 +885,22 @@ def _marked(
     return probe, refused, found
 
 
-#: The refusal of an answer that writes one key twice in an object: the readers keep the last
-#: silently, so which of the two the answer means is the reader's guess.
-KEY_WRITTEN_TWICE = "key_written_twice"
-
-
-class _KeyTwice(Exception):  # noqa: N818 - carries the key out of the JSON reader's hook
-    def __init__(self, key: str) -> None:
-        super().__init__(key)
-        self.key = key
-
-
-def _once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    seen: set[str] = set()
-    for key, _ in pairs:
-        if key in seen:
-            raise _KeyTwice(key)
-        seen.add(key)
-    return dict(pairs)
-
-
 def _refuse_a_key_written_twice(text: str, where: str) -> None:
     """Refuse by name an answer that writes a key twice in any one of its objects.
 
     The JSON readers the answer passes through each keep the last of two same keys and say
     nothing, so an answer written ``"version": 2, "version": 3`` would be read as whichever came
-    last. Read here once with every object's pairs kept; a text that is not JSON is left to the
-    reading that says so.
+    last. The check is the law file's (:func:`law.refuse_a_key_written_twice`), so the harness's
+    file and a written answer are refused alike, in the same words.
 
     Raises:
         TaskFormatError: ``key_written_twice``, naming the key.
     """
     try:
-        json.loads(text, object_pairs_hook=_once)
-    except _KeyTwice as twice:
-        key = twice.key if len(twice.key) <= 40 else f"{twice.key[:37]}..."
-        msg = (
-            f"the answer is not a whole-run answer: {KEY_WRITTEN_TWICE}: the key {key!r} is "
-            "written twice in one object; each key is written once"
-        )
+        law_module.refuse_a_key_written_twice(text)
+    except law_module.LawRefused as exc:
+        msg = f"the answer is not a whole-run answer: {exc}"
         raise TaskFormatError(msg, where=where) from None
-    except (ValueError, RecursionError):
-        return
 
 
 #: The refusals of a number that a float does not hold as the text wrote it.
