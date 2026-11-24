@@ -3,9 +3,12 @@
 Both arms are told the same thing in the same bytes: write the answer to a file of a
 given name in the directory you work in. A raw session works in one directory, so its
 answer is there. A harness run decomposes the brief into modules, and each role session
-works in its module's directory, the only place it may write, so the answer is the one
-file of that name directly inside a module directory on the run branch after the last
-merge. None is no answer; two are no answer either, since nothing says which one counts.
+works in its module's directory, the only place it may write. The planner chooses where each
+module's directory lies, and the run records it in its plan's lines: so the answer is the one
+file of that name directly inside a module directory the run's own recorded plan names for the
+role, wherever the plan put it, on the run branch after the last merge. A file of that name
+anywhere else is not the answer, even the only one; none is no answer, and two are no answer
+either, since nothing says which one counts.
 
 The read goes through the clean object store and a pinned git directory, as every read
 of a role-written repository does, so nothing the run left in its repository can make the
@@ -15,17 +18,20 @@ read run a program; the file must be a regular blob no larger than any answer.
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
+from collections.abc import Sequence
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from physgate.evaluation.per_role.answer import MAX_ANSWER_BYTES
+from physgate.orchestrator.events import Event, SubtaskPlanned
 from physgate.orchestrator.git import git, git_bytes, head_of, verified_git_dir
 from physgate.orchestrator.merge import RunGit
 
-#: How the extraction ended. ``contract_lost`` is no answer file anywhere a module may
-#: write: the brief's answer contract did not survive decomposition, or no session kept it.
+#: How the extraction ended. ``contract_lost`` is no answer file in any module directory the
+#: run's plan names: the brief's answer contract did not survive decomposition, or no session
+#: kept it.
 Status = Literal["found", "contract_lost", "ambiguous", "not_a_file", "too_large", "not_text"]
 _REGULAR = {"100644", "100755"}
 
@@ -41,25 +47,40 @@ class Extraction(BaseModel):
     sha256: str | None = None
 
 
-def extract(repo: Path, run_id: str, answer_name: str, out: Path) -> Extraction:
+def planned_module_dirs(events: Sequence[Event], role: str) -> tuple[str, ...]:
+    """The module directories the run's recorded plan names for ``role``, in the plan's order."""
+    seen: list[str] = []
+    for event in events:
+        if isinstance(event, SubtaskPlanned) and event.assigned_role == role:
+            named = str(PurePosixPath(event.module_dir))
+            if named not in seen:
+                seen.append(named)
+    return tuple(seen)
+
+
+def extract(
+    repo: Path, run_id: str, answer_name: str, out: Path, *, module_dirs: Sequence[str]
+) -> Extraction:
     """The answer the run ``run_id`` left in ``repo``, written to ``out`` when there is one.
 
-    Every path directly inside a module directory named ``answer_name`` is looked at,
-    whatever its type, so a link or a directory of that name is seen and refused rather
-    than skipped.
+    ``module_dirs`` are the module directories the run's recorded plan names
+    (:func:`planned_module_dirs`); the answer is looked for directly inside each, and nowhere
+    else. The path of that name in each is looked at, whatever its type, so a link or a
+    directory of that name is seen and refused rather than skipped.
     """
     pinned = verified_git_dir(repo, linked=False)
     commit = head_of(
         repo, RunGit(repo=repo, run_dir=repo, run_id=run_id).run_branch, git_dir=pinned
     )
-    listing = git(repo, "ls-tree", "-r", "-t", commit, "modules", objects_only=True, git_dir=pinned)
     entries: list[tuple[str, str]] = []
-    for line in listing.splitlines():
-        meta, _, path = line.partition("\t")
-        mode = meta.split(" ", 1)[0]
-        parts = path.split("/")
-        if len(parts) == 3 and parts[0] == "modules" and parts[2] == answer_name:
-            entries.append((mode, path))
+    for directory in module_dirs:
+        path = str(PurePosixPath(directory) / answer_name)
+        # NUL-terminated, so a path is listed as it is, never quoted.
+        listing = git(repo, "ls-tree", "-z", commit, "--", path, objects_only=True, git_dir=pinned)
+        for line in filter(None, listing.split("\0")):
+            meta, _, listed = line.partition("\t")
+            if listed == path:
+                entries.append((meta.split(" ", 1)[0], listed))
     paths = tuple(sorted(path for _, path in entries))
     if not entries:
         return Extraction(status="contract_lost", commit=commit, paths=paths)

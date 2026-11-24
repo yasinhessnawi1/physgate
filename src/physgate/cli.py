@@ -8,7 +8,7 @@ from pathlib import Path
 
 from physgate.build.bom import cli as bom_cli
 from physgate.build.drawings import cli as drawing_cli
-from physgate.evaluation import evidence, gaps_cli, tierset_cli
+from physgate.evaluation import evidence, gaps_cli, harness_round_cli, tierset_cli
 from physgate.evaluation import requirements as evaluation_requirements
 from physgate.evaluation.baseline import cli as baseline_cli
 from physgate.evaluation.gap_trend_census import TREND
@@ -88,6 +88,7 @@ def main(
     tierset_cli.add_parser(subparsers)
     gaps_cli.add_parser(subparsers)
     baseline_cli.add_parser(subparsers)
+    harness_round_cli.add_parser(subparsers)
     ui_cli.add_parser(subparsers)
     bom_cli.add_parser(subparsers)
     drawing_cli.add_parser(subparsers)
