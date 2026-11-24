@@ -135,7 +135,10 @@ def test_a_protected_directory_s_mode_is_put_back_from_the_place_apart(root: Pat
     was = task.stat().st_mode & 0o777
     task.chmod(0o700 if was != 0o700 else 0o755)
     reason = _check(root)
-    assert "were put back" in reason and TASK_ID in reason, reason
+    # Named by its label, never by its path (the task's id).
+    label = sentinel.label_of(str(task), "held-out", sentinel.label_key(str(root / "apart")))
+    assert f"were put back: {label}." in reason, reason
+    assert TASK_ID not in reason, reason
     assert task.stat().st_mode & 0o777 == was
 
 

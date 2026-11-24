@@ -6,14 +6,16 @@ machine's OS layer, in its own directory in the store's withheld work root. The 
 withheld the work root whole, by rule, but for its worktree in its own place there, on both
 layers: the hooks' exception and the OS layer's opening are the worktree alone.
 
-While the session runs, the test (not the session, not the runner) marks four places: the
-harness's directory beside the session's place, there at the install; a new entry in the work
-root; a new entry in the trial's directory beside the place; and a new entry inside the place
-itself, beside the worktree. Each is a file holding a mark of its own. The session then tries
-each, as the Read tool, as a shell the hooks read, as a shell whose path they cannot read off the
-command, through ``..`` from its own worktree, through a symbolic link and a hard link it makes,
-by moving its own worktree and reading through the new name, by writing there, and, only where
-the volume ignores case, by another case of the path. The runner is also asked for a second
+Before the session is installed, the test marks two places there at the install: the harness's
+directory beside the session's place, and a sibling trial's directory in the work root, as an
+earlier trial of the round leaves one (the entry the install's list of siblings names). While the
+session runs, it marks three more: a new entry in the work root; a new entry in the trial's
+directory beside the place; and a new entry inside the place itself, beside the worktree. Each is
+a file holding a mark of its own. The session then tries each, as the Read tool, as a shell the
+hooks read, as a shell whose path they cannot read off the command, through ``..`` from its own
+worktree, through a symbolic link and a hard link it makes, by moving its own worktree and
+reading through the new name, by writing there, and, only where the volume ignores case, by
+another case of the path. The runner is also asked for a second
 trial's place while the session lives, and refuses it.
 
 Every attempt is held to what it met, never only to the mark's absence: a hook refusal (its
@@ -220,6 +222,70 @@ def _reads(group: str, cwd: str, target: Path, dotted: str, mark: str) -> list[A
     ]
 
 
+def _sibling(cwd: str, sibling: Path, mark: str, case_ignored: bool) -> list[Attempt]:
+    """A sibling trial's marked file, there at the install: every way the late entry is tried."""
+    dotted = f"{cwd}/../../../{sibling.parent.name}/{MARKED}"
+    found = _reads("sibling", cwd, sibling, dotted, mark)
+    found += [
+        Attempt(
+            "sibling",
+            "cd_dotted_shell",
+            _shell(cwd, f'cd "{cwd}" && cat ../../../{sibling.parent.name}/{MARKED} 2>&1'),
+            dotted,
+            mark,
+            shell=True,
+        ),
+        # The link's name is a word no other command here uses. The hooks refuse a shell any of
+        # whose words resolves into protected material, and once this link lies in the worktree
+        # a word of its name does: named ``s``, it caught the ``s`` of every later shell's
+        # ``printf %s``, and those shells were refused before the OS layer was met.
+        Attempt(
+            "sibling",
+            "symlink_shell",
+            _shell(
+                cwd,
+                f'ln -s {_hidden(sibling.parent)} "{cwd}/sib-link" 2>&1; '
+                f'cat "{cwd}/sib-link/{MARKED}" 2>&1',
+            ),
+            str(sibling),
+            mark,
+            shell=True,
+        ),
+        Attempt(
+            "sibling",
+            "read_symlink",
+            tool("Read", file_path=f"{cwd}/sib-link/{MARKED}"),
+            str(sibling),
+            mark,
+        ),
+        Attempt(
+            "sibling",
+            "link_shell",
+            _shell(cwd, f'ln {_hidden(sibling)} "{cwd}/hard-s" 2>&1; cat "{cwd}/hard-s" 2>&1'),
+            str(sibling),
+            mark,
+            shell=True,
+            extra={"link": f"{cwd}/hard-s"},
+        ),
+        Attempt(
+            "sibling",
+            "link_read",
+            tool("Read", file_path=f"{cwd}/hard-s"),
+            str(sibling),
+            mark,
+            extra={"link": f"{cwd}/hard-s", "made_by": "link_shell"},
+        ),
+    ]
+    if case_ignored:
+        other = sibling.parent.parent / sibling.parent.name.upper() / MARKED
+        found.append(
+            Attempt(
+                "sibling", "read_other_case", tool("Read", file_path=str(other)), str(other), mark
+            )
+        )
+    return found
+
+
 def _attempts(
     cwd: str, places: dict[str, Path], marks: dict[str, str], case_ignored: bool
 ) -> list[Attempt]:
@@ -241,6 +307,9 @@ def _attempts(
             shell=True,
         )
     )
+    # A sibling trial's directory in the work root, there at the install: on the list of siblings
+    # the install takes, and withheld by the rule besides.
+    found += _sibling(cwd, places["sibling"], marks["sibling"], case_ignored)
     # In the work root, made by the test after the install: on no list taken then.
     found += _reads("late", cwd, late, f"{cwd}/../../../{late.parent.name}/{MARKED}", marks["late"])
     found += [
@@ -461,7 +530,7 @@ def _round(root: Path, install_bin: Path) -> Round:
     own = f"OWN-{secrets.token_hex(8)}"
     marks = {
         g: f"{g.upper()}-{secrets.token_hex(8)}"
-        for g in ("beside", "late", "by_the_place", "in_the_place")
+        for g in ("beside", "sibling", "late", "by_the_place", "in_the_place")
     }
     late_round, late_name = "late", "0009-1"
     asked = work_root(made.store, "control") / f"{BASELINE_DIR}-{late_round}-{late_name}"
@@ -483,7 +552,7 @@ def _round(root: Path, install_bin: Path) -> Round:
                     in_the_place=trial / PLACE / f"late-{secrets.token_hex(4)}" / MARKED,
                 )
                 for group, path in places.items():
-                    if group != "beside":  # made before the install, by the arm below
+                    if group not in {"beside", "sibling"}:  # made before the install, by the arm
                         path.parent.mkdir(mode=0o700, exist_ok=True)
                         path.write_text(marks[group])
                 # The session's own directory, beside its worktree: its records and its login.
@@ -547,6 +616,12 @@ def _round(root: Path, install_bin: Path) -> Round:
             # an entry there at the install, which the hooks' list names and keeps as it was.
             harness = kw["harness"]
             (harness / MARKED).write_text(marks["beside"])
+            # A sibling trial's directory in the work root, as an earlier trial leaves one: there
+            # at the install, so on the list of siblings the install takes.
+            sibling = work_root(made.store, "control") / f"{BASELINE_DIR}-earlier-0001-1"
+            sibling.mkdir(mode=0o700)
+            (sibling / MARKED).write_text(marks["sibling"])
+            places["sibling"] = sibling / MARKED
             return run_raw(task, given, work, **kw)
 
         # The rows read what the trial left, whether the round was refused or not.
@@ -667,6 +742,13 @@ def test_the_harness_s_directory_beside_the_place_is_reached_by_no_route(
     trial: Round, record_property: Callable[[str, object], None]
 ) -> None:
     _held(trial, "beside", record_property)
+
+
+def test_a_sibling_trial_s_directory_there_at_the_install_is_reached_by_no_route(
+    trial: Round, record_property: Callable[[str, object], None]
+) -> None:
+    """On the install's list of siblings: Read, shells, ``..``, ``cd``, links, a case."""
+    _held(trial, "sibling", record_property)
 
 
 def test_an_entry_made_in_the_work_root_after_the_install_is_reached_by_no_route(

@@ -31,6 +31,8 @@ _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEX
 
 #: A file's identity: its device and inode.
 Identity = tuple[int, int]
+#: A problem the tripwire found: the path, and what was found there.
+Problem = tuple[str, str]
 
 
 def roots_of(config: ConfigView) -> tuple[str, ...]:
@@ -61,21 +63,30 @@ def survey(roots: Iterable[str]) -> tuple[dict[str, Identity], list[str]]:
     directory nor a regular file, or anything that could not be read or checked.
     A root that does not exist holds nothing and is no problem.
     """
+    files, found = survey_found(roots)
+    return files, [f"{path}: {what}" for path, what in found]
+
+
+def survey_found(roots: Iterable[str]) -> tuple[dict[str, Identity], list[Problem]]:
+    """As :func:`survey`, each problem as its path and what was found there, kept apart.
+
+    In :func:`survey`'s order, so that the path can be written as something else.
+    """
     files: dict[str, Identity] = {}
-    problems: list[str] = []
+    problems: list[Problem] = []
     for root in roots:
         try:
             info = os.lstat(root)
         except FileNotFoundError:
             continue
         except OSError as exc:
-            problems.append(f"{root}: cannot be checked ({exc.strerror})")
+            problems.append((root, f"cannot be checked ({exc.strerror})"))
             continue
         if stat.S_ISDIR(info.st_mode):
             try:
                 fd = os.open(root, _DIRECTORY)
             except OSError as exc:
-                problems.append(f"{root}: cannot be opened ({exc.strerror})")
+                problems.append((root, f"cannot be opened ({exc.strerror})"))
                 continue
             try:
                 _walk(fd, root, files, problems)
@@ -83,27 +94,31 @@ def survey(roots: Iterable[str]) -> tuple[dict[str, Identity], list[str]]:
                 os.close(fd)
         else:
             _judge(root, info, files, problems)
-    return files, sorted(problems)
+    return files, sorted(problems, key=_joined)
 
 
-def _walk(fd: int, where: str, files: dict[str, Identity], problems: list[str]) -> None:
+def _joined(problem: Problem) -> str:
+    return f"{problem[0]}: {problem[1]}"
+
+
+def _walk(fd: int, where: str, files: dict[str, Identity], problems: list[Problem]) -> None:
     try:
         entries = sorted(os.listdir(fd))
     except OSError as exc:
-        problems.append(f"{where}: cannot be listed ({exc.strerror})")
+        problems.append((where, f"cannot be listed ({exc.strerror})"))
         return
     for name in entries:
         path = os.path.join(where, name)
         try:
             info = os.stat(name, dir_fd=fd, follow_symlinks=False)
         except OSError as exc:
-            problems.append(f"{path}: cannot be checked ({exc.strerror})")
+            problems.append((path, f"cannot be checked ({exc.strerror})"))
             continue
         if stat.S_ISDIR(info.st_mode):
             try:
                 child = os.open(name, _DIRECTORY, dir_fd=fd)
             except OSError as exc:
-                problems.append(f"{path}: cannot be opened ({exc.strerror})")
+                problems.append((path, f"cannot be opened ({exc.strerror})"))
                 continue
             try:
                 _walk(child, path, files, problems)
@@ -114,19 +129,24 @@ def _walk(fd: int, where: str, files: dict[str, Identity], problems: list[str]) 
 
 
 def _judge(
-    path: str, info: os.stat_result, files: dict[str, Identity], problems: list[str]
+    path: str, info: os.stat_result, files: dict[str, Identity], problems: list[Problem]
 ) -> None:
     if not stat.S_ISREG(info.st_mode):
-        problems.append(f"{path}: not a regular file")
+        problems.append((path, "not a regular file"))
         return
     if info.st_nlink != 1:
-        problems.append(f"{path}: has more than one name ({info.st_nlink})")
+        problems.append((path, f"has more than one name ({info.st_nlink})"))
     files[path] = (info.st_dev, info.st_ino)
 
 
 def changed(before: dict[str, Identity], now: dict[str, Identity]) -> list[str]:
     """Every file that is not the one it was: replaced, removed or new."""
-    out = [f"{p}: not the file it was" for p in before if p in now and now[p] != before[p]]
-    out += [f"{p}: gone" for p in before if p not in now]
-    out += [f"{p}: new" for p in now if p not in before]
-    return sorted(out)
+    return [f"{path}: {what}" for path, what in changed_found(before, now)]
+
+
+def changed_found(before: dict[str, Identity], now: dict[str, Identity]) -> list[Problem]:
+    """As :func:`changed`, each as its path and what it is now, in :func:`changed`'s order."""
+    out = [(p, "not the file it was") for p in before if p in now and now[p] != before[p]]
+    out += [(p, "gone") for p in before if p not in now]
+    out += [(p, "new") for p in now if p not in before]
+    return sorted(out, key=_joined)
