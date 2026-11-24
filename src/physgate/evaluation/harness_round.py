@@ -63,7 +63,9 @@ trial is never repeated and never skipped, and a killed run is resumed, never re
   one such halt in its log (the limit's and a credential's not counted) is resumed once, after
   its first registered retry delay; a run whose decomposition call ended on the machine, and a
   decomposition that spent its call and left no run (killed after the call or during its plan's
-  review, or ended void), are superseded by one fresh decomposition into a new directory, after
+  review, or ended void; or killed while its run was started, or its start raising, so that it
+  left a log the core will never dispatch, as the core's own opening of the record says), are
+  superseded by one fresh decomposition into a new directory, after
   the same delay. A superseded directory stays where it is, for the exposure scan, named in the
   ledger and the round's record with its cause (the machine's, ``killed``, or the void's) and its
   spend (``unread`` where no record holds it), and is in no run set and no cap;
@@ -171,8 +173,9 @@ from physgate.orchestrator.design_rounds import (
     RoundStarted,
 )
 from physgate.orchestrator.events import Event, Halted, parse_events
-from physgate.orchestrator.exceptions import OrchestratorError
+from physgate.orchestrator.exceptions import OrchestratorError, RunStateError
 from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
+from physgate.orchestrator.record import RunRecord
 from physgate.orchestrator.review_root_record import RECORD_NAME as REVIEW_ROOT_RECORD
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.orchestrator.stop_signals import remove_left_credentials
@@ -1142,18 +1145,59 @@ _BEFORE_THE_CALL = frozenset({PARAMS_RECORD, REVIEW_ROOT_RECORD})
 _JOURNAL: TypeAdapter[JournalLine] = TypeAdapter(JournalLine)
 
 
+def _never_dispatched(run_dir: Path) -> bool:
+    """Whether the log in ``run_dir`` is of a run the core will never dispatch, as the core says.
+
+    A decomposition opens its run's record (the log made, empty) once its call and the plan's
+    review have ended, then writes the configuration, the run's branch and commits and its opening
+    a line at a time, and last the round journal's terminal line. One killed in that span, or whose
+    start raised, left a log no command will ever drive: ``run`` and ``resume`` refuse it, and the
+    decomposition refuses a directory that holds a log. So it is asked of the core's own reading,
+    as every command that drives a run reads it first:
+
+    - no configuration recorded beside the log: the core's reader of it refuses
+      (:func:`load_run_config`), and only a decomposition's opening writes one;
+    - the core's record refusing to open it (:class:`RunRecord`): the opening cut before its
+      review, or the round journal not ended, ended void, or not the log's rounds;
+    - a record that opens with no line: the run's first line is its start, which only a
+      decomposition writes.
+
+    Nothing else is read here, so nothing of the machine refuses it: a credential, the OS layer,
+    the endpoint, the binary and the harness are each held to when a run is driven, after this
+    opening, and a run they refuse is a run the core resumes once they are put right. Any other
+    refusal of the opening (a changed record, another run's log) is left for the core to say when
+    the run is driven. Opening the record is what a command that drives the run does first: a
+    torn last line is cut as the core cuts it.
+    """
+    config_path = run_dir / "run.json"
+    if not os.path.lexists(config_path):
+        return True
+    try:
+        config = load_run_config(config_path)
+        record = RunRecord(config, run_dir)
+    except RunStateError:
+        return True
+    except (OrchestratorError, OSError, ValueError):
+        return False  # the core says why, and refuses it, when the run is driven
+    try:
+        return not record.log.events
+    finally:
+        record.close()
+
+
 def _state(run_dir: Path) -> Literal["unmade", "free", "spent", "run"]:
     """What a trial's directory holds, by an allow-list that fails closed.
 
     ``unmade``: nothing but what this process prepares, so no call was given it. ``free``: that,
     and the records a decomposition writes before its call, so no model call was made and no
-    session started. ``run``: a run's log. ``spent``: anything else, so a call may have been made
-    and its spend lies in the directory.
+    session started. ``run``: a run's log the core would dispatch. ``spent``: anything else, so a
+    call may have been made and its spend lies in the directory: a run begun and never finished
+    among them (:func:`_never_dispatched`).
     """
     if not os.path.lexists(run_dir):
         return "unmade"
     if (run_dir / "events.jsonl").exists():
-        return "run"
+        return "spent" if _never_dispatched(run_dir) else "run"
     entries = set(os.listdir(run_dir))
     review = run_dir / REVIEW
     nothing_reviewed = not os.path.lexists(review) or (
