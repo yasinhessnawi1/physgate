@@ -17,7 +17,8 @@ counting rule refuses as not covering their tier.
 
 It prints one JSON line of counts and digests, never a task. Exit 0 once every trial is
 assembled; 75 while the round waits for the account's usage limit (start it again after the
-reset); 1 with ``refused_because`` and the reason in words when it is refused or stopped.
+reset); 77 while it waits for a person to replace a refused credential (start it again after);
+1 with ``refused_because`` and the reason in words when it is refused or stopped.
 
 The round's machinery and the scorer's numerical libraries are imported only when it runs.
 """
@@ -77,6 +78,7 @@ def _refused(reason: str, words: str) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     from physgate.evaluation.harness_round import (
+        EXIT_WAITING_FOR_A_PERSON,
         CommandDriver,
         Inputs,
         RoundError,
@@ -120,4 +122,6 @@ def _run(args: argparse.Namespace) -> int:
         context = getattr(exc, "context", {})
         return _refused(str(context.get("refused_because", "refused")), str(exc))
     print(json.dumps({"status": status, **summary}, sort_keys=True))
+    if status == "waiting_for_a_person":
+        return EXIT_WAITING_FOR_A_PERSON
     return EXIT_WAITING_FOR_LIMIT if status == "waiting_for_limit" else 0

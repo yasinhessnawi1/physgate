@@ -261,8 +261,8 @@
  {
   "name": "a_superseded_run_s_spend_is_not_named",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "\"tokens\": TokenAccount.from_events(events).total().total(),",
-  "new": "\"tokens\": 0,",
+  "old": "\"cause\": decomposition_cause(halt),\n                \"tokens\": TokenAccount.from_events(events).total().total(),",
+  "new": "\"cause\": decomposition_cause(halt),\n                \"tokens\": 0,",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
   ],
@@ -345,11 +345,74 @@
  {
   "name": "the_same_directory_is_used_again",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "attempt = 1 if last is None else last + 1",
-  "new": "attempt = 1",
+  "old": "/ self.round_id / f\"{index:04d}-{attempt}\"",
+  "new": "/ self.round_id / f\"{index:04d}-1\"",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py",
    "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_decomposition_on_a_refused_credential_is_an_attempt",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        and decomposition_cause(halt) == CREDENTIAL_REFUSED\n    ):",
+  "new": "        and False\n    ):",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_refused_credential_s_halt_spends_the_resume",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        and e.reason != CREDENTIAL_REFUSED\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_run_on_a_refused_credential_does_not_wait",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        if _touched(ctx, i, attempt):\n            return \"waiting_for_a_person\"\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",

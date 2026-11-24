@@ -55,6 +55,11 @@ trial is never repeated and never skipped, and a killed run is resumed, never re
   decomposition, or refused after that record) is set aside, named in the ledger, and the
   trial's run is made again in a fresh directory: no run started, so none is restarted, and it
   is not the trial's one more go;
+- a refused credential is no attempt: a run halted on it, or a decomposition that ended on it,
+  stops the round as waiting for a person (exit 77), with neither the one resume nor the one
+  fresh decomposition spent; started again once the credential is replaced, the round resumes
+  the run, or sets the decomposition's directory aside (kept, named in the ledger and the
+  round's record with its spend) and decomposes afresh;
 - any other end is the run's own, and is assembled as it is.
 
 **What it writes:** the run set and the trial records of each tier, ``<tier>.runs.json`` and
@@ -147,7 +152,12 @@ VISIBLE = "visible"
 
 Tier = Literal["visible", "validation", "held_out"]
 #: How a round left off: every trial assembled, or waiting for the account's usage limit.
-Status = Literal["done", "waiting_for_limit"]
+Status = Literal["done", "waiting_for_limit", "waiting_for_a_person"]
+#: The status the command exits with while the round waits for a person to replace a refused
+#: credential: started again once it is replaced, the round goes on from its ledger.
+EXIT_WAITING_FOR_A_PERSON = 77
+#: The cause a refused credential is recorded under, as a halt's reason and a call's cause.
+CREDENTIAL_REFUSED = "credential_refused"
 #: The scorer: the task and the answer's path; the score.
 Scorer = Callable[[Task, Path], Mapping[str, Any]]
 
@@ -775,7 +785,7 @@ def run_round(
             # An error of a protected trial may name its task; its tier and kind alone are said.
             msg = f"a {planned.tier} trial stopped on an error ({type(exc).__name__})"
             raise RoundError(msg, tier=planned.tier, index=str(planned.index)) from None
-        if status == "waiting_for_limit":
+        if status in ("waiting_for_limit", "waiting_for_a_person"):
             return status, _summary(ctx, done=False)
     _outputs(ctx)
     return "done", _summary(ctx, done=True)
@@ -899,7 +909,20 @@ def _delay(run_dir: Path) -> float:
 
 
 def _machine_halts(events: Sequence[Event]) -> int:
-    return sum(1 for e in events if isinstance(e, Halted) and e.reason in INFRASTRUCTURE_HALTS)
+    """The run's machine halts that count as its ends: a refused credential's is no attempt."""
+    return sum(
+        1
+        for e in events
+        if isinstance(e, Halted)
+        and e.reason in INFRASTRUCTURE_HALTS
+        and e.reason != CREDENTIAL_REFUSED
+    )
+
+
+def _touched(ctx: _Round, i: int, attempt: int) -> bool:
+    """Whether this process decomposed, drove or resumed the run: what it ended on is news."""
+    keys = ("decomposed", "driven", "resume", "credential")
+    return any((key, i, attempt) in ctx.acted for key in keys)
 
 
 def _trial(ctx: _Round, planned: _Planned) -> Status | None:
@@ -914,6 +937,11 @@ def _trial(ctx: _Round, planned: _Planned) -> Status | None:
             return None
         placed = ctx.of(i, "placed")
         set_aside = {x["attempt"] for x in ctx.of(i, "left")}
+        refused = {x["attempt"] for x in ctx.of(i, "credential")}
+        if placed and placed[-1]["attempt"] in refused and _touched(ctx, i, placed[-1]["attempt"]):
+            # Its decomposition met a refused credential in this process: a person replaces it.
+            return "waiting_for_a_person"
+        set_aside |= refused
         superseded = ctx.of(i, "superseded")
         last = placed[-1]["attempt"] if placed else None
         if last is None or last in set_aside or any(s["attempt"] == last for s in superseded):
@@ -991,6 +1019,39 @@ def _step(ctx: _Round, planned: _Planned, attempt: int, *, once_more_taken: bool
         )
         return _waits(code, "drive", i, attempt)
     halt = machine_end(events)
+    if (
+        halt is not None
+        and halt.reason == "decomposition_failed"
+        and decomposition_cause(halt) == CREDENTIAL_REFUSED
+    ):
+        # No attempt: set aside, its fresh decomposition made once a person replaced it.
+        ctx.add(
+            {
+                "kind": "credential",
+                "index": i,
+                "attempt": attempt,
+                "run_id": ctx.run_id(i, attempt),
+                "tokens": TokenAccount.from_events(events).total().total(),
+            }
+        )
+        return None
+    if halt is not None and halt.reason == CREDENTIAL_REFUSED:
+        # No attempt either: the run waits for a person, and is resumed once started again.
+        if _touched(ctx, i, attempt):
+            return "waiting_for_a_person"
+        ctx.acted.add(("credential", i, attempt))
+        code = ctx.driver.drive(
+            Drive(
+                resume=True,
+                run_dir=run_dir,
+                target=target,
+                install=ctx.inputs.install,
+                review_root=review,
+                limit_reset=ctx.reset_for == i,
+                log=_log(ctx, i, attempt, "drive"),
+            )
+        )
+        return _waits(code, "resume", i, attempt)
     if halt is not None and halt.reason == "decomposition_failed" and not once_more_taken:
         ctx.add(
             {
@@ -1235,6 +1296,11 @@ def _audit(ctx: _Round) -> dict[str, Any]:
         "left": [
             {k: x[k] for k in ("index", "attempt", "why")} for x in ctx.lines if x["kind"] == "left"
         ],
+        "credential_refused": [
+            {k: x[k] for k in ("index", "attempt", "run_id", "tokens")}
+            for x in ctx.lines
+            if x["kind"] == "credential"
+        ],
         "register_before": header["register_before"],
         "register_after": None if ended is None else ended["register_after"],
     }
@@ -1268,6 +1334,7 @@ def _summary(ctx: _Round, *, done: bool) -> dict[str, Any]:
         "tiers": tiers,
         "superseded": sum(1 for x in ctx.lines if x["kind"] == "superseded"),
         "left": sum(1 for x in ctx.lines if x["kind"] == "left"),
+        "credential_refused": sum(1 for x in ctx.lines if x["kind"] == "credential"),
         "register_before": header["register_before"],
         "register_after": next(
             (x["register_after"] for x in ctx.lines if x["kind"] == "ended"), None

@@ -156,6 +156,8 @@ class AnswerSession(FakeSession):
     killed: set[int] = field(default_factory=set)
     #: The calls that end on the account's usage limit, its reset not read.
     limited: set[int] = field(default_factory=set)
+    #: The calls whose credential is refused.
+    refused_credential: set[int] = field(default_factory=set)
     #: Counted across every drive of the row, so a call's number names it in any process.
     counter: list[int] = field(default_factory=lambda: [0])
 
@@ -166,6 +168,18 @@ class AnswerSession(FakeSession):
             raise Killed
         self.calls = call - 1  # the stand-in numbers its own calls from here
         worktree = self.layout.open_subtask(request.subtask_id)
+        if call in self.refused_credential:
+            return SessionReport(
+                session_id=f"cred-{call}",
+                end=SessionEnd(outcome="infrastructure", cause="credential_refused"),
+                attempt_commit=None,
+                trajectory=None,
+                trajectory_seal=None,
+                worktree=str(worktree),
+                reading_verified=False,
+                node_files_halted=False,
+                usage=(),
+            )
         if call in self.limited:
             stream = self.layout.run_dir / "sessions" / f"limit-{call}" / "stdout.jsonl"
             stream.parent.mkdir(parents=True, exist_ok=True)
@@ -209,6 +223,7 @@ class StandInDriver:
     silent: set[int] = field(default_factory=set)
     killed: set[int] = field(default_factory=set)
     limited: set[int] = field(default_factory=set)
+    refused_credential: set[int] = field(default_factory=set)
     #: The module directory the plan gives, from the minted id; ``modules/<id>`` by default.
     module_dir: Callable[[str], str] = lambda minted: f"modules/{minted}"
     decomposed: list[Decompose] = field(default_factory=list)
@@ -295,6 +310,7 @@ class StandInDriver:
             role="control",
             infra=self.infra,
             limited=self.limited,
+            refused_credential=self.refused_credential,
             answer_name=self.answer_name,
             silent=self.silent,
             killed=self.killed,

@@ -9,6 +9,9 @@
   named in the ledger and the round's record with its cause and its spend, in no run set. A
   second such end is ``unscored``: there is no third.
 - A decomposition that failed on its own (a plan it could not start) is the harness's own fail.
+- A refused credential is no attempt: a run halted on it, and a decomposition that ended on it,
+  stop the round as waiting for a person, with nothing spent; started again, the round resumes
+  the run, or sets the decomposition aside and decomposes afresh, its one more go still whole.
 - The account's usage limit spends nothing: a run halted on it whose resume the command refuses
   before the reset, and a decomposition that ended on it, stop the round as waiting for the
   limit, with nothing written; started again after the reset (with the person's word where the
@@ -245,3 +248,40 @@ def test_the_word_that_the_limit_reset_is_for_the_wait_it_was_given_at_and_no_la
         (0, "usage_limit"),
         (1, "usage_limit"),
     ]
+
+
+def test_a_decomposition_on_a_refused_credential_waits_for_a_person_and_spends_no_attempt(
+    tmp_path: Path,
+) -> None:
+    rig, slept = make_rig(tmp_path), list[float]()
+    first = rig.driver(fails={1: "credential_refused"})
+    status, summary = _round(rig, first, slept)
+    assert status == "waiting_for_a_person" and summary["credential_refused"] == 1
+    assert _ledger(rig, "superseded") == []
+    # Started again once the credential is replaced: decomposed afresh, its one more go whole.
+    then = rig.driver(fails={1: "api_error"})
+    status, _ = _round(rig, then, slept, resume=True)
+    assert status == "done"
+    assert [c.run_dir.name for c in then.decomposed] == ["0000-2", "0000-3"]
+    assert [x["attempt"] for x in _ledger(rig, "superseded")] == [2]
+    assert _outcome(rig) == "pass" and _run_dirs(rig) == ["0000-3"]
+    record = json.loads((_place(rig) / ROUND_RECORD).read_bytes())
+    assert [x["attempt"] for x in record["credential_refused"]] == [1]
+
+
+def test_a_run_halted_on_a_refused_credential_waits_for_a_person_and_its_resume_is_not_spent(
+    tmp_path: Path,
+) -> None:
+    rig, slept = make_rig(tmp_path), list[float]()
+    first = rig.driver(refused_credential={1})
+    status, _ = _round(rig, first, slept)
+    assert status == "waiting_for_a_person"
+    assert [d.resume for d in first.drives] == [False]
+    assert _halts(rig, "0000-1") == ["credential_refused"]
+    # Started again: resumed, and its one resume after a machine halt is still there to take.
+    then = rig.driver(infra={1, 2})
+    status, _ = _round(rig, then, slept, resume=True)
+    assert status == "done"
+    assert [d.resume for d in then.drives] == [True, True]
+    assert _halts(rig, "0000-1") == ["credential_refused", "infrastructure_exhausted"]
+    assert _outcome(rig) == "pass" and _run_dirs(rig) == ["0000-1"]
