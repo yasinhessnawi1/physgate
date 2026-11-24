@@ -19,7 +19,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from baseline_fixtures import (
@@ -47,6 +47,7 @@ from physgate.evaluation.baseline.runner import (
     BaselineError,
     RoundWaits,
     RunSet,
+    Status,
     machine_end,
     run_baseline,
 )
@@ -493,3 +494,12 @@ def test_a_waited_session_is_kept_whole_where_its_tier_s_trials_lie(
     kept = withheld_root(store.store, "control") / BASELINE_DIR / round_id / "0000-1"
     assert (kept / "harness" / "raw.json").is_file()
     assert not (kept.parent / TRIALS).exists(), "no trial record of a waited session"
+
+
+def test_the_round_s_exit_statuses_are_the_harness_round_s() -> None:
+    """One launch script reads both arms' waits alike: the same values under the same names."""
+    from physgate.evaluation import harness_round
+
+    assert EXIT_WAITING_FOR_A_PERSON == harness_round.EXIT_WAITING_FOR_A_PERSON
+    assert RoundWaits("waiting_for_limit", "0" * 16, {}).exit_code == EXIT_WAITING_FOR_LIMIT
+    assert set(get_args(Status)) <= set(get_args(harness_round.Status))

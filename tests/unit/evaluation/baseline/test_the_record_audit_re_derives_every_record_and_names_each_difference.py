@@ -6,14 +6,13 @@ record doctored in any way the audit names is caught, by its kind and the trial'
 left as it ran shows none. Of a protected tier only the kinds are said, counted.
 
 The rounds here run on the stand-in store and the stand-in raw arm the baseline's other rows use;
-the harness half runs on a run the real loop made over the orchestrator's stand-ins.
+the harness half's rows lie with the harness round's.
 """
 
 from __future__ import annotations
 
 import json
 import shutil
-import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,10 +36,8 @@ from physgate.evaluation.baseline.audit import (
     KINDS,
     Difference,
     audit_raw,
-    compare,
     detail_bytes,
     printed,
-    rederive_harness_trial,
     said,
     write_detail,
 )
@@ -55,17 +52,8 @@ from physgate.evaluation.baseline.runner import (
     run_baseline,
 )
 from physgate.evaluation.observe.cost import load_price_sheet
-from physgate.evaluation.per_role.assemble import ExcludedTrial
-from physgate.evaluation.per_role.report import TrialRecord
 from physgate.evaluation.tiers.store import withheld_root
-from physgate.evaluation.tiers.task import Task, parse_task
-
-PER_ROLE_TESTS = Path(__file__).resolve().parents[1] / "per_role"
-if str(PER_ROLE_TESTS) not in sys.path:
-    sys.path.insert(0, str(PER_ROLE_TESTS))
-
-from harness_rig import loop_run  # noqa: E402
-from task_fixtures import own_task  # noqa: E402
+from physgate.evaluation.tiers.task import Task
 
 API_ERROR = {"is_error": True, "terminal_reason": "api_error", "api_error_status": 529}
 BEFORE = datetime(2026, 11, 13, 11, 0, tzinfo=UTC)
@@ -271,92 +259,9 @@ def test_every_kind_the_audit_names_is_caught_by_some_row() -> None:
     assert caught == set(KINDS)
 
 
-# -- the harness half --------------------------------------------------------------------------
-
-#: The kinds only a harness record carries.
+#: The kinds only a harness record carries, caught by the harness half's own rows
+#: (``harness_round/test_the_record_audit_derives_a_harness_round_s_records_again.py``).
 HARNESS_ONLY = ("gate", "review")
-
-
-@pytest.fixture(autouse=True)
-def _no_target_repository(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The loop's stand-in run has no target repository for its manifest's commit.
-
-    So its manifest id and its priced cost are stand-ins, as the trial layer's own rows give
-    them; every other input of its record is the run's own.
-    """
-    import physgate.evaluation.baseline.audit as audit
-    from physgate.evaluation.observe.cost import CostLine
-
-    line = {
-        "manifest_id": "e" * 64,
-        "run_id": "r",
-        "started": "2026-10-19T10:00:00.000000Z",
-        "auth": "subscription",
-        "endpoint": "default",
-        "basis": "list_price_estimate",
-        "prices_date": "2026-10-16",
-        "prices_sha256": "a" * 64,
-        "usd_to_nok": "9.5",
-        "usd_to_nok_date": "2026-10-16",
-        "rows": [],
-        "usd": "0",
-        "nok": "0",
-        "partial": False,
-    }
-    cost = CostLine.model_validate_json(json.dumps(line))
-    monkeypatch.setattr(audit, "manifest_id_of", lambda _run, _events: "e" * 64)
-    monkeypatch.setattr(audit, "price_run", lambda *_a, **_k: cost)
-
-
-def _harness_record(tmp_path: Path) -> tuple[Path, Task, TrialRecord | ExcludedTrial]:
-    run = loop_run(tmp_path / "run", verdicts=("fail",))
-    task = parse_task(json.dumps(own_task()).encode())
-    record = rederive_harness_trial(
-        run,
-        task,
-        suite="control_visible",
-        trial=0,
-        prices=load_price_sheet(PRICES),
-        score=_score,
-        answer=None,
-    )
-    return run, task, record
-
-
-def test_a_harness_record_is_derived_again_the_same_from_its_run(tmp_path: Path) -> None:
-    run, task, record = _harness_record(tmp_path)
-    again = rederive_harness_trial(
-        run,
-        task,
-        suite="control_visible",
-        trial=0,
-        prices=load_price_sheet(PRICES),
-        score=_score,
-        answer=None,
-    )
-    assert compare("harness", "visible", {0: again}, [record]) == []
-
-
-@pytest.mark.parametrize("kind", HARNESS_ONLY)
-def test_a_harness_record_doctored_in_its_gate_or_reviews_is_caught(
-    tmp_path: Path, kind: str
-) -> None:
-    _, _, record = _harness_record(tmp_path)
-    assert isinstance(record, TrialRecord)
-    raw = record.model_dump(mode="json")
-    if kind == "gate":
-        gate = raw["gate"] or {"checks_run": 0, "artefacts_caught": 0}
-        raw["gate"] = {
-            **gate,
-            "checks_run": gate["checks_run"] + 1,
-            "caught_after_reviewer_passed": 0,
-        }
-    else:
-        review = raw["review"] or {"reviews": 0, "failed": 0, "blocked": 0}
-        raw["review"] = {**review, "reviews": review["reviews"] + 1}
-    doctored = TrialRecord.model_validate_json(json.dumps(raw))
-    found = compare("harness", "visible", {0: record}, [doctored])
-    assert [(d.kind, d.index) for d in found] == [(kind, 0)]
 
 
 def test_a_visible_difference_is_said_by_kind_and_place(tmp_path: Path) -> None:

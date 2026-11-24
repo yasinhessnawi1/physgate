@@ -14,14 +14,10 @@ sum (:func:`.runner.tally`) and held to its ``baseline.json``. Every input but t
 a file the session or the round left: the record the raw arm wrote (``raw.json``), the stream,
 the copied answer, and the harness run's token account for the cap.
 
-**The harness arm** (:func:`audit_harness`) is re-derived from each run's own directory: the
-answer its run branch holds, scored again, the run's cost priced again from its log, whether the
-machine ended it read again, and the record assembled again by the trial layer's
-:func:`.per_role.assemble.harness_trial`. This is the one place the audit composes rather than
-re-runs: the round that writes these records drives harness runs on another branch, not yet on
-this one, so its own assembly step cannot be called. :func:`rederive_harness_trial` calls the
-functions that step calls, in its order, and is the one function to replace by that step once
-it is here.
+**The harness arm** (:func:`audit_harness`) is re-derived from each run's own directory by the
+harness round's own step (:func:`.harness_round.assemble_trial`): the answer its run branch
+holds in the module directories its plan names, scored again, the run's cost priced again from
+its log, whether the machine ended it read again, and the record assembled again.
 
 **What it cannot re-derive.** The raw arm's own record of a session (its end, exit, tokens,
 wall clock, whether a canary showed, what the end check found) is the source, not a result: it
@@ -75,22 +71,14 @@ from physgate.evaluation.baseline.runner import (
     plan,
     read_lines,
     read_record,
-    tally,
+    tallied,
     trial_line,
 )
-from physgate.evaluation.observe.cost import DatedSheet, price_run
-from physgate.evaluation.observe.manifest import manifest_id_of, read_run_events
-from physgate.evaluation.per_role.arms.harness import extract
-from physgate.evaluation.per_role.assemble import (
-    ExcludedTrial,
-    TrialExcludedError,
-    harness_ended_by_infrastructure,
-    harness_trial,
-)
+from physgate.evaluation.observe.cost import DatedSheet
+from physgate.evaluation.per_role.assemble import ExcludedTrial
 from physgate.evaluation.per_role.report import TrialRecord
 from physgate.evaluation.tiers.store import version_dir, withheld_root
 from physgate.evaluation.tiers.task import PROTECTED_TIERS, Role, Task, canonical_json
-from physgate.orchestrator.review_root_record import recorded_review_root
 from physgate.orchestrator.run_config import load_run_config
 
 #: Every kind of difference the audit names, each the field or the step that differs:
@@ -128,8 +116,6 @@ FIELD_KINDS = {
     "gate": "gate",
     "review": "review",
 }
-#: Where the harness round places each trial's clone of the target, inside its run directory.
-HARNESS_TARGET = "target"
 
 Arm = Literal["raw", "harness"]
 
@@ -330,7 +316,7 @@ def audit_raw(
     }
     for tier in counted:
         found += compare("raw", tier, derived[tier], written[tier])
-    found += _counts(store, role, source, planned, counted, out, tally(summed, counted))
+    found += _counts(store, role, source, planned, counted, out, tallied(summed, counted))
     return found
 
 
@@ -367,39 +353,41 @@ def rederive_harness_trial(
     run_dir: Path,
     task: Task,
     *,
-    suite: str,
+    role: Role,
+    tier: SourceTier,
     trial: int,
     prices: DatedSheet,
     score: Scorer,
-    answer: Path | None,
+    place: Path,
 ) -> Line:
-    """A harness trial's record, derived again from its run's own directory.
+    """A harness trial's record, derived again from its run's own directory by the round's own step.
 
-    The one place the audit composes rather than re-runs: the step that writes these records
-    lies with the harness round, not yet here, and calls these functions in this order. The
-    answer the run's branch holds (``answer``, ``None`` where it holds none) is scored again;
-    a run with no answer is read again for whether the machine ended it; the run's cost is
-    priced again from its log and its recorded review root; and the record is assembled again.
+    The step that wrote it (:func:`.harness_round.assemble_trial`) is run again on the run's log
+    as the round reads it, its answer taken from the run branch into ``place`` and scored again,
+    its score not kept.
+
+    Raises:
+        AuditError: the run's log cannot be read whole.
     """
-    score_of = None if answer is None else score(task, answer)
-    unscored = False
-    if answer is None:
-        try:
-            unscored = harness_ended_by_infrastructure(run_dir, task, answer_found=False)
-        except TrialExcludedError:
-            unscored = False  # assembled as excluded, with its reason
-    review = recorded_review_root(run_dir)
-    cost = price_run(run_dir, prices, review_roots=() if review is None else (Path(review),))
-    return harness_trial(
-        suite=suite,
-        task=task,
+    from physgate.evaluation.harness_round import assemble_trial, run_events
+
+    events = run_events(run_dir)
+    if events is None:
+        msg = "the run's log cannot be read whole"
+        raise AuditError(msg, refused_because="log_unread")
+    return assemble_trial(
+        run_dir,
+        task,
+        events,
+        role=role,
+        tier=tier,
         trial=trial,
-        run_dir=run_dir,
-        manifest_id=manifest_id_of(run_dir, read_run_events(run_dir)),
-        cost=cost,
-        score=score_of,
-        unscored=unscored,
-    )
+        prices=prices,
+        scorer=score,
+        place=place,
+        name="audit",
+        keep_score=False,
+    ).record
 
 
 @dataclass(frozen=True)
@@ -468,22 +456,22 @@ def _harness_entry(
     score: Scorer,
     here: Path,
 ) -> Line:
-    """One harness trial's record, its answer taken from its run branch into ``here``."""
+    """One harness trial's record, derived again into ``here``."""
     config = load_run_config(run_dir / "run.json")
     tier, task = tasks[config.brief_sha256]
     if tier != cell.tier:
         msg = "the run's task is of another tier than the cell's"
         raise AuditError(msg, refused_because="tier")
-    answer = here / task.answer.path
-    got = extract(run_dir / HARNESS_TARGET, config.run_id, task.answer.path, answer)
+    here.mkdir(mode=0o700, parents=True)
     return rederive_harness_trial(
         run_dir,
         task,
-        suite=f"{role}_{cell.tier}",
+        role=role,
+        tier=cell.tier,
         trial=trial,
         prices=prices,
         score=score,
-        answer=answer if got.status == "found" else None,
+        place=here,
     )
 
 

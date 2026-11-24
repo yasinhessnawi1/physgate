@@ -1278,29 +1278,29 @@ def read_lines(path: Path) -> list[TrialRecord | ExcludedTrial]:
     return lines
 
 
-def tally(
+def tallied(
     recorded: list[tuple[Planned, Mapping[str, Any], TrialRecord | ExcludedTrial]],
     counted: tuple[SourceTier, ...],
 ) -> dict[SourceTier, _Tally]:
     """Each tier's counts from its recorded trials' records and lines: summed here alone."""
     tallies = {tier: _Tally() for tier in counted}
     for trial, record, line in recorded:
-        tally_of = tallies[trial.tier]
-        tally_of.trials += 1
-        tally_of.cap += trial.cap
-        tally_of.spent += int(record.get("tokens", 0))
+        tally = tallies[trial.tier]
+        tally.trials += 1
+        tally.cap += trial.cap
+        tally.spent += int(record.get("tokens", 0))
         # Cut tokens the session's count leaves out: the spend is a lower bound by them.
-        tally_of.spent_not_in_binary_totals += int(record.get("tokens_not_in_binary_totals") or 0)
+        tally.spent_not_in_binary_totals += int(record.get("tokens_not_in_binary_totals") or 0)
         if isinstance(line, ExcludedTrial):
-            tally_of.excluded += 1
+            tally.excluded += 1
         elif line.outcome == "pass":
-            tally_of.passed += 1
+            tally.passed += 1
         elif line.outcome == "fail":
-            tally_of.failed += 1
+            tally.failed += 1
         elif line.outcome == "flaky":
-            tally_of.flaky += 1
+            tally.flaky += 1
         else:
-            tally_of.unscored += 1
+            tally.unscored += 1
     return tallies
 
 
@@ -1331,7 +1331,7 @@ def _tallies(
             msg = "the round's ledger records a trial its records do not hold; a person must look"
             raise BaselineError(msg, refused_because="records_short", entry=str(trial.index))
         recorded.append((trial, read_record(harness), trial_line))
-    return tally(recorded, counted)
+    return tallied(recorded, counted)
 
 
 def _coverage(
