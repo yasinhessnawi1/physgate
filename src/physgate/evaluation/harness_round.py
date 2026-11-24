@@ -59,10 +59,12 @@ trial is never repeated and never skipped, and a killed run is resumed, never re
 
 - a run that has not ended is resumed (``physgate resume``), however often it was killed;
 - the account's usage limit is never an end and never an attempt: a run halted on it is resumed
-  past it, and a decomposition that ended on it is named in the ledger with its spend and made
-  afresh in a new directory, each once the limit has reset (the round stops as waiting for the
-  limit, exit 75, naming the trial and the instant after which it goes on: the reset the client's
-  message gave, where the core read one, else the core's stated wait after the halt; started
+  past it, and a decomposition that ended on it (its run's record halted on the failed
+  decomposition, or its rounds ended void on the limit, as the core records each) is named in the
+  ledger with its spend and made afresh in a new directory, each once the limit has reset (the
+  round stops as waiting for the limit, exit 75, naming the trial and the instant after which it
+  goes on: the reset the client's message gave, where the core read one and recorded it on the
+  halt or the rounds' end line, else the core's stated wait after the halt or that line; started
   again before then it makes nothing, unless no reset was read and a person gives the word, which
   is used once and named on the line of the directory it makes), however often and in whatever
   order with the machine's other ends;
@@ -173,7 +175,7 @@ from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decomposition_review import stop_left_review
-from physgate.orchestrator.design_rounds import journal_spend
+from physgate.orchestrator.design_rounds import journal_spend, rounds_on_the_limit
 from physgate.orchestrator.events import Event, Halted, parse_events
 from physgate.orchestrator.exceptions import OrchestratorError, RunStateError
 from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
@@ -181,7 +183,7 @@ from physgate.orchestrator.record import RunRecord
 from physgate.orchestrator.review_root_record import RECORD_NAME as REVIEW_ROOT_RECORD
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.orchestrator.stop_signals import remove_left_credentials
-from physgate.orchestrator.usage_limit import resume_after, resume_refusal
+from physgate.orchestrator.usage_limit import UsageLimit, resume_after, resume_refusal
 from physgate.orchestrator.waiting import EXIT_WAITING_FOR_LIMIT, limit_wait
 from physgate.reviewers.exceptions import ReviewRootError
 from physgate.reviewers.places import require_review_root, review_root_path
@@ -1570,25 +1572,44 @@ def _past_the_limit(
 ) -> str | None:
     """How the round goes on past a decomposition that ended on the limit, or ``None`` to wait.
 
-    Held to the core's rule for a run's resume (:func:`resume_refusal`), the decomposition's reset
-    never read: ``waited`` once the stated wait after its halt has passed; ``operator`` before
-    then, on the person's word, which is used once and named on the line of the directory it lets
-    the round make. A line that names no halt goes on only on the word.
+    Held to the core's rule for a run's resume (:func:`resume_refusal`), with the limit the core
+    recorded for the decomposition (:func:`_limit_recorded`): ``waited`` once its reset has passed,
+    where one was read, or else the stated wait after it stopped; ``operator`` before then, on the
+    person's word, where no reset was read: the word is used once and named on the line of the
+    directory it lets the round make. A line that names no halt goes on only on the word.
     """
     i = planned.index
     halted_at = line.get("halted_at")
+    limit = _limit_recorded(ctx.run_dir(i, attempt))
     now = ctx.now()
-    if halted_at is not None and resume_refusal(halted_at, None, now, limit_reset=False) is None:
-        return "waited"
-    if _the_word(ctx, i, attempt):
+    helps = True
+    if halted_at is not None:
+        if resume_refusal(halted_at, limit, now, limit_reset=False) is None:
+            return "waited"
+        helps = resume_refusal(halted_at, limit, now, limit_reset=True) is None
+    if helps and _the_word(ctx, i, attempt):
         return "operator"
     ctx.waiting = {
         "index": i,
         "why": USAGE_LIMIT,
-        "resume_after": None if halted_at is None else resume_after(halted_at, None),
-        "word_helps": True,
+        "resume_after": None if halted_at is None else resume_after(halted_at, limit),
+        "word_helps": helps,
     }
     return None
+
+
+def _limit_recorded(run_dir: Path) -> UsageLimit | None:
+    """The limit the core recorded a decomposition in ``run_dir`` stopped by, if it recorded one.
+
+    The failed decomposition's halt, where its run's record was opened; otherwise the end line of
+    the round its void rounds ended on the limit with (:func:`rounds_on_the_limit`).
+    """
+    if (run_dir / "events.jsonl").exists():
+        _data, events = _events(run_dir)
+        halt = None if events is None else machine_end(events)
+        return None if halt is None else halt.usage_limit
+    on_limit = rounds_on_the_limit(run_dir)
+    return None if on_limit is None else on_limit[1]
 
 
 def _wait_for_a_person(
@@ -1659,6 +1680,25 @@ def _step(ctx: _Round, planned: _Planned, attempt: int) -> Status | None:
     if state == "free":
         return _set_aside(ctx, planned, attempt, run_dir)
     if state == "spent":
+        on_limit = rounds_on_the_limit(run_dir)
+        if on_limit is not None:
+            # Rounds that ended void on the limit, its call's or its review's: no attempt, as a
+            # run's record halted on a decomposition the limit stopped is none; then afresh.
+            _left_behind(ctx, planned, attempt, run_dir)
+            ended, limit = on_limit
+            _void, spent = journal_spend(run_dir)
+            ctx.add(
+                {
+                    "kind": "limit",
+                    "index": i,
+                    "attempt": attempt,
+                    "run_id": ctx.run_id(i, attempt),
+                    "halted_at": ended,
+                    "resume_after": resume_after(ended, limit),
+                    "tokens": "unread" if spent is None else spent,
+                }
+            )
+            return None
         return _superseded_without_a_run(ctx, planned, attempt, run_dir)
     _the_trial_s(ctx, planned, attempt)
     _data, events = _events(run_dir)
@@ -1677,9 +1717,12 @@ def _step(ctx: _Round, planned: _Planned, attempt: int) -> Status | None:
             kind = "credential" if cause == CREDENTIAL_REFUSED else "limit"
             line = {"kind": kind, "index": i, "attempt": attempt, "run_id": ctx.run_id(i, attempt)}
             if kind == "limit":
-                # The core reads no reset for a decomposition's call: its stated wait after the
-                # halt, which the round holds a restart to as the core holds a run's resume.
-                line |= {"halted_at": halt.ts, "resume_after": resume_after(halt.ts, None)}
+                # The reset the core recorded on the halt where it read one, else its stated wait
+                # after the halt: the round holds a restart to it as the core holds a run's resume.
+                line |= {
+                    "halted_at": halt.ts,
+                    "resume_after": resume_after(halt.ts, halt.usage_limit),
+                }
             ctx.add({**line, "tokens": spent})
             return None
         if not once_more_taken:
