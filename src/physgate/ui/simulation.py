@@ -42,13 +42,20 @@ bytes, and answers with exactly them: never a re-encoding of what was parsed, so
 what the session sealed. A record that cannot be served as sealed is refused with the seal it
 was held to and what the reader found, named by its place in the run and never by where the run
 lies on disk, exactly as the attempt route's row for it says.
+
+**No path of the machine that recorded.** A record's interpreter files are stored by their
+absolute paths, and a reason a file was set aside can name one, so either can hold a home folder
+and an account name. Every such path in an answer is shown relative to the run when it lies in
+it, and otherwise as the label ``<outside the run>`` and the file's own name. The sealed bytes
+and the log are never changed; only what these routes say of them.
 """
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from physgate.orchestrator.budget import ATTEMPT_LIMIT
@@ -95,6 +102,39 @@ UNMATCHED = "unmatched"
 GATE_OFF = "gate_off"
 REFUSED_BEFORE_GATE = "refused_before_gate"
 GATE_NOT_RUN = "gate_not_run"
+
+
+#: What a path that is not in the run is shown as, before the file's own name.
+OUTSIDE = "<outside the run>"
+
+#: An absolute path inside a sentence: a slash that starts a word, or a drive letter. A slash
+#: after a word character (``m/s**2``, ``series/x/1``) is never the start of one.
+_ABSOLUTE = re.compile(r"(?<![\w.~)\]}-])((?:/[\w.+@=,~%-]+)+/?|[A-Za-z]:\\[^\s'\"]*)")
+
+
+def _roots(run_dir: Path) -> tuple[str, ...]:
+    """The spellings of the run's directory a path inside it may have."""
+    return tuple(dict.fromkeys((str(run_dir), os.path.realpath(run_dir))))
+
+
+def _label(path: str, roots: Sequence[str]) -> str:
+    """``path`` relative to the run when it lies in it, else ``<outside the run>/<its name>``."""
+    for root in roots:
+        if path.startswith(root.rstrip("/") + "/"):
+            return path[len(root.rstrip("/")) + 1 :]
+    name = PurePosixPath(path.replace("\\", "/")).name
+    return f"{OUTSIDE}/{name}" if name else OUTSIDE
+
+
+def _free(text: str, roots: Sequence[str]) -> str:
+    """``text`` with each absolute path in it shown by :func:`_label`; nothing else changed."""
+
+    def shown(found: re.Match[str]) -> str:
+        whole = found.group(1)
+        kept = whole.rstrip(".,;:")
+        return _label(kept, roots) + whole[len(kept) :]
+
+    return _ABSOLUTE.sub(shown, text)
 
 
 def _number(value: float | int) -> float | int | str:
@@ -190,7 +230,9 @@ def _check(check: SeriesCheck, gate: list[dict[str, Any]] | str) -> dict[str, An
     return shown
 
 
-def _attempt(events: list[Event], key: tuple[str, int], owner: str | None) -> dict[str, Any]:
+def _attempt(
+    events: list[Event], key: tuple[str, int], owner: str | None, roots: Sequence[str]
+) -> dict[str, Any]:
     """Everything the listing says about one attempt, each piece from its own lines."""
     subtask, attempt = key
     ended = [e for e in events if isinstance(e, SessionEnded) and _of(e, key)]
@@ -244,7 +286,7 @@ def _attempt(events: list[Event], key: tuple[str, int], owner: str | None) -> di
                 "session_id": session.session_id,
                 "kind": kind,
                 "name": entry.name,
-                "reason": entry.reason,
+                "reason": _free(entry.reason, roots),
             }
             for session in ended
             for kind, entries in (
@@ -279,6 +321,7 @@ def listing(context: Context, params: Mapping[str, str]) -> Response:
     """
     run_dir = run_dir_of(context, params)
     events = _events(context, run_dir, params)
+    roots = _roots(run_dir)
     owners: dict[str, str] = {}
     order: dict[tuple[str, int], None] = {}
     for event in events:
@@ -289,7 +332,7 @@ def listing(context: Context, params: Mapping[str, str]) -> Response:
     return json_response(
         {
             "tolerance": f"{float(RELATIVE_TOLERANCE):g}",
-            "attempts": [_attempt(events, key, owners.get(key[0])) for key in order],
+            "attempts": [_attempt(events, key, owners.get(key[0]), roots) for key in order],
         }
     )
 
@@ -312,7 +355,9 @@ def _summary(column: Column) -> dict[str, Any]:
     }
 
 
-def _shown(record: Record, entry: SealedEntry, commit: str | None) -> dict[str, Any]:
+def _shown(
+    record: Record, entry: SealedEntry, commit: str | None, roots: Sequence[str]
+) -> dict[str, Any]:
     """A record read as sealed: what it is, how it was produced, and each column's summary."""
     blobs = {code.path: code.blob for code in entry.record.loaded}
     names = {trace.name for trace in record.traces}
@@ -341,13 +386,16 @@ def _shown(record: Record, entry: SealedEntry, commit: str | None) -> dict[str, 
             ],
         },
         "environment": [
-            {"path": code.path, "sha256": code.sha256} for code in entry.record.environment
+            {"path": _label(code.path, roots), "sha256": code.sha256}
+            for code in entry.record.environment
         ],
         "attempt_commit": commit,
     }
 
 
-def _refused(entry: SealedEntry, kind: str, error: Exception) -> dict[str, Any]:
+def _refused(
+    entry: SealedEntry, kind: str, error: Exception, roots: Sequence[str]
+) -> dict[str, Any]:
     """A record that could not be read as sealed: why, its seal, and what the reader found.
 
     The record is named by its path relative to the run, never by where the run lies on disk,
@@ -364,7 +412,7 @@ def _refused(entry: SealedEntry, kind: str, error: Exception) -> dict[str, Any]:
             )
         ),
         "refused": kind,
-        "error": str(error),
+        "error": _free(str(error), roots),
         "sealed_sha256": entry.record.sha256,
         "sealed_length": entry.record.length,
     }
@@ -378,6 +426,7 @@ def _refused(entry: SealedEntry, kind: str, error: Exception) -> dict[str, Any]:
 
 def _row(context: Context, run_dir: Path, entry: SealedEntry, commit: str | None) -> dict[str, Any]:
     """One sealed record, read through its seal, or the reason it could not be."""
+    roots = _roots(run_dir)
     base = {
         "record_id": entry.record.record_id,
         "session_id": entry.session_id,
@@ -391,12 +440,12 @@ def _row(context: Context, run_dir: Path, entry: SealedEntry, commit: str | None
         context.allowlist.resolve(path)
         record = read_record(path, entry.seal())
     except PathRefusedError as exc:
-        return {**base, **_refused(entry, "seal", exc)}
+        return {**base, **_refused(entry, "seal", exc, roots)}
     except RecordTamperedError as exc:
-        return {**base, **_refused(entry, "seal", exc)}
+        return {**base, **_refused(entry, "seal", exc, roots)}
     except RecordRefusedError as exc:
-        return {**base, **_refused(entry, "format", exc)}
-    return {**base, **_shown(record, entry, commit)}
+        return {**base, **_refused(entry, "format", exc, roots)}
+    return {**base, **_shown(record, entry, commit, roots)}
 
 
 def attempt(context: Context, params: Mapping[str, str]) -> Response:
@@ -446,9 +495,11 @@ BROKEN = "broken"
 HELD = "held"
 
 
-def _not_served(entry: SealedEntry, seal: str, error: Exception) -> SeriesRefusedError:
+def _not_served(
+    entry: SealedEntry, seal: str, error: Exception, roots: Sequence[str]
+) -> SeriesRefusedError:
     """The refusal of ``entry``, said as the attempt route's row says it; no absolute path."""
-    row = _refused(entry, "seal" if seal == BROKEN else "format", error)
+    row = _refused(entry, "seal" if seal == BROKEN else "format", error, roots)
     context = {key: str(value) for key, value in row.items() if key not in ("refused", "error")}
     msg = (
         "the record is not what its session sealed, so it is not served"
@@ -482,6 +533,7 @@ def record(context: Context, params: Mapping[str, str]) -> Response:
         msg = "this attempt sealed no record of that id"
         raise NotFoundError(msg, subtask=subtask, attempt=params["attempt"], record=wanted)
     (entry,) = found
+    roots = _roots(run_dir)
     try:
         path = entry.path(run_dir)
         # Held to the allowlist first, then read by the path as built, as the attempt route does.
@@ -491,9 +543,11 @@ def record(context: Context, params: Mapping[str, str]) -> Response:
         parse_record(data)
     except PathRefusedError as exc:
         # The allowlist's own refusal names the absolute path; the client gets the relative one.
-        raise PathRefusedError(str(exc), record=_refused(entry, "seal", exc)["record"]) from None
+        raise PathRefusedError(
+            _free(str(exc), roots), record=_refused(entry, "seal", exc, roots)["record"]
+        ) from None
     except RecordTamperedError as exc:
-        raise _not_served(entry, BROKEN, exc) from None
+        raise _not_served(entry, BROKEN, exc, roots) from None
     except RecordRefusedError as exc:
-        raise _not_served(entry, HELD, exc) from None
+        raise _not_served(entry, HELD, exc, roots) from None
     return Response(200, data, "application/json")

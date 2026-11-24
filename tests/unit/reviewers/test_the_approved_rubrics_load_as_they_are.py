@@ -63,6 +63,9 @@ APPROVED = {
             # Each end of an estimate's range has a basis; the gyro filter's delay counts in the
             # margins; a request to a value's owner is recorded, not a block.
             ("final_v11", "f6780011d87ff623afa151dc75be3b3fd7b3f02d654d8d26d1ca7c56f637ebae", 59),
+            # How a plan learns the environment, the motor's reversal current, the full-pack stall
+            # current, and the law as a file.
+            ("final_v12", "2206039364abd97d238e0131cc8fb8de3fb5ca6847f2e701f8cd41470c992b04", 59),
         ),
         ("A", "D", "S", "R"),
     ),
@@ -90,6 +93,9 @@ APPROVED = {
             # The five safety inputs a plan did not give are the work's own choice when named as
             # such, and go to integration; the gyro filter's delay is stated.
             ("final_v10", "8cc808d4eb589ec9de1be948349e1568a6912daf79a88bbe34a7c9464fa3a316", 56),
+            # How the session learns the environment, and a behaviour the simulator can show is
+            # shown by it.
+            ("final_v11", "8d0acdda2bb8937b58d93ce6225b22a8ec4467a7dab3082d7c370b0d014e99c3", 56),
         ),
         ("AC", "DS", "AP", "RH"),
     ),
@@ -149,6 +155,9 @@ APPROVED = {
             # The chain behind a system behaviour and the five safety inputs a plan must give, each
             # with its producer and implementing module.
             ("final_v5", "c8489e1b1d7a1573cffd14cfffc08302b0649c1fefb84eab010ffd3e2003d1a8", 70),
+            # How a plan learns the environment, a margin stated on a command, and the operating
+            # conditions under their own heading.
+            ("final_v6", "e3c35c2746cf3673a02cdba4e12f10f6a5400d3ddebd40c35bb6739c960e9c2b", 70),
         ),
         ("PA", "PS", "PP", "PH"),
     ),
@@ -166,6 +175,9 @@ APPROVED = {
             # Each end of a TBR range has a basis; a conflict a person decided is noted, and the
             # closing pass records only a conflict a domain's change made new.
             ("final_v5", "98ee3fc3735d03b534094ed1e3199aa6c950cbe91f855d10e111df93b3f74ee9", 68),
+            # The reversal current and the full-pack stall current as the sizing standards now state
+            # them.
+            ("final_v6", "a74ec8ab69c04ff469814323d1fa41dcd3d8007316d327d042f4f814c5f87cc7", 68),
         ),
         ("SA", "SS", "SP", "SH"),
     ),

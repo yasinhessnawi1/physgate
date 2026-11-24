@@ -336,9 +336,12 @@ are judged by reading like the rest.
   cat. 2).
   - Each criterion can be measured in the run environment. No board is connected to it unless the
     brief says one is. Then a criterion verified by a measurement on the board fails, and one on
-    the board's own behaviour names a simulator the run environment provides (§6 says what it
-    provides); a criterion written against a simulator it does not provide fails. Where none is
-    provided, such a criterion is written against what the run can measure, with the target's
+    the board's own behaviour names the simulator §6 gives (`avrsim`), the scenario and the
+    quantity read from its summary, says it is simulated, and states the reliance as an assumption
+    in the specification; a criterion written against another simulator fails. A plan states the run
+    environment as §6 gives it: one that says no simulator is provided, where §6 says one is, fails; so does a plan
+    with a criterion on behaviour the simulator shows and no scenario named for it. Where `avrsim`
+    cannot show it (§6), the criterion is written against what the run can measure, with the target's
     compiler (that the code compiles without a warning in the module's own files, its size, and a
     check of its logic with the tools the environment provides); one naming a host-side test where
     the run environment records no host compiler, or a static analyser's run where it provides no
@@ -404,6 +407,12 @@ are judged by reading like the rest.
 - **PS-28. No unreasoned over-tightening or duplication.** A threshold tighter than the brief needs,
   or two criteria that check the same thing, carries a stated reason (§10, NASA SE Handbook
   §4.2.1.2.4 step 6; cat. 3, overridable by a stated reason).
+  - A command the plan sets for a quantity the brief bounds one-sided ("at least", "at most"; a speed,
+    a position, a rate) equal to the bound, or on the side that does not keep the criterion met, fails (cat. 1, not
+    overridable by a reason); one set away from the bound, on the side that keeps it met ("at least":
+    above; "at most": below), by a margin with its reason, naming the criterion it serves, is met, and
+    the brief's criterion itself stays as issued. A specification that lets a module lower the command
+    to the bound, instead of reporting that it cannot reach it, fails (§12; cat. 1).
 - **PS-29. An infeasible requirement is flagged.** Applies when, by reading the brief's named parts
   and figures, a criterion cannot be met. The plan flags it; leaving it to fail in a module fails
   (§10; cat. 2).
@@ -411,7 +420,9 @@ are judged by reading like the rest.
 ### Integration content
 
 - **PS-30. Operating conditions in each specification.** The ranges, rates and load cases a module
-  must meet are in its specification (§11, Ariane 5 inquiry R10; cat. 2).
+  must meet are in its specification, under a heading "Operating conditions" (§11, skill step 5,
+  Ariane 5 inquiry R10; cat. 2). The conditions present under another heading, the heading
+  missing, are a non-blocking specification defect, not a failure.
 - **PS-31. System-level requirements allocated to integration.** Applies when the brief holds a
   requirement only the assembly can show. Where the plan has a list for integration, the
   requirement is in it with the module criteria that contribute; one left out fails (§6, §11;
@@ -527,4 +538,4 @@ of the brief is not an indicator against the plan.
   and the plan fails the corresponding rule when judged by reading; without that reasoning, at most
   `noted`.
 
-<!-- 68fb59fe6627e25f46b8dc208cd1fcbd -->
+<!-- 04709e7d2fb0d5b51b4598d53cf9c6ba -->
