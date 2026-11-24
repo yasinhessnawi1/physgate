@@ -691,7 +691,8 @@ class WholeDesignScenario:
                 reason=(
                     f"{said}; holds at {passing} of {len(values)} corners of the ranges of "
                     f"{', '.join(varied)}, fails at {failing}, and {sum(contested)} are contested "
-                    "(their verdict differs between the two runs, so they count neither way)"
+                    "(their verdict differs between the two runs, so they count neither way; at "
+                    "least that many points are fragile, and another perturbation may find others)"
                     + ("; the nominal verdict is contested" if held[0] != held_other[0] else "")
                     + ": the verdict rests on values no source fixes"
                 ),
@@ -734,7 +735,9 @@ def _sensitivity(
             "the batch run a second time with the perturbation added to every point's initial "
             "tilt rate; what changed is told, judged by nothing; a point whose verdict against "
             "the row's bound differs between the two runs counts neither as passing nor as "
-            "failing"
+            "failing; one perturbation finds at least the points it contests, not every point "
+            "whose verdict is fragile: another perturbation, or another machine, may contest "
+            "others"
         ),
         "corners": {
             "count": len(held) - 1,
@@ -933,8 +936,10 @@ def _linear_information(
             for b, p in zip(dynamic_module.PUSH_BAND, res.peak[:, 0], strict=True)
         ]
         out["peak_meaning"] = (
-            "the largest tilt from the push; of a point that fell after it, the first sample "
-            "past the bound, not a true peak"
+            "the largest tilt from the push, read at points no further apart than the output "
+            "spacing, so a peak between two points is read low by at most the output spacing "
+            "squared over 8 times the largest tilt acceleration; of a point that fell after it, "
+            "the first sample past the bound, not a true peak"
         )
         out["speed_at_push_at_nominal"] = _measure(float(res.speed_at_push[0]), "m/s")
         out["fell_after_push_at_corners"] = int(res.fell_after[:, 1:].any(axis=0).sum())

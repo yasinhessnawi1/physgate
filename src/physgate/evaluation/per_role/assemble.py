@@ -31,9 +31,13 @@ never from the answer, and only where no answer exists; such a trial is run once
 after the registered delay, and if it ends so again it is ``unscored``, a fail for its
 arm in a column of its own:
 
-- the harness arm: the run halted because the infrastructure was exhausted, the
-  credential was refused or the OS layer was unavailable, or its one decomposition call
-  ended on an API error, a refused credential or an unavailable sandbox;
+- the harness arm, judged by the run's last end: the run stands halted because the
+  infrastructure was exhausted or the OS layer was unavailable, or its one decomposition call
+  ended on an API error or an unavailable sandbox. A run that halted so, was resumed, and then
+  ended on its own is the harness's own end, not the machine's. The account's usage limit and
+  a refused credential are among the machine's halts and causes too, but they are never a
+  trial's end: a round never assembles a run that stands at one, and resumes it, or decomposes
+  the trial afresh, once the limit resets or a person replaces the credential;
 - the raw arm: its session ended on an API error, a refused credential, an unavailable
   sandbox, or without a result or with an unexpected exit, unless the session was stopped
   by its own token cap or wall clock, which are the arm's spending, not the machine's.
@@ -89,6 +93,7 @@ from physgate.orchestrator.events import (
     parse_events,
 )
 from physgate.orchestrator.gate_events import gate_events
+from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 
 #: The run halts that are the machine's, not the design's: the account's usage limit among them.
@@ -312,16 +317,34 @@ def harness_ended_by_infrastructure(run_dir: Path, task: Task, answer_found: boo
         raise TrialExcludedError(excluded)
     if answer_found:
         return False
-    for event in events:
-        if not isinstance(event, Halted):
-            continue
-        if event.reason in INFRASTRUCTURE_HALTS:
-            return True
-        if event.reason == "decomposition_failed":
-            cause = event.detail.split(":", 1)[0].strip()
-            if cause in INFRASTRUCTURE_CAUSES:
-                return True
-    return False
+    return machine_end(events) is not None
+
+
+def machine_end(events: Sequence[Event]) -> Halted | None:
+    """The machine's halt the run ended on, judged by its last end; ``None`` if it ended otherwise.
+
+    A run that halted on the machine and was resumed past that halt ended on whatever ended it
+    after: a resume clears the halt as the loop replays it. So the halt that counts is the one
+    the run stands at now, never an earlier one in its log: one of :data:`INFRASTRUCTURE_HALTS`,
+    or a failed decomposition whose cause is one of :data:`INFRASTRUCTURE_CAUSES`.
+
+    Raises:
+        CorruptEventLogError: the log does not replay as a run.
+    """
+    state = replay(events)
+    halt = state.halted
+    if state.next_step().kind != "halted" or halt is None:
+        return None
+    if halt.reason in INFRASTRUCTURE_HALTS:
+        return halt
+    if halt.reason == "decomposition_failed" and decomposition_cause(halt) in INFRASTRUCTURE_CAUSES:
+        return halt
+    return None
+
+
+def decomposition_cause(halt: Halted) -> str:
+    """The cause a failed decomposition's halt names: the words of its detail before the colon."""
+    return halt.detail.split(":", 1)[0].strip()
 
 
 def raw_ended_by_infrastructure(record: Mapping[str, Any], stream: Path, task: Task) -> bool:

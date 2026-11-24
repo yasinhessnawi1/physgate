@@ -42,8 +42,10 @@ def _modules() -> list[str]:
 
 
 def _sources() -> list[Path]:
+    # This package's own files and the build package's marker: the drawing package beside it
+    # runs the tool environment's interpreter and has rows of its own.
     root = Path(physgate.build.__file__).parent
-    return sorted(root.rglob("*.py"))
+    return sorted([root / "__init__.py", *(root / "bom").rglob("*.py")])
 
 
 def _defined_names() -> list[str]:

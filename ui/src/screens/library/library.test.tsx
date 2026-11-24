@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +16,8 @@ import { diffRows, parseOpen, parseTab } from "./model";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const SHA = (c: string) => c.repeat(64);
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** A promotion line as the server sends it: as recorded, without its canary. */
 const line = (extra: Record<string, unknown> = {}) => ({
@@ -206,8 +212,23 @@ const RATINGS = {
       confirmed: "2026-10-12",
     },
   ],
-  catalogue_digest: SHA("3"),
+  gate_digest: {
+    state: "read",
+    file: "knowledge/laws/laws.toml",
+    sha256: SHA("3"),
+    table_sha256: SHA("4"),
+    laws: 9,
+    library_is_this_checkout: true,
+  },
 };
+
+/** The note under the digest when the library is this checkout's own, which a run reads. */
+const THIS_CHECKOUT_NOTE =
+  "A run started from this checkout now records this digest with every gate result, as its catalogue digest: compare it with a run's.";
+
+/** The note under the digest when the library is another folder, which no run reads. */
+const OTHER_LIBRARY_NOTE =
+  "This digest combines this server's catalogue with the laws of the library shown, which is not this checkout's own. A run records it only if it was started from a checkout whose catalogue and library are these.";
 
 type Answer = readonly [number, unknown];
 
@@ -788,6 +809,60 @@ describe("data-sheet ratings", () => {
     expect(host.textContent).toContain(SHA("3"));
   });
 
+  it("shows the gate's digest, labelled as what a run from this checkout now carries", async () => {
+    const host = await mount("tab=ratings");
+    const shown = host.querySelector('.pg-lib-gate-digest[data-state="read"]');
+    // Each part apart from the next, never run together.
+    expect(shown?.textContent).toContain(`Gate digest (catalogue and laws) ${SHA("3")}`);
+    expect(shown?.textContent).toContain(
+      `from 9 laws in knowledge/laws/laws.toml ${THIS_CHECKOUT_NOTE}`,
+    );
+    expect(shown?.textContent).not.toContain(OTHER_LIBRARY_NOTE);
+    expect(shown?.textContent).not.toContain(SHA("4"));
+  });
+
+  it("says a digest over another library is no run's unless its checkout is these", async () => {
+    serve({
+      "/api/library/ratings": [
+        200,
+        { ...RATINGS, gate_digest: { ...RATINGS.gate_digest, library_is_this_checkout: false } },
+      ],
+    });
+    const host = await mount("tab=ratings");
+    const shown = host.querySelector('.pg-lib-gate-digest[data-state="read"]');
+    expect(shown?.textContent).toContain(SHA("3"));
+    expect(shown?.textContent).toContain(OTHER_LIBRARY_NOTE);
+    expect(shown?.textContent).not.toContain(THIS_CHECKOUT_NOTE);
+    expect(shown?.textContent).not.toMatch(/from this library/);
+  });
+
+  it("lays the digest's parts out apart, the digest free to wrap", () => {
+    const css = readFileSync(join(HERE, "..", "screens.css"), "utf8");
+    const rule = /\.pg-lib-gate-digest\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toContain("flex-wrap: wrap");
+    expect(rule).toContain("gap:");
+    expect(rule).toContain("min-width: 0");
+  });
+
+  it("shows the server's sentence and no digest when no gate is built from the library", async () => {
+    const reason = "the law table does not load, so no gate is built from it";
+    serve({
+      "/api/library/ratings": [
+        200,
+        {
+          ...RATINGS,
+          gate_digest: { state: "refused", file: "knowledge/laws/laws.toml", reason },
+        },
+      ],
+    });
+    const host = await mount("tab=ratings");
+    const shown = host.querySelector('.pg-lib-gate-digest[data-state="refused"]');
+    expect(shown?.textContent).toContain(`No gate digest: ${reason}`);
+    expect(host.querySelector('.pg-lib-gate-digest[data-state="read"]')).toBeNull();
+    expect(host.textContent).not.toContain(SHA("3"));
+    expect(rows(host, "Energy store classes")).toHaveLength(1);
+  });
+
   it("says so when no bounds table is loaded, and still lists the store classes", async () => {
     serve({ "/api/library/ratings": [200, { ...RATINGS, tables: [] }] });
     const host = await mount("tab=ratings");
@@ -833,6 +908,10 @@ describe("data-sheet ratings", () => {
     );
     expect(panel.textContent).toContain("A maker's sheet, as the catalogue cites it.");
     expect(panel.querySelector(".pg-quantity")?.textContent).toBe("1501/h");
+    expect(panel.querySelector(".pg-lib-gate-digest")?.textContent).toContain(SHA("3"));
+    // Named once, by the row's own label.
+    expect(panel.textContent.split("Gate digest")).toHaveLength(2);
+    expect(panel.textContent).toContain(THIS_CHECKOUT_NOTE);
   });
 });
 

@@ -68,7 +68,10 @@ class Sessions:
         if self.generalist == "never_corrects":
             if done < len(reading):
                 return reading[done]
-            return tool("StructuredOutput", review=json.dumps(verdict) + "}")
+            # A text the schema refuses (one item left out): a text it takes is read as the
+            # verdict at the cap, so this one keeps the end a refused verdict.
+            short = {**verdict, "items": dict(list(verdict["items"].items())[1:])}
+            return tool("StructuredOutput", review=json.dumps(short) + "}")
         steps = [*reading, tool("StructuredOutput", review=verdict)]
         return steps[done] if done < len(steps) else text("done")
 
