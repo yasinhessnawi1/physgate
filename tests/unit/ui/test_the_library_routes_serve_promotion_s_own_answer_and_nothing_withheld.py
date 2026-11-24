@@ -471,6 +471,19 @@ def test_a_promotion_record_that_is_a_link_gives_no_digest(world: dict[str, Any]
     assert "link" in _refused_without_a_digest(world)
 
 
+def test_a_promotion_record_linked_to_the_held_out_tier_gives_no_digest_and_no_path(
+    world: dict[str, Any],
+) -> None:
+    _, promotions = _with_the_checkout_s_laws(world)
+    promotions.unlink()
+    promotions.symlink_to(world["held"] / "scenario.json")
+    reason = _refused_without_a_digest(world)
+    status, answer = _ask_all(world, [RATINGS])[RATINGS]
+    assert status == 200
+    for place in (world["held"], world["lib"], world["checkout"]):
+        assert str(place) not in json.dumps(answer), reason
+
+
 def test_a_promotion_record_larger_than_the_page_reads_gives_no_digest(
     world: dict[str, Any],
 ) -> None:

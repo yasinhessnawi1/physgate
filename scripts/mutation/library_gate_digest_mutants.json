@@ -1,0 +1,85 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/ui/library.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py",
+   "tests/unit/ui/test_the_three_mode_plan_rebuilds_with_the_real_gate.py"
+  ]
+ },
+ {
+  "name": "compose_hands_in_no_digest",
+  "file": "src/physgate/cli.py",
+  "old": "    library.register_digester(gate_digest)\n",
+  "new": "    pass\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py",
+   "tests/unit/ui/test_the_three_mode_plan_rebuilds_with_the_real_gate.py"
+  ]
+ },
+ {
+  "name": "gate_digest_leaves_out_the_laws",
+  "file": "src/physgate/cli.py",
+  "old": "sha256=catalogue_digest(laws),",
+  "new": "sha256=catalogue_digest(type(laws)(laws={}, sha256=laws.sha256, path=laws.path)),",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py",
+   "tests/unit/ui/test_the_three_mode_plan_rebuilds_with_the_real_gate.py"
+  ]
+ },
+ {
+  "name": "register_takes_another_function",
+  "file": "src/physgate/ui/library.py",
+  "old": "    if _digester is not None and _digester is not digester:\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py"
+  ]
+ },
+ {
+  "name": "promotion_record_not_read_first",
+  "file": "src/physgate/ui/library.py",
+  "old": "    for path in (table, promotions):\n",
+  "new": "    for path in (table,):\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py"
+  ]
+ },
+ {
+  "name": "table_bytes_not_compared",
+  "file": "src/physgate/ui/library.py",
+  "old": "    if digest.table_sha256 != hashlib.sha256(data).hexdigest():\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py"
+  ]
+ },
+ {
+  "name": "a_record_not_utf_8_is_a_whole_tab_refusal",
+  "file": "src/physgate/ui/library.py",
+  "old": "    except (GateError, OSError, UnicodeDecodeError):\n",
+  "new": "    except GateError:\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py"
+  ]
+ },
+ {
+  "name": "a_missing_table_served_as_the_catalogue_alone",
+  "file": "src/physgate/ui/library.py",
+  "old": "        return refused(\"this library holds no law table, so no gate is built from it\")\n",
+  "new": "        return {\"state\": \"read\", \"file\": shown, \"sha256\": \"0\" * 64, \"table_sha256\": \"0\" * 64, \"laws\": 0}\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_library_routes_serve_promotion_s_own_answer_and_nothing_withheld.py"
+  ]
+ }
+]
