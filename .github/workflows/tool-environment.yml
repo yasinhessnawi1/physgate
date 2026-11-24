@@ -8,7 +8,12 @@ name: tool-environment
 
 on:
   push:
+    branches: [master]
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 # Reads the repository and writes nothing. No secret and no API key: the sessions run
 # against the scripted local stand-in for the model API.
