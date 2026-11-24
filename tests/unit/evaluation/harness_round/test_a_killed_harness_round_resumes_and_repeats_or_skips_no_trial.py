@@ -53,6 +53,17 @@ def _ledger(rig: Rig) -> list[dict[str, Any]]:
     return [json.loads(x) for x in (_place(rig) / LEDGER).read_bytes().splitlines()]
 
 
+def _went(rig: Rig, driver: StandInDriver) -> str:
+    """How a resume of the round left off, or why it stopped: an error is an answer, not a crash."""
+    try:
+        status, _ = _round(rig, driver, resume=True)
+    except RoundError as exc:
+        return f"refused: {exc.context.get('refused_because')}"
+    except Exception as exc:  # noqa: BLE001 - what stopped it is the row's subject
+        return f"stopped: {type(exc).__name__}"
+    return str(status)
+
+
 def _outcomes(rig: Rig) -> list[tuple[int, str]]:
     lines = (rig.root / "out" / "visible.trials.jsonl").read_text().splitlines()
     return [(json.loads(x)["trial"], json.loads(x)["outcome"]) for x in lines]
@@ -123,7 +134,7 @@ def test_a_run_killed_while_it_was_driven_is_resumed_and_never_decomposed_again(
     with pytest.raises(Killed):
         _round(rig, first)
     then = rig.driver()
-    status, _ = _round(rig, then, resume=True)
+    status = _went(rig, then)
     assert status == "done"
     assert [c.run_dir.name for c in first.decomposed] == ["0000-1"]
     assert [c.run_dir.name for c in then.decomposed] == ["0001-1"]
@@ -148,8 +159,9 @@ def test_a_decomposition_killed_after_its_parameters_is_set_aside_and_made_again
     seen = survey(rig.made.store, "control", run_roots(rig.made.store, "control"))
     assert seen.unread == () and seen.findings == ()
     then = rig.driver()
-    status, summary = _round(rig, then, resume=True)
+    status = _went(rig, then)
     assert status == "done"
+    summary = json.loads((rig.root / "out" / ROUND_RECORD).read_bytes())
     lines = _ledger(rig)
     left = [x for x in lines if x["kind"] == "left"]
     assert [(x["index"], x["attempt"]) for x in left] == [(0, 1)]
@@ -282,7 +294,5 @@ def test_a_run_in_a_trial_s_directory_that_is_not_the_trial_s_is_refused_before_
     fields = json.loads(record.read_bytes())
     record.write_text(json.dumps({**fields, "run_id": "another-run"}))
     later = rig.driver()
-    with pytest.raises(RoundError) as refused:
-        _round(rig, later, resume=True)
-    assert refused.value.context["refused_because"] == "run_not_the_trial_s"
+    assert _went(rig, later) == "refused: run_not_the_trial_s"
     assert later.drives == []

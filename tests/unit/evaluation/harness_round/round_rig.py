@@ -399,7 +399,7 @@ class StandInDriver:
         reviewer = PlanReview(self, n, root)
 
         def make_call(
-            _brief: str,
+            brief: str,
             *,
             workdir: Path,
             prompt: str | None,

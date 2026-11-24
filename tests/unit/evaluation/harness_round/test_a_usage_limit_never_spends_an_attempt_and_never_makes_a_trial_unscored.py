@@ -122,6 +122,8 @@ def test_a_session_on_the_limit_then_a_machine_halt_is_still_resumed_once(tmp_pa
     assert status == "done"
     assert _halts(rig, "0000-1") == ["usage_limit", "infrastructure_exhausted"]
     assert [d.resume for d in then.drives] == [True, True]
+    # The person's word is for the limit's wait alone, not for the machine halt's resume after.
+    assert [d.limit_reset for d in then.drives] == [True, False]
     assert _outcomes(rig) == ["pass"]
 
 

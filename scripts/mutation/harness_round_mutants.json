@@ -309,12 +309,12 @@
   ]
  },
  {
-  "name": "the_limit_word_holds_for_every_later_wait",
+  "name": "the_limit_word_holds_for_every_later_step",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "    if ctx.reset_for != (i, attempt):\n        return False",
-  "new": "    if ctx.reset_for is None:\n        return False",
+  "old": "    ctx.reset_for = None\n    return True",
+  "new": "    return True",
   "tests": [
-   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
+   "tests/unit/evaluation/harness_round/test_a_usage_limit_never_spends_an_attempt_and_never_makes_a_trial_unscored.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",
