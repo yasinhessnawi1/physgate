@@ -5,7 +5,7 @@
     "old": "",
     "new": "",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py",
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py",
       "tests/unit/hooks/test_the_sentinel_keeps_what_names_a_protected_task_apart_from_the_session.py",
       "tests/unit/reviewers/test_a_review_session_s_own_directory_names_no_protected_task.py",
       "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py"
@@ -25,7 +25,7 @@
     "old": "            return \"held-out\"\n",
     "new": "            return None\n",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py"
     ],
     "data": [
       "tests/unit/hooks/hook_helpers.py"
@@ -37,7 +37,7 @@
     "old": "            return \"answer-key\"\n",
     "new": "            return None\n",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py"
     ],
     "data": [
       "tests/unit/hooks/hook_helpers.py"
@@ -46,10 +46,10 @@
   {
     "name": "a_read_refused_path_is_named",
     "file": "src/physgate/hooks/sentinel.py",
-    "old": "    return None if reason is None else _KINDS.get(reason, \"withheld\")",
+    "old": "    return _KINDS.get(reason) if reason is not None else None",
     "new": "    return None",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py"
     ],
     "data": [
       "tests/unit/hooks/hook_helpers.py"
@@ -61,7 +61,7 @@
     "old": "        if kind is None:\n            return path\n",
     "new": "        if kind is None or kind:\n            return path\n",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py",
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py",
       "tests/unit/hooks/test_the_sentinel_keeps_what_names_a_protected_task_apart_from_the_session.py"
     ],
     "data": [
@@ -74,7 +74,7 @@
     "old": "digest = hashlib.blake2b(path.encode(), digest_size=6, key=key).hexdigest()",
     "new": "digest = hashlib.blake2b(path.encode(), digest_size=6).hexdigest()",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py"
     ],
     "data": [
       "tests/unit/hooks/hook_helpers.py"
@@ -86,7 +86,7 @@
     "old": "            problems = named_problems(found, _namer(config, state.apart, base))",
     "new": "            problems = [f\"{p}: {w}\" for p, w in found]",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py"
     ],
     "data": [
       "tests/unit/hooks/hook_helpers.py"
@@ -98,7 +98,7 @@
     "old": "            unsure = named_problems(found, named)",
     "new": "            unsure = [f\"{p}: {w}\" for p, w in found]",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py"
     ],
     "data": [
       "tests/unit/hooks/hook_helpers.py"
@@ -110,7 +110,7 @@
     "old": "            unsure += named_problems(withheld.changed_found(recorded, now), named)",
     "new": "            unsure += withheld.changed(recorded, now)",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py"
     ],
     "data": [
       "tests/unit/hooks/hook_helpers.py"
@@ -122,7 +122,7 @@
     "old": "        put_back, failed = [named(p) for p in put_back], [named(p) for p in failed]",
     "new": "        failed = [named(p) for p in failed]",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py",
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py",
       "tests/unit/hooks/test_the_sentinel_keeps_what_names_a_protected_task_apart_from_the_session.py"
     ],
     "data": [
@@ -135,7 +135,7 @@
     "old": "        put_back, failed = [named(p) for p in put_back], [named(p) for p in failed]",
     "new": "        put_back = [named(p) for p in put_back]",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py"
     ],
     "data": [
       "tests/unit/hooks/hook_helpers.py"
@@ -147,7 +147,7 @@
     "old": "                kept = base.setdefault(LABEL_KEY_FIELD, os.urandom(_KEY_BYTES).hex())",
     "new": "                kept = os.urandom(_KEY_BYTES).hex()",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py"
     ],
     "data": [
       "tests/unit/hooks/hook_helpers.py"
@@ -159,7 +159,7 @@
     "old": "        return _read_key(fd, place)\n    finally:\n        os.close(fd)",
     "new": "        return os.urandom(_KEY_BYTES)\n    finally:\n        os.close(fd)",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py"
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py"
     ],
     "data": [
       "tests/unit/hooks/hook_helpers.py"
@@ -225,7 +225,7 @@
     "old": "",
     "new": "",
     "tests": [
-      "tests/unit/hooks/test_the_sentinel_names_no_path_a_session_may_not_read_in_a_refusal_the_log_or_a_halt.py",
+      "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py",
       "tests/unit/hooks/test_the_sentinel_keeps_what_names_a_protected_task_apart_from_the_session.py",
       "tests/unit/reviewers/test_a_review_session_s_own_directory_names_no_protected_task.py",
       "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py"

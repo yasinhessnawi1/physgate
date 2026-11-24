@@ -6,7 +6,8 @@ files unread; this tripwire stands behind them and claims only what it checks:
 at the session's start and end (and, in the orchestrator, before the commit),
 every file has one name and, at the end, is still the file it was by inode.
 Anything it cannot check is a problem, never a pass. A name made and removed
-between two checks is its residual. The harness never makes a second name.
+between two checks is its residual. The harness never makes a second name. What it finds names
+no file by its path, only by its label.
 """
 
 from __future__ import annotations
@@ -71,7 +72,9 @@ def test_files_with_one_name_each_pass(root: Path) -> None:
 def test_a_held_out_file_with_a_second_name_at_the_start_refuses_the_session(root: Path) -> None:
     os.link(root / "heldout" / "scenario.json", root / "outside-name.json")
     reason = _check(root, "SessionStart")
-    assert "more than one name" in reason and "scenario.json" in reason
+    # Named by its label, never by its path: what was found there is kept.
+    assert "held-out entry " in reason and ": has more than one name (2)" in reason, reason
+    assert "scenario.json" not in reason, reason
     assert _check(root) == reason  # and every later call
 
 
@@ -80,7 +83,8 @@ def test_a_second_name_made_during_the_session_halts_it_at_the_end(root: Path) -
     os.link(root / "worktree" / "corpora" / "answers.json", root / "worktree" / "copy.json")
     assert _check(root) == "allow", "checked at the start and the end only, by design"
     reason = _check(root, "SessionEnd")
-    assert "more than one name" in reason and "answers.json" in reason
+    assert "answer-key entry " in reason and ": has more than one name (2)" in reason, reason
+    assert "answers.json" not in reason, reason
     os.unlink(root / "worktree" / "copy.json")
     assert _check(root) == reason, "a halt holds once the link is gone"
 
@@ -92,7 +96,8 @@ def test_a_file_swapped_for_another_halts_at_the_end(root: Path) -> None:
     replacement.write_text(MARKER)  # the same bytes, another file
     os.replace(replacement, held)
     reason = _check(root, "SessionEnd")
-    assert "scenario.json: not the file it was" in reason
+    assert "held-out entry " in reason and ": not the file it was" in reason, reason
+    assert "scenario.json" not in reason, reason
 
 
 def test_what_cannot_be_checked_halts_rather_than_passes(root: Path) -> None:
@@ -104,7 +109,8 @@ def test_what_cannot_be_checked_halts_rather_than_passes(root: Path) -> None:
         reason = _check(root, "SessionStart")
     finally:
         locked.chmod(0o755)
-    assert "cannot be" in reason and "locked" in reason
+    assert "held-out entry " in reason and ": cannot be" in reason, reason
+    assert "locked" not in reason, reason
 
 
 def test_a_link_inside_the_tier_is_not_followed_and_is_flagged(root: Path) -> None:
@@ -112,7 +118,8 @@ def test_a_link_inside_the_tier_is_not_followed_and_is_flagged(root: Path) -> No
     outside.write_text(MARKER)
     (root / "heldout" / "pointer").symlink_to(outside)
     reason = _check(root, "SessionStart")
-    assert "pointer: not a regular file" in reason
+    assert "held-out entry " in reason and ": not a regular file" in reason, reason
+    assert "pointer" not in reason, reason
 
 
 def test_the_harness_never_links_a_file() -> None:

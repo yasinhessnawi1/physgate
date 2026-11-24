@@ -1,15 +1,15 @@
-"""The sentinel names no path a session may not read in a refusal, its log or a halt it keeps.
+"""The sentinel names no path of the protected material in a refusal, its log or a halt it keeps.
 
 When the sentinel finds a protected entry changed, or a held-out or answer-key file with a second
 name, it refuses the call, writes a line to the hook log, and keeps the halt in the session's own
 record, which every later call returns. The refusal goes to the session; the log and the record
 lie in the session's own directory, which can lie later where people and other sessions read. So
-a path no tool of the session may read (a held-out task's directory is its id), or one beneath a
-held-out or answer-key root, is named in none of them: each is given a label in its place, the
-kind of protection and a digest of the path keyed by a key the session cannot read, the same for
-one path on every call. Two entries are told apart by their labels; what the sentinel found
-(gone, a second name, its count) is kept as it was. The operator finds the path from the key and
-the record the sentinel keeps apart. A path the session may read is named as before.
+a path of the protected material (beneath a held-out or answer-key root, a withheld run record;
+a held-out task's directory is its id) is named in none of them: each is given a label in its
+place, the kind of protection and a digest of the path keyed by a key the session cannot read,
+the same for one path on every call. Two entries are told apart by their labels; what the
+sentinel found (gone, a second name, its count) is kept as it was. The operator finds the path
+from the key and the record the sentinel keeps apart. Any other path is named as before.
 """
 
 from __future__ import annotations

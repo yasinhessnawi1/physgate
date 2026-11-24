@@ -159,7 +159,9 @@ def test_a_withheld_record_that_changes_is_not_put_back_and_every_call_is_refuse
     record.write_text('{"held_out_canaries": []}\n')
     said = _hook(root, config)
     assert said != "allow"
-    assert str(record) in said and "could not be put back" in said
+    # Named by its label, never by its path.
+    assert "withheld-record entry " in said and "could not be put back" in said, said
+    assert str(record) not in said, said
     # Nothing was put back from anywhere: the sentinel holds no copy to put back.
     assert record.read_text() == '{"held_out_canaries": []}\n'
     assert _hook(root, config) != "allow", "a later call was allowed"
@@ -174,7 +176,8 @@ def test_a_held_out_file_that_is_removed_is_not_put_back_and_every_call_is_refus
     held.unlink()
     said = _hook(root, config)
     assert said != "allow"
-    assert str(held) in said and "could not be put back" in said
+    assert "held-out entry " in said and "could not be put back" in said, said
+    assert str(held) not in said, said
     assert not held.exists()
 
 

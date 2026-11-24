@@ -106,7 +106,9 @@ def test_the_tripwire_holds_a_withheld_record_to_one_name(root: Path) -> None:
     assert check("SessionStart") == "allow"
     os.link(root / "run" / "run.json", root / "run" / "worktrees" / "s1" / "copy.json")
     reason = check("SessionEnd")
-    assert "more than one name" in reason and "run.json" in reason
+    # Named by its label, never by its path.
+    assert "withheld-record entry " in reason and ": has more than one name (2)" in reason
+    assert "run.json" not in reason, reason
 
 
 def test_the_check_before_a_commit_names_a_withheld_record_with_a_second_name(root: Path) -> None:
@@ -122,7 +124,8 @@ def test_the_check_before_a_commit_names_a_withheld_record_with_a_second_name(ro
     os.link(root / "run" / "run.json", root / "second-name.json")
     found = withheld_before_commit(path)
     assert found is not None
-    assert "run.json: has more than one name (2)" in found
+    assert "withheld-record entry " in found and ": has more than one name (2)" in found
+    assert "run.json" not in found, found
 
 
 def test_the_parameters_record_is_put_back_like_the_run_s_configuration(tmp_path: Path) -> None:

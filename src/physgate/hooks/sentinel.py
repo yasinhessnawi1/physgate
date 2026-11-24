@@ -70,8 +70,9 @@ and the record in the hook state holds none of them; every check reads both part
 that is missing, or a record that holds it whole where a place apart is named, refuses.
 
 What the sentinel writes where the session or a later reader sees it (a refusal, the hook log,
-the halt it keeps and returns) names no path that no tool of the session may read, nor one
-beneath a held-out or answer-key root: a label stands in its place (:func:`label_of`), the kind of
+the halt it keeps and returns) names no path of the protected material (beneath a held-out or
+answer-key root, a withheld run record, a root withheld whole, the place apart, the reviewers'
+material; :func:`_kind`): a label stands in its place (:func:`label_of`), the kind of
 protection and a digest of the path keyed by a key no session reads, kept in the place apart
 (made there the first time a label is needed), or, where none is named, in the session's own
 record, beside the paths it holds already. One path has one label, so two are told apart; the
@@ -379,8 +380,8 @@ def label_key(place: str) -> bytes:
     """The key in the place apart ``place``, made there the first time it is asked for.
 
     Reached through the place's own descriptor (:func:`opened_apart`), with no link followed.
-    Made once: written under a name of its own and linked to the key's name, so two sessions
-    asking at once both take the one that was linked first, whole.
+    Made once, exclusively, in one write: a session that asks while another is making it finds
+    the name taken and reads the key once it is whole, so both take the same key.
 
     Raises:
         ValueError: the place is not the run's own, or what is at the key's name is a link, no
@@ -389,48 +390,66 @@ def label_key(place: str) -> bytes:
     fd = opened_apart(place)
     try:
         try:
-            return _read_key(fd, place)
-        except FileNotFoundError:
+            made = os.open(
+                LABEL_KEY_NAME,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+                dir_fd=fd,
+            )
+        except FileExistsError:
             pass
-        tmp = f".{LABEL_KEY_NAME}.{os.getpid()}.{os.urandom(4).hex()}"
-        made = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
-        try:
-            with os.fdopen(made, "w") as handle:
-                handle.write(os.urandom(_KEY_BYTES).hex())
-            with contextlib.suppress(FileExistsError):
-                os.link(tmp, LABEL_KEY_NAME, src_dir_fd=fd, dst_dir_fd=fd)
-        finally:
-            os.unlink(tmp, dir_fd=fd)
+        else:
+            try:
+                os.write(made, os.urandom(_KEY_BYTES).hex().encode("ascii"))
+            finally:
+                os.close(made)
         return _read_key(fd, place)
     finally:
         os.close(fd)
 
 
+#: How long a key being made by another session's hook is waited for, in reads 10 ms apart.
+_KEY_READS = 100
+
+
 def _read_key(place_fd: int, place: str) -> bytes:
-    try:
-        fd = os.open(LABEL_KEY_NAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=place_fd)
-    except OSError as exc:
-        if exc.errno != errno.ELOOP:
-            raise
-        msg = f"the key for labels in the place apart {place} is a link"
-        raise ValueError(msg) from None
-    with os.fdopen(fd, "rb") as handle:
-        text = handle.read() if stat.S_ISREG(os.fstat(handle.fileno()).st_mode) else b""
-    try:
-        key = bytes.fromhex(text.decode("ascii"))
-    except (UnicodeDecodeError, ValueError):
-        key = b""
-    if len(key) != _KEY_BYTES:
-        msg = f"what is at the key's name for labels in the place apart {place} is no key"
-        raise ValueError(msg)
-    return key
+    for _ in range(_KEY_READS):
+        try:
+            fd = os.open(
+                LABEL_KEY_NAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=place_fd
+            )
+        except OSError as exc:
+            if exc.errno != errno.ELOOP:
+                raise
+            msg = f"the key for labels in the place apart {place} is a link"
+            raise ValueError(msg) from None
+        with os.fdopen(fd, "rb") as handle:
+            regular = stat.S_ISREG(os.fstat(handle.fileno()).st_mode)
+            text = handle.read() if regular else b""
+        if regular and len(text) < 2 * _KEY_BYTES:
+            # Another hook made the name and has not written the key yet.
+            time.sleep(0.01)
+            continue
+        try:
+            key = bytes.fromhex(text.decode("ascii"))
+        except (UnicodeDecodeError, ValueError):
+            key = b""
+        if len(key) == _KEY_BYTES:
+            return key
+        break
+    msg = f"what is at the key's name for labels in the place apart {place} is no key"
+    raise ValueError(msg)
 
 
 def _kind(path: str, config: ConfigView) -> str | None:
     """The protection a label names for ``path``, or ``None`` where the path is named as it is.
 
-    Beneath a held-out or answer-key root, for every profile; elsewhere, where the rules refuse
-    every tool of the session a read (:func:`paths.read_refusal`).
+    Beneath a held-out or answer-key root, for every profile; elsewhere, where the rule that
+    refuses every tool of the session a read (:func:`paths.read_refusal`) is one that keeps the
+    protected material or a record of it: a withheld run record, a root withheld whole, the
+    place apart, the reviewers' material. A path refused for another reason (the session's own
+    scratch home, another session's temporary directory) names no protected material, and is
+    named as before, so an operator reads it as it is.
     """
     for held in config.held_out:
         if paths.reaches(path, held):
@@ -439,7 +458,7 @@ def _kind(path: str, config: ConfigView) -> str | None:
         if paths.reaches(path, key):
             return "answer-key"
     reason = paths.read_refusal(path, config)
-    return None if reason is None else _KINDS.get(reason, "withheld")
+    return _KINDS.get(reason) if reason is not None else None
 
 
 def _namer(
