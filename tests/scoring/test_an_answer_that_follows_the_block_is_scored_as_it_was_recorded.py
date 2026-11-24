@@ -6,13 +6,14 @@ answers may score differently. The fixture holds ten such answers, each with the
 gave it on master before the change, on the frozen plant, with the static and computed rows: the
 block's example, a state that keeps its value exactly, a state feedback, the same feedback written
 with a sign of -1, a number and a ``per``, the feedback through one applied state, a read sum of
-the wheel angle, a version 2 answer, the block's example with the linear time run's rows too, the
-reference kit's example as a native structure, and the recorded design's law file as the exporter
-writes it (which is exported again here and must give the same answer). Each is scored again here
-and its record compared: every verdict, count, flag, name and reason exactly; every number to a
-relative 1e-9, since the fixture was recorded on one machine and a row may run on another. An
-entry names the places of its record this change moves on purpose (the time run's work count and
-three of its sentences, ``moved``): each must still be there, and nothing else may move.
+the wheel angle, a version 2 answer, a version 2 state feedback with the linear time run's rows
+too, the reference kit's example as a native structure, and the recorded design's law file as the
+exporter writes it (which is exported again here and must give the same answer). Each is scored
+again here and its record compared: every verdict, count, flag, name and reason exactly; every
+number to a relative 1e-9, since the fixture was recorded on one machine and a row may run on
+another. An entry names the places of its record this change moves on purpose (the time run's
+work count and three of its sentences, ``moved``): each must still be there, and nothing else
+may move.
 """
 
 from __future__ import annotations

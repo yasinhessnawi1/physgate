@@ -1,5 +1,5 @@
 {
- "about": "records of answers that follow the answer-form block, scored on master at aa474d7b on the frozen plant; the first seven on a laptop, the last three (a time run, a native structure, an exported law file) on a Linux server from a git archive of aa474d7b's src and tests, with its own test helpers; a row scores each answer again and compares, skipping only the places an entry names as moved on purpose",
+ "about": "records of answers that follow the answer-form block, scored on master at aa474d7b on the frozen plant, on a laptop; the last three (a time run, a native structure, an exported law file) from a git archive of aa474d7b's src and tests, with its own test helpers; a row scores each answer again and compares, skipping only the places an entry names as moved on purpose",
  "answers": [
   {
    "answer": {
