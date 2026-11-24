@@ -282,8 +282,29 @@
  {
   "name": "a_decomposition_on_the_limit_does_not_wait",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "if gone[\"cause\"] == \"usage_limit\" and not ctx.limit_reset:",
+  "old": "if gone[\"cause\"] == \"usage_limit\" and ctx.reset_for != i:",
   "new": "if False:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_limit_word_holds_for_every_later_wait",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "if gone[\"cause\"] == \"usage_limit\" and ctx.reset_for != i:",
+  "new": "if gone[\"cause\"] == \"usage_limit\" and ctx.reset_for is None:",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
   ],

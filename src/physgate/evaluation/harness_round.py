@@ -647,7 +647,9 @@ class _Round:
     driver: Driver
     scorer: Scorer
     sleep: Callable[[float], None]
-    limit_reset: bool
+    #: The person's word that the usage limit reset, for the one trial the round stood waiting at
+    #: when this process started; ``None`` for none. No later trial's limit is said to have reset.
+    reset_for: int | None
     round_id: str
     place: Path
     ledger: Path
@@ -734,7 +736,7 @@ def run_round(
         driver=driver,
         scorer=scorer,
         sleep=sleep,
-        limit_reset=limit_reset,
+        reset_for=None,
         round_id=round_id,
         place=place,
         ledger=place / LEDGER,
@@ -759,6 +761,8 @@ def run_round(
         ctx.add(header)
         _write_whole(out / ROUND_RECORD, canonical_json(_summary(ctx, done=False)))
     (ctx.place / "logs").mkdir(mode=0o700, exist_ok=True)
+    if limit_reset:
+        ctx.reset_for = _waiting_at_start(ctx)
     for planned in order:
         protected = planned.tier in PROTECTED_TIERS
         try:
@@ -775,6 +779,31 @@ def run_round(
             return status, _summary(ctx, done=False)
     _outputs(ctx)
     return "done", _summary(ctx, done=True)
+
+
+def _waiting_at_start(ctx: _Round) -> int | None:
+    """The trial the round stood waiting for the usage limit at, read before this process acts.
+
+    The round stops at the first trial that waits, so only the first trial not yet assembled
+    can: its decomposition superseded on the limit with no fresh one placed yet, or its run
+    halted on the limit. The person's word is for that wait alone.
+    """
+    planned = next((p for p in ctx.order if not ctx.of(p.index, "assembled")), None)
+    if planned is None:
+        return None
+    i = planned.index
+    placed = ctx.of(i, "placed")
+    if not placed:
+        return None
+    last = placed[-1]["attempt"]
+    if any(x["attempt"] == last and x["cause"] == "usage_limit" for x in ctx.of(i, "superseded")):
+        return i
+    run_dir = ctx.run_dir(i, last)
+    if not (run_dir / "events.jsonl").exists():
+        return None
+    _data, events = _events(run_dir)
+    halt = None if events is None else machine_end(events)
+    return i if halt is not None and halt.reason == "usage_limit" else None
 
 
 def _reopened(
@@ -890,7 +919,7 @@ def _trial(ctx: _Round, planned: _Planned) -> Status | None:
         if last is None or last in set_aside or any(s["attempt"] == last for s in superseded):
             if last is not None and any(s["attempt"] == last for s in superseded):
                 gone = next(s for s in superseded if s["attempt"] == last)
-                if gone["cause"] == "usage_limit" and not ctx.limit_reset:
+                if gone["cause"] == "usage_limit" and ctx.reset_for != i:
                     return "waiting_for_limit"
                 ctx.sleep(float(gone["delay_s"]))
             attempt = 1 if last is None else last + 1
@@ -956,7 +985,7 @@ def _step(ctx: _Round, planned: _Planned, attempt: int, *, once_more_taken: bool
                 target=target,
                 install=ctx.inputs.install,
                 review_root=review,
-                limit_reset=ctx.limit_reset,
+                limit_reset=ctx.reset_for == i,
                 log=_log(ctx, i, attempt, "drive"),
             )
         )
@@ -991,7 +1020,7 @@ def _step(ctx: _Round, planned: _Planned, attempt: int, *, once_more_taken: bool
                 target=target,
                 install=ctx.inputs.install,
                 review_root=review,
-                limit_reset=ctx.limit_reset,
+                limit_reset=ctx.reset_for == i,
                 log=_log(ctx, i, attempt, "drive"),
             )
         )

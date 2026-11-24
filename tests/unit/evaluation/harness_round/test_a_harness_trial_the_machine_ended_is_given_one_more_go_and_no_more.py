@@ -40,9 +40,10 @@ def _round(
     *,
     resume: bool = False,
     limit_reset: bool = False,
+    trials: int = 1,
 ) -> Any:  # noqa: ANN401
     return run_round(
-        rig.inputs(trials=1),
+        rig.inputs(trials=trials),
         driver=driver,
         scorer=_score,
         resume=resume,
@@ -211,3 +212,36 @@ def test_a_run_halted_on_the_usage_limit_waits_for_the_reset_and_its_resume_is_n
     assert _halts(rig, "0000-1") == ["usage_limit"]
     assert _outcome(rig) == "pass" and _run_dirs(rig) == ["0000-1"]
     assert slept == []
+
+
+def test_a_trial_whose_fresh_decomposition_halts_on_the_machine_is_not_resumed_but_unscored(
+    tmp_path: Path,
+) -> None:
+    """Once more is once per trial: its fresh decomposition was it, so its run gets no resume."""
+    rig, slept = make_rig(tmp_path), list[float]()
+    driver = rig.driver(fails={1: "api_error"}, infra={1, 2})
+    status, _ = _round(rig, driver, slept)
+    assert status == "done"
+    assert [c.run_dir.name for c in driver.decomposed] == ["0000-1", "0000-2"]
+    assert [(d.run_dir.name, d.resume) for d in driver.drives] == [("0000-2", False)]
+    assert _halts(rig, "0000-2") == ["infrastructure_exhausted"]
+    lines = (rig.root / "out" / "visible.trials.jsonl").read_text().splitlines()
+    assert [json.loads(x)["outcome"] for x in lines] == ["unscored"]
+
+
+def test_the_word_that_the_limit_reset_is_for_the_wait_it_was_given_at_and_no_later_one(
+    tmp_path: Path,
+) -> None:
+    rig, slept = make_rig(tmp_path), list[float]()
+    first = rig.driver(fails={1: "usage_limit"})
+    status, _ = _round(rig, first, slept, trials=2)
+    assert status == "waiting_for_limit"
+    # Said once the first trial's limit reset; the second trial then meets the limit anew.
+    after = rig.driver(fails={2: "usage_limit"})
+    status, _ = _round(rig, after, slept, resume=True, limit_reset=True, trials=2)
+    assert status == "waiting_for_limit"
+    assert [c.run_dir.name for c in after.decomposed] == ["0000-2", "0001-1"]
+    assert [(x["index"], x["cause"]) for x in _ledger(rig, "superseded")] == [
+        (0, "usage_limit"),
+        (1, "usage_limit"),
+    ]
