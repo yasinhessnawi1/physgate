@@ -162,7 +162,7 @@ def test_a_baseline_round_on_a_version_exposed_since_its_runs_started_is_refused
 
     runs = with_run_root(made, tmp_path / "runs")
     # As every measured run on the store: its run roots withheld whole.
-    whole = {"withheld_whole": [str(runs)]}
+    whole: dict[str, Any] = {"withheld_whole": [str(runs)]}
     measured = harness_run(runs, made.tasks["visible"][0], made, **whole)
     plan(made.store, "control", made.version, run_set((measured, 0)), base_url=None)
     # Another run on the version reads its held-out tier while the first is done and waiting.

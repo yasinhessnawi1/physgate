@@ -72,7 +72,7 @@ class Siblings:
 
 
 def _withheld(made: StandInStore) -> dict[str, Any]:
-    """What a measured run on the store withholds beyond its held-out roots: its run roots, whole."""
+    """What a measured run on the store withholds beyond its held-out roots: its run roots."""
     roots = run_roots(made.store, "control")
     return {"withheld_whole": [str(root) for root in roots]}
 
