@@ -389,3 +389,52 @@ def test_a_killed_decompose_whose_review_stream_is_gone_marks_its_version_expose
     _killed_in_its_review_showing(tier, CLEAN)
     (tier.review_root / SESSION / "session" / "stdout.jsonl").unlink()
     assert tier.exposed() == frozenset({tier.made.version})
+
+
+# --- the round journal, as the register reads it ------------------------------------------------
+
+JOURNAL = Path("decomposition", "rounds.jsonl")
+
+
+def test_a_kill_between_the_round_s_end_line_and_the_review_s_record_going_records_it_once(
+    tier: OnTier, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def dies_as_the_record_goes(run_dir: Path) -> None:
+        raise Stopped
+
+    monkeypatch.setattr(design_rounds, "review_over", dies_as_the_record_goes)
+    reviewer = Recording(
+        _exposed_review(), (SESSION, 4242, OTHER_START), stream=tier.shown(), root=tier.review_root
+    )
+    with pytest.raises(Stopped):
+        _exit(tier.args, reviewer)
+    monkeypatch.undo()
+    # The journal's end line and the review's record both show it: one exposure, one key.
+    assert (tier.run_dir / REVIEW_RECORD).is_file()
+    assert "held_out_exposed" in (tier.run_dir / JOURNAL).read_text()
+    assert _scan(tier) == (1, 0)
+    assert _exit(tier.args, StandIn(_verdict())) == 2
+    assert (tier.run_dir / EXPOSED_FILE).is_file()
+    assert _scan(tier) == (0, 1)
+    assert tier.exposed() == frozenset({tier.made.version})
+
+
+def test_a_whole_journal_line_that_cannot_be_read_refuses_and_names_no_path(tier: OnTier) -> None:
+    _killed_in_its_review_showing(tier, CLEAN)
+    with (tier.run_dir / JOURNAL).open("ab") as journal:
+        journal.write(b"{not a line\n")
+    with pytest.raises(ExposureError) as refused:
+        tier.exposed()
+    assert refused.value.context.get("refused_because") == "register_unreadable"
+    assert str(tier.runs) not in str(refused.value), str(refused.value)
+    later = tier.later_refusal()
+    assert later is not None and "(register_unreadable)" in later, later
+
+
+def test_a_journal_line_a_kill_cut_is_read_in_its_review_s_record(tier: OnTier) -> None:
+    _killed_in_its_review_showing(tier, CLEAN)
+    cut = b'{"kind": "round_ended", "ending": {"review_cause": "held_out_exposed"'
+    with (tier.run_dir / JOURNAL).open("ab") as journal:
+        journal.write(cut)
+    # The record is read in its place, and its streams showed nothing.
+    assert tier.exposed() == frozenset()

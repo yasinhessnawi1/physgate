@@ -20,6 +20,7 @@ call and writes none of this.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import time
 import uuid
@@ -908,12 +909,14 @@ def exposed_reviews(run_dir: Path) -> tuple[str, ...]:
 
     For the exposure register: the review's record goes once its round's end line is written,
     and the opening's ``held_out_read`` incident comes only after the run's start, so a kill
-    between the two leaves the exposure on this line alone. A session the line does not name
-    is given as an empty id. Bytes after the last line's end are a line a kill cut: its round's
-    review record is still there, and is read in its place.
+    between the two leaves the exposure on this line alone. Only the fields that say so are read
+    (the ending's review cause, and the review's own mark and session), so a line an earlier
+    version of the rounds wrote reads as well as one written now. A session the line does not
+    name is given as an empty id. Bytes after the last line's end are a line a kill cut: its
+    round's review record is still there, and is read in its place.
 
     Raises:
-        RunStateError: a whole line of the journal is not one the rounds write.
+        RunStateError: the journal cannot be read, or a whole line of it is no JSON object.
     """
     try:
         data = (run_dir / ROUNDS_JOURNAL).read_bytes()
@@ -925,17 +928,21 @@ def exposed_reviews(run_dir: Path) -> tuple[str, ...]:
     found: list[str] = []
     for one in data.split(b"\n")[:-1]:
         try:
-            line = _LINE.validate_json(one)
-        except ValidationError as exc:
+            line = json.loads(one)
+        except ValueError as exc:
             msg = "a line of the round journal is not one the rounds write"
             raise RunStateError(msg, run_dir=str(run_dir)) from exc
-        if not isinstance(line, RoundEnded):
+        if not isinstance(line, dict):
+            msg = "a line of the round journal is not one the rounds write"
+            raise RunStateError(msg, run_dir=str(run_dir))
+        if line.get("kind") != "round_ended":
             continue
-        review = line.review
-        if line.ending.review_cause == "held_out_exposed" or (
-            review is not None and review.exposed
-        ):
-            found.append((review.session_id or "") if review is not None else "")
+        ending, review = line.get("ending"), line.get("review")
+        cause = ending.get("review_cause") if isinstance(ending, dict) else None
+        marked = isinstance(review, dict) and review.get("exposed") is True
+        if cause == "held_out_exposed" or marked:
+            session = review.get("session_id") if isinstance(review, dict) else None
+            found.append(session if isinstance(session, str) else "")
     return tuple(found)
 
 
