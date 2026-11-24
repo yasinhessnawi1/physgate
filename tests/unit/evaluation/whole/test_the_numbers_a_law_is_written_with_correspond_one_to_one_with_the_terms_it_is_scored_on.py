@@ -217,11 +217,13 @@ def test_a_zero_weight_term_is_decided_as_the_law_without_it() -> None:
         assert law.held_modes(body, values, period=0.01, written=body.written) == ()
 
 
-def test_duplicate_keys_and_two_spellings_of_one_number_agree_in_both_passes() -> None:
+def test_a_key_written_twice_is_refused_before_either_pass_and_two_spellings_agree() -> None:
+    # Each pass would keep the last of two same keys; neither is asked to, since the answer is
+    # refused before either reads it.
     raw = _text().replace(b'"kv": {"value": 1.0,', b'"kv": {"value": 9.5, "value": 1e0,')
-    law = _answer().parse_answer(raw).controller
-    assert law.coefficients["kv"].value == 1.0
-    assert law.written.coefficients["kv"] == 1
+    assert raw != _text()
+    with pytest.raises(TaskFormatError, match="key_written_twice: the key 'value'"):
+        _answer().parse_answer(raw)
     for spelling in ("1", "1.0", "1e0", "10E-1", "0.1e1", "1.00"):
         again = _answer().parse_answer(_text(kv=spelling)).controller
         assert again.written.coefficients["kv"] == 1

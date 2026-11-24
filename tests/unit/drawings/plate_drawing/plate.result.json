@@ -1,0 +1,93 @@
+{
+  "exports": [
+    {
+      "file": "exports/plate.step",
+      "sha256": "a1efdb7eb5c8baf9be70156d4e08c8bba5e10420e2539bcd682eeedbd24f5ac0",
+      "size": {
+        "unit": "byte",
+        "value": 29987
+      }
+    },
+    {
+      "file": "exports/plate.stl",
+      "sha256": "1f2742f7ac4602924aeb8fd6e72b1dbcb382faed0f08e1b7297a546eec1fca61",
+      "size": {
+        "unit": "byte",
+        "value": 102284
+      }
+    }
+  ],
+  "geometry_hash": "sha256:ff88fca266977bd1de7ea23c66e94b95492e4b3d1f976f49ca4521dac68dd151",
+  "inputs": {
+    "density": {
+      "source": "a figure for the fixture only",
+      "unit": "kg/m**3",
+      "value": 1240.0
+    }
+  },
+  "kind": "geometry",
+  "libraries": {
+    "build123d": "0.13.0",
+    "cadquery-ocp-novtk": "8.0.1.1.0"
+  },
+  "part": "plate",
+  "schema": 1,
+  "values": {
+    "bounding_box": {
+      "high_corner": {
+        "unit": "m",
+        "value": [
+          0.055,
+          0.03,
+          0.0015
+        ]
+      },
+      "low_corner": {
+        "unit": "m",
+        "value": [
+          -0.055,
+          -0.03,
+          -0.0015
+        ]
+      }
+    },
+    "centre_of_mass": {
+      "unit": "m",
+      "value": [
+        -2.884941605332469e-20,
+        -1.9040614595194292e-19,
+        -2.1082753191508e-20
+      ]
+    },
+    "inertia": {
+      "about": "the centre of mass",
+      "axes": "parallel to the x, y and z the shape was built in",
+      "unit": "kg*m**2",
+      "value": [
+        [
+          7.314916548910151e-06,
+          -4.511093720793725e-23,
+          -6.936178298388995e-24
+        ],
+        [
+          -4.511093720793725e-23,
+          2.448751503825189e-05,
+          3.0479618828849217e-25
+        ],
+        [
+          -6.936178298388995e-24,
+          3.0479618828849217e-25,
+          3.1765783095252995e-05
+        ]
+      ]
+    },
+    "mass": {
+      "unit": "kg",
+      "value": 0.024432327939365332
+    },
+    "volume": {
+      "unit": "m**3",
+      "value": 1.970349027368172e-05
+    }
+  }
+}

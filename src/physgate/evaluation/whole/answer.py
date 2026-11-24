@@ -885,6 +885,24 @@ def _marked(
     return probe, refused, found
 
 
+def _refuse_a_key_written_twice(text: str, where: str) -> None:
+    """Refuse by name an answer that writes a key twice in any one of its objects.
+
+    The JSON readers the answer passes through each keep the last of two same keys and say
+    nothing, so an answer written ``"version": 2, "version": 3`` would be read as whichever came
+    last. The check is the law file's (:func:`law.refuse_a_key_written_twice`), so the harness's
+    file and a written answer are refused alike, in the same words.
+
+    Raises:
+        TaskFormatError: ``key_written_twice``, naming the key.
+    """
+    try:
+        law_module.refuse_a_key_written_twice(text)
+    except law_module.LawRefused as exc:
+        msg = f"the answer is not a whole-run answer: {exc}"
+        raise TaskFormatError(msg, where=where) from None
+
+
 #: The refusals of a number that a float does not hold as the text wrote it.
 UNDERFLOWS = "number_underflows"
 OVERFLOWS = "number_overflows"
@@ -1005,7 +1023,8 @@ def _attach(answer: Answer, decimals: Mapping[str, Any]) -> Answer:
 def parse_whole_run(raw: bytes, *, where: str = "answer") -> WholeRun:
     """``raw`` validated whole as a version 2 whole-run answer, or refused with the reason.
 
-    Version 2 is read exactly as it always was; :func:`parse_answer` reads either version.
+    Version 2 is read as it always was, but that a key written twice in one object is refused,
+    as in either version; :func:`parse_answer` reads either version.
 
     Raises:
         TaskFormatError: it is too large, not UTF-8, not JSON, or not a version 2 answer.
@@ -1050,6 +1069,7 @@ def _parse(
     except UnicodeDecodeError as exc:
         msg = "the answer is not UTF-8 text"
         raise TaskFormatError(msg, where=where) from exc
+    _refuse_a_key_written_twice(text, where)
     document = _document(text)
     version = document.get("version")
     model: type[WholeRun] | type[WholeRunV3] = (

@@ -31,10 +31,13 @@ kinds are not held that way and are read another way, each held by a row:
   the dimensions of the signals' units and the period's (:func:`_unit_symbols`).
 
 The block says only what the scorer does. It lists what is refused, each by a case that breaks
-that rule alone, and never claims that a rule it states is refused when it is not: a number with
-more significant digits, two states marked ``applied``, a sign written ``true`` and a key written
-twice are all read by the scorer today, so the block asks that they be written correctly and says
-nothing of a refusal (the scoring row that holds this is named in the tests).
+that rule alone, and never claims that a rule it states is refused when it is not. A sign written
+``true`` is refused as a sign that is not 1 or -1, as the list says; two states marked
+``applied`` and a key written twice are refused too, each with a reason that names the rule, and
+the block states both rules ("only on the one state", "each key once") without listing them. A
+number with more significant digits than the block asks for is still read and decided as
+written, so the block asks for at most that many and says nothing of a refusal (the rows that hold
+each of these are named in the tests).
 
 What is **not told** to a designer is listed, each with its reason, in :data:`NOT_TOLD`; a row
 holds every field and bound of the answer's models to being named in the block or listed there.

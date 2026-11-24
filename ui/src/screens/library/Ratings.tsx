@@ -1,10 +1,16 @@
 /**
  * The ratings the gate checks values against: each bounds table's ranges and envelopes, and the
- * catalogue's energy-store classes. Every value is a quantity with its unit, as recorded, never
+ * catalogue's energy-store classes, with the digest a gate built from this library stamps on
+ * every result, so a reader can compare it with a run's. Every value is a quantity with its unit, as recorded, never
  * rounded. Every rating names its file as its source; a read route runs no git, so the commit is
  * never known here and the chip says so. Each row opens its whole record in the inspector.
  */
-import type { BoundsTable, Rating, Ratings as RatingsRecord } from "../../api/library";
+import type {
+  BoundsTable,
+  GateDigest as GateDigestRecord,
+  Rating,
+  Ratings as RatingsRecord,
+} from "../../api/library";
 import { Id } from "../../design/components/data/Id";
 import { Quantity } from "../../design/components/data/Quantity";
 import { SourceChip } from "../../design/components/data/SourceChip";
@@ -12,7 +18,7 @@ import { sourceAttribute } from "../../design/components/data/source";
 import { DataTable } from "../../design/components/layout/DataTable";
 import { EmptyState } from "../../design/components/status/States";
 import { quantityLabel } from "../../words/humanise";
-import { documentLabel, LIBRARY_COPY } from "../../words/library";
+import { documentLabel, LIBRARY_COPY, lawsCount } from "../../words/library";
 import type { Open } from "./model";
 
 /** A store class's name, as the catalogue writes it, in sentence case. */
@@ -23,6 +29,43 @@ export function storeLabel(name: string): string {
 /** The role folder a table's file lies in, from its path; its domain if the path names none. */
 export function tableRole(table: BoundsTable): string {
   return table.path.split("/")[1] ?? table.domain;
+}
+
+/**
+ * The gate's digest, labelled as what a run from this checkout now carries when the library is
+ * this checkout's own, and as no run's unless its checkout matches when it is another folder; or,
+ * when no gate is built from the library, the server's sentence in its place, never another
+ * digest under the same label. ``labelled`` is false where a row's own label already names it.
+ */
+export function GateDigest({
+  digest,
+  labelled = true,
+}: {
+  readonly digest: GateDigestRecord;
+  readonly labelled?: boolean;
+}) {
+  if (digest.state === "refused")
+    return (
+      <span className="pg-lib-gate-digest" data-state="refused">
+        <span>{LIBRARY_COPY.noGateDigest}</span> <span className="pg-muted">{digest.reason}</span>
+      </span>
+    );
+  return (
+    <span className="pg-lib-gate-digest" data-state="read">
+      {labelled && (
+        <>
+          <span>{LIBRARY_COPY.gateDigest}</span>{" "}
+        </>
+      )}
+      <Id value={digest.sha256} />{" "}
+      <span className="pg-muted">{lawsCount(digest.laws, digest.file)}</span>{" "}
+      <span className="pg-muted">
+        {digest.libraryIsThisCheckout
+          ? LIBRARY_COPY.gateDigestThisCheckout
+          : LIBRARY_COPY.gateDigestOtherLibrary}
+      </span>
+    </span>
+  );
 }
 
 export function RangeOf({ rating }: { readonly rating: Rating }) {
@@ -189,8 +232,7 @@ export function RatingsSection({
         />
         <p className="pg-panel-note pg-lib-ids">
           <SourceChip id={LIBRARY_COPY.catalogue} commit={null} />
-          <span>Catalogue digest</span>
-          <Id value={ratings.catalogueDigest} />
+          <GateDigest digest={ratings.gateDigest} />
         </p>
       </section>
     </>

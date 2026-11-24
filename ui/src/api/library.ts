@@ -354,10 +354,49 @@ export interface StoreClassRating {
   readonly confirmed: string;
 }
 
+export const GATE_DIGEST_STATES = ["read", "refused"] as const;
+
+/**
+ * The digest a gate built from this library stamps on every result: the catalogue's content with
+ * the law table's laws, computed by the server with the gate's own function. ``libraryIsThisCheckout``
+ * says whether the library is the server's own checkout's, the one a run started from it reads;
+ * any other folder's laws digested with this server's catalogue are no run's digest unless the
+ * run's checkout has both. ``refused`` when no gate is built from the library (no law table, or
+ * one that does not load), with the server's sentence; never the catalogue's alone.
+ */
+export type GateDigest =
+  | {
+      readonly state: "read";
+      readonly file: string;
+      readonly sha256: string;
+      readonly tableSha256: string;
+      readonly laws: number;
+      readonly libraryIsThisCheckout: boolean;
+    }
+  | { readonly state: "refused"; readonly file: string; readonly reason: string };
+
 export interface Ratings {
   readonly tables: readonly BoundsTable[];
   readonly storeClasses: readonly StoreClassRating[];
-  readonly catalogueDigest: string;
+  readonly gateDigest: GateDigest;
+}
+
+function gateDigest(value: unknown): GateDigest {
+  const raw = object(value, "the gate's digest");
+  const state = oneOf(raw.state, GATE_DIGEST_STATES, "the gate's digest's state");
+  const file = text(raw.file, "the law table's file");
+  if (state === "refused") return { state, file, reason: text(raw.reason, "why there is none") };
+  return {
+    state,
+    file,
+    sha256: digest(raw.sha256),
+    tableSha256: digest(raw.table_sha256),
+    laws: count(raw.laws, "how many laws the table holds"),
+    libraryIsThisCheckout: flag(
+      raw.library_is_this_checkout,
+      "whether the library is this checkout's own",
+    ),
+  };
 }
 
 function rating(value: unknown, key: "quantity" | "kind"): Rating {
@@ -397,6 +436,6 @@ export function ratings(value: unknown): Ratings {
         confirmed: text(store.confirmed, "when it was confirmed"),
       };
     }),
-    catalogueDigest: digest(answer.catalogue_digest),
+    gateDigest: gateDigest(answer.gate_digest),
   };
 }
