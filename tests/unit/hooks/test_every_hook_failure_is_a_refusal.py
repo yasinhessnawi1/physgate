@@ -52,7 +52,7 @@ def _run(capsys: pytest.CaptureFixture[str], argv: list[str], stdin: str) -> tup
     return rc, out.out, out.err
 
 
-def test_a_handler_that_raises_refuses_the_call_with_the_error_named(
+def test_a_handler_that_raises_refuses_the_call_with_the_error_s_kind_named_not_its_text(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path, sha, _ = write_config(tmp_path)
@@ -60,7 +60,10 @@ def test_a_handler_that_raises_refuses_the_call_with_the_error_named(
     assert rc == 2
     reason = json.loads(out)["hookSpecificOutput"]
     assert reason["permissionDecision"] == "deny"
-    assert "RuntimeError: boom" in reason["permissionDecisionReason"]
+    # Its text can quote what it was handed: only its kind and where it was raised are said.
+    said = reason["permissionDecisionReason"]
+    assert "RuntimeError" in said and "boom" not in said, said
+    assert "_raises" in said, said
 
 
 def test_an_allowing_handler_exits_zero_and_says_nothing(
