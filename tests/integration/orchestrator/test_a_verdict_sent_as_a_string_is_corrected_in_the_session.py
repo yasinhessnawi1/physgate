@@ -5,7 +5,9 @@ stray closing brace. The binary refuses that ("/review: must be object"), and on
 reviewer repeated it until the binary's cap on refused structured answers ended the
 session with no verdict. Through the real binary, a reviewer that stringifies once is
 refused, the refusal stands, the next request carries the precise correction, and the
-object it then sends is the verdict. Nothing reads the string.
+object it then sends is the verdict. A reviewer that never corrects ends at the cap as before;
+its last try, a text the binary refused only for being one, is then read as the object it holds
+and held to the same schema: a verdict where it holds, a refused verdict in words where not.
 """
 
 from __future__ import annotations
@@ -58,25 +60,47 @@ def test_a_review_sent_once_as_a_string_is_corrected_and_ends_in_a_verdict(
     assert len(result.items) == len(items)
 
 
-def test_a_reviewer_that_never_corrects_is_an_invalid_verdict_not_infrastructure(
+def test_a_reviewer_that_never_corrects_is_read_from_its_last_text_at_the_cap(
     tmp_path: Path, install: Path, binary: str
 ) -> None:
-    # The binary ends the session at its cap on refused structured answers. That is the
-    # reviewer's verdict refused, which a fresh session would repeat: not infrastructure.
+    # The binary ends the session at its cap on refused structured answers, as it always did;
+    # the last try held a verdict the schema takes, so that verdict is recorded, marked so.
     items = load_rubric(REPO / "knowledge", "control").items
     stringified = json.dumps(valid(items)) + "}"
+    result, _ = review_requests(
+        tmp_path, install, binary, "control", {"review": stringified}, then_correct=False
+    )
+    cap = REFUSALS_BEFORE_THE_CAP[binary_version(binary)]
+    assert result.verdict == "pass" and result.verdict_from_text is True
+    assert result.schema_refusals == cap
+    (stream,) = [p.read_text() for p in (tmp_path / "rs").glob("*/session/stdout.jsonl")]
+    assert schema_refusals(stream) == cap
+    ended, _, _ = read_stream(stream)
+    assert ended is not None and ended["terminal_reason"] == STRUCTURED_OUTPUT_EXHAUSTED
+    assert "structured_output" not in ended
+
+
+def test_a_reviewer_that_never_corrects_a_text_the_schema_refuses_is_an_invalid_verdict(
+    tmp_path: Path, install: Path, binary: str
+) -> None:
+    # The same end, its last text leaving a rubric item out: an invalid verdict, never
+    # infrastructure, saying why in words.
+    items = load_rubric(REPO / "knowledge", "control").items
+    short = valid(items)
+    del short["items"][items[-1].id]
     with pytest.raises(ReviewUnavailableError) as raised:
         review_requests(
-            tmp_path, install, binary, "control", {"review": stringified}, then_correct=False
+            tmp_path,
+            install,
+            binary,
+            "control",
+            {"review": json.dumps(short) + "}"},
+            then_correct=False,
         )
     assert raised.value.cause == "invalid_verdict"
     cap = REFUSALS_BEFORE_THE_CAP[binary_version(binary)]
     assert f"after {cap} attempts" in str(raised.value)
-    assert NOT_AN_OBJECT in str(raised.value)
-    # The session ended at the cap and nowhere else: that many verdicts refused, each told
-    # to the reviewer, and the binary's own reason for the end.
+    assert "the verdict was sent as text" in str(raised.value)
+    assert f"must have required property '{items[-1].id}'" in str(raised.value)
     (stream,) = [p.read_text() for p in (tmp_path / "rs").glob("*/session/stdout.jsonl")]
     assert schema_refusals(stream) == cap
-    result, _, _ = read_stream(stream)
-    assert result is not None and result["terminal_reason"] == STRUCTURED_OUTPUT_EXHAUSTED
-    assert "structured_output" not in result

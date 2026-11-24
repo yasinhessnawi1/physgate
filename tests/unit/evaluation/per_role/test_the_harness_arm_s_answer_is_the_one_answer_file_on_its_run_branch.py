@@ -46,38 +46,67 @@ def _repo(tmp_path: Path, files: dict[str, bytes], links: dict[str, str] | None 
 
 
 ANSWER = json.dumps({"form": "lti_tf"}).encode()
+#: The module directory the run's plan names, in the old fixed layout.
+PLANNED = ("modules/control",)
 
 
 def test_the_one_answer_in_a_module_directory_is_extracted(tmp_path: Path) -> None:
     repo = _repo(tmp_path, {"modules/control/answer.json": ANSWER, "answer.json": b"{}"})
     out = tmp_path / "out" / "answer.json"
-    found = extract(repo, RUN, "answer.json", out)
+    found = extract(repo, RUN, "answer.json", out, module_dirs=PLANNED)
     assert found.status == "found" and found.paths == ("modules/control/answer.json",)
     assert out.read_bytes() == ANSWER
 
 
 @pytest.mark.parametrize(
-    ("files", "status"),
+    ("files", "planned", "status"),
     [
-        ({"answer.json": ANSWER}, "contract_lost"),
-        ({"modules/control/deep/answer.json": ANSWER}, "contract_lost"),
+        ({"answer.json": ANSWER}, PLANNED, "contract_lost"),
+        ({"modules/control/deep/answer.json": ANSWER}, PLANNED, "contract_lost"),
+        # A file of the name in a directory the plan does not name is not the answer.
+        ({"modules/firmware/answer.json": ANSWER}, PLANNED, "contract_lost"),
         (
             {"modules/control/answer.json": ANSWER, "modules/firmware/answer.json": ANSWER},
+            ("modules/control", "modules/firmware"),
             "ambiguous",
         ),
-        ({"modules/control/answer.json": b"x" * (64 * 1024 + 1)}, "too_large"),
-        ({"modules/control/answer.json": b"\xff\xfe"}, "not_text"),
-        ({"modules/control/answer.json/inner": ANSWER}, "not_a_file"),
+        ({"modules/control/answer.json": b"x" * (64 * 1024 + 1)}, PLANNED, "too_large"),
+        ({"modules/control/answer.json": b"\xff\xfe"}, PLANNED, "not_text"),
+        ({"modules/control/answer.json/inner": ANSWER}, PLANNED, "not_a_file"),
+        ({"modules/control/answer.json": ANSWER}, (), "contract_lost"),
     ],
-    ids=["only at the root", "too deep", "two modules", "too large", "not text", "a directory"],
+    ids=[
+        "only at the root",
+        "too deep",
+        "in a module the plan does not name",
+        "two planned modules",
+        "too large",
+        "not text",
+        "a directory",
+        "no planned module",
+    ],
 )
 def test_anything_but_one_answer_file_is_no_answer_and_says_why(
-    tmp_path: Path, files: dict[str, bytes], status: str
+    tmp_path: Path, files: dict[str, bytes], planned: tuple[str, ...], status: str
 ) -> None:
     out = tmp_path / "out" / "answer.json"
-    found = extract(_repo(tmp_path, files), RUN, "answer.json", out)
+    found = extract(_repo(tmp_path, files), RUN, "answer.json", out, module_dirs=planned)
     assert found.status == status
     assert not out.exists()
+
+
+@pytest.mark.parametrize(
+    "planned",
+    ["control/ctl", "modules/a/b", "modules/a/b/"],
+    ids=["outside modules", "deeper", "a slash"],
+)
+def test_the_answer_is_found_wherever_the_plan_put_its_module(tmp_path: Path, planned: str) -> None:
+    where = planned.rstrip("/")
+    repo = _repo(tmp_path, {f"{where}/answer.json": ANSWER, "modules/x/answer.json": b"{}"})
+    out = tmp_path / "out" / "answer.json"
+    found = extract(repo, RUN, "answer.json", out, module_dirs=(planned,))
+    assert found.status == "found" and found.paths == (f"{where}/answer.json",)
+    assert out.read_bytes() == ANSWER
 
 
 def test_a_link_named_as_the_answer_is_not_followed(tmp_path: Path) -> None:
@@ -87,7 +116,7 @@ def test_a_link_named_as_the_answer_is_not_followed(tmp_path: Path) -> None:
         links={"modules/control/answer.json": "../../elsewhere.json"},
     )
     out = tmp_path / "out" / "answer.json"
-    assert extract(repo, RUN, "answer.json", out).status == "not_a_file"
+    assert extract(repo, RUN, "answer.json", out, module_dirs=PLANNED).status == "not_a_file"
     assert not out.exists()
 
 
@@ -106,7 +135,7 @@ def test_the_harness_answer_is_taken_byte_for_byte_as_the_raw_arm_s_is(
     """
     repo = _repo(tmp_path, {"modules/control/answer.json": answer})
     out = tmp_path / "out" / "answer.json"
-    found = extract(repo, RUN, "answer.json", out)
+    found = extract(repo, RUN, "answer.json", out, module_dirs=PLANNED)
     assert found.status == "found"
     assert out.read_bytes() == answer
     assert found.sha256 == hashlib.sha256(answer).hexdigest()

@@ -771,7 +771,14 @@ class ProposalsChecked(_Event):
     checked_commit: Sha
     refused_by: (
         Literal[
-            "proposal", "write_scope", "series", "declaration", "dispute", "interface", "long_line"
+            "proposal",
+            "write_scope",
+            "series",
+            "declaration",
+            "dispute",
+            "interface",
+            "long_line",
+            "exports",
         ]
         | None
     )
@@ -788,6 +795,11 @@ class ProposalsChecked(_Event):
     #: as it stood, every joined node's payload and the derived revision, so replay derives it
     #: again. Left out of the line when empty, so every other line keeps its bytes.
     followed: tuple[FollowedInterface, ...] = ()
+    #: How many sets of exports the check made again from their committed sources and found
+    #: equal: 0 when the change touched none. ``None``, and left out of the line, when the check
+    #: was refused before it reached the exports, and on every line written before the field
+    #: existed, which reads as it did.
+    exports_regenerated: Annotated[int, Field(ge=0)] | None = None
 
     @model_validator(mode="after")
     def _a_refusal_says_why(self) -> ProposalsChecked:
@@ -804,6 +816,8 @@ class ProposalsChecked(_Event):
         data: dict[str, Any] = handler(self)
         if not self.followed:
             data.pop("followed", None)
+        if self.exports_regenerated is None:
+            data.pop("exports_regenerated", None)
         return data
 
 
