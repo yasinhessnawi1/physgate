@@ -403,7 +403,7 @@
  {
   "name": "provision_dropped_part_copied",
   "file": "toolenv/provision.py",
-  "old": "            if _within(relative, dropped):",
+  "old": "            if _in_parts(relative, dropped):",
   "new": "            if False:",
   "tests": [
    "tests/unit/toolenv/test_kicad_is_provisioned_by_digest_in_a_root_of_its_own_copied_so_the_measure_accepts_it.py"

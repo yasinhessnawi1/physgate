@@ -660,7 +660,7 @@ def _part(source: Path, part: str) -> str:
     return Path(place).relative_to(top).as_posix()
 
 
-def _within(relative: str, parts: Sequence[str]) -> bool:
+def _in_parts(relative: str, parts: Sequence[str]) -> bool:
     return any(relative == part or relative.startswith(part + "/") for part in parts)
 
 
@@ -726,11 +726,11 @@ def copy_apart(
         for name in sorted(dirs) + sorted(names):
             path = Path(directory, name)
             relative = (here / name).as_posix()
-            if _within(relative, dropped):
+            if _in_parts(relative, dropped):
                 if name in dirs:
                     dirs.remove(name)
                 continue
-            whole = kept is None or _within(relative, kept)
+            whole = kept is None or _in_parts(relative, kept)
             above = kept is not None and any(part.startswith(relative + "/") for part in kept)
             found = path.lstat()
             if not (whole or (above and stat.S_ISDIR(found.st_mode))):
