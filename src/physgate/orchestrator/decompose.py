@@ -1468,7 +1468,13 @@ def judge(
     end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
     turns = int((result or {}).get("num_turns") or 0)
     echoed = sorted(answered)
-    seen_model = echoed[0] if len(echoed) == 1 else None
+    # Held to the pin without the binary's own messages (an error's notice), which no model
+    # wrote; a call no model answered is a mismatch still.
+    models = answering_models(answered)
+    # The model the call's records name: the one model that answered, where one did, a notice
+    # beside it or not; otherwise the one name the stream gave, if it gave one.
+    one = models if len(models) == 1 else echoed
+    seen_model = one[0] if len(one) == 1 else None
     terminal = (result or {}).get("terminal_reason")
     named = TERMINAL_CAUSES.get(terminal) if isinstance(terminal, str) else None
     # The clock, a missing result and a sandbox that never started come first, as for every
@@ -1498,9 +1504,6 @@ def judge(
     if lost is not None:
         detail = f"the binary could not save its own {lost}"
         return "writes_lost", detail, None, seen_model, turns
-    # Held to the pin without the binary's own messages (an error's notice), which no model
-    # wrote; a call no model answered is a mismatch still. What the stream named is kept above.
-    models = answering_models(answered)
     if models != [model]:
         return "model_mismatch", f"asked for {model}, answered by {models}", None, seen_model, turns
     answer = (result or {}).get("structured_output")

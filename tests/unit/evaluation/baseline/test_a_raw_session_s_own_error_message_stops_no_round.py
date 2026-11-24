@@ -148,14 +148,18 @@ def test_a_trial_whose_session_met_a_notice_and_was_then_answered_by_the_pin_is_
     assert record.counts["visible"].passed == 1
 
 
-@NOTICES
 def test_a_trial_the_machine_ended_twice_after_its_model_answered_is_unscored(
-    tmp_path: Path, store: StandInStore, notice: list[dict[str, Any]]
+    tmp_path: Path, store: StandInStore
 ) -> None:
-    """The model answered, then the client noted the error it ended on: the machine's end."""
+    """The model answered, then the client noted the API error it ended on: the machine's end.
+
+    An API error's notice only: how a raw session that met the account's usage limit is to wait
+    is the round's own rule, not this one's.
+    """
     run = harness_run(tmp_path / "runs", store.tasks["held_out"][0], store)
     arm = StandInArm(
-        ended={1: ENDED_ON_AN_API_ERROR, 2: ENDED_ON_AN_API_ERROR}, notices={1: notice, 2: notice}
+        ended={1: ENDED_ON_AN_API_ERROR, 2: ENDED_ON_AN_API_ERROR},
+        notices={1: API_ERROR, 2: API_ERROR},
     )
     record = _round(store, run_set((run, 0)), tmp_path / "round", arm)
     assert isinstance(record, BaselineRecord), f"the client's notice stopped the round: {record}"

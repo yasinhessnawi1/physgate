@@ -186,6 +186,69 @@
   ]
  },
  {
+  "name": "the_pair_check_passes_any_one_model",
+  "file": "src/physgate/evaluation/per_role/arms/compare.py",
+  "old": "    if answered != [pinned]:\n",
+  "new": "    if len(answered) != 1:\n",
+  "tests": [
+   "tests/unit/evaluation/per_role/test_a_raw_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
+  ]
+ },
+ {
+  "name": "the_role_session_passes_the_pin_among_others",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "            if echoed != [request.model]:\n",
+  "new": "            if request.model not in echoed:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py"
+  ]
+ },
+ {
+  "name": "the_role_session_passes_a_session_no_model_answered",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "            if echoed != [request.model]:\n",
+  "new": "            if echoed and echoed != [request.model]:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py"
+  ]
+ },
+ {
+  "name": "the_decomposition_records_the_notice_beside_its_pin",
+  "file": "src/physgate/orchestrator/decompose.py",
+  "old": "    one = models if len(models) == 1 else echoed\n",
+  "new": "    one = echoed\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_session_s_own_error_message_is_no_other_model.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/test_a_role_session_leaves_nothing_running_before_the_orchestrator_s_git.py",
+   "tests/unit/orchestrator/test_the_decomposition_answer_is_untrusted_input.py"
+  ]
+ },
+ {
   "name": "baseline_last",
   "file": "src/physgate/orchestrator/managed.py",
   "old": "",
