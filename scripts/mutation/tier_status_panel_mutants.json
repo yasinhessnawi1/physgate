@@ -531,6 +531,18 @@
   ]
  },
  {
+  "name": "the_time_is_held_to_its_form_but_not_to_the_calendar",
+  "file": "src/physgate/evaluation/tiers/published.py",
+  "old": "    datetime.strptime(value, _READ_AT_FORMAT)  # noqa: DTZ007 - the form says UTC; a 13th month raises\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/exposure/test_the_tier_status_is_published_as_a_closed_record_of_its_current_version.py"
+  ]
+ },
+ {
   "name": "baseline_last",
   "file": "src/physgate/evaluation/tiers/published.py",
   "old": "",
