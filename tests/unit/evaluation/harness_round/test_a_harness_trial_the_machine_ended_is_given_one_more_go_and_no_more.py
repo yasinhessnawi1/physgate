@@ -53,7 +53,7 @@ def _round(
 
 def _place(rig: Rig) -> Path:
     summary = json.loads((rig.root / "out" / ROUND_RECORD).read_bytes())
-    return withheld_root(rig.made.store, "control") / HARNESS_ROUNDS / summary["round"]
+    return withheld_root(rig.made.store, "control") / HARNESS_ROUNDS / str(summary["round"])
 
 
 def _ledger(rig: Rig, kind: str) -> list[dict[str, Any]]:
@@ -78,7 +78,7 @@ def _halts(rig: Rig, name: str) -> list[str]:
 
 
 def test_a_run_halted_on_the_machine_is_resumed_once_after_its_delay(tmp_path: Path) -> None:
-    rig, slept = make_rig(tmp_path), []
+    rig, slept = make_rig(tmp_path), list[float]()
     driver = rig.driver(infra={1, 2})
     status, _ = _round(rig, driver, slept)
     assert status == "done"
@@ -95,7 +95,7 @@ def test_a_run_halted_on_the_machine_is_resumed_once_after_its_delay(tmp_path: P
 def test_a_run_halted_on_the_machine_again_after_its_one_resume_is_unscored(
     tmp_path: Path,
 ) -> None:
-    rig, slept = make_rig(tmp_path), []
+    rig, slept = make_rig(tmp_path), list[float]()
     driver = rig.driver(infra={1, 2, 3, 4})
     status, _ = _round(rig, driver, slept)
     assert status == "done"
@@ -107,7 +107,7 @@ def test_a_run_halted_on_the_machine_again_after_its_one_resume_is_unscored(
 def test_a_run_resumed_past_a_machine_halt_that_then_ends_with_no_answer_is_the_harness_s_fail(
     tmp_path: Path,
 ) -> None:
-    rig, slept = make_rig(tmp_path), []
+    rig, slept = make_rig(tmp_path), list[float]()
     driver = rig.driver(infra={1, 2}, silent={3})
     status, _ = _round(rig, driver, slept)
     assert status == "done"
@@ -118,7 +118,7 @@ def test_a_run_resumed_past_a_machine_halt_that_then_ends_with_no_answer_is_the_
 def test_a_decomposition_the_machine_ended_is_superseded_by_one_fresh_decomposition(
     tmp_path: Path,
 ) -> None:
-    rig, slept = make_rig(tmp_path), []
+    rig, slept = make_rig(tmp_path), list[float]()
     driver = rig.driver(fails={1: "api_error"})
     status, summary = _round(rig, driver, slept)
     assert status == "done" and summary["superseded"] == 1
@@ -140,7 +140,7 @@ def test_a_decomposition_the_machine_ended_is_superseded_by_one_fresh_decomposit
 def test_a_second_decomposition_the_machine_ended_is_unscored_and_there_is_no_third(
     tmp_path: Path,
 ) -> None:
-    rig, slept = make_rig(tmp_path), []
+    rig, slept = make_rig(tmp_path), list[float]()
     driver = rig.driver(fails={1: "api_error", 2: "sandbox_unavailable"})
     status, _ = _round(rig, driver, slept)
     assert status == "done"
@@ -153,7 +153,7 @@ def test_a_second_decomposition_the_machine_ended_is_unscored_and_there_is_no_th
 def test_a_decomposition_that_failed_on_its_own_is_the_harness_s_fail_and_gives_no_cap(
     tmp_path: Path,
 ) -> None:
-    rig, slept = make_rig(tmp_path), []
+    rig, slept = make_rig(tmp_path), list[float]()
     driver = rig.driver(fails={1: "invalid_plan"})
     status, _ = _round(rig, driver, slept)
     assert status == "done"
@@ -167,7 +167,7 @@ def test_a_decomposition_that_failed_on_its_own_is_the_harness_s_fail_and_gives_
 def test_a_decomposition_ended_on_the_usage_limit_waits_for_the_reset_and_spends_nothing(
     tmp_path: Path,
 ) -> None:
-    rig, slept = make_rig(tmp_path), []
+    rig, slept = make_rig(tmp_path), list[float]()
     first = rig.driver(fails={1: "usage_limit"})
     status, summary = _round(rig, first, slept)
     assert status == "waiting_for_limit" and summary["done"] is False
@@ -191,7 +191,7 @@ def test_a_decomposition_ended_on_the_usage_limit_waits_for_the_reset_and_spends
 def test_a_run_halted_on_the_usage_limit_waits_for_the_reset_and_its_resume_is_not_spent(
     tmp_path: Path,
 ) -> None:
-    rig, slept = make_rig(tmp_path), []
+    rig, slept = make_rig(tmp_path), list[float]()
     first = rig.driver(limited={1})
     status, summary = _round(rig, first, slept)
     assert status == "waiting_for_limit"

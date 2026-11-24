@@ -53,7 +53,7 @@ def whole(tmp_path_factory: pytest.TempPathFactory) -> tuple[Rig, str, dict[str,
 
 
 def _place(rig: Rig, summary: dict[str, Any]) -> Path:
-    return withheld_root(rig.made.store, "control") / HARNESS_ROUNDS / summary["round"]
+    return withheld_root(rig.made.store, "control") / HARNESS_ROUNDS / str(summary["round"])
 
 
 def _set(rig: Rig, summary: dict[str, Any], tier: str) -> tuple[Path, Path]:
@@ -143,6 +143,12 @@ def test_the_round_s_record_names_its_digests_pins_and_every_trial(
     assert record["pins"]["account"] == "run-seat-1"
     assert all(t["harness_total"] and t["harness_total"] > 0 for t in record["trials"])
     assert [t["index"] for t in record["trials"]] == list(range(24))
+    # The order: the tiers as the version holds them, each tier's tasks by their brief's digest.
+    tiers = [t["tier"] for t in record["trials"]]
+    assert tiers == [tier for tier in TIERS for _ in range(8)]
+    for tier in TIERS:
+        briefs = [t["brief_sha256"] for t in record["trials"] if t["tier"] == tier]
+        assert briefs == sorted(briefs)
     assert record["superseded"] == [] and record["left"] == []
 
 

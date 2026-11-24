@@ -1,0 +1,682 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_writes_run_sets_the_counting_rule_and_the_baseline_take.py",
+   "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py",
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py",
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py",
+   "tests/unit/evaluation/harness_round/test_the_command_driver_relays_nothing_a_trial_s_command_prints.py",
+   "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_machine_halt_counts_wherever_it_lies_in_the_log",
+  "file": "src/physgate/evaluation/per_role/assemble.py",
+  "old": "    if state.next_step().kind != \"halted\" or halt is None:\n        return None",
+  "new": "    halt = halt or state.last_halt\n    if halt is None:\n        return None",
+  "tests": [
+   "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_run_with_no_role_session_gives_a_cap",
+  "file": "src/physgate/evaluation/per_role/arms/compare.py",
+  "old": "    if not _ran_a_role_session(events):",
+  "new": "    if False:",
+  "tests": [
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_tiers_in_another_order",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    for tier in VERSION_TIERS:\n        if tier not in inputs.tiers:",
+  "new": "    for tier in reversed(VERSION_TIERS):\n        if tier not in inputs.tiers:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_writes_run_sets_the_counting_rule_and_the_baseline_take.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_tier_s_tasks_in_another_order",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "briefs = sorted(b for b in found.tasks[tier] if not (tier == \"held_out\" and b in flagged))",
+  "new": "briefs = sorted((b for b in found.tasks[tier] if not (tier == \"held_out\" and b in flagged)), reverse=True)",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_writes_run_sets_the_counting_rule_and_the_baseline_take.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_flagged_task_is_run",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "if not (tier == \"held_out\" and b in flagged))",
+  "new": "if True)",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_protected_tier_s_set_in_the_output_directory",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "where = ctx.inputs.out if tier == VISIBLE else ctx.place",
+  "new": "where = ctx.inputs.out",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_writes_run_sets_the_counting_rule_and_the_baseline_take.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_killed_run_is_run_again_not_resumed",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "                resume=not fresh,",
+  "new": "                resume=False,",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_killed_run_is_decomposed_again",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if state == \"unmade\":\n",
+  "new": "    if state == \"unmade\" or not ctx.lines[-1].get(\"kind\") == \"assembled\":\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py",
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_second_machine_halt_is_resumed_again",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "and _machine_halts(events) == 1",
+  "new": "and _machine_halts(events) >= 1",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_resume_after_the_once_more_was_spent_on_a_decomposition",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        and _machine_halts(events) == 1\n        and not once_more_taken\n",
+  "new": "        and _machine_halts(events) == 1\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_second_decomposition_failure_is_superseded_again",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "if halt is not None and halt.reason == \"decomposition_failed\" and not once_more_taken:",
+  "new": "if halt is not None and halt.reason == \"decomposition_failed\":",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_superseded_run_s_spend_is_not_named",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "\"tokens\": TokenAccount.from_events(events).total().total(),",
+  "new": "\"tokens\": 0,",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_decomposition_on_the_limit_does_not_wait",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "if gone[\"cause\"] == \"usage_limit\" and not ctx.limit_reset:",
+  "new": "if False:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_drive_refused_before_the_reset_does_not_wait",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if code == EXIT_WAITING_FOR_LIMIT:\n        return \"waiting_for_limit\"\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_same_directory_is_used_again",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "attempt = 1 if last is None else last + 1",
+  "new": "attempt = 1",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py",
+   "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_set_aside_directory_is_resumed_as_a_run",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        if (\"decomposed\", i, attempt) in ctx.acted:\n            # This process",
+  "new": "        if True:\n            # This process",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_cut_ledger_line_is_read",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "if data and not data.endswith(b\"\\n\"):",
+  "new": "if False:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_target_s_commit_is_not_held_to",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        \"target_head\": target_head,\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_command_s_output_reaches_the_terminal",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        with _output_to(log):\n            try:",
+  "new": "        with contextlib.nullcontext():\n            try:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_the_command_driver_relays_nothing_a_trial_s_command_prints.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_session_s_environment_is_not_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        _refuse_inside_a_session()\n",
+  "new": "        pass\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_living_session_is_not_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    living = running_session(store, role)",
+  "new": "    living = None",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "an_unclean_store_is_not_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    refusal = leftover_refusal(store)",
+  "new": "    refusal = None",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "an_exposed_version_is_not_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if inputs.version in exposed:",
+  "new": "    if False:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "an_unregistered_run_root_is_not_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if run_root not in roots:",
+  "new": "    if False:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "unreportable_parameters_are_not_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "if not isinstance(params, dict) or params.get(\"reportable\") is not True:",
+  "new": "if not isinstance(params, dict):",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "an_open_protected_place_is_not_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        if refusal is not None:\n            msg = \"the run parameters",
+  "new": "        if False:\n            msg = \"the run parameters",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_canary_not_looked_for_is_not_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if missing:\n        msg = \"the run parameters do not look",
+  "new": "    if False:\n        msg = \"the run parameters do not look",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "an_unclean_target_is_not_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if _git(\"-C\", str(target), \"status\", \"--porcelain\", \"--untracked-files=all\").strip():",
+  "new": "    if False:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_target_holding_a_run_is_not_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if (target / \"run.json\").exists():",
+  "new": "    if False:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_second_round_into_its_directory_is_not_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        if os.path.lexists(out):",
+  "new": "        if False:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_resume_with_other_inputs_is_not_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if header.get(\"inputs_sha256\") != hashlib.sha256(canonical_json(given)).hexdigest():",
+  "new": "    if False:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ }
+]

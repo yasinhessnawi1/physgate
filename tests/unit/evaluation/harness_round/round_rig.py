@@ -113,7 +113,7 @@ def params(made: StandInStore, **changes: Any) -> dict[str, Any]:  # noqa: ANN40
     The stand-in ``decompose`` takes these as the run's configuration, adding what a run is
     given (its id, seed, brief digest and target commit); the real one measures the rest.
     """
-    fields = json.loads((EXAMPLES / "params.subscription.json").read_text())
+    fields: dict[str, Any] = json.loads((EXAMPLES / "params.subscription.json").read_text())
     fields.update(
         claude_version="2.1.301",
         endpoint="default",

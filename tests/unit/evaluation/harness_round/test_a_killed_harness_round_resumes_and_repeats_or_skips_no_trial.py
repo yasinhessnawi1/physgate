@@ -13,6 +13,7 @@ spent. A resume given other inputs than the round was started with is refused.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +46,7 @@ def _round(rig: Rig, driver: StandInDriver, *, resume: bool = False, **changes: 
 
 def _place(rig: Rig) -> Path:
     summary = json.loads((rig.root / "out" / ROUND_RECORD).read_bytes())
-    return withheld_root(rig.made.store, "control") / HARNESS_ROUNDS / summary["round"]
+    return withheld_root(rig.made.store, "control") / HARNESS_ROUNDS / str(summary["round"])
 
 
 def _ledger(rig: Rig) -> list[dict[str, Any]]:
@@ -189,3 +190,35 @@ def test_a_second_round_into_an_output_directory_that_exists_is_refused(tmp_path
         _round(rig, driver)
     assert refused.value.context["refused_because"] == "out_exists"
     assert driver.decomposed == []
+
+
+def test_a_ledger_line_a_kill_cut_off_is_dropped_and_its_step_taken_again(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    with pytest.raises(Killed):
+        _round(rig, rig.driver(killed={2}))
+    with (_place(rig) / LEDGER).open("ab") as ledger:
+        ledger.write(b'{"kind":"placed","ind')
+    status, _ = _round(rig, rig.driver(), resume=True)
+    assert status == "done"
+    assert _outcomes(rig) == [(0, "pass"), (1, "pass")]
+    assert (_place(rig) / LEDGER).read_bytes().endswith(b"\n")
+
+
+def test_a_resume_after_the_target_moved_is_refused(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    with pytest.raises(Killed):
+        _round(rig, rig.driver(killed={2}))
+    (rig.target / "later.txt").write_text("a later commit\n")
+    for args in (["add", "-A"], ["commit", "-q", "-m", "later"]):
+        subprocess.run(
+            ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", *args],
+            cwd=rig.target,
+            check=True,
+            capture_output=True,
+        )
+    later = rig.driver()
+    with pytest.raises(RoundError) as refused:
+        _round(rig, later, resume=True)
+    assert refused.value.context["refused_because"] == "inputs_differ"
+    assert refused.value.context["fields"] == "target_head"
+    assert later.decomposed == [] and later.drives == []
