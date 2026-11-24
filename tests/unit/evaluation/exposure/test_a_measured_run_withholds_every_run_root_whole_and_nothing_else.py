@@ -20,7 +20,7 @@ import pytest
 from exposure_fixtures import StandInStore, api, config, facts, stand_in_store, with_run_root
 
 from physgate.evaluation import requirements
-from physgate.evaluation.tiers.exposure import run_roots
+from physgate.evaluation.tiers.exposure import add_run_root, run_roots, start_logs
 
 REQUIREMENT = "a_measured_run_withholds_every_run_root_whole"
 
@@ -155,3 +155,22 @@ def test_the_field_is_left_out_of_the_record_of_a_run_that_names_none(made: Stan
     named = config(task, made, withheld_whole=["/elsewhere/runs"])
     assert json.loads(named.canonical_bytes())["withheld_whole"] == ["/elsewhere/runs"]
     assert named.sha256() != plain.sha256()
+
+
+def test_another_role_s_run_root_in_the_store_is_withheld_too(
+    made: StandInStore, tmp_path: Path
+) -> None:
+    """The runs of every role's root in a store lie on the same store, its own role's or not."""
+    base = tmp_path.resolve()
+    runs = with_run_root(made, base / "runs")
+    firmware = made.store / "firmware" / "withheld"
+    firmware.mkdir(parents=True)
+    start_logs(firmware)
+    (base / "firmware-runs").mkdir()
+    add_run_root(made.store, "firmware", base / "firmware-runs")
+    task = made.tasks["held_out"][0]
+    own = config(task, made, withheld_whole=_roots(made))
+    why = _ask(own, runs / "run-1")
+    assert why is not None and "(run_root_not_withheld)" in why, why
+    every = config(task, made, withheld_whole=[*_roots(made), str(base / "firmware-runs")])
+    assert _ask(every, runs / "run-1") is None

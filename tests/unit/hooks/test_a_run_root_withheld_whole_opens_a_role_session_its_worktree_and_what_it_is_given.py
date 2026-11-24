@@ -186,3 +186,21 @@ def test_a_root_that_holds_none_of_the_session_s_needs_no_place(rig: Path) -> No
     config = _config(rig, withheld_whole=(str(rig / "older-runs"),), own_place=None)
     assert not _reads(config, rig / "older-runs" / "run-z" / "run.json")
     assert _reads(config, rig / "runs" / "run-b" / "worktrees" / "m1" / "spec.md")
+
+
+def test_its_own_records_in_the_root_are_kept_by_digest_only(rig: Path) -> None:
+    """The sentinel keeps no byte of what lies in the root but the worktree, its own files too.
+
+    Without the root its settings and its home's shell startup files lie only in the session
+    directories, whose own files the sentinel keeps the bytes of and puts back. Inside a root
+    withheld whole they are kept by their digest alone, as a withheld record is: one changed past
+    every layer that refuses its write is not put back but halts the session (``UNRESTORABLE``).
+    """
+    sdir = rig / "runs" / "run-b" / "sessions" / "s1"
+    own = (sdir / "session" / "settings.json", sdir / "home" / ".bashrc")
+    whole, before = _config(rig), _config(rig, withheld_whole=(), own_place=None)
+    for path in own:
+        assert paths.read_refused(str(path), whole), path
+        assert not paths.read_refused(str(path), before), path
+    # The worktree stays readable, so its bytes are kept as ever.
+    assert not paths.read_refused(str(rig / "runs" / "run-b" / "worktrees" / "m1" / "x"), whole)

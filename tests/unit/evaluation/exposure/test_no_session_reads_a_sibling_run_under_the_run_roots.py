@@ -7,11 +7,11 @@ its held-out brief), its module's worktree with the answer, and its sessions' st
 asked of the three kinds of session that come after it: a role session of B, a raw baseline
 session on B's task, and a reviewer of B's work.
 
-Each session is installed through its own real installer command line (the dispatcher's, the raw
-arm's, the reviewer's), and each read is judged at the layer that enforces it: the file tool's
-hook decision, the shell's hook decision, and the OS layer's policy for a shell read. (The OS
-layer itself is exercised on the real binary in CI's OS-layer job.) What the session's own run
-gives it stays readable: its worktree.
+The role and raw sessions are installed through their own real installer command lines (the
+dispatcher's, the raw arm's), the reviewer's request is built as its installer is given it, and each
+read is judged at the layer that enforces it: the file tool's hook decision, the shell's hook
+decision, and the OS layer's policy for a shell read. (The OS layer itself is exercised on the real
+binary in CI's OS-layer job.) What the session's own run gives it stays readable: its worktree.
 """
 
 from __future__ import annotations

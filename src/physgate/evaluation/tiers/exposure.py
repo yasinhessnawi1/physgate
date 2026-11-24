@@ -60,7 +60,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import Field, StringConstraints, TypeAdapter, ValidationError, model_validator
 
@@ -1385,8 +1385,9 @@ def run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str
 
     The earlier runs on a store lie under its roles' run roots, each with every canary of the
     store in its record, the plan and specifications written from its brief, and its answer. A
-    measured run withholds whole, in ``withheld_whole``, exactly the run roots of every role
-    whose root it names, spelt as the run-roots log holds them: all of them
+    measured run withholds whole, in ``withheld_whole``, exactly the run roots of every role's
+    root in each store it names, its own role's or another's, spelt as the run-roots logs hold
+    them: all of them
     (``run_root_not_withheld``), and nothing else (``withheld_whole_not_a_run_root``). Its
     sessions reach only their own worktree inside them, so its directory lies strictly inside a
     run root, never at one (``run_dir_is_a_run_root``). Only counts are said, never a path.
@@ -1403,8 +1404,11 @@ def run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str
 
 def _run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str] | None:
     registered: set[str] = set()
-    for store, role in role_roots(tuple(config.held_out)):
-        registered |= {str(root) for root in run_roots(store, role)}
+    for store in sorted({store for store, _ in role_roots(tuple(config.held_out))}):
+        # Every role's root in the store, named or not: its runs lie on the same store.
+        for role in get_args(Role):
+            if os.path.lexists(role_root(store, role)):
+                registered |= {str(root) for root in run_roots(store, role)}
     given = set(config.withheld_whole)
     missing = registered - given
     if missing:
