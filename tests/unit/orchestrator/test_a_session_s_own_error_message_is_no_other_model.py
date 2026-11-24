@@ -97,7 +97,7 @@ def test_a_role_session_that_met_a_notice_and_was_answered_by_its_pin_completes(
 
 @pytest.mark.parametrize(
     ("answerer", "notice"),
-    [("claude-sonnet-5", SYNTHETIC), (None, "<Synthetic>"), (None, "<synthetic> ")],
+    [("claude-haiku-4-5-20251001", SYNTHETIC), (None, "<Synthetic>"), (None, "<synthetic> ")],
     ids=["another model after the notice", "a lookalike name", "a lookalike with a space"],
 )
 def test_a_role_session_answered_by_any_other_name_is_still_refused(

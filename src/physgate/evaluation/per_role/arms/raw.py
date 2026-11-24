@@ -79,6 +79,7 @@ from physgate.orchestrator.dispatch import (
 )
 from physgate.orchestrator.exceptions import InvocationError, RunConfigError
 from physgate.orchestrator.invocation import NO_TOOL_SERVERS, isolated_env, role_argv
+from physgate.orchestrator.managed import answering_models
 from physgate.orchestrator.processes import kill_own, stop_tree
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.role_python import RolePython, session_bin
@@ -904,7 +905,9 @@ def _run(
         # Responses cut short that the binary's totals leave out: in no count, billing unknown.
         "tokens_not_in_binary_totals": cut_off,
         "cap": cap,
-        "answered_by": sorted(captured.answered),
+        # The models that answered, the binary's own messages (an error's notice) left out by
+        # exact name, as the pair check reads them; the sealed stream keeps what it showed.
+        "answered_by": answering_models(captured.answered),
         "held_out_seen": held_out_seen(stdout, setup.held_out_canaries),
         "watch_failure": watch.failure,
         "sentinel_after_stop": after.get("refused"),

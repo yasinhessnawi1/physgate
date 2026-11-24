@@ -91,6 +91,7 @@ from physgate.orchestrator.invocation import (
 from physgate.orchestrator.managed import (
     FlagCache,
     ObservedTraffic,
+    answering_models,
     drift,
     flag_cache,
     flags_off_by_setting,
@@ -1497,8 +1498,11 @@ def judge(
     if lost is not None:
         detail = f"the binary could not save its own {lost}"
         return "writes_lost", detail, None, seen_model, turns
-    if echoed != [model]:
-        return "model_mismatch", f"asked for {model}, answered by {echoed}", None, seen_model, turns
+    # Held to the pin without the binary's own messages (an error's notice), which no model
+    # wrote; a call no model answered is a mismatch still. What the stream named is kept above.
+    models = answering_models(answered)
+    if models != [model]:
+        return "model_mismatch", f"asked for {model}, answered by {models}", None, seen_model, turns
     answer = (result or {}).get("structured_output")
     if answer is None:
         return "no_structured_output", "the call succeeded with no plan", None, seen_model, turns
