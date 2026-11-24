@@ -89,7 +89,10 @@ fixes was kept.
   `noted`, not blocking, and the closing pass records conflicts only where a domain's change made
   one new: a request it keeps its value against (SS-26) is one, and blocks. A rating exceeded only
   at the top of the supply range is an open point (SS-10), not a conflict: recorded under
-  `stall_current_max`, it is `noted`, never blocking, and carried to integration. In form 2 (no
+  `stall_current_max`, it is `noted`, never blocking, and carried to integration. So, always, is a reversal
+  at speed over a rating (SS-18): recorded under `reversal_current_max`, with control as its
+  examiner (integration reads it), `noted`, never blocking; the work and its review do not judge whether a criterion can
+  be met without it. In form 2 (no
   issued specification) a conflict is recorded as `noted`, non-blocking. This rule takes
   precedence over the given-value sentence of "Blocking specification defect" below. Not recorded,
   it fails SS-7. A value a person chose and an order carried (above) replaces the brief's value for
@@ -397,8 +400,9 @@ follow-ups" are judged by reading like the rest.
   to the attempt chose it, which SS-28 then judges (§3; the comparison cat. 1).
 - **SS-7. A conflict the work could see is recorded.** Applies when, by reading, a criterion of the
   brief that the specification gives cannot be met at a cross value the work wrote or kept (a speed,
-  torque or recovery a command limit does not allow; a current a driver's rating does not carry at the voltage the
-  brief pins; a mass a limit does not allow). The work's record names both statements, the calculation that shows
+  torque or recovery a command limit does not allow; the stall current the brief bounds, over a rating at the largest average voltage
+  commanded; a mass a limit does not allow). A reversal current over a rating is SS-18's open
+  point, never such a conflict. The work's record names both statements, the calculation that shows
   the conflict with units, the margin, and the criterion it puts at risk, and is cited from the
   value's `source`, and the record opens with it. A conflict visible by reading and not recorded
   fails (§3, §9, skill "recording a conflict"; cat. 2; the calculation cat. 1). Each such conflict
@@ -429,7 +433,8 @@ follow-ups" are judged by reading like the rest.
   limit among them) is judged at the pinned voltage and also checked at the top. A rating met at
   the pinned voltage and exceeded only at the top is an open point, not a conflict: the record
   gives the figure under `stall_current_max`, the voltage, the rating and its source, for the
-  design to settle; sizing cuts no command limit and writes none of its own for it (§4). One not recorded fails here; one recorded as a conflict is judged as the
+  design to settle; sizing cuts no command limit and writes none of its own for it (§4), and does not
+  write the figure as `peak_stall_current`, the stall at full duty (§10). One not recorded fails here; one recorded as a conflict is judged as the
   open point it is. A demand against a part's rating checked at the nominal voltage only, with no
   allowance naming this item, fails (§4; cat. 2).
 
@@ -557,8 +562,15 @@ follow-ups" are judged by reading like the rest.
 - **SS-18. Each sum is compared with each rating on its path, peak with peak.** Same trigger. Each
   element's rating is named with its kind (peak or continuous) and source, a peak demand compared
   with a peak rating and a sustained demand with a continuous one. A mismatched kind, a rating with
-  no source, or a comparison that fails by reading and is not recorded as a conflict fails (§7;
-  cat. 2; the comparison cat. 1).
+  no source, or a comparison that fails by reading and is not recorded fails (§7; cat. 2; the
+  comparison cat. 1). A stall current the brief bounds, over a rating, is recorded as a conflict
+  (SS-7). A reversal at speed over a rating is always an open point, never a conflict:
+  `reversal_current_max` with figure, speed, voltage, rating, source, the reverse duty that avoids
+  it and control as its examiner (integration reads it), `noted` and never blocking; the item is `met` and the line is
+  not a finding. One recorded without the duty that avoids it or without its examiner fails; one
+  recorded as a conflict is `met` with a non-blocking defect naming it as the open point it is,
+  and is not raised to a person; one not recorded fails. Whether a criterion could be met without
+  the current is not judged here.
 - **SS-19. A rating not found is stated as missing.** Same trigger. A rating the budget needs and no
   source gives is written as missing; one assumed fails (§7; cat. 2).
 
@@ -780,4 +792,4 @@ source, is the work's, even when its number equals a given value.
   choice was made to escape or satisfy a check and the work fails the corresponding rule when judged
   by reading; without that reasoning, at most `noted`.
 
-<!-- 521efe5bce22df2970dc4387fcf22ee5 -->
+<!-- 13aece7fa903dcdb0112ab176aedb0e4 -->
