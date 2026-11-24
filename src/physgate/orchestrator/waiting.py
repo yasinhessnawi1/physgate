@@ -23,7 +23,7 @@ from physgate.orchestrator.closing_wait import closing_waits
 from physgate.orchestrator.events import read_events
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.replay import RunState, replay
-from physgate.orchestrator.usage_limit import resume_after, resume_refusal
+from physgate.orchestrator.usage_limit import UsageLimit, resume_after, resume_refusal
 from physgate.orchestrator.wait_cycle import never_ran_at
 
 #: The exit status of ``run`` and ``resume`` for a run waiting for the account's usage limit,
@@ -33,20 +33,28 @@ EXIT_WAITING_FOR_LIMIT = 75
 WAITING_FOR_LIMIT = "waiting_for_limit"
 
 
+def limit_words(halted_at: str, limit: UsageLimit | None) -> dict[str, object]:
+    """What is printed of a wait for the limit stopped at ``halted_at``: the step and the reset.
+
+    The words of a run halted on the limit, and of a decomposition stopped by it, whose exit is
+    the same: ``resume_after`` is the instant after which the run is resumed, or the decomposition
+    made again.
+    """
+    return {
+        "step": WAITING_FOR_LIMIT,
+        "limit_type": limit.limit_type if limit is not None else None,
+        "resets": limit.resets if limit is not None else None,
+        "resets_at": limit.resets_at if limit is not None else None,
+        "resume_after": resume_after(halted_at, limit),
+    }
+
+
 def printed_step(kind: str, state: RunState) -> tuple[dict[str, object], int]:
     """The step ``run`` and ``resume`` print for where the run stopped, and their exit status."""
     halted = state.halted
     if kind == "halted" and halted is not None and halted.reason == "usage_limit":
-        limit = halted.usage_limit
-        printed: dict[str, object] = {
-            "step": WAITING_FOR_LIMIT,
-            "limit_type": limit.limit_type if limit is not None else None,
-            "resets": limit.resets if limit is not None else None,
-            "resets_at": limit.resets_at if limit is not None else None,
-            "resume_after": resume_after(halted.ts, limit),
-        }
-        return printed, EXIT_WAITING_FOR_LIMIT
-    printed = {"step": kind}
+        return limit_words(halted.ts, halted.usage_limit), EXIT_WAITING_FOR_LIMIT
+    printed: dict[str, object] = {"step": kind}
     # Sizing's closing pass held while a domain module has not settled, with the modules it
     # waits for; left out where none is held, so every other step prints as it always has.
     printed |= closing_waits(state)

@@ -70,6 +70,7 @@ from physgate.orchestrator.replay import RunState, project_ledger
 from physgate.orchestrator.run_config import RunConfig, require_recorded, write_run_config
 from physgate.orchestrator.sign_off import CURRENT_SHA256
 from physgate.orchestrator.trajectory import Seal
+from physgate.orchestrator.usage_limit import UsageLimit, held_at
 from physgate.roles import owners_of
 from physgate.state.exceptions import CorruptRecordError
 from physgate.state.task_ledger import TaskLedger
@@ -925,23 +926,29 @@ class RunRecord:
         retried: Sequence[RetriedCall] = (),
         *,
         sent: SentToThePlanner | None = None,
+        usage_limit: UsageLimit | None = None,
     ) -> None:
         """Record a run whose last call produced no plan it could start, after ``earlier``.
 
         ``sent`` is what the failed call was sent: the library's files and its prompt's digest and
         length; the halt names them, so a failed decomposition says what it was given.
+        ``usage_limit`` is the account's usage limit the call ended on, as its stream gave it: the
+        halt carries it with its reset read as a halt on the limit reads it, so the decomposition
+        made again after the reset knows when that is.
         """
         self._require_proposals(earlier, proposals, retried)
         self._begin(call, None, earlier, proposals, retried)
         named = sent or SentToThePlanner()
+        envelope = self.envelope()
         self.emit(
             Halted(
-                **self.envelope(),
+                **envelope,
                 reason="decomposition_failed",
                 detail=detail,
                 planner_library=named.planner_library,
                 prompt_sha256=named.prompt_sha256,
                 prompt_bytes=named.prompt_bytes,
+                usage_limit=held_at(usage_limit, envelope["ts"]),
             )
         )
 

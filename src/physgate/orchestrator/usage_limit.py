@@ -339,6 +339,20 @@ def bounded(limit: UsageLimit, *, read_at: datetime) -> UsageLimit:
     return limit.model_copy(update={"resets_at": None, "out_of_range_reset": limit.resets_at})
 
 
+def held_at(limit: UsageLimit | None, ts: str) -> UsageLimit | None:
+    """``limit`` as a line stamped ``ts`` holds it: its reset read as the next instant after ``ts``.
+
+    A reset the stream gave further out than any window after ``ts`` is not taken (:func:`bounded`);
+    a reset the stream gave no instant for is read from its text (:func:`with_instant`).
+    """
+    if limit is None:
+        return None
+    limit = bounded(limit, read_at=stamped(ts))
+    if limit.resets_at is not None:
+        return limit
+    return with_instant(limit, after=stamped(ts))
+
+
 def resume_after(halted_at: str, limit: UsageLimit | None) -> str:
     """The instant after which a run halted on the limit at ``halted_at`` may be resumed.
 
