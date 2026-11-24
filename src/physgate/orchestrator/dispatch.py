@@ -1356,8 +1356,26 @@ def _os_error(exc: OSError, named: Callable[[str], str]) -> str:
     """An error reading a put-back root, its path named by ``named`` (a label, where protected)."""
     where = exc.filename
     if not isinstance(where, str):
-        return f"{type(exc).__name__}: {exc.strerror or exc}"
+        return f"{type(exc).__name__}: {exc.strerror or 'no reason given'}"
     return f"{type(exc).__name__}: {exc.strerror} ({named(where)})"
+
+
+def roots_at_end(record: RootsRecord, named: Callable[[str], str]) -> tuple[list[str], str | None]:
+    """What changed among the put-back roots since ``record``, and why they cannot be read.
+
+    Each path named by ``named`` (a label, where protected), the error's file among them. Read
+    inside, named outside: the naming never raises, and an error it met is never taken for a
+    root that could not be read.
+    """
+    failure: OSError | None = None
+    try:
+        changed = changed_since(record)
+    except OSError as exc:
+        changed, failure = [], exc
+    moved = [named(p) for p in changed]
+    if failure is None:
+        return moved, None
+    return moved, f"a put-back root could not be read: {_os_error(failure, named)}"
 
 
 def changed_since(record: RootsRecord) -> list[str]:
@@ -2265,19 +2283,7 @@ class ClaudeDispatcher:
                     redact(stdout, self._credential.secret)
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
-        # Read inside, named outside: the naming never raises, and an error it met is never
-        # taken for a root that could not be read.
-        failure: OSError | None = None
-        try:
-            changed = changed_since(roots)
-        except OSError as exc:
-            changed, failure = [], exc
-        moved = [named(p) for p in changed]
-        unread = (
-            None
-            if failure is None
-            else f"a put-back root could not be read: {_os_error(failure, named)}"
-        )
+        moved, unread = roots_at_end(roots, named)
         # A second name for a held record, where the session could write: its worktree, and its
         # directory, which holds what the sentinel moved aside. An attempt commit never holds one.
         names_seen = second_names(

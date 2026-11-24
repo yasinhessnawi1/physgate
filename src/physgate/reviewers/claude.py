@@ -1066,9 +1066,11 @@ class ClaudeReviewer:
     def _install(self, packet: Packet | PlanPacket, sdir: Path, temp: Path) -> Installed:
         # The part of the sentinel's record that names the held-out entries is kept here,
         # beside every review's directory under the review root, never in one: a review's
-        # directory is read and can be handed on, and this place is refused to every session.
-        # Role sessions are withheld the whole review root, this place with it. Made and judged
-        # before anything of the session is written, a credential above all.
+        # directory is read and can be handed on. This place is refused to every reviewer (a
+        # root of its configuration) and to every role session, which is withheld the whole
+        # review root. A raw baseline session is not withheld the review root yet, so it is
+        # not refused this place either until its setup withholds it. Made and judged before
+        # anything of the session is written, a credential above all.
         apart = place_apart(self._root)
         state = sdir / "state"
         state.mkdir()

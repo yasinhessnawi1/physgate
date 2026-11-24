@@ -73,11 +73,14 @@ What the sentinel writes where the session or a later reader sees it (a refusal,
 the halt it keeps and returns) names no path of the protected material (beneath a held-out or
 answer-key root, a withheld run record, a root withheld whole, the place apart, the reviewers'
 material; :func:`_kind`): a label stands in its place (:func:`label_of`), the kind of
-protection and a digest of the path keyed by a key no session reads, kept in the place apart
-(made there the first time a label is needed), or, where none is named, in the session's own
-record, beside the paths it holds already. One path has one label, so two are told apart; the
-operator finds the path from the key and the record kept apart. A halt kept by a record made
-before the labels is returned as it was kept.
+protection and a digest of the path keyed by a key the session does not read, kept in the place
+apart (made there the first time a label is needed; refused to reviewers and role sessions, not
+yet to a raw baseline session, which is not withheld the review root), or, where none is named,
+in the session's own record, beside the paths it holds already. One path has one label, so two
+are told apart; the operator finds the path from the key and the record kept apart. A label made
+with a key for one call alone says so. A halt kept by a record made before the labels is
+returned as it was kept. An exception that escapes the check is written by its kind alone
+(:func:`physgate.hooks.runtime.failure`).
 """
 
 from __future__ import annotations
@@ -94,6 +97,7 @@ import time
 from typing import TYPE_CHECKING
 
 from physgate.hooks import paths, withheld
+from physgate.hooks.exceptions import LabelKeyError, PlaceApartError
 from physgate.hooks.journal_view import Head, heads
 from physgate.hooks.reasons import (
     ANSWER_KEY_REASON,
@@ -297,7 +301,7 @@ def _apart_place(config: ConfigView) -> str | None:
     places = [r.path for r in config.protected_roots if r.reason == SENTINEL_APART_REASON]
     if len(places) > 1:
         msg = "the session's configuration names more than one place apart for the record"
-        raise ValueError(msg)
+        raise PlaceApartError(msg)
     return places[0] if places else None
 
 
@@ -320,23 +324,32 @@ def opened_apart(place: str) -> int:
     then goes through (``dir_fd``): nothing swapped in at the path afterwards is reached. The
     dispatcher makes the place so before the install; it is never made here.
 
+    Its errors name the place by what it is, never by its path (they reach the session's
+    refusal): the dispatcher that made it has the path.
+
     Raises:
-        ValueError: it is not there, is a link or not a directory, is another user's, or its
-            mode is not 0700.
+        PlaceApartError: it is not there, is a link or not a directory, is another user's, or
+            its mode is not 0700.
     """
     try:
         fd = os.open(place, _APART_DIRECTORY)
     except OSError as exc:
-        msg = f"the place apart {place} is not a directory of its own, not a link ({exc.strerror})"
-        raise ValueError(msg) from None
+        msg = (
+            "the place apart for the sentinel's records is not a directory of its own, "
+            f"not a link ({exc.strerror})"
+        )
+        raise PlaceApartError(msg) from None
     st = os.fstat(fd)
     # Its permission bits: read, write and search for this user alone. A set-group-id bit, which
     # a directory takes from its parent on some hosts, opens nothing to anyone else.
     mode = st.st_mode & 0o777
     if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or mode != 0o700:
         os.close(fd)
-        msg = f"the place apart {place} is not private to this user (mode {mode:o})"
-        raise ValueError(msg)
+        msg = (
+            "the place apart for the sentinel's records is not private to this user "
+            f"(mode {mode:o})"
+        )
+        raise PlaceApartError(msg)
     return fd
 
 
@@ -344,7 +357,7 @@ def held_apart(place: str) -> None:
     """Refuse a place apart that is not the run's own (:func:`opened_apart`).
 
     Raises:
-        ValueError: as :func:`opened_apart`.
+        PlaceApartError: as :func:`opened_apart`.
     """
     os.close(opened_apart(place))
 
@@ -371,6 +384,9 @@ def label_of(path: str, kind: str, key: bytes) -> str:
     Twelve hex digits of keyed BLAKE2b (a keyed hash, so no module beyond ``hashlib`` is loaded)
     over the path as the sentinel recorded it. Without the key a reader holding a guess at the
     path cannot confirm it; with it, the operator finds the path among the record's entries.
+    A key is one place's: the review root's for reviewers, the run's for its role sessions, a
+    raw session's own record for it. One path has one label within one place, and another in
+    another place.
     """
     digest = hashlib.blake2b(path.encode(), digest_size=6, key=key).hexdigest()
     return f"{kind} entry {digest}"
@@ -380,65 +396,82 @@ def label_key(place: str) -> bytes:
     """The key in the place apart ``place``, made there the first time it is asked for.
 
     Reached through the place's own descriptor (:func:`opened_apart`), with no link followed.
-    Made once, exclusively, in one write: a session that asks while another is making it finds
-    the name taken and reads the key once it is whole, so both take the same key.
+    Made whole or not at all: written to a temporary name in the place, synced, and moved to the
+    key's name, while the place is locked against every other maker, so a hook killed while it
+    makes the key leaves at most the temporary name, which the next maker removes. Two sessions
+    asking at once take the same key.
 
     Raises:
-        ValueError: the place is not the run's own, or what is at the key's name is a link, no
-            file, or no key.
+        PlaceApartError: the place is not the run's own.
+        LabelKeyError: what is at the key's name is no key this user's alone (:func:`_read_key`).
+        OSError: the key cannot be read or made.
     """
     fd = opened_apart(place)
     try:
         try:
-            made = os.open(
-                LABEL_KEY_NAME,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                0o600,
-                dir_fd=fd,
-            )
-        except FileExistsError:
+            return _read_key(fd)
+        except FileNotFoundError:
             pass
-        else:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
             try:
-                os.write(made, os.urandom(_KEY_BYTES).hex().encode("ascii"))
+                # Made by another maker while this one waited for the lock.
+                return _read_key(fd)
+            except FileNotFoundError:
+                pass
+            tmp = f".{LABEL_KEY_NAME}.tmp"
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp, dir_fd=fd)
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+            made = os.open(tmp, flags, 0o600, dir_fd=fd)
+            try:
+                text = os.urandom(_KEY_BYTES).hex().encode("ascii")
+                while text:
+                    text = text[os.write(made, text) :]
+                os.fsync(made)
             finally:
                 os.close(made)
-        return _read_key(fd, place)
+            os.rename(tmp, LABEL_KEY_NAME, src_dir_fd=fd, dst_dir_fd=fd)
+            os.fsync(fd)
+            return _read_key(fd)
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
     finally:
         os.close(fd)
 
 
-#: How long a key being made by another session's hook is waited for, in reads 10 ms apart.
-_KEY_READS = 100
+def _read_key(place_fd: int) -> bytes:
+    """The key at its name in the place apart, read with no link followed.
 
-
-def _read_key(place_fd: int, place: str) -> bytes:
-    for _ in range(_KEY_READS):
-        try:
-            fd = os.open(
-                LABEL_KEY_NAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=place_fd
-            )
-        except OSError as exc:
-            if exc.errno != errno.ELOOP:
-                raise
-            msg = f"the key for labels in the place apart {place} is a link"
-            raise ValueError(msg) from None
-        with os.fdopen(fd, "rb") as handle:
-            regular = stat.S_ISREG(os.fstat(handle.fileno()).st_mode)
-            text = handle.read() if regular else b""
-        if regular and len(text) < 2 * _KEY_BYTES:
-            # Another hook made the name and has not written the key yet.
-            time.sleep(0.01)
-            continue
-        try:
-            key = bytes.fromhex(text.decode("ascii"))
-        except (UnicodeDecodeError, ValueError):
-            key = b""
-        if len(key) == _KEY_BYTES:
-            return key
-        break
-    msg = f"what is at the key's name for labels in the place apart {place} is no key"
-    raise ValueError(msg)
+    Raises:
+        FileNotFoundError: there is none.
+        LabelKeyError: it is a link, no regular file, not this user's alone (mode 0600, one name),
+            or not 64 hex digits.
+        OSError: it cannot be read.
+    """
+    try:
+        fd = os.open(LABEL_KEY_NAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=place_fd)
+    except OSError as exc:
+        if exc.errno != errno.ELOOP:
+            raise
+        msg = "it is a link"
+        raise LabelKeyError(msg) from None
+    with os.fdopen(fd, "rb") as handle:
+        held = os.fstat(handle.fileno())
+        if not stat.S_ISREG(held.st_mode):
+            msg = "it is not a regular file"
+            raise LabelKeyError(msg)
+        if held.st_uid != os.geteuid() or held.st_mode & 0o777 != 0o600 or held.st_nlink != 1:
+            msg = "it is not this user's alone, with mode 600 and one name"
+            raise LabelKeyError(msg)
+        text = handle.read(4 * _KEY_BYTES)
+    if not text:
+        msg = "it is empty"
+        raise LabelKeyError(msg)
+    if len(text) != 2 * _KEY_BYTES or any(c not in b"0123456789abcdef" for c in text):
+        msg = f"it holds {len(text)} bytes, not the {2 * _KEY_BYTES} hex digits of a key"
+        raise LabelKeyError(msg)
+    return bytes.fromhex(text.decode("ascii"))
 
 
 def _kind(path: str, config: ConfigView) -> str | None:
@@ -461,63 +494,117 @@ def _kind(path: str, config: ConfigView) -> str | None:
     return _KINDS.get(reason) if reason is not None else None
 
 
-def _namer(
-    config: ConfigView, apart: str | None, base: dict[str, Any] | None
-) -> Callable[[str], str]:
-    """What names a path in a refusal, a log line or a halt: the path, or its label.
+#: What a label made with a key for one record or one message alone says after it: nobody can
+#: map it back, the key being gone with the call that made it.
+ONE_OFF = " (one-off key)"
+
+
+class Namer:
+    """What names a path in what is written of a session: the path, or its label.
 
     The key is taken the first time a label is made: the place apart's, or, where none is named,
     the record ``base``'s own (made there, kept when it is saved); with neither, one for this
-    call alone.
-    """
-    keys: list[bytes] = []
+    call alone, and every label made with it says so (:data:`ONE_OFF`).
 
-    def named(path: str) -> str:
-        kind = _kind(path, config)
+    The sentinel's (``total`` false) raises where a path cannot be judged or the place apart is
+    not the run's own, as every check does; where the place's key is no key, it labels with a
+    key of its own and keeps why (``unusable``), so that what was done is recorded before the
+    call is refused. The orchestrator's (``total``) never raises: a path it cannot judge is
+    labelled, never named, and a key it cannot have is replaced by one of its own.
+    """
+
+    def __init__(
+        self,
+        config: ConfigView,
+        apart: str | None,
+        base: dict[str, Any] | None,
+        *,
+        total: bool = False,
+    ) -> None:
+        """Name paths as ``config`` protects them, with the key of ``apart`` or of ``base``."""
+        self.config = config
+        self.apart = apart
+        self.base = base
+        self.total = total
+        self.key: bytes | None = None
+        #: Whether the key is one for this call alone.
+        self.one_off = False
+        #: Why the place apart's key could not be used, where it could not.
+        self.unusable: str | None = None
+
+    def __call__(self, path: str) -> str:
+        """``path`` as it is, or its label where it is a path of the protected material."""
+        try:
+            kind = _kind(path, self.config)
+        except (OSError, ValueError):
+            if not self.total:
+                raise
+            kind = "protected"
         if kind is None:
             return path
-        if not keys:
-            if apart is not None:
-                keys.append(label_key(apart))
-            elif base is not None:
-                kept = base.setdefault(LABEL_KEY_FIELD, os.urandom(_KEY_BYTES).hex())
-                keys.append(bytes.fromhex(kept))
-            else:
-                keys.append(os.urandom(_KEY_BYTES))
-        return label_of(path, kind, keys[0])
+        if self.key is None:
+            self.key = self._take()
+        label = label_of(path, kind, self.key)
+        return label + ONE_OFF if self.one_off else label
 
-    return named
+    def _take(self) -> bytes:
+        if self.apart is not None:
+            try:
+                return label_key(self.apart)
+            except LabelKeyError as exc:
+                self.unusable = str(exc)
+            except OSError as exc:
+                self.unusable = (
+                    f"it cannot be read ({errno.errorcode.get(exc.errno or 0, 'error')})"
+                )
+            except ValueError:
+                if not self.total:
+                    raise
+        elif self.base is not None:
+            kept = self.base.setdefault(LABEL_KEY_FIELD, os.urandom(_KEY_BYTES).hex())
+            return bytes.fromhex(kept)
+        self.one_off = True
+        return os.urandom(_KEY_BYTES)
 
 
-def labeller(config: ConfigView) -> Callable[[str], str]:
+def _namer(config: ConfigView, apart: str | None, base: dict[str, Any] | None) -> Namer:
+    """The sentinel's namer for one check (:class:`Namer`)."""
+    return Namer(config, apart, base)
+
+
+def labeller(config: ConfigView) -> Namer:
     """What names a path in what the orchestrator writes of a session: the path, or its label.
 
     The same label the session's sentinel writes for the path, where the configuration names a
     usable place apart. It never raises, so what the orchestrator records is always written: a
-    key that cannot be had gives labels told apart within one record, and a path that cannot be
-    judged is labelled, never named.
+    key that cannot be had gives labels that say they were made with a key of their own (an
+    operator then knows nobody can map them back), and a path that cannot be judged is
+    labelled, never named.
     """
     try:
         apart = _apart_place(config)
     except ValueError:
         apart = None
-    keys: list[bytes] = []
+    return Namer(config, apart, None, total=True)
 
-    def named(path: str) -> str:
-        try:
-            kind = _kind(path, config)
-        except (OSError, ValueError):
-            kind = "protected"
-        if kind is None:
-            return path
-        if not keys:
-            try:
-                keys.append(label_key(apart) if apart is not None else os.urandom(_KEY_BYTES))
-            except (OSError, ValueError):
-                keys.append(os.urandom(_KEY_BYTES))
-        return label_of(path, kind, keys[0])
 
-    return named
+#: What the sentinel adds to its refusal when the place apart's key cannot be used.
+KEY_UNUSABLE = (
+    "The key the sentinel labels protected paths with cannot be used: the file labels.key in "
+    "the place apart for the sentinel's records (sentinel-apart, in the run's directory, or "
+    "beside the reviews under the review root for a reviewer) {why}. What is named here is "
+    "labelled with a one-off key, which nobody can map back, and the call is refused. A person "
+    "removes that labels.key; the next label made makes a new key, and labels made with the "
+    "old one can then no longer be mapped."
+)
+
+
+def _keyed(decision: Decision, named: Namer) -> Decision:
+    """``decision``, refused with :data:`KEY_UNUSABLE` added where the place's key was no key."""
+    if named.unusable is None:
+        return decision
+    said = KEY_UNUSABLE.format(why=named.unusable)
+    return refuse(said if decision.allow else f"{decision.reason} {said}")
 
 
 def named_problems(problems: list[Problem], named: Callable[[str], str]) -> list[str]:
@@ -561,11 +648,11 @@ class _State:
         if self.apart_path is None:
             if kept_apart:
                 msg = "the record's protected entries are kept apart, and no place apart is named"
-                raise ValueError(msg)
+                raise PlaceApartError(msg)
             return loaded
         if not kept_apart:
             msg = "a place apart is named, and the record holds its protected entries whole"
-            raise ValueError(msg)
+            raise PlaceApartError(msg)
         self.apart_text = self._read_apart()
         part: dict[str, Any] = json.loads(self.apart_text)
         loaded["revert"] = loaded["revert"] | part["revert"]
@@ -613,7 +700,7 @@ class _State:
         """
         if self.apart is None or self.apart_path is None:
             msg = "no place apart is named to read the record's part from"
-            raise ValueError(msg)
+            raise PlaceApartError(msg)
         place = opened_apart(self.apart)
         try:
             try:
@@ -625,12 +712,12 @@ class _State:
             except OSError as exc:
                 if exc.errno != errno.ELOOP:
                     raise
-                msg = f"the session's part in the place apart {self.apart} is a link"
-                raise ValueError(msg) from None
+                msg = "the session's part in the sentinel's place apart is a link"
+                raise PlaceApartError(msg) from None
             with os.fdopen(fd) as handle:
                 if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
-                    msg = f"the session's part in the place apart {self.apart} is not a file"
-                    raise ValueError(msg)
+                    msg = "the session's part in the sentinel's place apart is not a file"
+                    raise PlaceApartError(msg)
                 return handle.read()
         finally:
             os.close(place)
@@ -1289,13 +1376,14 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
             base = _baseline(config, state)
             files, found = withheld.survey_found(_withheld_roots(config))
             base["withheld"] = {p: list(i) for p, i in files.items()}
-            problems = named_problems(found, _namer(config, state.apart, base))
+            named = _namer(config, state.apart, base)
+            problems = named_problems(found, named)
             if problems:
                 base["halted"] = LINKED.format(paths=", ".join(problems))
             state.save(base)
             if problems:
                 _event(config, hook_input, "withheld", problems)
-                return refuse(base["halted"])
+                return _keyed(refuse(base["halted"]), named)
             return ALLOW
         if base.get("halted"):
             return refuse(base["halted"])
@@ -1305,7 +1393,7 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
             base["halted"] = HALTED.format(paths=", ".join(halted))
             state.save(base)
             _event(config, hook_input, "halt", halted)
-            return refuse(base["halted"])
+            return _keyed(refuse(base["halted"]), named)
         put_back, failed = _revert(base, state)
         journals_changed, appended = _check_journals(base, state)
         records_changed = _check_records(base)
@@ -1358,22 +1446,25 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         _event(config, hook_input, "record changed", changed, {"records": records_changed})
     if failed:
         _event(config, hook_input, "unrestorable", failed)
-        return refuse(UNRESTORABLE.format(paths=", ".join(failed)))
-    if journals_changed:
+        decision = refuse(UNRESTORABLE.format(paths=", ".join(failed)))
+    elif journals_changed:
         if mismatched:
             _event(config, hook_input, "node mismatch", mismatched, {"restored": restored})
-        return refuse(JOURNAL_CHANGED.format(paths=", ".join(journals_changed)))
-    if mismatched:
+        decision = refuse(JOURNAL_CHANGED.format(paths=", ".join(journals_changed)))
+    elif mismatched:
         _event(config, hook_input, "node mismatch", mismatched, {"restored": restored})
-        return refuse(NODE_MISMATCH.format(paths=", ".join(mismatched)))
-    if unsure:
-        return refuse(LINKED.format(paths=", ".join(unsure)))
-    if put_back:
-        return refuse(PUT_BACK.format(paths=", ".join(put_back)))
-    if records_changed:
+        decision = refuse(NODE_MISMATCH.format(paths=", ".join(mismatched)))
+    elif unsure:
+        decision = refuse(LINKED.format(paths=", ".join(unsure)))
+    elif put_back:
+        decision = refuse(PUT_BACK.format(paths=", ".join(put_back)))
+    elif records_changed:
         listed = ", ".join(str(found["path"]) for found in records_changed)
-        return refuse(RECORD_CHANGED.format(paths=listed))
-    return ALLOW
+        decision = refuse(RECORD_CHANGED.format(paths=listed))
+    else:
+        decision = ALLOW
+    # Where the place's key was no key, everything above is on record first, as without labels.
+    return _keyed(decision, named)
 
 
 HOOK = HookSpec(

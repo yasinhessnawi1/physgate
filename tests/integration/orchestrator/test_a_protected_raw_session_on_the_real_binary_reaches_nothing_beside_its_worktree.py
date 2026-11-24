@@ -251,6 +251,7 @@ def _sibling(cwd: str, sibling: Path, mark: str, case_ignored: bool) -> list[Att
             tool("Read", file_path=f"{cwd}/s/{MARKED}"),
             str(sibling),
             mark,
+            extra={"link": f"{cwd}/s", "made_by": "symlink_shell"},
         ),
         Attempt(
             "sibling",
@@ -331,6 +332,7 @@ def _attempts(
             tool("Read", file_path=f"{cwd}/l/{MARKED}"),
             str(late),
             marks["late"],
+            extra={"link": f"{cwd}/l", "made_by": "symlink_shell"},
         ),
     ]
     if case_ignored:
@@ -643,11 +645,12 @@ def _round(root: Path, install_bin: Path) -> Round:
         made_by = by_label.get((attempt.group, str(attempt.extra.get("made_by"))))
         if (
             made_by is not None
-            and made_by.met.startswith("os:")
+            and made_by.met.startswith(("os:", "hook:"))
             and not os.path.lexists(str(attempt.extra["link"]))
             and "File does not exist" in attempt.result
         ):
-            # The link was never made (its shell met the OS layer's denial): nothing to read.
+            # The link was never made (its shell met the OS layer's denial or a hook's refusal,
+            # and no link is there): nothing to read.
             attempt.met = f"{made_by.met} (no link was made to read)"
     marks_after = {
         f"{a.group}/{a.label}": _read_or_empty(a.path)

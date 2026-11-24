@@ -855,7 +855,19 @@ def test_an_answer_key_file_given_a_second_name_before_the_commit_is_named_by_th
     assert second_name.exists(), "the second name was never made"
     assert report.end.outcome == "completed", report
     assert report.withheld_problems is not None, "the second name was not reported"
-    assert f"{stand_in}: has more than one name (2)" in report.withheld_problems
+    # Named by the label the session's sentinel gives it, keyed by the run's place apart.
+    label = _label(tmp_path, worktree / stand_in, "answer-key")
+    assert f"{label}: has more than one name (2)" in report.withheld_problems
+    assert str(stand_in) not in report.withheld_problems, report.withheld_problems
+
+
+def _label(root: Path, path: Path, kind: str) -> str:
+    """The label a path of the protected material is given, by the run's place apart's key."""
+    from physgate.hooks import sentinel
+    from physgate.orchestrator.dispatch import SENTINEL_APART_DIR
+
+    key = sentinel.label_key(str(root / "run" / SENTINEL_APART_DIR))
+    return sentinel.label_of(str(path), kind, key)
 
 
 def test_the_run_s_configuration_given_a_second_name_before_the_commit_is_named_by_the_dispatcher(
@@ -879,7 +891,9 @@ def test_the_run_s_configuration_given_a_second_name_before_the_commit_is_named_
     assert second_name.exists(), "the second name was never made"
     assert report.end.outcome == "completed", report
     assert report.withheld_problems is not None, "the second name was not reported"
-    assert "run.json: has more than one name (2)" in report.withheld_problems
+    label = _label(tmp_path, record, "withheld-record")
+    assert f"{label}: has more than one name (2)" in report.withheld_problems
+    assert "run.json" not in report.withheld_problems, report.withheld_problems
 
 
 def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
@@ -916,7 +930,7 @@ def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
 
         monkeypatch.setattr(dispatch_module, name, spy)
     owners: tuple[tuple[Any, str], ...] = (
-        (withheld_module, "survey"),
+        (withheld_module, "survey_found"),
         (placeholders_module, "sweep"),
     )
     for owner, name in owners:
@@ -942,7 +956,7 @@ def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
     unsandboxed = ended(tmp_path / "off", Absent(reason="stand-in: compared without the layer"))
     assert "sweep" in sandboxed and "sweep" not in unsandboxed
     assert [s for s in sandboxed if s != "sweep"] == unsandboxed
-    assert set(module_steps) | {"survey"} <= set(unsandboxed)
+    assert set(module_steps) | {"survey_found"} <= set(unsandboxed)
 
 
 # --- what the runtime makes on its own inside the OS layer -----------------------------

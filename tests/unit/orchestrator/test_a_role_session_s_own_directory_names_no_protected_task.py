@@ -414,3 +414,71 @@ def test_a_place_apart_changed_before_a_resume_refuses_its_check(
 
 
 assert base.SESSION  # the rig's stand-in, extended above
+
+
+def _ended(run: HeldOutRun, monkeypatch: pytest.MonkeyPatch) -> InvocationError:
+    loop = Rig(run.run.run_dir).open()
+    try:
+        with pytest.raises(InvocationError) as raised:
+            run.dispatcher(monkeypatch).run(run.request(), loop._spawned)
+    finally:
+        loop.close()
+    return raised.value
+
+
+def _label_with_the_place_s_key(run: HeldOutRun) -> str:
+    from physgate.hooks import sentinel
+
+    key = sentinel.label_key(str(_apart(run)))
+    return sentinel.label_of(str(run.held_file), "held-out", key)
+
+
+def test_the_orchestrator_names_a_changed_file_by_the_label_its_sentinel_gives_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The end record's label for a held-out file is the one the session's sentinel logged."""
+    run = HeldOutRun(tmp_path, "changes-held-out")
+    _ended(run, monkeypatch)
+    label = _label_with_the_place_s_key(run)
+    after = json.loads((run.session_dir() / "after_stop.json").read_text())
+    assert after["protected_changed"] == [label], after
+    logged = "".join(p.read_text() for p in run.session_dir().rglob("hooks.log.jsonl"))
+    assert label in logged, logged[-800:]
+
+
+def test_a_put_back_root_the_end_check_cannot_read_is_named_by_its_label(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What the end record keeps of a root it could not read: the error's kind, the file's label."""
+    from physgate.hooks import sentinel
+
+    held = tmp_path / "held_out" / TASK_ID / FILE_NAME
+    held.parent.mkdir(parents=True)
+    held.write_bytes(BYTES)
+    apart = dispatch.place_apart(tmp_path / "run")
+    request = InstallRequest(
+        profile="role",
+        role="electrical",
+        worktree=str(tmp_path / "worktree"),
+        own_branch=None,
+        store_root=None,
+        state_dir=str(tmp_path / "outside" / "state"),
+        target_dir=str(tmp_path / "outside" / "session"),
+        claude_config_dir=str(tmp_path / "outside" / "cfg"),
+        user_home=str(tmp_path / "outside" / "home"),
+        token_ceiling=1000,
+        held_out=(str(tmp_path / "held_out"),),
+        sentinel_apart=str(apart),
+    )
+    config = build_config(request, installation())
+
+    def unreadable(_record: object) -> list[str]:
+        raise PermissionError(13, "Permission denied", str(held))
+
+    monkeypatch.setattr(dispatch, "changed_since", unreadable)
+    moved, unread = dispatch.roots_at_end(None, sentinel.labeller(config))  # type: ignore[arg-type]
+    label = sentinel.label_of(str(held), "held-out", sentinel.label_key(str(apart)))
+    assert moved == [] and unread is not None, unread
+    assert (
+        unread == f"a put-back root could not be read: PermissionError: Permission denied ({label})"
+    )

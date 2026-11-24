@@ -50,7 +50,7 @@ def measure(config: ConfigView) -> Decision:
         try:
             sizes.append((os.stat(path).st_size, path))
         except OSError as exc:
-            return refuse(UNMEASURABLE.format(path=path, error=exc.strerror or exc))
+            return refuse(UNMEASURABLE.format(path=path, error=exc.strerror or type(exc).__name__))
     bound = sum(size for size, _ in sizes)
     if bound <= config.token_ceiling:
         return ALLOW

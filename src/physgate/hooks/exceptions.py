@@ -10,7 +10,12 @@ from __future__ import annotations
 
 
 class HookError(Exception):
-    """Base for every error this package raises."""
+    """Base for every error this package raises.
+
+    Its message is the only exception text a refusal carries (``runtime.failure``), so it is
+    written to name no path of the protected material: such a path goes in ``context``, which
+    no refusal writes.
+    """
 
     def __init__(self, message: str, **context: str) -> None:
         """Store ``context`` alongside the message."""
@@ -25,6 +30,22 @@ class SessionConfigMismatchError(HookError):
     generated with, and the settings file holding that command line is not
     re-read during a session. A configuration whose bytes no longer match was
     changed after the spawn, by something inside the session or beside it.
+    """
+
+
+class PlaceApartError(HookError, ValueError):
+    """The place apart for the sentinel's records, or a part kept there, is not as it was made.
+
+    A ``ValueError`` as well, as the sentinel raised before. The message names the place by what
+    it is, never by its path: the caller that made the place knows where it is.
+    """
+
+
+class LabelKeyError(HookError, ValueError):
+    """What is at the key's name in the place apart is not a key the sentinel can use.
+
+    A link, no regular file, not this user's alone with one name, or not the key's 64 hex
+    digits. A person removes it; the next label made then makes a new key.
     """
 
 

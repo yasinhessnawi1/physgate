@@ -29,6 +29,7 @@ import sys
 import time
 from typing import TYPE_CHECKING
 
+from physgate.hooks.exceptions import HookError
 from physgate.hooks.lean import EVENTS, load_config, parse_input
 from physgate.hooks.state import append_log
 
@@ -40,7 +41,17 @@ if TYPE_CHECKING:
 
     Handler = Callable[[InputView, ConfigView], "Decision"]
 
-__all__ = ["ALLOW", "EVENTS", "Decision", "HookSpec", "dispatch", "emit", "main", "refuse"]
+__all__ = [
+    "ALLOW",
+    "EVENTS",
+    "Decision",
+    "HookSpec",
+    "dispatch",
+    "emit",
+    "failure",
+    "main",
+    "refuse",
+]
 
 #: The events on which a refusal stops something. On the others a refusal is
 #: still reported and logged, and the later hooks act on the record it leaves.
@@ -191,7 +202,7 @@ def main(argv: Sequence[str], stdin_text: str, registry: Mapping[str, HookSpec])
         # would run the tool. Refusing is the only safe answer.
         reason = (
             "The hook that checks this call could not reach a decision "
-            f"({type(exc).__name__}: {exc}), so the call is refused."
+            f"({failure(exc, config)}), so the call is refused."
         )
         decision = refuse(reason)
         # The refusal stands whether or not the log line can be written.
@@ -206,6 +217,68 @@ def main(argv: Sequence[str], stdin_text: str, registry: Mapping[str, HookSpec])
             except BaseException:  # noqa: BLE001, S110
                 pass
     return emit(event, decision)
+
+
+def failure(exc: BaseException, config: ConfigView | None) -> str:
+    """What a refusal, the hook log and stderr say of an exception that escaped a hook.
+
+    Its kind, never its own text: an ``OSError``'s text carries the file it met, which can be a
+    held-out file whose path is its task's id, and any other exception's can quote what it was
+    handed. So it is written as its class; for an error of the system, its errno's name and each
+    file it names as every refusal names a path (a path of the protected material by its label,
+    :func:`physgate.hooks.sentinel.labeller`; any other as it is); and the function it was
+    raised in. Only the hook layer's own errors (:class:`HookError`) keep their message, which is
+    written for the agent and names no protected path. Never raises.
+    """
+    if isinstance(exc, HookError):
+        return f"{type(exc).__name__}: {exc}"
+    parts = [type(exc).__name__]
+    if isinstance(exc, OSError):
+        # Imported here: only a hook that failed needs them.
+        import errno
+
+        if isinstance(exc.errno, int):
+            parts.append(errno.errorcode.get(exc.errno, f"errno {exc.errno}"))
+        parts += [
+            f"on {_subject(n, config)}" for n in (exc.filename, exc.filename2) if n is not None
+        ]
+    elif isinstance(exc, ImportError) and isinstance(exc.name, str):
+        parts.append(f"module {exc.name}")
+    where = _raised_in(exc)
+    if where is not None:
+        parts.append(f"raised in {where}")
+    return ", ".join(parts)
+
+
+def _subject(name: object, config: ConfigView | None) -> str:
+    """A file an ``OSError`` names, as a refusal may name it."""
+    if isinstance(name, bytes):
+        name = name.decode(errors="replace")
+    if not isinstance(name, str):
+        return "a descriptor it held"
+    if not name.startswith("/"):
+        # Relative to a directory it held open: a name in a held-out directory is a task's file.
+        return "a name in a directory it held open"
+    if config is None:
+        return "a path not named, as no configuration was read to judge it by"
+    try:
+        # Imported here: only a hook that failed on a file needs it, and it imports this module.
+        from physgate.hooks.sentinel import labeller
+
+        return labeller(config)(name)
+    except BaseException:  # noqa: BLE001 - a path that cannot be judged is not named
+        return "a path not named, as it could not be judged"
+
+
+def _raised_in(exc: BaseException) -> str | None:
+    """The module and function the exception was raised in, and the line: code, never data."""
+    tb = exc.__traceback__
+    if tb is None:
+        return None
+    while tb.tb_next is not None:
+        tb = tb.tb_next
+    module = tb.tb_frame.f_globals.get("__name__")
+    return f"{module}.{tb.tb_frame.f_code.co_name}:{tb.tb_lineno}"
 
 
 def _parse_argv(argv: Sequence[str]) -> dict[str, Any]:
