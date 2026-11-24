@@ -283,12 +283,16 @@ def test_a_raw_session_on_the_second_trial_s_task_is_not_installed_without_the_o
         assert "--withheld-whole" in argv and "--os-layer-temp" not in argv
         monkeypatch.undo()
         monkeypatch.setattr(hooks_settings, "machine_writable", lambda: ())
-        code = hooks_cli.main(argv[argv.index("hooks") :])
+        try:
+            code: int | str = hooks_cli.main(argv[argv.index("hooks") :])
+        except Exception as exc:  # noqa: BLE001 - what the installer did instead is the failure
+            code = f"raised {type(exc).__name__}"
     finally:
         shutil.rmtree(place, ignore_errors=True)
     said = capsys.readouterr()
     # Refused, with nothing written: no configuration's path is printed for the client to load.
-    assert code == 2 and said.out == ""
+    assert code == 2, code
+    assert said.out == ""
     assert "installed only with the OS layer" in json.loads(said.err)["error"]
 
 
