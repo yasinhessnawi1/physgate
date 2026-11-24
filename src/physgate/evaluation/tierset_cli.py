@@ -17,6 +17,16 @@ root, counted. Never a task id, a brief or a canary. It exits 1 if a version is 
 store holds a split's leftovers or work left; and if the store cannot be read, it prints one
 refusal line (``store_unreadable``) instead and exits 1.
 
+``--publish DIR`` also writes, for the operator UI's Evidence page, each role's current version
+(its one ``fresh`` version) as that read found it, into the folder ``DIR``, one closed record per
+role (:mod:`physgate.evaluation.tiers.published`): the version id, the three tiers' task counts,
+the blind check's counts and source, an exposure word, whether it was measured, its state and
+when it was read; or, where none or more than one version is fresh, a refusal word. It then
+prints what it published, one JSON line, in place of the status, and exits 1 if a role is
+published as a refusal. ``DIR`` is a folder of its own, judged as the gap trend's publication
+judges one, and not the gap trend's folder; the UI's server is given it as a root and never the
+store.
+
 An exposure, read from the role's register as freshly scanned, marks a version's held-out tier
 stale as well (``because``: ``exposed``); a register that cannot be read prints one refusal line
 (``register_unreadable``) and exits 1.
@@ -68,6 +78,7 @@ def add_parser(subparsers: Any) -> None:
     commands = parser.add_subparsers(dest="tiers_command", required=True)
     status_parser = commands.add_parser("status", help="each version's state, counts and digests")
     status_parser.add_argument("--store", type=Path, required=True)
+    status_parser.add_argument("--publish", type=Path, help=_PUBLISH_HELP)
     status_parser.set_defaults(func=_status)
     writers = {
         "scan-exposures": "record the exposures the role's run roots hold",
@@ -93,6 +104,19 @@ def add_parser(subparsers: Any) -> None:
     probe.add_argument("--version", required=True)
     probe.add_argument("--seed", type=int, required=True)
     probe.set_defaults(func=_probe)
+
+
+#: What ``--publish`` takes, said where the flag is listed. Kept here, beside the parser, so the
+#: command's help imports nothing of the tier machinery.
+_PUBLISH_HELP = (
+    "the folder to publish each role's current tier version into, for the operator UI's Evidence "
+    "page: a folder of its own, not the gap trend's. Refused inside the store, the harness "
+    "checkout or any git checkout or worktree, a run's directory or a folder of runs, an "
+    "installation, a review root, or the machine's shared temporary directories. This command "
+    "is given no run, so it cannot know every place a run's sessions may read: publish into a "
+    "folder of its own that no run names and nothing else writes, and give that folder to the "
+    "operator UI as a root (physgate ui --root)."
+)
 
 
 def status(store: Path) -> dict[str, Any]:
@@ -166,9 +190,26 @@ def status(store: Path) -> dict[str, Any]:
     return {"versions": versions, "left": leftovers(store)}
 
 
+def _publish(args: argparse.Namespace) -> int:
+    """Publish each role's current version into ``--publish``; print what was published."""
+    from physgate.evaluation.tiers.published import TierStatusError, publish_status
+
+    try:
+        records = publish_status(args.store.resolve(), out=args.publish)
+    except TierStatusError as exc:
+        reason = exc.context.get("refused_because", "publish_refused")
+        print(json.dumps({"refused_because": reason, "error": str(exc)}, sort_keys=True))
+        return 1
+    said = [record.model_dump(mode="json") for record in records]
+    print(json.dumps({"published": said}, sort_keys=True))
+    return 1 if any("refused" in record for record in said) else 0
+
+
 def _status(args: argparse.Namespace) -> int:
     from physgate.evaluation.tiers.exposure import ExposureError
 
+    if args.publish is not None:
+        return _publish(args)
     store = args.store.resolve()
     try:
         found = status(store)

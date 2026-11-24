@@ -69,11 +69,13 @@ __all__ = [
     "GapsError",
     "KnownPlaces",
     "PublishedTrend",
+    "folder_refusal",
     "known_places",
     "publish_trend",
     "published_name",
     "read_for_publication",
     "read_published",
+    "write_whole",
 ]
 
 #: The roles a trend is published for, in the order a page shows them.
@@ -305,8 +307,11 @@ def _place_refusal(real: Path, places: KnownPlaces) -> str | None:
     return None
 
 
-def _folder_refusal(out: Path, store: Path, places: KnownPlaces) -> str | None:
-    """Why ``out`` may not hold a publication, or ``None``: a folder of its own, not the store's."""
+def folder_refusal(out: Path, store: Path, places: KnownPlaces) -> str | None:
+    """Why ``out`` may not hold a publication, or ``None``: a folder of its own, not the store's.
+
+    The one judgement of a folder to publish into, used by every publication made for the page.
+    """
     if not os.path.lexists(out):
         return "the folder to publish into is not there"
     if os.path.islink(out) or not os.path.isdir(out):
@@ -343,8 +348,8 @@ def _replace_whole(fd: int, name: str, data: bytes) -> None:
     os.fsync(fd)
 
 
-def _write_whole(out: Path, name: str, data: bytes) -> None:
-    """Write ``data`` to ``out/name`` whole, or remove the copy there before and refuse.
+def write_whole(out: Path, name: str, data: bytes, *, what: str) -> None:
+    """Write ``data`` (``what`` it is, in words) to ``out/name`` whole, or remove the copy before.
 
     Raises:
         GapsError: the folder cannot be opened, or the copy cannot be written; the one before it
@@ -375,7 +380,7 @@ def _write_whole(out: Path, name: str, data: bytes) -> None:
                 else "the copy published before could not be removed either: remove it by hand, "
                 "or the page shows it as it was"
             )
-            msg = f"the gap trend could not be written ({os.strerror(exc.errno or 0)}); {done}"
+            msg = f"{what} could not be written ({os.strerror(exc.errno or 0)}); {done}"
             raise _refuse("publish_failed", msg) from None
     finally:
         os.close(fd)
@@ -399,7 +404,7 @@ def publish_trend(
     if found:
         msg = f"the gap trend is published by a person, never from a session ({', '.join(found)})"
         raise _refuse("inside_a_session", msg)
-    refusal = _folder_refusal(Path(out), Path(store), known_places())
+    refusal = folder_refusal(Path(out), Path(store), known_places())
     if refusal is not None:
         raise _refuse("publish_refused", f"{refusal}. {WHERE_TO_PUBLISH}")
     read_at = now or datetime.now(UTC)
@@ -408,7 +413,8 @@ def publish_trend(
     except Exception as exc:  # noqa: BLE001 - any failure once the folder is judged is published
         record = _failed(role, read_at, exc)
     name = published_name(role)
-    _write_whole(Path(out), name, record.model_dump_json().encode() + b"\n")
+    data = record.model_dump_json().encode() + b"\n"
+    write_whole(Path(out), name, data, what="the gap trend")
     return Path(out) / name
 
 

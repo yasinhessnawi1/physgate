@@ -15,6 +15,7 @@ from physgate.evaluation.inject import cli as inject_cli
 from physgate.evaluation.observe import cli as observe_cli
 from physgate.evaluation.observe import compare
 from physgate.evaluation.per_role import cli as per_role_cli
+from physgate.evaluation.tier_status_census import TIERS
 from physgate.gate.catalogue import catalogue_digest
 from physgate.gate.laws import load_laws
 from physgate.hooks import cli as hooks_cli
@@ -25,13 +26,14 @@ from physgate.ui import cli as ui_cli
 from physgate.ui import library, table
 
 #: What the comparison classes and how it compares, the gate's catch count, and the published
-#: gap trend's names and parser, handed to the Evidence screen's routes.
+#: gap trend's and tier status's names and parsers, handed to the Evidence screen's routes.
 CENSUS = evidence.Census(
     drift=compare.DRIFT,
     reported=compare.REPORTED,
     compare=compare.compare,
     catches=catches.catches,
     trend=TREND,
+    tiers=TIERS,
 )
 
 
