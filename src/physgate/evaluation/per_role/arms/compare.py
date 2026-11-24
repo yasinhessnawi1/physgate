@@ -42,6 +42,7 @@ from physgate.orchestrator.events import (
     parse_events,
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError
+from physgate.orchestrator.managed import answering_models
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.orchestrator.session_files import FileRefused, read_beneath
@@ -542,9 +543,11 @@ def differences(
     if record.get("task") != task.id:
         found.append(f"task: the raw arm's record is of {record.get('task')!r}, not {task.id!r}")
     # The model that answered, read from the stream itself: an endpoint that answers as
-    # another model is caught here whatever the record and the configuration say.
+    # another model is caught here whatever the record and the configuration say. Read as the
+    # record reads it: the binary's own messages (an error's notice) are no model's, and a
+    # session no model answered is named as one answered by any model but the pinned one is.
     pinned = config.models.roles.get(role)
-    answered = sorted(read_captured(raw_dir / "session" / "stdout.jsonl").answered)
+    answered = answering_models(read_captured(raw_dir / "session" / "stdout.jsonl").answered)
     if answered != [pinned]:
         found.append(
             f"answered_by: the harness pinned {pinned!r}, the raw arm was answered by {answered!r}"

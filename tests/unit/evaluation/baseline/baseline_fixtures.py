@@ -336,6 +336,11 @@ class StandInArm:
     answered_first: set[int] = field(default_factory=set)
     #: Per call: the check after the session's end refused it.
     end_refused: set[int] = field(default_factory=set)
+    #: Per call: messages the client wrote itself (an API error's notice, the usage limit's),
+    #: between the model's first message and its second.
+    notices: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
+    #: Per call: no model's message at all; the stream holds the client's notices alone.
+    unanswered: set[int] = field(default_factory=set)
 
     def __call__(
         self, task: Task, setup: RawSetup, work: Path, *, cap: int, harness: Path | None = None
@@ -359,10 +364,16 @@ class StandInArm:
         }
         result = self.ended.get(n, {"is_error": False, "terminal_reason": "completed"})
         content = f"tool output {task.canary}" if n in self.seen else "tool output"
-        lines: list[dict[str, Any]] = [
+        said: list[dict[str, Any]] = [
             {"type": "assistant", "message": {"id": "m", "model": model, "usage": usage}},
             {"type": "user", "message": {"content": content}},
         ]
+        if n in self.notices:
+            after = {"type": "assistant", "message": {"id": "m2", "model": model, "usage": usage}}
+            said = [*said, *self.notices[n], after]
+        if n in self.unanswered:
+            said = list(self.notices.get(n, []))
+        lines = said
         if n in self.limited:
             lines += limit_lines(None if n in self.text_only else self.limited[n])
             result = limit_result(self.limited[n])
@@ -388,7 +399,7 @@ class StandInArm:
             "tokens": 400,
             "tokens_not_in_binary_totals": self.cut_off.get(n, 0),
             "cap": cap,
-            "answered_by": [model],
+            "answered_by": [] if n in self.unanswered else [model],
             "held_out_seen": held_out_seen(stream, setup.held_out_canaries),
             "watch_failure": None,
             "sentinel_after_stop": "a protected path changed" if n in self.end_refused else None,

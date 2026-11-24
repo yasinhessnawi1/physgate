@@ -29,6 +29,8 @@ from physgate.ui.table import registered
 MARKER = b"PLANTED-TARGET-MARKER"
 #: The name a published gap trend of the control role is found under, at the top of a root.
 GAP_TREND = "gap-trend-control.json"
+#: The name a published tier status of the control role is found under, at the top of a root.
+TIER_STATUS = "tier-status-control.json"
 RUN = "run-observe"
 PRICES = "2026-09-27"
 
@@ -101,8 +103,9 @@ def _plant(world: dict[str, Path], planted: str, toward: str, session: str) -> P
     """Replace the file ``planted`` with a link ``toward`` a target, and return the target."""
     run_dir = world["root"] / RUN
     relative = f"sessions/{session}/stdout.jsonl" if planted == "stream" else planted
-    # The published gap trend lies at the top of a root, beside the runs, not in one.
-    path = world["root"] / GAP_TREND if planted == "gap trend" else run_dir / relative
+    # The published gap trend and tier status lie at the top of a root, beside the runs.
+    top = {"gap trend": GAP_TREND, "tier status": TIER_STATUS}
+    path = world["root"] / top[planted] if planted in top else run_dir / relative
     if toward == "held-out tier":
         target = world["held"] / "target"
     elif toward == "outside every root":
@@ -388,6 +391,8 @@ REGISTERED_PLANTS: dict[str, dict[str, str]] = {
     "stream": {SPEND: "403"},
     # The gap trend a person published for the page, at the top of the root.
     "gap trend": {"/api/evidence/gaps": "refused"},
+    # The tier status a person published for the page, at the top of the root.
+    "tier status": {"/api/evidence/tiers": "refused"},
 }
 
 
@@ -435,7 +440,7 @@ def test_a_registered_route_refuses_a_run_file_that_links_out_of_its_roots(
         if expected == "refused":
             (entry,) = [entry for entry in answer["roles"] if entry["role"] == "control"]
             assert entry["state"] == "refused", entry
-            assert "weeks" not in entry, entry
+            assert "weeks" not in entry and "version" not in entry, entry
             continue
         if expected == "unread":
             assert set(answer) == {"kinds", "unread"}, answer

@@ -21,6 +21,7 @@ from physgate.cli import compose, main
 from physgate.evaluation import evidence
 from physgate.evaluation.gaps import published
 from physgate.evaluation.observe import compare
+from physgate.evaluation.tiers import published as tier_publication
 from physgate.orchestrator import catches as catch_count
 from physgate.ui import cli as ui_cli
 from physgate.ui import server as ui_server
@@ -38,6 +39,7 @@ EVIDENCE_PATTERNS = {
     "/api/evidence/compare/{a_root:index}/{a_name:name}/{b_root:index}/{b_name:name}",
     "/api/evidence/catches",
     "/api/evidence/gaps",
+    "/api/evidence/tiers",
 }
 #: The Evidence screen's routes over the comparison's own census, built here from the comparison
 #: itself, so the root's registration equals them only if it hands in that census.
@@ -53,6 +55,14 @@ EVIDENCE_ROUTES = evidence.routes(
             most=published.MOST_PUBLISHED_BYTES,
             parse=published.read_published,
             refused=published.GapsError,
+        ),
+        tiers=evidence.TiersCensus(
+            roles=tier_publication.ROLES,
+            name=tier_publication.published_name,
+            most=tier_publication.MOST_STATUS_BYTES,
+            parse=tier_publication.read_published_status,
+            refused=tier_publication.TierStatusError,
+            said=tier_publication.refusal_sentence,
         ),
     )
 )
@@ -176,6 +186,13 @@ def test_the_routes_class_runs_by_the_comparison_s_own_lists_and_function() -> N
         assert census.trend.most == published.MOST_PUBLISHED_BYTES
         assert census.trend.roles is published.ROLES
         assert census.trend.refused is published.GapsError
+        # The published tier status's own name, parser and sentences, handed in the same way.
+        assert census.tiers.parse is tier_publication.read_published_status
+        assert census.tiers.name is tier_publication.published_name
+        assert census.tiers.most == tier_publication.MOST_STATUS_BYTES
+        assert census.tiers.roles is tier_publication.ROLES
+        assert census.tiers.refused is tier_publication.TierStatusError
+        assert census.tiers.said is tier_publication.refusal_sentence
 
 
 def test_the_evidence_module_imports_nothing_of_the_comparison() -> None:
@@ -189,6 +206,7 @@ def test_the_evidence_module_imports_nothing_of_the_comparison() -> None:
     assert [name for name in imported if "compare" in name] == []
     assert [name for name in imported if "catches" in name] == []
     assert [name for name in imported if "gaps" in name] == []
+    assert [name for name in imported if "tiers" in name] == []
 
 
 @pytest.mark.usefixtures("nothing_registered")
