@@ -216,3 +216,23 @@ def test_a_run_whose_log_holds_a_line_no_orchestrator_wrote_is_a_run_for_the_cor
     with (run_dir / "events.jsonl").open("ab") as log:
         log.write(b'{"written": "by nobody"}\n')
     assert harness_round._state(run_dir) == "run"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason=(
+        "known limit: killed before its configuration is recorded, the directory holds the run "
+        "branch's clone and no run configuration; the store's scan walks it whole and passes its "
+        "depth bound, so the restart is refused before the round reads the trial"
+    ),
+)
+def test_a_decomposition_killed_before_its_configuration_is_recorded_is_superseded_on_restart(
+    tmp_path: Path,
+) -> None:
+    rig, slept = make_rig(tmp_path, design_review="observe"), list[float]()
+    _killed(rig, rig.driver(killed_before_configuration={1}))
+    assert not (_directory(rig, "0000-1") / "run.json").exists()
+    status, said = _go(rig, rig.driver(), slept, resume=True)
+    assert status == "done", said
+    assert _gone(rig) == [(1, "killed", SPENT, "rule", False)]

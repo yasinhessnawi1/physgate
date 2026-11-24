@@ -333,6 +333,9 @@ class StandInDriver:
     killed_before_line: dict[int, str] = field(default_factory=dict)
     killed_before_journal_end: set[int] = field(default_factory=set)
     library_refused_at_start: set[int] = field(default_factory=set)
+    #: ... and killed once the run's record is opened and its branch made, before its first commit
+    #: (so before its configuration is recorded).
+    killed_before_configuration: set[int] = field(default_factory=set)
     #: Under ``observe``, the decompositions whose first call's output its schema refused: the call
     #: is made once more, the first journalled with its spend.
     schema_refused_first: set[int] = field(default_factory=set)
@@ -466,6 +469,12 @@ class StandInDriver:
                     raise LibraryError(msg)
 
                 patch.setattr(core_decompose, "put_into", refusing)
+            if n in self.killed_before_configuration:
+
+                def killed(*_a: Any, **_k: Any) -> Any:  # noqa: ANN401
+                    raise Killed
+
+                patch.setattr(core_decompose, "commit_all", killed)
             if n in self.killed_before_line:
                 kind, emit = self.killed_before_line[n], RunRecord.emit
 
