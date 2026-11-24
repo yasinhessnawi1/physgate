@@ -1,0 +1,427 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py",
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+   "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "a_leftover_that_showed_nothing_is_an_exposure",
+  "file": "src/physgate/orchestrator/loop.py",
+  "old": "            if left.held_out_seen is not None:\n",
+  "new": "            if True:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+   "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
+  ]
+ },
+ {
+  "name": "an_ended_session_with_no_line_is_not_read_again",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "                ended.exists() and not _unended(own, events, review=review)\n",
+  "new": "                ended.exists()\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+   "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
+  ]
+ },
+ {
+  "name": "a_session_s_findings_follow_its_end_line",
+  "file": "src/physgate/orchestrator/loop.py",
+  "old": "        if found is not None:\n            # Before anything says the session ended: a process killed after this line owes the\n            # halt, and one killed before it finds the session again (``stop_leftovers``).\n            self._findings(subtask_id, *found, first=True)\n        for message in report.usage:\n            self._emit(\n                TokensUsed(\n                    **self._env(),\n                    attribution=f\"session:{report.session_id}\",\n                    message_id=message.message_id,\n                    usage=message.usage,\n                    abandoned=message.abandoned,\n                    in_binary_totals=message.in_binary_totals,\n                )\n            )\n        env = self._env()\n        self._emit(\n            SessionEnded(\n                **env,\n                subtask_id=subtask_id,\n                attempt=attempt,\n                session_id=report.session_id,\n                outcome=report.end.outcome,\n                cause=report.end.cause,\n                attempt_commit=report.attempt_commit,\n                trajectory=report.trajectory,\n                worktree=report.worktree,\n                reading_verified=report.reading_verified,\n                trajectory_seal=report.trajectory_seal,\n                decisions_bytes=self._decisions_bytes(),\n                policy_limits_sha256=report.policy_limits_sha256,\n                observed_traffic=report.observed_traffic,\n                flag_cache=report.flag_cache,\n                policy_limits_unjudged=_unjudged(report),\n                issued_spec_sha256=report.issued_spec_sha256,\n                series=report.series,\n                usage_limit=_reset_from(report.usage_limit, env[\"ts\"]),\n                account_windows=report.account_windows,\n            )\n        )\n        if found is not None:\n            self._findings(subtask_id, *found, first=False)\n",
+  "new": "        for message in report.usage:\n            self._emit(\n                TokensUsed(\n                    **self._env(),\n                    attribution=f\"session:{report.session_id}\",\n                    message_id=message.message_id,\n                    usage=message.usage,\n                    abandoned=message.abandoned,\n                    in_binary_totals=message.in_binary_totals,\n                )\n            )\n        env = self._env()\n        self._emit(\n            SessionEnded(\n                **env,\n                subtask_id=subtask_id,\n                attempt=attempt,\n                session_id=report.session_id,\n                outcome=report.end.outcome,\n                cause=report.end.cause,\n                attempt_commit=report.attempt_commit,\n                trajectory=report.trajectory,\n                worktree=report.worktree,\n                reading_verified=report.reading_verified,\n                trajectory_seal=report.trajectory_seal,\n                decisions_bytes=self._decisions_bytes(),\n                policy_limits_sha256=report.policy_limits_sha256,\n                observed_traffic=report.observed_traffic,\n                flag_cache=report.flag_cache,\n                policy_limits_unjudged=_unjudged(report),\n                issued_spec_sha256=report.issued_spec_sha256,\n                series=report.series,\n                usage_limit=_reset_from(report.usage_limit, env[\"ts\"]),\n                account_windows=report.account_windows,\n            )\n        )\n        if found is not None:\n            self._findings(subtask_id, *found, first=True)\n            self._findings(subtask_id, *found, first=False)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+   "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
+  ]
+ },
+ {
+  "name": "an_incident_does_not_take_an_ended_session_up",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "        or (isinstance(e, Incident | FindingsRecorded) and e.seq > spawn)\n",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+   "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
+  ]
+ },
+ {
+  "name": "leftovers_are_ended_before_their_findings_are_written",
+  "file": "src/physgate/orchestrator/loop.py",
+  "old": "        causes = {cause for cause, _ in found}\n        halt = next((c for c in LEFTOVER_HALTS if c in causes), None)\n        if len(found) > 1 and halt is not None:\n            listed = tuple(SessionFinding(cause=cause, detail=detail) for cause, detail in found)\n            self._emit(FindingsRecorded(**self._env(), subtask_id=None, findings=listed, halt=halt))\n        for cause, detail in found[:1] if len(found) == 1 else ():\n            self._emit(Incident(**self._env(), subtask_id=None, cause=cause, detail=detail))\n        # Only now, with what they showed on the record, are they ended: a process killed before\n        # this finds them again.\n        self._dispatcher.end_leftovers()\n",
+  "new": "        self._dispatcher.end_leftovers()\n        causes = {cause for cause, _ in found}\n        halt = next((c for c in LEFTOVER_HALTS if c in causes), None)\n        if len(found) > 1 and halt is not None:\n            listed = tuple(SessionFinding(cause=cause, detail=detail) for cause, detail in found)\n            self._emit(FindingsRecorded(**self._env(), subtask_id=None, findings=listed, halt=halt))\n        for cause, detail in found[:1] if len(found) == 1 else ():\n            self._emit(Incident(**self._env(), subtask_id=None, cause=cause, detail=detail))\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+   "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
+  ]
+ },
+ {
+  "name": "review_sessions_are_not_among_the_session_directories",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "        return [*dirs, *self._review_dirs()]\n",
+  "new": "        return [*dirs]\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+   "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
+  ]
+ },
+ {
+  "name": "a_review_s_tokens_are_written_before_its_exposure",
+  "file": "src/physgate/orchestrator/loop.py",
+  "old": "                self._emit(\n                    Incident(\n                        **self._env(), subtask_id=subtask_id, cause=\"held_out_read\", detail=detail\n                    )\n                )\n                for message in exc.usage:\n                    self._emit(\n                        TokensUsed(\n                            **self._env(),\n                            attribution=f\"reviewer:{exc.session_id}\",\n                            message_id=message.message_id,\n                            usage=message.usage,\n                            compaction=message.compaction,\n                            abandoned=message.abandoned,\n                            in_binary_totals=message.in_binary_totals,\n                        )\n                    )\n",
+  "new": "                for message in exc.usage:\n                    self._emit(\n                        TokensUsed(\n                            **self._env(),\n                            attribution=f\"reviewer:{exc.session_id}\",\n                            message_id=message.message_id,\n                            usage=message.usage,\n                            compaction=message.compaction,\n                            abandoned=message.abandoned,\n                            in_binary_totals=message.in_binary_totals,\n                        )\n                    )\n                self._emit(\n                    Incident(\n                        **self._env(), subtask_id=subtask_id, cause=\"held_out_read\", detail=detail\n                    )\n                )\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+   "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py"
+  ]
+ },
+ {
+  "name": "a_repair_stream_is_never_read",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "    return (\"stdout.jsonl\", *(f\"stdout-repair-{n}.jsonl\" for n in range(1, spawns)))\n",
+  "new": "    return (\"stdout.jsonl\",)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py",
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+   "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "the_register_walks_past_a_decomposition",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            walk.decompositions.append(here)\n",
+  "new": "            pass\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "a_decomposition_s_journal_is_not_read",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    sessions = set(_journal_exposures(directory))\n",
+  "new": "    sessions: set[str] = set()\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "a_started_run_s_journal_is_not_read",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    if found:\n        return found\n",
+  "new": "    if True:\n        return found\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "the_next_command_s_exposure_file_is_not_read",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        if named is not None:\n            sessions.add(named)\n",
+  "new": "        if False:\n            sessions.add(named)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "an_unscanned_review_is_not_scanned",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        if record is not None and record.session_id not in sessions:\n",
+  "new": "        if False:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "a_gone_review_stream_reads_clean",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "                shown = True  # a stream that is gone is never read as one that showed nothing\n",
+  "new": "                shown = False\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "a_running_review_s_last_line_is_read_cut",
+  "file": "src/physgate/orchestrator/decomposition_review.py",
+  "old": "        if running:\n",
+  "new": "        if False:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "the_exposure_s_key_changes_with_the_record_that_shows_it",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        if named is not None:\n            sessions.add(named)\n",
+  "new": "        if named is not None:\n            sessions.add(named + \"'\")\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "the_held_out_tiers_are_not_recorded_before_the_review",
+  "file": "src/physgate/orchestrator/design_rounds.py",
+  "old": "    record_held_out(run_dir, config.held_out_sha256)\n",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "the_recorded_held_out_tiers_are_not_read",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    marked = _named_by(digests or (), known)\n",
+  "new": "    marked = _named_by((), known)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "a_record_that_cannot_be_read_counts_nothing",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        msg = \"a decomposition's record under the run roots cannot be read\"\n        raise _refuse(\"register_unreadable\", msg) from exc\n",
+  "new": "        return []\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ },
+ {
+  "name": "the_refusal_names_the_decomposition_s_record",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        msg = \"a decomposition's record under the run roots cannot be read\"\n",
+  "new": "        msg = f\"a decomposition's record {directory} cannot be read\"\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py"
+  ]
+ }
+]

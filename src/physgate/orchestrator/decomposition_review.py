@@ -18,6 +18,13 @@ and refuses.
 
 Not synced: the file guards against this process being killed, and a machine that goes down takes
 the session with it.
+
+The exposure register reads what a killed ``decompose`` left without a command on the directory:
+the exposure file, and a review record no command has scanned yet, whose streams it scans as the
+next command does (:func:`review_record`, :func:`streams_show`), writing and signalling nothing.
+Which tier versions that exposure marks is read from the held-out tiers' digests the
+decomposition recorded, synced, before any review session was spawned (:func:`record_held_out`):
+a decomposition writes no run configuration before its opening.
 """
 
 from __future__ import annotations
@@ -40,6 +47,8 @@ from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
 REVIEW_SESSION = PurePosixPath("decomposition", "review_session.json")
 #: Where a held-out exposure a killed ``decompose``'s review showed is recorded, once found.
 REVIEW_EXPOSED = PurePosixPath("decomposition", "review_exposed.json")
+#: The digests of the held-out tiers a reviewed decomposition was given, recorded before its review.
+HELD_OUT_TIERS = PurePosixPath("decomposition", "held_out_tiers.json")
 
 
 def review_spawned(
@@ -125,31 +134,127 @@ def stop_left_review(run_dir: Path, secrets: Iterable[str] = ()) -> LeftReview:
 
 
 def _exposed_session(run_dir: Path) -> str:
-    try:
-        return str(json.loads((run_dir / REVIEW_EXPOSED).read_text())["session_id"])
-    except (OSError, ValueError, KeyError, TypeError):
-        return "(its record cannot be read)"
+    return exposed_review(run_dir) or "(its record cannot be read)"
 
 
-def _stop_and_scan(run_dir: Path, secrets: tuple[str, ...]) -> str | None:
+@dataclass(frozen=True)
+class ReviewRecord:
+    """A review session's record, as its spawn wrote it beside the decomposition's rounds."""
+
+    session_id: str
+    pid: int
+    started: str
+    spawns: int
+    #: The review's session directory, beneath the review root.
+    session_dir: Path
+    canaries: frozenset[str]
+
+
+class ReviewRecordError(ValueError):
+    """A review session's record is there and cannot be read."""
+
+
+def review_record(run_dir: Path) -> ReviewRecord | None:
+    """The record of the review session running, or left by a killed ``decompose``; ``None``.
+
+    Raises:
+        ReviewRecordError: the record is there and cannot be read.
+    """
     path = run_dir / REVIEW_SESSION
     if not path.is_file():
         return None
     try:
         record = json.loads(path.read_text())
-        session_id = str(record["session_id"])
-        pid = int(record["pid"])
-        started = str(record["started"])
-        spawns = int(record["spawns"])
         where = record["session_dir"]
-        canaries = frozenset(str(c) for c in record["held_out_canaries"])
-        if not isinstance(where, str) or spawns < 1:
+        found = ReviewRecord(
+            session_id=str(record["session_id"]),
+            pid=int(record["pid"]),
+            started=str(record["started"]),
+            spawns=int(record["spawns"]),
+            session_dir=Path(where) if isinstance(where, str) else Path(),
+            canaries=frozenset(str(c) for c in record["held_out_canaries"]),
+        )
+        if not isinstance(where, str) or found.spawns < 1:
             raise TypeError(type(where).__name__)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ReviewRecordError(str(path)) from exc
+    return found
+
+
+def streams_show(record: ReviewRecord, *, running: bool = False) -> bool:
+    """Whether a stream the review's spawns wrote shows a held-out canary its record names.
+
+    The one scan of a review's streams: the next command's, once the session is stopped, and the
+    exposure register's, which reads them as they are now. While the session runs (``running``),
+    the bytes after a stream's last line end are a line still being written, read once it is
+    whole: cut inside a character it would read as one that cannot be read, so as the canary.
+
+    Raises:
+        InvocationError: a stream is gone, a link or not a regular file: never read as clean.
+    """
+    for name in review_streams(record.spawns):
+        data = read_stream_file(record.session_dir / name)
+        if running:
+            data = data[: data.rfind(b"\n") + 1]
+        if canary_seen(data, record.canaries) is not None:
+            return True
+    return False
+
+
+def exposed_review(run_dir: Path) -> str | None:
+    """The review session the exposure file names; ``None`` when there is no exposure file.
+
+    An exposure file whose session cannot be read is still an exposure: an empty name is given.
+    """
+    if not (run_dir / REVIEW_EXPOSED).is_file():
+        return None
+    try:
+        return str(json.loads((run_dir / REVIEW_EXPOSED).read_text())["session_id"])
     except (OSError, ValueError, KeyError, TypeError):
+        return ""
+
+
+def record_held_out(run_dir: Path, digests: Iterable[str]) -> None:
+    """Record the digests of the held-out tiers the decomposition was given, synced.
+
+    Written before any review session is spawned: a decomposition killed in its review has no run
+    configuration, and the register reads from this file which tier versions it may have exposed.
+    """
+    path = run_dir / HELD_OUT_TIERS
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _synced(path, json.dumps({"held_out_sha256": list(digests)}).encode())
+
+
+def recorded_held_out(run_dir: Path) -> tuple[str, ...] | None:
+    """The held-out tiers' digests the decomposition recorded; ``None`` if it recorded none.
+
+    Raises:
+        ReviewRecordError: the record is there and cannot be read.
+    """
+    path = run_dir / HELD_OUT_TIERS
+    if not path.is_file():
+        return None
+    try:
+        named = json.loads(path.read_text())["held_out_sha256"]
+        if not isinstance(named, list) or not all(isinstance(d, str) for d in named):
+            raise TypeError(type(named).__name__)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ReviewRecordError(str(path)) from exc
+    return tuple(named)
+
+
+def _stop_and_scan(run_dir: Path, secrets: tuple[str, ...]) -> str | None:
+    path = run_dir / REVIEW_SESSION
+    try:
+        record = review_record(run_dir)
+    except ReviewRecordError:
         return (
             f"the record {path} of a design review session a killed decompose left cannot be "
             "read; nothing was signalled, and its streams are not scanned"
         )
+    if record is None:
+        return None
+    session_id, pid, started = record.session_id, record.pid, record.started
     try:
         if is_session(pid, started, session_id):
             killed = stop_tree(pid, started)
@@ -169,16 +274,13 @@ def _stop_and_scan(run_dir: Path, secrets: tuple[str, ...]) -> str | None:
         )
     # Nothing of it runs now, so it needs no credential: a killed decompose never removed it, and
     # its streams were never redacted. Every stream its spawns wrote is final, and scanned once.
-    session = Path(where)
+    session = record.session_dir
     try:
         remove_secrets(session / "state", session / "config")
-        for name in review_streams(spawns):
+        for name in review_streams(record.spawns):
             for secret in secrets:
                 redact(session / name, secret)
-        shown = any(
-            canary_seen(read_stream_file(Path(where) / name), canaries) is not None
-            for name in review_streams(spawns)
-        )
+        shown = streams_show(record)
     except InvocationError as exc:
         return f"{said}; its directory cannot be read ({exc}), so the record is kept"
     if shown:

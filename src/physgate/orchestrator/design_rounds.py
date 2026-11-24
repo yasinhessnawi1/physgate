@@ -46,7 +46,11 @@ from physgate.orchestrator.decompose import (
     retry_prompt,
     start_run,
 )
-from physgate.orchestrator.decomposition_review import review_over, review_spawned
+from physgate.orchestrator.decomposition_review import (
+    record_held_out,
+    review_over,
+    review_spawned,
+)
 from physgate.orchestrator.endings import (
     Canary,
     PlanCause,
@@ -720,6 +724,10 @@ def decompose_in_rounds(
         time.monotonic(),
         planner_files=files,
     )
+    # Which held-out tiers the decomposition was given, before any review session is spawned: a
+    # kill before the opening leaves no run configuration, and the exposure register reads which
+    # tier versions its review may have shown from this record.
+    record_held_out(run_dir, config.held_out_sha256)
     if isinstance(reviewing[0], RecordsSpawns):
         # The review's spawn is on no run record before the opening: it is written beside the
         # rounds, so a command after a kill during the review finds the session and stops it.
@@ -893,6 +901,42 @@ def decompose_in_rounds(
         return RoundsOutcome(
             found, ok, cause if refused else outcome.cause, ran.detail, ran.reviewed
         )
+
+
+def exposed_reviews(run_dir: Path) -> tuple[str, ...]:
+    """The review sessions whose rounds the journal ended as an exposure, by their ids.
+
+    For the exposure register: the review's record goes once its round's end line is written,
+    and the opening's ``held_out_read`` incident comes only after the run's start, so a kill
+    between the two leaves the exposure on this line alone. A session the line does not name
+    is given as an empty id. Bytes after the last line's end are a line a kill cut: its round's
+    review record is still there, and is read in its place.
+
+    Raises:
+        RunStateError: a whole line of the journal is not one the rounds write.
+    """
+    try:
+        data = (run_dir / ROUNDS_JOURNAL).read_bytes()
+    except FileNotFoundError:
+        return ()
+    except OSError as exc:
+        msg = "the round journal cannot be read"
+        raise RunStateError(msg, run_dir=str(run_dir), why=repr(exc)) from exc
+    found: list[str] = []
+    for one in data.split(b"\n")[:-1]:
+        try:
+            line = _LINE.validate_json(one)
+        except ValidationError as exc:
+            msg = "a line of the round journal is not one the rounds write"
+            raise RunStateError(msg, run_dir=str(run_dir)) from exc
+        if not isinstance(line, RoundEnded):
+            continue
+        review = line.review
+        if line.ending.review_cause == "held_out_exposed" or (
+            review is not None and review.exposed
+        ):
+            found.append((review.session_id or "") if review is not None else "")
+    return tuple(found)
 
 
 def decomposition_streams(events: Sequence[Event]) -> list[str]:

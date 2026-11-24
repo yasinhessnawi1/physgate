@@ -26,12 +26,25 @@ brief, a canary or an outcome. A hand mark carries the person who made it and wh
   run roots; a raw-arm record, under the run roots or beneath the withheld root's baseline
   records, whose ``held_out_seen`` is not false (``null``, nobody looked, on a validation or
   held-out task found by its brief: an exposure of unknown extent, ``raw_record_unchecked``,
-  shown apart); or a mark made by a person at a terminal. Nothing inside a run directory is
+  shown apart); a reviewed decomposition killed before its opening's incident was written, whose
+  plan review showed held-out material (:func:`_decomposition_findings`); or a mark made by a
+  person at a terminal. Nothing inside a run directory is
   entered or parsed (the harness holds no run inside a run); a directory there that looks like
   a run, and a link to a directory anywhere, leave the root reported as not read whole. An
   incident names no root, so the run's held-out digests name the versions it marks: every
   version of the role whose validation or held-out tier the run recorded. A run or record that
   names none marks every version of the role.
+- **a killed decomposition:** a directory beneath a run root with no run configuration and a
+  ``decomposition`` of its own. Its review's exposure is found without a command on it: in the
+  file the next command writes once it has scanned the review's streams; in the review's record
+  no command has scanned yet, whose streams are scanned now by the next command's own scan,
+  read only (nothing is signalled or written, and a stream that is gone counts as showing the
+  canary); or in the round journal's end line of an exposed review, which is all a kill after
+  that line and before the opening's incident leaves (read for a run too, where its log holds no
+  incident). The versions it marks are named by the held-out tiers' digests the decomposition
+  recorded before its review; one that recorded none (made before the record existed) marks
+  every version of the role, as a run naming none does. A record that is there and cannot be
+  read refuses, as a run that cannot be read does.
 - **authoring:** a read of the tiers by their author or their blind check. Never an exposure.
 - **measurement:** one scoring of a protected tier whose result anyone sees.
 
@@ -89,6 +102,8 @@ BASELINE_RECORDS = "baseline"
 RAW_RECORD = "raw.json"
 RUN_RECORD = "run.json"
 EVENT_LOG = "events.jsonl"
+#: Where a reviewed decomposition keeps its records beneath its run directory.
+DECOMPOSITION = "decomposition"
 _ZERO = "0" * 64
 _MISSING = object()
 MOST_LOG_BYTES = 64 * 1024 * 1024
@@ -601,6 +616,8 @@ class _Walk:
     places: list[str] = field(default_factory=list)
     #: Roots that are not there.
     missing: list[Path] = field(default_factory=list)
+    #: Directories with no run configuration that hold a decomposition's records.
+    decompositions: list[Path] = field(default_factory=list)
 
 
 def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
@@ -649,6 +666,9 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
         record = names.get(RAW_RECORD)
         if not is_run and record is not None and not record.is_dir(follow_symlinks=False):
             walk.records.append(here / RAW_RECORD)
+        decomposed = names.get(DECOMPOSITION)
+        if not is_run and decomposed is not None and decomposed.is_dir(follow_symlinks=False):
+            walk.decompositions.append(here)
         for entry in listed:
             where = Path(entry.path)
             if entry.is_symlink():
@@ -694,11 +714,87 @@ def _run_findings(run: Path, known: Mapping[str, TierSet]) -> list[Finding]:
         msg = f"a run under the run roots cannot be read: {type(exc).__name__}"
         raise _refuse("register_unreadable", msg) from exc
     marked = _named_by(config.held_out_sha256, known)
-    return [
+    found = [
         Finding(_digest(f"incident\0{run}\0{event.seq}".encode()), "incident", marked)
         for event in events
         if isinstance(event, Incident) and event.cause == "held_out_read"
     ]
+    if found:
+        return found
+    # Started, and killed before its opening's incident: the journal's end line holds it alone.
+    return [
+        Finding(_review_key(run, session), "incident", marked)
+        for session in _journal_exposures(run)
+    ]
+
+
+def _review_key(directory: Path, session: str) -> str:
+    """The key of a plan review's exposure: the same whichever record of the review shows it."""
+    return _digest(f"review\0{directory}\0{session}".encode())
+
+
+def _journal_exposures(directory: Path) -> tuple[str, ...]:
+    """The review sessions the round journal in ``directory`` ended as exposed.
+
+    Raises:
+        ExposureError: the journal cannot be read.
+    """
+    from physgate.orchestrator.design_rounds import exposed_reviews
+    from physgate.orchestrator.exceptions import OrchestratorError
+
+    try:
+        return exposed_reviews(directory)
+    except OrchestratorError as exc:
+        msg = f"a round journal under the run roots cannot be read: {type(exc).__name__}"
+        raise _refuse("register_unreadable", msg) from exc
+
+
+def _decomposition_findings(directory: Path, known: Mapping[str, TierSet]) -> list[Finding]:
+    """The exposure a reviewed decomposition killed before its opening holds, found in place.
+
+    Read only: what the next command on the directory writes once it has scanned the review's
+    streams; the record of a review no command has scanned yet, whose streams are scanned now by
+    that command's own scan (a stream gone counts as showing a canary); and the round journal's
+    end line of an exposed review. Its versions are named by the digests the decomposition
+    recorded before its review; every version of the role where it recorded none.
+
+    Raises:
+        ExposureError: one of its records is there and cannot be read.
+    """
+    from physgate.orchestrator.decomposition_review import (
+        ReviewRecordError,
+        exposed_review,
+        recorded_held_out,
+        review_record,
+        streams_show,
+    )
+    from physgate.orchestrator.exceptions import InvocationError
+    from physgate.orchestrator.processes import is_session
+
+    sessions = set(_journal_exposures(directory))
+    try:
+        named = exposed_review(directory)
+        if named is not None:
+            sessions.add(named)
+        record = review_record(directory)
+        if record is not None and record.session_id not in sessions:
+            try:
+                running = is_session(record.pid, record.started, record.session_id)
+            except OSError:
+                running = False  # its streams are then read whole, as final
+            try:
+                shown = streams_show(record, running=running)
+            except InvocationError:
+                shown = True  # a stream that is gone is never read as one that showed nothing
+            if shown:
+                sessions.add(record.session_id)
+        digests = recorded_held_out(directory) if sessions else None
+    except ReviewRecordError as exc:
+        # Named by its kind of place only: the record's path lies beneath a run root.
+        msg = "a decomposition's record under the run roots cannot be read"
+        raise _refuse("register_unreadable", msg) from exc
+    marked = _named_by(digests or (), known)
+    return [Finding(_review_key(directory, one), "incident", marked) for one in sorted(sessions)]
 
 
 def _protected_briefs(store: Path, role: Role) -> dict[str, frozenset[str]]:
@@ -814,6 +910,8 @@ def survey(store: Path, role: Role, roots: Sequence[Path]) -> Survey:
     found: list[Finding] = []
     for run in sorted(set(walk.runs)):
         found += _run_findings(run, known)
+    for directory in sorted(set(walk.decompositions)):
+        found += _decomposition_findings(directory, known)
     for record in sorted(set(walk.records)):
         finding = _record_finding(record, known, briefs)
         if finding is not None:
