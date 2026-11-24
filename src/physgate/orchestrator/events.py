@@ -176,6 +176,10 @@ HaltReason = Literal[
     "usage_limit",
 ]
 
+#: The cause a failed decomposition's halt names, before the colon of its detail, where its call
+#: ended on the account's usage limit.
+LIMIT_CAUSE = "usage_limit"
+
 #: Halts a resume continues from, the same attempt with a fresh schedule: the
 #: infrastructure schedule ran out, the credential was refused and has since been
 #: replaced, the OS layer would not start and has since been repaired, or the account's
@@ -429,7 +433,8 @@ class Halted(_Event):
     kind: Literal["halted"] = "halted"
     reason: HaltReason
     detail: NonEmptyStr
-    #: For a halt on the account's usage limit: the reset as the stream gave it, and as an
+    #: For a halt on the account's usage limit, and for a failed decomposition whose call ended on
+    #: it (its detail's cause is ``usage_limit``): the reset as the stream gave it, and as an
     #: instant where it parses.
     usage_limit: UsageLimit | None = None
     #: For a halt on a failed decomposition: the library files the planner was sent, each by
@@ -446,8 +451,18 @@ class Halted(_Event):
 
     @model_validator(mode="after")
     def _a_limit_halt_names_its_reset(self) -> Halted:
-        if (self.reason == "usage_limit") != (self.usage_limit is not None):
-            msg = "a halt on the usage limit carries the limit, and no other halt does"
+        # A failed decomposition whose call ended on the limit may carry it too; it is never a
+        # halt on the limit itself, which a resume goes on from: a decomposition is made again.
+        on_the_limit = self.reason == "decomposition_failed" and (
+            self.detail.split(":", 1)[0].strip() == LIMIT_CAUSE
+        )
+        if (self.reason == "usage_limit" and self.usage_limit is None) or (
+            self.usage_limit is not None and self.reason != "usage_limit" and not on_the_limit
+        ):
+            msg = (
+                "a halt on the usage limit carries the limit, and no other halt does but a failed "
+                "decomposition whose call ended on it"
+            )
             raise ValueError(msg)
         return self
 
@@ -771,7 +786,14 @@ class ProposalsChecked(_Event):
     checked_commit: Sha
     refused_by: (
         Literal[
-            "proposal", "write_scope", "series", "declaration", "dispute", "interface", "long_line"
+            "proposal",
+            "write_scope",
+            "series",
+            "declaration",
+            "dispute",
+            "interface",
+            "long_line",
+            "exports",
         ]
         | None
     )
@@ -788,6 +810,11 @@ class ProposalsChecked(_Event):
     #: as it stood, every joined node's payload and the derived revision, so replay derives it
     #: again. Left out of the line when empty, so every other line keeps its bytes.
     followed: tuple[FollowedInterface, ...] = ()
+    #: How many sets of exports the check made again from their committed sources and found
+    #: equal: 0 when the change touched none. ``None``, and left out of the line, when the check
+    #: was refused before it reached the exports, and on every line written before the field
+    #: existed, which reads as it did.
+    exports_regenerated: Annotated[int, Field(ge=0)] | None = None
 
     @model_validator(mode="after")
     def _a_refusal_says_why(self) -> ProposalsChecked:
@@ -804,6 +831,8 @@ class ProposalsChecked(_Event):
         data: dict[str, Any] = handler(self)
         if not self.followed:
             data.pop("followed", None)
+        if self.exports_regenerated is None:
+            data.pop("exports_regenerated", None)
         return data
 
 
@@ -1575,12 +1604,25 @@ class DesignUnavailable(BaseModel):
     #: What the review found the specification lacks, as an attempt's no-verdict line keeps it;
     #: left out when it found nothing, so such a line keeps its bytes.
     spec_defects: tuple[SpecDefect, ...] = ()
+    #: The account's usage limit the review's session ended on, as its reviewer read it, beside
+    #: the ``infrastructure`` cause as an attempt's review on the limit has it; left out of every
+    #: other end, so such a line keeps its bytes.
+    usage_limit: UsageLimit | None = None
+
+    @model_validator(mode="after")
+    def _only_infrastructure_ends_on_the_limit(self) -> DesignUnavailable:
+        if self.usage_limit is not None and self.cause != "infrastructure":
+            msg = "only a review's infrastructure end is one on the usage limit"
+            raise ValueError(msg)
+        return self
 
     @model_serializer(mode="wrap")
     def _omit_none_found(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
         if not self.spec_defects:
             data.pop("spec_defects", None)
+        if self.usage_limit is None:
+            data.pop("usage_limit", None)
         return data
 
 

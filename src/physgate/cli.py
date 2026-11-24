@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from pathlib import Path
 
 from physgate.build.bom import cli as bom_cli
-from physgate.evaluation import evidence, gaps_cli, tierset_cli
+from physgate.build.drawings import cli as drawing_cli
+from physgate.evaluation import evidence, gaps_cli, harness_round_cli, tierset_cli
 from physgate.evaluation import requirements as evaluation_requirements
 from physgate.evaluation.baseline import cli as baseline_cli
 from physgate.evaluation.gap_trend_census import TREND
@@ -14,12 +16,14 @@ from physgate.evaluation.inject import cli as inject_cli
 from physgate.evaluation.observe import cli as observe_cli
 from physgate.evaluation.observe import compare
 from physgate.evaluation.per_role import cli as per_role_cli
+from physgate.gate.catalogue import catalogue_digest
+from physgate.gate.laws import load_laws
 from physgate.hooks import cli as hooks_cli
 from physgate.knowledge import cli as knowledge_cli
 from physgate.orchestrator import catches, requirements
 from physgate.orchestrator import cli as orchestrator_cli
 from physgate.ui import cli as ui_cli
-from physgate.ui import table
+from physgate.ui import library, table
 
 #: What the comparison classes and how it compares, the gate's catch count, and the published
 #: gap trend's names and parser, handed to the Evidence screen's routes.
@@ -32,6 +36,22 @@ CENSUS = evidence.Census(
 )
 
 
+def gate_digest(table: Path, promotions: Path) -> library.GateDigest:
+    """The digest a gate built from the law table at ``table`` stamps on every result.
+
+    The gate's own two steps, the ones it takes when it is built: the table loaded and held to
+    its promotion record, then the catalogue's digest with its laws. Handed to the Library
+    screen, whose package may not import the law module.
+
+    Raises:
+        LawTableError: the table does not load.
+    """
+    laws = load_laws(table, promotions)
+    return library.GateDigest(
+        sha256=catalogue_digest(laws), table_sha256=laws.sha256, laws=len(laws.laws)
+    )
+
+
 def compose() -> None:
     """Wire the evaluation into the core, here and nowhere else.
 
@@ -39,10 +59,12 @@ def compose() -> None:
     them where there is no evaluation. And the Evidence screen's reads over the evaluation's
     records, served beside the UI's own routes: no module of the UI imports the evaluation, and
     the routes are handed the comparison's own census and function here, since the server's
-    import fence does not admit the comparison's module.
+    import fence does not admit the comparison's module. The Library screen is handed the gate's
+    digest of a law table the same way, since the fence does not admit the law module either.
     """
     requirements.register(evaluation_requirements.REQUIREMENTS)
     table.register(evidence.routes(CENSUS))
+    library.register_digester(gate_digest)
 
 
 def main(
@@ -66,8 +88,10 @@ def main(
     tierset_cli.add_parser(subparsers)
     gaps_cli.add_parser(subparsers)
     baseline_cli.add_parser(subparsers)
+    harness_round_cli.add_parser(subparsers)
     ui_cli.add_parser(subparsers)
     bom_cli.add_parser(subparsers)
+    drawing_cli.add_parser(subparsers)
     args = parser.parse_args(argv)
     result: int = args.func(args)
     return result

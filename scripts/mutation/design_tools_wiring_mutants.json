@@ -1,0 +1,716 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/orchestrator/merge.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_an_attempt_s_admitted_exports_are_read_as_bytes_and_carried_to_its_review.py",
+   "tests/unit/orchestrator/test_an_export_is_committed_only_in_its_module_s_exports_folder_within_its_caps.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py",
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py",
+   "tests/unit/orchestrator/test_the_ecad_exports_are_admitted_by_kind_within_their_caps_and_shown_as_their_kind_is.py",
+   "tests/unit/orchestrator/test_the_free_text_inside_an_export_is_counted_and_bounded.py",
+   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py",
+   "tests/unit/reviewers/test_an_export_reaches_its_review_as_one_line_with_its_size_and_digest.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/reviewers/packet_fixture.py",
+   "tests/unit/reviewers/rubric_fixture.py"
+  ]
+ },
+ {
+  "name": "an_export_over_its_kind_s_cap_passes",
+  "file": "src/physgate/orchestrator/merge.py",
+  "old": "    if size > cap:\n",
+  "new": "    if size > cap * 2:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_an_export_is_committed_only_in_its_module_s_exports_folder_within_its_caps.py",
+   "tests/unit/orchestrator/test_the_ecad_exports_are_admitted_by_kind_within_their_caps_and_shown_as_their_kind_is.py"
+  ]
+ },
+ {
+  "name": "the_module_s_exports_past_their_total_pass",
+  "file": "src/physgate/orchestrator/merge.py",
+  "old": "    if total > MAX_MODULE_EXPORT_BYTES:\n        found.append(",
+  "new": "    if total > MAX_MODULE_EXPORT_BYTES * 2:\n        found.append(",
+  "tests": [
+   "tests/unit/orchestrator/test_an_export_is_committed_only_in_its_module_s_exports_folder_within_its_caps.py"
+  ]
+ },
+ {
+  "name": "an_export_outside_the_exports_folder_passes",
+  "file": "src/physgate/orchestrator/merge.py",
+  "old": "        return EXPORT_OUTSIDE if path.name.casefold().endswith(EXPORT_SUFFIXES) else None",
+  "new": "        return None",
+  "tests": [
+   "tests/unit/orchestrator/test_an_export_is_committed_only_in_its_module_s_exports_folder_within_its_caps.py"
+  ]
+ },
+ {
+  "name": "a_file_in_the_exports_folder_that_is_no_export_passes",
+  "file": "src/physgate/orchestrator/merge.py",
+  "old": "    if path.parent != exports_dir or not is_export(str(path)):",
+  "new": "    if path.parent != exports_dir:",
+  "tests": [
+   "tests/unit/orchestrator/test_an_export_is_committed_only_in_its_module_s_exports_folder_within_its_caps.py",
+   "tests/unit/orchestrator/test_the_ecad_exports_are_admitted_by_kind_within_their_caps_and_shown_as_their_kind_is.py"
+  ]
+ },
+ {
+  "name": "an_export_whose_bytes_are_not_its_kind_passes",
+  "file": "src/physgate/orchestrator/merge.py",
+  "old": "    if found is None:\n        return EXPORT_INVALID, body",
+  "new": "    if False:\n        return EXPORT_INVALID, body",
+  "tests": [
+   "tests/unit/orchestrator/test_an_export_is_committed_only_in_its_module_s_exports_folder_within_its_caps.py",
+   "tests/unit/orchestrator/test_the_ecad_exports_are_admitted_by_kind_within_their_caps_and_shown_as_their_kind_is.py"
+  ]
+ },
+ {
+  "name": "a_binary_stl_with_its_own_header_bytes_passes",
+  "file": "src/physgate/orchestrator/merge.py",
+  "old": "    if found.header or found.attributes:",
+  "new": "    if found.attributes:",
+  "tests": [
+   "tests/unit/orchestrator/test_an_export_is_committed_only_in_its_module_s_exports_folder_within_its_caps.py",
+   "tests/unit/orchestrator/test_the_free_text_inside_an_export_is_counted_and_bounded.py"
+  ]
+ },
+ {
+  "name": "a_side_the_check_did_not_admit_leaves_the_diff",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "    if (path, digest) not in admitted or len(body) > MAX_EXPORT_BYTES or told is None:",
+  "new": "    if len(body) > MAX_EXPORT_BYTES or told is None:",
+  "tests": [
+   "tests/unit/reviewers/test_an_export_reaches_its_review_as_one_line_with_its_size_and_digest.py",
+   "tests/unit/orchestrator/test_an_attempt_s_admitted_exports_are_read_as_bytes_and_carried_to_its_review.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/reviewers/packet_fixture.py",
+   "tests/unit/reviewers/rubric_fixture.py"
+  ]
+ },
+ {
+  "name": "an_export_past_the_free_text_budget_leaves_the_diff",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "    if free is None or not free.summarised:",
+  "new": "    if free is None:",
+  "tests": [
+   "tests/unit/reviewers/test_an_export_reaches_its_review_as_one_line_with_its_size_and_digest.py",
+   "tests/unit/orchestrator/test_the_free_text_inside_an_export_is_counted_and_bounded.py"
+  ],
+  "data": [
+   "tests/unit/reviewers/packet_fixture.py",
+   "tests/unit/reviewers/rubric_fixture.py"
+  ]
+ },
+ {
+  "name": "an_admitted_export_s_bytes_stay_in_the_diff",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        _left_out(where, commit, leaving) if leaving else commit,\n",
+  "new": "        commit,\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_export_reaches_its_review_as_one_line_with_its_size_and_digest.py"
+  ],
+  "data": [
+   "tests/unit/reviewers/packet_fixture.py",
+   "tests/unit/reviewers/rubric_fixture.py"
+  ]
+ },
+ {
+  "name": "the_long_line_check_reads_the_diff_without_the_admitted_exports",
+  "file": "src/physgate/orchestrator/apply.py",
+  "old": "        long = long_line(pinned, base, attempt_commit, admitted)",
+  "new": "        long = long_line(pinned, base, attempt_commit)",
+  "tests": [
+   "tests/unit/orchestrator/test_an_attempt_s_admitted_exports_are_read_as_bytes_and_carried_to_its_review.py",
+   "tests/unit/orchestrator/test_the_free_text_inside_an_export_is_counted_and_bounded.py",
+   "tests/unit/orchestrator/test_an_export_is_committed_only_in_its_module_s_exports_folder_within_its_caps.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/observe_rig.py"
+  ]
+ },
+ {
+  "name": "the_check_carries_no_admitted_export",
+  "file": "src/physgate/orchestrator/apply.py",
+  "old": "            exports=exported,\n",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_an_attempt_s_admitted_exports_are_read_as_bytes_and_carried_to_its_review.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/observe_rig.py"
+  ]
+ },
+ {
+  "name": "the_attempt_carries_no_admitted_export_to_its_review",
+  "file": "src/physgate/orchestrator/loop.py",
+  "old": "            exports=check.exports,\n",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_an_attempt_s_admitted_exports_are_read_as_bytes_and_carried_to_its_review.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/observe_rig.py"
+  ]
+ },
+ {
+  "name": "the_hold_s_refusal_is_dropped",
+  "file": "src/physgate/orchestrator/apply.py",
+  "old": "        if held.refusal is not None:",
+  "new": "        if held.refusal is None and False:",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "a_regenerated_export_that_differs_passes",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "    if made != git_blob(repo, f\"{commit}:{path}\", git_dir=git_dir):",
+  "new": "    if not made and made != git_blob(repo, f\"{commit}:{path}\", git_dir=git_dir):",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "a_source_without_its_exports_passes",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "    missing = [path for path in wanted if path not in found.products]",
+  "new": "    missing: list[str] = []",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "more_sets_than_one_check_makes_pass",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "    if len(chosen) > MAX_SETS_PER_CHECK:",
+  "new": "    if len(chosen) > MAX_SETS_PER_CHECK * 4:",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "a_name_outside_the_safe_shape_is_placed",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "    if SAFE_NAME.fullmatch(found.stem):",
+  "new": "    if found.stem:",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "on_linux_nothing_is_withheld",
+  "file": "src/physgate/oslayer/regeneration.py",
+  "old": "bwrap_args(read_denied=denied,",
+  "new": "bwrap_args(read_denied=(),",
+  "tests": [
+   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "on_macos_nothing_is_withheld",
+  "file": "src/physgate/oslayer/regeneration.py",
+  "old": "                        read_denied=denied,\n",
+  "new": "                        read_denied=(),\n",
+  "tests": [
+   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "a_runner_given_no_withheld_places_runs",
+  "file": "src/physgate/oslayer/regeneration.py",
+  "old": "            if withheld is None:\n                msg = \"no places withheld from the run's sessions are given to the regeneration\"\n                raise ContainmentError(msg)\n            denied = tuple(withheld())\n",
+  "new": "            denied = tuple(withheld()) if withheld is not None else ()\n",
+  "tests": [
+   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py",
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "a_failed_regeneration_quotes_what_it_said",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "        code, _ = runner(argv, work, env, given, recorded.roots)\n",
+  "new": "        code, said = runner(argv, work, env, given, recorded.roots)\n        source = f\"{source} {last_line(said)}\"\n",
+  "tests": [
+   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "the_containment_s_words_name_the_place",
+  "file": "src/physgate/oslayer/regeneration.py",
+  "old": "                    options = bwrap_args(read_denied=denied, server_dir=str(work), read_roots=roots)\n                except ContainmentError:",
+  "new": "                    options = bwrap_args(read_denied=denied, server_dir=str(work), read_roots=roots)\n                except ValueError:",
+  "tests": [
+   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "the_held_out_roots_are_not_withheld",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "*self._config.held_out, *claude_temp_dirs()",
+  "new": "*claude_temp_dirs()",
+  "tests": [
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "the_shared_claude_temp_is_not_withheld",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "*self._config.held_out, *claude_temp_dirs()",
+  "new": "*self._config.held_out",
+  "tests": [
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "the_review_root_is_not_withheld",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "        places += [str(self._review_root), ",
+  "new": "        places += [",
+  "tests": [
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "the_run_s_directory_is_not_withheld",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "            if os.path.realpath(place) not in writable\n",
+  "new": "            if os.path.realpath(place) not in writable and place != self._run.run_dir\n",
+  "tests": [
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "the_parameters_file_is_not_withheld",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "        places = [*self._forbidden_by_session(), *map(str, withheld)]",
+  "new": "        places = [*self._forbidden_by_session()]",
+  "tests": [
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "the_run_s_change_check_is_given_no_withheld_places",
+  "file": "src/physgate/orchestrator/cli.py",
+  "old": "                withheld=dispatcher.regeneration_withheld,\n",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "a_module_s_exports_past_their_count_pass",
+  "file": "src/physgate/orchestrator/merge.py",
+  "old": "    if count > MAX_MODULE_EXPORTS:\n        return [\n",
+  "new": "    if count > MAX_MODULE_EXPORTS * 1000:\n        return [\n",
+  "tests": [
+   "tests/unit/orchestrator/test_an_export_is_committed_only_in_its_module_s_exports_folder_within_its_caps.py"
+  ]
+ },
+ {
+  "name": "exports_past_their_count_are_admitted",
+  "file": "src/physgate/orchestrator/merge.py",
+  "old": "    if count > MAX_MODULE_EXPORTS or total > MAX_MODULE_EXPORT_BYTES:\n",
+  "new": "    if total > MAX_MODULE_EXPORT_BYTES:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_an_attempt_s_admitted_exports_are_read_as_bytes_and_carried_to_its_review.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "a_circuit_suffix_outside_is_sent_to_the_folder",
+  "file": "src/physgate/orchestrator/merge.py",
+  "old": "            return CIRCUIT_SUFFIX_OUTSIDE\n",
+  "new": "            return EXPORT_OUTSIDE\n",
+  "tests": [
+   "tests/unit/orchestrator/test_an_export_is_committed_only_in_its_module_s_exports_folder_within_its_caps.py"
+  ]
+ },
+ {
+  "name": "the_left_out_paths_are_git_s_arguments",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        _left_out(where, commit, leaving) if leaving else commit,\n        \"--\",\n        f\":(exclude){DISPUTES_DIR}\",\n",
+  "new": "        commit,\n        \"--\",\n        f\":(exclude){DISPUTES_DIR}\",\n        *(f\":(exclude,literal){left.path}\" for left in leaving),\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_export_reaches_its_review_as_one_line_with_its_size_and_digest.py"
+  ],
+  "data": [
+   "tests/unit/reviewers/packet_fixture.py",
+   "tests/unit/reviewers/rubric_fixture.py"
+  ]
+ },
+ {
+  "name": "a_diff_the_machine_cannot_prepare_leaves_the_check",
+  "file": "src/physgate/orchestrator/apply.py",
+  "old": "        except (OSError, PacketError) as exc:\n",
+  "new": "        except PacketError as exc:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_an_attempt_s_admitted_exports_are_read_as_bytes_and_carried_to_its_review.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "the_made_export_is_compared_by_length",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "    if made != git_blob(repo, f\"{commit}:{path}\", git_dir=git_dir):",
+  "new": "    if len(made) != len(git_blob(repo, f\"{commit}:{path}\", git_dir=git_dir)):",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "a_product_is_read_by_its_path",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "        made = read_beneath(work, names, limit=cap, identity=made_here)\n",
+  "new": "        made = work.joinpath(*names).read_bytes()\n",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "the_folders_the_check_made_are_not_held_to_it",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "        made = read_beneath(work, names, limit=cap, identity=made_here)\n",
+  "new": "        made = read_beneath(work, names, limit=cap)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "an_exit_code_the_record_does_not_word_is_quoted",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "        words = derivation.refusals.get(str(code), ENDED_WITH_AN_ERROR)\n",
+  "new": "        words = derivation.refusals.get(str(code), f\"{ENDED_WITH_AN_ERROR} ({code})\")\n",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py",
+   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "the_exit_code_is_not_kept",
+  "file": "src/physgate/orchestrator/apply.py",
+  "old": "                note_exit(self._run.run_dir, subtask_id, attempt_commit, held.refusal)\n",
+  "new": "                pass\n",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "the_command_s_environment_is_built_on_the_orchestrator_s",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "    return {\n        \"PATH\": f\"{work / 'bin'}{os.pathsep}/usr/bin{os.pathsep}/bin\",\n",
+  "new": "    return {\n        **os.environ,\n        \"PATH\": f\"{work / 'bin'}{os.pathsep}/usr/bin{os.pathsep}/bin\",\n",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "the_command_inherits_the_orchestrator_s_environment",
+  "file": "src/physgate/oslayer/regeneration.py",
+  "old": "                env=dict(env),\n",
+  "new": "                env={**os.environ, **env},\n",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "the_withheld_places_are_asked_once",
+  "file": "src/physgate/oslayer/regeneration.py",
+  "old": "            denied = tuple(withheld())\n",
+  "new": "            denied = getattr(run, 'kept', None) or tuple(withheld())\n            run.kept = denied  # type: ignore[attr-defined]\n",
+  "tests": [
+   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "the_standing_review_root_is_not_withheld",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "        places += standing_review_material(self._config.held_out)\n",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "the_roots_withheld_whole_are_not_withheld",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "        places += withheld_whole_roots(self._config.withheld_whole)\n",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "the_harness_checkout_is_not_withheld",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "        return [\n            str(place)\n            for place in self._forbidden().values()\n            if os.path.realpath(place) not in writable\n        ]\n",
+  "new": "        return [\n            str(place)\n            for name, place in self._forbidden().items()\n            if os.path.realpath(place) not in writable and name != 'the harness checkout'\n        ]\n",
+  "tests": [
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "the_hooks_installation_is_not_withheld",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "        return [\n            str(place)\n            for place in self._forbidden().values()\n            if os.path.realpath(place) not in writable\n        ]\n",
+  "new": "        return [\n            str(place)\n            for name, place in self._forbidden().items()\n            if os.path.realpath(place) not in writable and name != \"the hooks' installation\"\n        ]\n",
+  "tests": [
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "the_target_repository_is_not_withheld",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "        return [\n            str(place)\n            for place in self._forbidden().values()\n            if os.path.realpath(place) not in writable\n        ]\n",
+  "new": "        return [\n            str(place)\n            for name, place in self._forbidden().items()\n            if os.path.realpath(place) not in writable and name != 'the target repository'\n        ]\n",
+  "tests": [
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
+  "name": "baseline_last",
+  "file": "src/physgate/orchestrator/merge.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_an_attempt_s_admitted_exports_are_read_as_bytes_and_carried_to_its_review.py",
+   "tests/unit/orchestrator/test_an_export_is_committed_only_in_its_module_s_exports_folder_within_its_caps.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py",
+   "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py",
+   "tests/unit/orchestrator/test_the_ecad_exports_are_admitted_by_kind_within_their_caps_and_shown_as_their_kind_is.py",
+   "tests/unit/orchestrator/test_the_free_text_inside_an_export_is_counted_and_bounded.py",
+   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py",
+   "tests/unit/reviewers/test_an_export_reaches_its_review_as_one_line_with_its_size_and_digest.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+   "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+   "tests/unit/reviewers/packet_fixture.py",
+   "tests/unit/reviewers/rubric_fixture.py"
+  ]
+ }
+]

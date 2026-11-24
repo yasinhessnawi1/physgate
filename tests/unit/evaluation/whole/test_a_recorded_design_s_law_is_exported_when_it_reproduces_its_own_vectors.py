@@ -9,7 +9,9 @@ feed-forward and the reference's ramp, which the loop's analysis holds outside t
 
 Each refusal is a status of its own and writes nothing: no file, units that do not balance, a
 coefficient the graph does not hold (a leak named differently among them), a vector the law does
-not reproduce, a law that is not linear or reads a signal outside the list.
+not reproduce, a law that is not linear or reads a signal outside the list. A law file is held to
+the rules of reading an answer is held to: a key written twice, a sign written ``true`` and two
+states marked applied refuse the file before anything is exported.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from typing import Any
 
 import pytest
 
+from physgate.evaluation.per_role.exceptions import TaskFormatError
 from physgate.evaluation.whole.answer import parse_answer
 from physgate.evaluation.whole.export import ExportError, export_whole_run, record_path
 from physgate.state.store import Store
@@ -595,6 +598,53 @@ def test_a_file_past_its_size_is_refused_unread(tmp_path: Path) -> None:
     document = _file()
     document["vectors"][0]["name"] = "x" * 300_000
     _refused(tmp_path, "malformed", law=_bytes(document))
+
+
+# ── the law file is read as an answer is read ───────────────────────────────────────────────
+
+_COMMAND = b'"command": "command"'
+_COMMAND_TWICE = b'"command": "no_such_line", "command": "command"'
+
+
+def test_a_law_file_with_a_key_written_twice_is_refused_before_export_in_an_answer_s_words(
+    tmp_path: Path,
+) -> None:
+    # The harness's file: refused by name, nothing exported, the last copy never read.
+    text = _LAW.read_bytes()
+    assert text.count(_COMMAND) == 1
+    harness = tmp_path / "harness"
+    harness.mkdir()
+    record = _refused(harness, "key_written_twice", law=text.replace(_COMMAND, _COMMAND_TWICE))
+    said = "the key 'command' is written twice in one object; each key is written once"
+    assert record.law_detail == said
+    # The same slip in the answer the same law exports to: refused in the same words.
+    clean = tmp_path / "clean"
+    clean.mkdir()
+    exported, out, _, _ = _export(clean)
+    assert exported.status == "exported"
+    answer = out.read_bytes()
+    assert answer.count(_COMMAND) == 1
+    with pytest.raises(TaskFormatError) as caught:
+        parse_answer(answer.replace(_COMMAND, _COMMAND_TWICE))
+    assert f"key_written_twice: {said}" in str(caught.value)
+
+
+def test_a_law_file_with_a_sign_written_true_is_refused_before_export(tmp_path: Path) -> None:
+    text = _LAW.read_text()
+    assert '"sign": 1,' in text
+    record = _refused(
+        tmp_path, "malformed", law=text.replace('"sign": 1,', '"sign": true,', 1).encode()
+    )
+    assert "not a truth value" in record.law_detail
+
+
+def test_a_law_file_with_two_states_marked_applied_is_refused_before_export(
+    tmp_path: Path,
+) -> None:
+    document = _file()
+    document["memory"].append({"name": "u_again", "unit": "1", "next": "command", "applied": True})
+    record = _refused(tmp_path, "malformed", law=_bytes(document))
+    assert "2 memory states, 'u_prev' and 'u_again', are marked applied" in record.law_detail
 
 
 def test_a_setting_the_graph_lacks_is_contract_lost_and_named(tmp_path: Path) -> None:

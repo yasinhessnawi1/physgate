@@ -94,12 +94,16 @@ from physgate.orchestrator.record import (
     RunRecord,
 )
 from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.usage_limit import UsageLimit, held_at
 from physgate.reviewers.exceptions import ReviewError
 
 #: The directory a round's second call runs in, beneath the round's own.
 RETRY_NAME = "retry"
 #: What a round's ending class is, plan or review, as the terminal line names it.
 EndingClass = PlanClass | ReviewClass
+#: The cause the terminal line names for rounds whose last round ended on the account's usage
+#: limit, its call's or its review's: the rounds are made again after the reset, never counted.
+LIMIT = "usage_limit"
 
 
 class _Line(BaseModel):
@@ -178,6 +182,10 @@ class RoundEnded(_Line):
     planner_library: tuple[PlannerFile, ...] | None = Field(
         default=None, exclude_if=lambda v: v is None
     )
+    #: The account's usage limit the round's call or its review ended on, its reset read as a halt
+    #: on the limit reads it, at the round's end; left out of every other end, so its line keeps
+    #: its bytes.
+    usage_limit: UsageLimit | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class CallRefused(_Line):
@@ -323,9 +331,52 @@ def _what_ended(ending: RoundEnding) -> tuple[str, str]:
     )
 
 
+def _on_the_limit(ending: RoundEnding, review: RoundReview | None) -> bool:
+    """Whether a round ended on the account's usage limit: its call's cause, or its review's."""
+    unavailable = review.unavailable if review is not None else None
+    return ending.plan_cause == LIMIT or (
+        unavailable is not None and unavailable.usage_limit is not None
+    )
+
+
+def _ended_as(line: RoundEnded) -> tuple[str, str]:
+    """The class and cause the terminal line names after ``line``: the limit, where it ended so."""
+    cls, cause = _what_ended(line.ending)
+    return cls, LIMIT if line.usage_limit is not None else cause
+
+
 def _refused(run_dir: Path, k: int, check: str, cause: str = "record_missing") -> RunStateError:
     msg = "the round journal is not what the rounds write, in the order they write it"
     return RunStateError(msg, run_dir=str(run_dir), round=str(k), cause=cause, check=check)
+
+
+def journal_spend(run_dir: Path) -> tuple[str | None, int | None]:
+    """How a decomposition's rounds ended and what they spent, read from its journal as it lies.
+
+    For a reader of a decomposition that left no run to replay: every line that parses, a line a
+    kill cut off left out. The cause of the void the journal ended on, or ``None`` where it ended
+    on none; and every call's and review's usage on its end lines (a call its schema refused
+    included), or ``None`` where a round has its start line and no end line, or there is no
+    journal, so a call's spend is on no record.
+    """
+    journal = run_dir / ROUNDS_JOURNAL
+    lines: list[JournalLine] = []
+    if journal.is_file() and not journal.is_symlink():
+        for raw in journal.read_bytes().splitlines():
+            try:
+                lines.append(_LINE.validate_json(raw))
+            except ValidationError:
+                continue  # a line a kill cut off
+    void = next((x for x in lines if isinstance(x, RoundsEnded) and x.follows == "void"), None)
+    started = {x.round for x in lines if isinstance(x, RoundStarted)}
+    ended = {x.round for x in lines if isinstance(x, RoundEnded)}
+    spent = 0
+    for line in lines:
+        if isinstance(line, RoundEnded | CallRefused):
+            spent += sum(m.usage.total() for m in line.usage)
+        if isinstance(line, RoundEnded) and line.review is not None:
+            spent += sum(m.usage.total() for m in line.review.usage)
+    return (None if void is None else void.cause), (spent if started and started <= ended else None)
 
 
 def read_journal(run_dir: Path, *, last: int, holds: bool = True) -> Journal:
@@ -389,6 +440,8 @@ def read_journal(run_dir: Path, *, last: int, holds: bool = True) -> Journal:
                 raise _refused(run_dir, k, "session" if session else "order")
             if not _paired(line):
                 raise _refused(run_dir, k, "pairing")
+            if (line.usage_limit is not None) != _on_the_limit(line.ending, line.review):
+                raise _refused(run_dir, k, "limit")  # a limit exactly where the round ended on it
             if line.plan_sha256 is not None and (not line.usage or line.num_turns < 1):
                 raise _refused(run_dir, k, "spent")  # a call that planned spent
             reviewer = line.review.session_id if line.review else None
@@ -412,13 +465,35 @@ def read_journal(run_dir: Path, *, last: int, holds: bool = True) -> Journal:
                 raise _refused(run_dir, line.round, "terminal")
             if not session and before is not None:
                 follows = what_follows(before.ending, last=k == last, holds=holds)
-                given = (follows if follows != "replan" else "void", *_what_ended(before.ending))
+                given = (follows if follows != "replan" else "void", *_ended_as(before))
                 # A void the loop raised follows only a round it went on to start a run from.
                 if (line.follows, line.ending_class, line.cause) != given and not (
                     raised and follows in ("start", "fail_run")
                 ):
                     raise _refused(run_dir, k, "terminal")
     return Journal(lines, terminal)
+
+
+def rounds_on_the_limit(run_dir: Path) -> tuple[str, UsageLimit] | None:
+    """When the rounds ended on the account's usage limit, and the limit: or ``None``.
+
+    Read from the journal's terminal line, where it names the limit, and the end line of the round
+    it names: that round's end and the limit as the line holds it. ``None`` where the journal is
+    missing, unreadable, or ended otherwise.
+    """
+    try:
+        lines = [
+            _LINE.validate_json(one) for one in (run_dir / ROUNDS_JOURNAL).read_bytes().splitlines()
+        ]
+    except (OSError, ValidationError):
+        return None
+    terminal = lines[-1] if lines else None
+    if not isinstance(terminal, RoundsEnded) or terminal.cause != LIMIT:
+        return None
+    for line in reversed(lines):
+        if isinstance(line, RoundEnded) and line.round == terminal.round:
+            return None if line.usage_limit is None else (line.ended, line.usage_limit)
+    return None
 
 
 def review_round(
@@ -463,6 +538,8 @@ def review_round(
             session_id=exc.session_id,
             reviewer_model=exc.reviewer_model,
             spec_defects=exc.spec_defects,
+            # The limit the reviewer read the session's end as, as an attempt's review gives it.
+            usage_limit=exc.usage_limit,
         )
         ending = {"session_id": exc.session_id, "usage": exc.usage, "unavailable": why}
     except HeldOutExposedError as exc:
@@ -767,6 +844,16 @@ def decompose_in_rounds(
         ended, done = loop.now()
         call_ended, timed = ran.call_ended[0], ran.review_started
         review_started, review_began = (None, None) if timed is None else timed
+        unavailable = review.unavailable if review is not None else None
+        # The limit the round ended on, its call's or its review's, held as a halt holds it.
+        limit = held_at(
+            outcome.usage_limit
+            if ending.plan_cause == LIMIT
+            else unavailable.usage_limit
+            if unavailable is not None
+            else None,
+            ended,
+        )
         _append(
             run_dir / ROUNDS_JOURNAL,
             RoundEnded(
@@ -792,6 +879,7 @@ def decompose_in_rounds(
                 prompt_sha256=outcome.prompt_sha256,
                 prompt_bytes=outcome.prompt_bytes,
                 planner_library=library_files(files) if files else None,
+                usage_limit=limit,
             ),
         )
         # The round's end is journalled with what its review came to: its record goes now.
@@ -845,6 +933,8 @@ def decompose_in_rounds(
         )
         follows = what_follows(ending, last=k == last, holds=config.design_review != "observe")
         cls, cause = _what_ended(ending)
+        if limit is not None:
+            cause = LIMIT  # its call's or its review's: the rounds are made again after the reset
         if (
             follows == "replan"
             and plan is not None

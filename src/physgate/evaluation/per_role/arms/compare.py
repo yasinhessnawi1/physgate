@@ -300,7 +300,10 @@ def harness_total(run_dir: Path) -> int:
       refused here;
     - the run halted where a resume continues it (the infrastructure's retries ran out, the
       credential was refused, the OS layer would not start, or a person resolved the
-      incident it halted on): a resume continues the same attempt and spends more.
+      incident it halted on): a resume continues the same attempt and spends more;
+    - the run had no role session: it ended at its decomposition (the call failed, or its plan
+      was refused), so what it spent is the call's alone, and a raw session held to it would be
+      held to no harness's work on the task.
 
     Raises:
         ComparisonError: the run's token account is not complete.
@@ -338,7 +341,26 @@ def harness_total(run_dir: Path) -> int:
     if step == "halted" and state.halt_resumable():
         msg = "the run halted for a resume; what the resume would spend is uncounted"
         raise ComparisonError(msg, log=str(log))
+    if not _ran_a_role_session(events):
+        msg = (
+            "the run had no role session (it ended at its decomposition): its spend is no "
+            "harness's work on the task, and no raw session is capped at it"
+        )
+        raise ComparisonError(msg, log=str(log))
     return TokenAccount.from_events(events).total().total()
+
+
+def _ran_a_role_session(events: Sequence[Event]) -> bool:
+    """Whether the log records a role session: spawned, ended, read at a resume, or spending.
+
+    A real run's role session is spawned before anything else of it is written; a log made over
+    the loop's stand-in sessions records their ends and their tokens without a spawn.
+    """
+    return any(
+        isinstance(e, SessionSpawned | SessionEnded | LeftoverRead)
+        or (isinstance(e, TokensUsed) and e.attribution.startswith("session:"))
+        for e in events
+    )
 
 
 #: The most a generated session configuration or a raw arm's record is read to: far past what

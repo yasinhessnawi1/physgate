@@ -52,6 +52,16 @@ NOT_DONE = (
     "tool before using any other tool:\n{files}\nReading a file through the shell does "
     "not count, and a file that changed after it was read must be read again."
 )
+#: Added after :data:`NOT_DONE` when the call refused is the verdict tool (only a reviewer has
+#: it). Every call of it counts toward the binary's cap on refused verdicts, this refusal
+#: included, and reviewers have spent their tries this way (measured: a try before the reading
+#: was done in nine of fourteen real reviews, and in each of the two that ended at the cap).
+#: Every other tool's refusal is worded as before, byte for byte.
+VERDICT_TOO_EARLY = (
+    "\nThat verdict was not taken, and it counts toward the limit on verdict calls: read every "
+    "file listed above in full first, then call StructuredOutput once, with `review` as an "
+    "object."
+)
 
 
 def _identity(path: str) -> tuple[int, int, str, int] | None:
@@ -214,7 +224,8 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     missing = unread_files(config, hook_input)
     if missing:
         listing = "\n".join(f"- {path} ({why})" for path, why in missing)
-        return refuse(NOT_DONE.format(files=listing))
+        early = VERDICT_TOO_EARLY if hook_input.tool_name == "StructuredOutput" else ""
+        return refuse(NOT_DONE.format(files=listing) + early)
     return ALLOW
 
 

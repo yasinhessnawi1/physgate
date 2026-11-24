@@ -15,8 +15,10 @@ on the frozen plant, with an assertion that needs no tolerance:
   the judged loop and advances in the run at the commanded speed; reading it changes no verdict
   of the margins;
 - the update rate and the period are two statements: the loop is analysed at the period alone;
-- the four rules the block states and the scorer does not refuse are read as valid records, and a
-  coefficient named as a state is valid.
+- the one rule the block states and the scorer does not refuse (more significant digits than it
+  asks for) is read as a valid record, and a coefficient named as a state is valid;
+- a sign written ``true``, two states marked as holding the applied command and a key written
+  twice are each a failed record whose reason names the rule broken.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "unit/evaluation/whole"))
 
-from answer_form_cases import accepted_gaps, allowed, example  # noqa: E402
+from answer_form_cases import accepted_gaps, allowed, example, stated_and_refused  # noqa: E402
 from test_a_whole_design_is_judged_never_on_an_unsourced_value import (  # noqa: E402
     COMPUTED_SPECS,
     STATIC_SPECS,
@@ -348,3 +350,39 @@ def test_a_rule_stated_and_not_refused_by_the_scorer_gives_a_valid_record(
     scorer = _scenario_module().WholeDesignScenario(_task(_MARGIN), _PLANT.read_bytes(), root=root)
     record = scorer.record(path)
     assert record["answer_valid"] is True and "refusal" not in record, record
+
+
+# ── what the block states and the scorer refuses, each with the rule it breaks ──────────────────
+
+
+def _failed_saying(tmp_path: Path, key: str) -> dict[str, Any]:
+    case = stated_and_refused()[key]
+    assert case.changed, f"{case.label}: the edit found its text in the example not exactly once"
+    root = Path(os.path.realpath(tmp_path)) / "answers"
+    root.mkdir(parents=True)
+    path = root / form.ANSWER_FILE
+    path.write_bytes(case.data)
+    scorer = _scenario_module().WholeDesignScenario(_task(_MARGIN), _PLANT.read_bytes(), root=root)
+    record: dict[str, Any] = scorer.record(path)
+    assert record["answer_valid"] is False, record
+    assert record["outcome"] == "fail" and record["specs"] == []
+    for words in case.said:
+        assert words in record["reason"], (words, record["reason"])
+    return record
+
+
+def test_a_sign_written_true_gives_a_failed_record_that_says_a_sign_is_no_truth_value(
+    tmp_path: Path,
+) -> None:
+    _failed_saying(tmp_path, "sign_true")
+
+
+def test_two_states_marked_as_holding_the_applied_command_give_a_failed_record_naming_both(
+    tmp_path: Path,
+) -> None:
+    _failed_saying(tmp_path, "applied_twice")
+
+
+def test_a_key_written_twice_gives_a_failed_record_that_names_the_key(tmp_path: Path) -> None:
+    _failed_saying(tmp_path / "top", "key_twice")
+    _failed_saying(tmp_path / "inside", "key_twice_inside")

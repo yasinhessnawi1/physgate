@@ -142,6 +142,23 @@ def test_a_harness_trial_is_the_machine_s_only_by_the_machine_s_halts(
     assert harness_ended_by_infrastructure(run, TASK, answer_found=True) is False
 
 
+def test_a_harness_trial_the_machine_halted_and_a_resume_let_end_on_its_own_is_the_arm_s_own(
+    tmp_path: Path,
+) -> None:
+    """Judged by the run's last end: a machine halt the run was resumed past is not its end.
+
+    The loop made this run: its one session ended on an API error with no retry left, the run
+    halted on the machine, and a resume took it on to an end of its own with no answer read.
+    That is the harness's own fail, not ``unscored``.
+    """
+    run = loop_run(tmp_path / "run", halted_on="api_error")
+    events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+    assert [e["reason"] for e in events if e["kind"] == "halted"] == ["infrastructure_exhausted"]
+    assert any(e["kind"] == "resumed" for e in events)
+    assert events[-1]["kind"] != "halted"
+    assert harness_ended_by_infrastructure(run, TASK, answer_found=False) is False
+
+
 def _stream(path: Path, result: dict[str, Any] | None) -> Path:
     lines = [
         {

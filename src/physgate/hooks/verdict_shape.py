@@ -6,8 +6,10 @@ closing brace, so the binary could not read it as an object either), and the bin
 refused each with "/review: must be object" and nothing more. One reviewer repeated it
 until the binary's cap on refused structured answers ended the session with no verdict.
 
-Nothing here loosens the contract: the refusal stands, the schema is unchanged, and no
-string is ever read as a verdict. After such a refusal (Claude Code's
+Nothing here loosens the contract: the refusal stands, the schema is unchanged, and this
+hook reads nothing as a verdict. (Where a session still ends with no verdict, its last try such
+a text, the reviewer reads that try once, held to the same schema: ``reviewers.verdict_text``.)
+After such a refusal (Claude Code's
 ``PostToolUseFailure`` event, whose ``error`` carries the refusal; measured on both
 pinned binaries, and its context reaches the session's next request), the session is
 told precisely what was wrong and what to send instead.

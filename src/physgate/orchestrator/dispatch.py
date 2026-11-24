@@ -171,7 +171,7 @@ from physgate.oslayer.containment import (
     wrappers,
 )
 from physgate.oslayer.placement import machine_writable, placement_refusal
-from physgate.oslayer.probe import Absent, Present, judge_here
+from physgate.oslayer.probe import Absent, Present, claude_temp_dirs, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
 from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
@@ -184,6 +184,7 @@ from physgate.reviewers.places import (
 from physgate.series.collect import collect, empty_outbox, temporary_roots
 from physgate.series.seal import SetAside
 from physgate.state.write_account import ACCOUNT_NAME, Settled, account_of, read_account
+from physgate.toolenv.record import ToolEnvironment
 
 REDACTED = REDACTED_TEXT.encode()
 
@@ -498,6 +499,11 @@ def session_protected_roots(
     return reverted, refused
 
 
+def withheld_whole_roots(roots: Sequence[str]) -> list[str]:
+    """The roots the run withholds whole, each where it really is, as every withholder names it."""
+    return [os.path.realpath(root) for root in roots]
+
+
 def withheld_whole_args(run_dir: Path, roots: Sequence[str]) -> list[str]:
     """The installer's options for the roots the run withholds whole from every role session.
 
@@ -514,8 +520,7 @@ def withheld_whole_args(run_dir: Path, roots: Sequence[str]) -> list[str]:
     place = os.path.realpath(run_dir)
     args: list[str] = []
     around = False
-    for root in roots:
-        real = os.path.realpath(root)
+    for real in withheld_whole_roots(roots):
         if real == place or real.startswith(place.rstrip("/") + "/"):
             msg = (
                 "a root the run withholds whole is the run's own directory or lies in it, so no "
@@ -2049,14 +2054,7 @@ class ClaudeDispatcher:
             # Before anything of the session exists: a session never runs on an environment
             # other than the one the run recorded, and a refusal here leaves nothing behind.
             self._tool_environment_scan = hold_before_session(
-                recorded_tools,
-                self._tool_environment_scan,
-                forbidden=forbidden_places(
-                    harness=harness_root(),
-                    install=self._install_bin.parent.parent,
-                    run_dir=self._run.run_dir,
-                    target=self._run.repo,
-                ),
+                recorded_tools, self._tool_environment_scan, forbidden=self._forbidden()
             )
         worktree = self._run.open_subtask(request.subtask_id, request.reopened)
         if self._layer_on():
@@ -2109,6 +2107,80 @@ class ClaudeDispatcher:
         if not self._tool_servers or not self._layer_on():
             return ()
         return tuple(server.name for server in self._tool_servers)
+
+    def _forbidden(self) -> dict[str, Path]:
+        """Every place on this machine the run's tool environment may not lie in or hold."""
+        return forbidden_places(
+            harness=harness_root(),
+            install=self._install_bin.parent.parent,
+            run_dir=self._run.run_dir,
+            target=self._run.repo,
+        )
+
+    def held_tool_environment(self) -> ToolEnvironment | None:
+        """The run's tool environment, held to its record now; ``None`` for a run naming none.
+
+        What the change check reads the command that makes committed exports again from: the
+        same hold every session starts behind (a full measure first, a scan against it after).
+
+        Raises:
+            InvocationError: the environment is not the recorded one, or changed since.
+        """
+        recorded = self._config.tool_environment
+        if recorded is None:
+            return None
+        self._tool_environment_scan = hold_before_session(
+            recorded, self._tool_environment_scan, forbidden=self._forbidden()
+        )
+        return recorded
+
+    def regeneration_withheld(self) -> tuple[str, ...]:
+        """Every place the command that makes committed exports again may not read, each whole.
+
+        At least what every role session of the run is withheld, without reading any session's
+        files: a session's own directory is its user's to write by its end, and a resume judges
+        attempts whose sessions this process never installed. So each place a session's denials
+        lie in is named whole: the run's directory (every session's own directory and state, the
+        run's records, the place apart, the worktrees with their answer keys and reviewer trees),
+        the harness checkout, the hooks' installation, the target repository, the review root, the
+        held-out roots, the run's parameters file, the sessions' temporary directories and the
+        temporary directory every Claude Code session of the user shares. And, as the sessions of
+        a run naming a held-out tier are installed, the standing review root as review material
+        (:func:`~physgate.reviewers.places.standing_review_material`) and every root the run
+        withholds whole (:func:`withheld_whole_roots`): from the same definitions a session's
+        install reads. The command has no worktree, so nothing inside them is opened again for
+        it, the session's own place in a root withheld whole included.
+
+        Raises:
+            ContainmentError: the run's records name no parameters file, so what its sessions
+                are withheld is not known; nothing is made again.
+        """
+        try:
+            withheld = withheld_paths(self._run.run_dir)
+        except RunStateError:
+            msg = (
+                "the run's records name no parameters file, so what its sessions are withheld "
+                "is not known and nothing is made again"
+            )
+            raise ContainmentError(msg) from None
+        places = [*self._forbidden_by_session(), *map(str, withheld)]
+        places += [str(self._review_root), *self._config.held_out, *claude_temp_dirs()]
+        places += standing_review_material(self._config.held_out)
+        places += withheld_whole_roots(self._config.withheld_whole)
+        return tuple(sorted(set(places)))
+
+    def _forbidden_by_session(self) -> list[str]:
+        """The places of :meth:`_forbidden` a session is withheld, the shared temporaries left out.
+
+        A temporary directory every session writes is none a session is withheld, and the
+        command's own folder is made in one.
+        """
+        writable = {os.path.realpath(place) for place in machine_writable()}
+        return [
+            str(place)
+            for place in self._forbidden().values()
+            if os.path.realpath(place) not in writable
+        ]
 
     def _contained_servers(
         self, installed: Installed, sdir: Path, own_temp: Path, env: dict[str, str]

@@ -954,6 +954,16 @@
   min-width: 0;
 }
 
+/* The gate's digest and its note: each part apart, the digest wrapping as every id does. */
+.pg-lib-gate-digest {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+}
+
 .pg-lib-range {
   display: inline-flex;
   flex-wrap: wrap;

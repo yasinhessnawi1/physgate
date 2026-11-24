@@ -670,6 +670,108 @@
     ]
   },
   {
+    "name": "a_sign_written_true_read_as_1",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if isinstance(value, bool):\n            msg = \"a term's sign",
+    "new": "        if value is None:\n            msg = \"a term's sign",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
+    "name": "two_applied_states_allowed",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    if len(applied) > 1:",
+    "new": "    if len(applied) > 2:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
+    "name": "a_key_written_twice_read_as_the_last",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    _refuse_a_key_written_twice(text, where)\n    document = _document(text)",
+    "new": "    document = _document(text)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
+    "name": "a_key_written_twice_refused_only_where_it_is_the_version",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "        if key in seen:\n            raise _KeyTwice(key)",
+    "new": "        if key in seen and key == \"version\":\n            raise _KeyTwice(key)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
+    "name": "the_key_check_lets_a_number_past_its_digits_escape",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    except (ValueError, RecursionError):\n        return",
+    "new": "    except RecursionError:\n        return",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
+    "name": "the_key_check_lets_a_nest_past_its_depth_escape",
+    "file": "src/physgate/evaluation/whole/law.py",
+    "old": "    except (ValueError, RecursionError):\n        return",
+    "new": "    except ValueError:\n        return",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_answer_s_form_is_written_by_code_from_the_schema_and_a_golden_file_holds_it.py",
+      "tests/unit/evaluation/whole/test_every_field_and_bound_of_an_answer_is_told_to_a_designer_or_listed_as_not_told.py",
+      "tests/unit/evaluation/whole/test_the_example_the_block_quotes_parses_names_only_told_fields_and_is_no_design.py",
+      "tests/unit/evaluation/whole/test_an_answer_built_to_break_one_rule_the_block_names_is_read_as_the_block_says.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/whole/answer_form_cases.py",
+      "tests/unit/evaluation/whole/answer_form_block.golden.txt",
+      "tests/unit/evaluation/whole/recorded_law/law.json"
+    ]
+  },
+  {
     "name": "baseline_last",
     "file": "src/physgate/evaluation/whole/form.py",
     "old": "",

@@ -60,10 +60,11 @@ from physgate.orchestrator.decompose import (
     require_no_skill_file,
 )
 from physgate.orchestrator.decomposition_review import stop_left_review
-from physgate.orchestrator.design_rounds import decompose_in_rounds
+from physgate.orchestrator.design_rounds import decompose_in_rounds, rounds_on_the_limit
 from physgate.orchestrator.design_wait import held_builders
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
+    LIMIT_CAUSE,
     Envelope,
     EnvironmentRecorded,
     Event,
@@ -74,6 +75,7 @@ from physgate.orchestrator.events import (
     read_events,
 )
 from physgate.orchestrator.exceptions import (
+    DecompositionError,
     InvocationError,
     LimitNotResetError,
     OrchestratorError,
@@ -145,6 +147,7 @@ from physgate.orchestrator.waiting import (
     EXIT_WAITING_FOR_LIMIT,
     WAITING_FOR_LIMIT,
     limit_wait,
+    limit_words,
     printed_step,
 )
 from physgate.oslayer.listeners import loopback_listeners
@@ -897,9 +900,15 @@ def _decompose_run(args: argparse.Namespace, *, registrations: Registrations | N
             review_root=review_root,
         )
     except (OrchestratorError, ReviewError) as exc:
+        # Rounds that ended void on the account's usage limit wait for its reset, as a run halted
+        # on it does: the decomposition is made again after it, into a fresh directory.
+        on_limit = rounds_on_the_limit(run_dir) if isinstance(exc, DecompositionError) else None
+        if on_limit is not None:
+            return _waiting({"error": str(exc), **exc.context, **limit_words(*on_limit)})
         return _fail(str(exc), **exc.context)
     record, reviewed = made.record, made.reviewed
     subtasks = [line.id for line in record.ledger.read_all()]
+    halt = record.state.halted
     record.close()
     printed: dict[str, object] = {
         "run_id": config.run_id,
@@ -917,6 +926,11 @@ def _decompose_run(args: argparse.Namespace, *, registrations: Registrations | N
             if reviewed.unavailable is not None
             else "held_out_exposed"
         )
+    if made.cause == LIMIT_CAUSE and halt is not None:
+        # A call stopped by the account's usage limit: the words and the exit of a run halted on
+        # it, so a script waits for the reset and decomposes again, into a fresh directory.
+        _print(printed | limit_words(halt.ts, halt.usage_limit))
+        return EXIT_WAITING_FOR_LIMIT
     _print(printed)
     # A review whose stream showed held-out material halted the run: nothing will be dispatched.
     return 0 if made.ok and not (reviewed is not None and reviewed.exposed) else 1
@@ -976,7 +990,7 @@ def _confirm_request(args: argparse.Namespace) -> tuple[tuple[str, ...], str | N
     return confirm, getpass.getuser() if confirm else None
 
 
-def _waiting(said: dict[str, str]) -> int:
+def _waiting(said: Mapping[str, object]) -> int:
     print(json.dumps(said, sort_keys=True), file=sys.stderr)
     return EXIT_WAITING_FOR_LIMIT
 
@@ -1081,7 +1095,13 @@ def _drive_run(
             gate=registrations.gate,
             reviewers=reviewers,
             dispatcher=dispatcher,
-            changes=GitChangeChecker(run, store_root, {e.subtask_id: e.module_dir for e in plan}),
+            changes=GitChangeChecker(
+                run,
+                store_root,
+                {e.subtask_id: e.module_dir for e in plan},
+                environment=dispatcher.held_tool_environment,
+                withheld=dispatcher.regeneration_withheld,
+            ),
             merger=GitMerger(run, removal_timeout_s=REMOVAL_TIMEOUT_S),
             graph=keeper,
             escalation=escalation,
