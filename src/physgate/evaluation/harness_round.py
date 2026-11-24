@@ -75,9 +75,9 @@ trial is never repeated and never skipped, and a killed run is resumed, never re
   one such halt in its log (the limit's and a credential's not counted) is resumed once, after
   its first registered retry delay; a run whose decomposition call ended on the machine, and a
   decomposition that spent its call and left no run (killed after the call or during its plan's
-  review, or ended void; or killed while its run was started, or its start raising, so that it
-  left a log the core will never dispatch, as the core's own opening of the record says), are
-  superseded by one fresh decomposition into a new directory, after
+  review, or ended void on anything but the limit; or killed while its run was started, or its
+  start raising, so that it left a log the core will never dispatch, as the core's own opening of
+  the record says), are superseded by one fresh decomposition into a new directory, after
   the same delay. A superseded directory stays where it is, for the exposure scan, named in the
   ledger and the round's record with its cause (the machine's, ``killed``, or the void's) and its
   spend (``unread`` where no record holds it), and is in no run set and no cap;

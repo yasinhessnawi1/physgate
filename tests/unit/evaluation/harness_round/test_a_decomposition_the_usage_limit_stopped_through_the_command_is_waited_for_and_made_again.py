@@ -503,7 +503,8 @@ def test_the_spend_is_read_from_a_journal_written_before_the_limit_was_carried(
     tmp_path: Path, name: str, read: tuple[str, int]
 ) -> None:
     run_dir = tmp_path / name
-    shutil.copytree(BEFORE / name, run_dir)
+    (run_dir / ROUNDS_JOURNAL).parent.mkdir(parents=True)
+    shutil.copyfile(BEFORE / f"{name}.rounds.jsonl", run_dir / ROUNDS_JOURNAL)
     assert journal_spend(run_dir) == read
     # Such rounds ended on no limit the journal names: the round reads them as it always has.
     assert rounds_on_the_limit(run_dir) is None
