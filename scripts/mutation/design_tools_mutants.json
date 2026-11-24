@@ -1,0 +1,483 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "toolenv/helpers/result_file.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/hooks/test_an_interactive_console_the_design_libraries_bring_is_refused_by_name.py",
+   "tests/unit/toolenv/test_kicad_is_provisioned_by_digest_in_a_root_of_its_own_copied_so_the_measure_accepts_it.py",
+   "tests/unit/toolenv/test_the_circuit_helper_reports_kicad_s_rules_check_and_exports_and_never_judges.py",
+   "tests/unit/toolenv/test_the_circuit_library_is_pinned_without_its_gpl_simulator_and_its_source_builds_are_held.py",
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "result_empty_unit_passes",
+  "file": "toolenv/helpers/result_file.py",
+  "old": "    if not unit:\n        raise HelperRefusedError(\"a value has a unit",
+  "new": "    if unit is None:\n        raise HelperRefusedError(\"a value has a unit",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "result_infinite_value_passes",
+  "file": "toolenv/helpers/result_file.py",
+  "old": "    if not math.isfinite(value):\n        raise HelperRefusedError(f\"{where} is not finite\")",
+  "new": "    if math.isnan(value):\n        raise HelperRefusedError(f\"{where} is not finite\")",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "result_depth_one_more",
+  "file": "toolenv/helpers/result_file.py",
+  "old": "    if depth > MAX_DEPTH:",
+  "new": "    if depth > MAX_DEPTH + 1:",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "result_false_passes",
+  "file": "toolenv/helpers/result_file.py",
+  "old": "    if isinstance(found, bool):",
+  "new": "    if isinstance(found, bool) and found:",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "result_judgement_word_passes",
+  "file": "toolenv/helpers/result_file.py",
+  "old": "            if name.lower() in JUDGEMENT_WORDS:",
+  "new": "            if name.lower() in JUDGEMENT_WORDS and False:",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "result_extra_field_passes",
+  "file": "toolenv/helpers/result_file.py",
+  "old": "    if set(result) != FIELDS[kind]:",
+  "new": "    if not FIELDS[kind] <= set(result):",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "result_size_bound_doubled",
+  "file": "toolenv/helpers/result_file.py",
+  "old": "    if len(text.encode(\"utf-8\")) > MAX_RESULT_BYTES:",
+  "new": "    if len(text.encode(\"utf-8\")) > 2 * MAX_RESULT_BYTES:",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "result_any_json_name",
+  "file": "toolenv/helpers/result_file.py",
+  "old": "    if not name.endswith(\".result.json\"):",
+  "new": "    if not name.endswith(\".json\"):",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "structure_cantilever_deflection",
+  "file": "toolenv/helpers/structure.py",
+  "old": "force * length**3 / (3 * modulus * second_moment)",
+  "new": "force * length**3 / (2 * modulus * second_moment)",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "structure_cantilever_stress",
+  "file": "toolenv/helpers/structure.py",
+  "old": "6 * force * length / (width * thickness**2)",
+  "new": "5 * force * length / (width * thickness**2)",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "structure_simple_deflection",
+  "file": "toolenv/helpers/structure.py",
+  "old": "force * span**3 / (48 * modulus * second_moment)",
+  "new": "force * span**3 / (24 * modulus * second_moment)",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "structure_reaction_whole_force",
+  "file": "toolenv/helpers/structure.py",
+  "old": "quantity(force / 2, \"N\", at=\"each of the two supports\")",
+  "new": "quantity(force, \"N\", at=\"each of the two supports\")",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "structure_zero_input_passes",
+  "file": "toolenv/helpers/structure.py",
+  "old": "    if not 0 < scaled < float(\"inf\"):",
+  "new": "    if not 0 <= scaled < float(\"inf\"):",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "structure_unknowns_miscounted",
+  "file": "toolenv/helpers/structure.py",
+  "old": "    return 3 * (2 * elements + 1) * (2 * layers + 1) ** 2",
+  "new": "    return 3 * (2 * elements) * (2 * layers + 1) ** 2",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "structure_cap_loosened",
+  "file": "toolenv/helpers/structure.py",
+  "old": "    if held > UNKNOWNS_CAP:",
+  "new": "    if held > UNKNOWNS_CAP + 5000:",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "geometry_negative_zero_kept",
+  "file": "toolenv/helpers/geometry.py",
+  "old": "    return 0.0 if kept == 0 else kept",
+  "new": "    return kept",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "geometry_five_decimals",
+  "file": "toolenv/helpers/geometry.py",
+  "old": "DECIMALS = 6",
+  "new": "DECIMALS = 5",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "geometry_no_face_hashed",
+  "file": "toolenv/helpers/geometry.py",
+  "old": "    if not faces:\n        raise HelperRefusedError(\"a shape with no face",
+  "new": "    if False:\n        raise HelperRefusedError(\"a shape with no face",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "geometry_unmeasured_kind_hashed",
+  "file": "toolenv/helpers/geometry.py",
+  "old": "        if unmeasured:",
+  "new": "        if False:",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "geometry_vertices_in_kernel_order",
+  "file": "toolenv/helpers/geometry.py",
+  "old": "    vertices = sorted(\n",
+  "new": "    vertices = list(\n",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "geometry_zero_density_passes",
+  "file": "toolenv/helpers/geometry.py",
+  "old": "    if not 0 < scaled < float(\"inf\"):",
+  "new": "    if not 0 <= scaled < float(\"inf\"):",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "geometry_density_unit_scale",
+  "file": "toolenv/helpers/geometry.py",
+  "old": "\"g/cm**3\": 1000.0",
+  "new": "\"g/cm**3\": 100.0",
+  "tests": [
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "circuit_sheet_case_sensitive",
+  "file": "toolenv/helpers/circuit.py",
+  "old": "            if word.lower() == _SHEET:",
+  "new": "            if word == _SHEET:",
+  "tests": [
+   "tests/unit/toolenv/test_the_circuit_helper_reports_kicad_s_rules_check_and_exports_and_never_judges.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "circuit_one_sub_sheet_passes",
+  "file": "toolenv/helpers/circuit.py",
+  "old": "        if sheet_symbols(handle.read()):",
+  "new": "        if sheet_symbols(handle.read()) > 1:",
+  "tests": [
+   "tests/unit/toolenv/test_the_circuit_helper_reports_kicad_s_rules_check_and_exports_and_never_judges.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "circuit_text_one_longer",
+  "file": "toolenv/helpers/circuit.py",
+  "old": "else \" \" for ch in str(text))[:MAX_TEXT]",
+  "new": "else \" \" for ch in str(text))[: MAX_TEXT + 1]",
+  "tests": [
+   "tests/unit/toolenv/test_the_circuit_helper_reports_kicad_s_rules_check_and_exports_and_never_judges.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "circuit_one_finding_more",
+  "file": "toolenv/helpers/circuit.py",
+  "old": "            if len(listed) < MAX_FINDINGS:",
+  "new": "            if len(listed) <= MAX_FINDINGS:",
+  "tests": [
+   "tests/unit/toolenv/test_the_circuit_helper_reports_kicad_s_rules_check_and_exports_and_never_judges.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "circuit_regenerate_skips_rules_check",
+  "file": "toolenv/helpers/circuit.py",
+  "old": "    rules_check(schematic, module, name)\n    path, folder = _places(schematic, module)\n    _written(path, folder, name, None)",
+  "new": "    path, folder = _places(schematic, module)\n    _written(path, folder, name, None)",
+  "tests": [
+   "tests/unit/toolenv/test_the_circuit_helper_reports_kicad_s_rules_check_and_exports_and_never_judges.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "circuit_paths_without_end_of_options",
+  "file": "toolenv/helpers/circuit.py",
+  "old": "    if len(argv) != len(shape) or argv[:2] != list(shape[:2]):",
+  "new": "    if len(argv) != len(shape):",
+  "tests": [
+   "tests/unit/toolenv/test_the_circuit_helper_reports_kicad_s_rules_check_and_exports_and_never_judges.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "provision_affero_not_gpl",
+  "file": "toolenv/provision.py",
+  "old": "(?<!Lesser )(?<!Library )General Public License|Affero\")",
+  "new": "(?<!Lesser )(?<!Library )General Public License\")",
+  "tests": [
+   "tests/unit/toolenv/test_the_circuit_library_is_pinned_without_its_gpl_simulator_and_its_source_builds_are_held.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "provision_kept_kicad_unchecked",
+  "file": "toolenv/provision.py",
+  "old": "        shutil.move(fetched, kept)\n    require_digest(kept, digest)\n    return kept",
+  "new": "        shutil.move(fetched, kept)\n    return kept",
+  "tests": [
+   "tests/unit/toolenv/test_kicad_is_provisioned_by_digest_in_a_root_of_its_own_copied_so_the_measure_accepts_it.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "provision_kicad_size_zero_passes",
+  "file": "toolenv/provision.py",
+  "old": "    if type(size) is not int or size <= 0:",
+  "new": "    if type(size) is not int:",
+  "tests": [
+   "tests/unit/toolenv/test_kicad_is_provisioned_by_digest_in_a_root_of_its_own_copied_so_the_measure_accepts_it.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "provision_absolute_link_kept",
+  "file": "toolenv/provision.py",
+  "old": "    if os.readlink(link).startswith(\"/\"):\n        return False",
+  "new": "    if False:\n        return False",
+  "tests": [
+   "tests/unit/toolenv/test_kicad_is_provisioned_by_digest_in_a_root_of_its_own_copied_so_the_measure_accepts_it.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "provision_dropped_part_copied",
+  "file": "toolenv/provision.py",
+  "old": "            if _within(relative, dropped):",
+  "new": "            if False:",
+  "tests": [
+   "tests/unit/toolenv/test_kicad_is_provisioned_by_digest_in_a_root_of_its_own_copied_so_the_measure_accepts_it.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "provision_two_wheels_pass",
+  "file": "toolenv/provision.py",
+  "old": "        if len(wheels) != 1:",
+  "new": "        if len(wheels) < 1:",
+  "tests": [
+   "tests/unit/toolenv/test_the_circuit_library_is_pinned_without_its_gpl_simulator_and_its_source_builds_are_held.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "hardware_ipython_unguarded",
+  "file": "src/physgate/hooks/hardware.py",
+  "old": "    \"ipython\": _NO_FORM,\n",
+  "new": "",
+  "tests": [
+   "tests/unit/hooks/test_an_interactive_console_the_design_libraries_bring_is_refused_by_name.py",
+   "tests/unit/hooks/hook_helpers.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "hardware_bare_console_passes",
+  "file": "src/physgate/hooks/hardware.py",
+  "old": "        return bool(uses)",
+  "new": "        return True",
+  "tests": [
+   "tests/unit/hooks/test_an_interactive_console_the_design_libraries_bring_is_refused_by_name.py",
+   "tests/unit/hooks/hook_helpers.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "hardware_console_reason_generic",
+  "file": "src/physgate/hooks/hardware.py",
+  "old": "    reason = NO_FORM if not GUARDED[program][1] else NOT_BUILD",
+  "new": "    reason = NOT_BUILD",
+  "tests": [
+   "tests/unit/hooks/test_an_interactive_console_the_design_libraries_bring_is_refused_by_name.py",
+   "tests/unit/hooks/hook_helpers.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "baseline_last",
+  "file": "toolenv/helpers/result_file.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/hooks/test_an_interactive_console_the_design_libraries_bring_is_refused_by_name.py",
+   "tests/unit/toolenv/test_kicad_is_provisioned_by_digest_in_a_root_of_its_own_copied_so_the_measure_accepts_it.py",
+   "tests/unit/toolenv/test_the_circuit_helper_reports_kicad_s_rules_check_and_exports_and_never_judges.py",
+   "tests/unit/toolenv/test_the_circuit_library_is_pinned_without_its_gpl_simulator_and_its_source_builds_are_held.py",
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ }
+]
