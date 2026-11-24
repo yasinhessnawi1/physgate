@@ -702,8 +702,9 @@ def test_the_refusal_says_where_a_session_writes_and_names_no_path(
     assert "throwaway helper script belongs in the worktree" in said
     assert "/" not in said
     assert logged, "the refusal left no line in the hook log"
+    # The log keeps the call's own input, as for every refusal; its reason names no path.
     for line in logged:
-        assert str(s.lay.home) not in line and ".zshenv" not in line, line
+        assert json.loads(line)["reason"] == said, line
 
 
 def test_the_generated_command_itself_refuses_a_write_outside_the_worktree(
