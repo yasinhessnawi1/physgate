@@ -54,6 +54,8 @@ from physgate.evaluation.tiers.canaries import store_canaries  # noqa: E402
 from physgate.evaluation.tiers.exposure import add_run_root, run_roots  # noqa: E402
 from physgate.evaluation.tiers.heldout import tier_digest  # noqa: E402
 from physgate.evaluation.tiers.task import Task  # noqa: E402
+from physgate.knowledge.library import LibraryError  # noqa: E402
+from physgate.orchestrator import decompose as core_decompose  # noqa: E402
 from physgate.orchestrator import design_rounds  # noqa: E402
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper  # noqa: E402
 from physgate.orchestrator.budget import SessionEnd  # noqa: E402
@@ -91,7 +93,7 @@ from physgate.orchestrator.protocols import (  # noqa: E402
     ReviewResult,
     Usage,
 )
-from physgate.orchestrator.record import ReviewInstall  # noqa: E402
+from physgate.orchestrator.record import ReviewInstall, RunRecord  # noqa: E402
 from physgate.orchestrator.review_root_record import record_review_root  # noqa: E402
 from physgate.orchestrator.run_config import RunConfig, load_run_config  # noqa: E402
 from physgate.orchestrator.trajectory import seal  # noqa: E402
@@ -309,6 +311,17 @@ class StandInDriver:
     review_shows: str | None = None
     review_errs: dict[int, str] = field(default_factory=dict)
     start_raises: set[int] = field(default_factory=set)
+    #: Under ``observe``, a run begun and never finished: the decompositions killed while their
+    #: run's opening is written, before its first line of the named kind (``RunStarted``: the
+    #: configuration recorded and no line); killed once the run has started and before the round
+    #: journal's last line; and whose library the core's own start cannot put into the target, once
+    #: the run's record is opened.
+    killed_before_line: dict[int, str] = field(default_factory=dict)
+    killed_before_journal_end: set[int] = field(default_factory=set)
+    library_refused_at_start: set[int] = field(default_factory=set)
+    #: Under ``observe``, the decompositions whose first call's output its schema refused: the call
+    #: is made once more, the first journalled with its spend.
+    schema_refused_first: set[int] = field(default_factory=set)
     #: The review sessions left running, as (pid, session id): a row stops what is left.
     left_reviews: list[tuple[int, str]] = field(default_factory=list)
     #: What this driver measures as the harness, the client and its version.
@@ -397,6 +410,7 @@ class StandInDriver:
         """The decomposition as the command makes it with its plan reviewed: the core's rounds."""
         root = review_root_path(call.review_root)
         reviewer = PlanReview(self, n, root)
+        calls = [0]
 
         def make_call(
             brief: str,
@@ -406,24 +420,56 @@ class StandInDriver:
             session_id: str,
             accept_misorder: bool = False,
         ) -> Outcome:
+            calls[0] += 1
             workdir.mkdir(parents=True, exist_ok=True)
             stream = workdir / "stdout.jsonl"
             stream.write_text(json.dumps({"type": "result", "session_id": session_id}) + "\n")
             if n in self.killed_after_call:
                 raise Killed
-            return outcome.model_copy(
+            made = outcome.model_copy(
                 update={"session_id": session_id, "stream_seal": seal(stream.read_bytes())}
             )
+            if n in self.schema_refused_first and calls[0] == 1:
+                said = "the output was refused by its schema"
+                return made.model_copy(
+                    update={"ok": False, "cause": "schema_refused", "detail": said, "plan": None}
+                )
+            return made
 
         with contextlib.ExitStack() as stack:
+            patch = stack.enter_context(pytest.MonkeyPatch.context())
             if n in self.start_raises:
-                patch = stack.enter_context(pytest.MonkeyPatch.context())
 
                 def unstartable(*_a: Any, **_k: Any) -> Any:  # noqa: ANN401
                     msg = "the run could not be started"
                     raise RunStateError(msg)
 
                 patch.setattr(design_rounds, "start_run", unstartable)
+            if n in self.library_refused_at_start:
+
+                def refusing(*_a: Any, **_k: Any) -> Any:  # noqa: ANN401
+                    msg = "the target holds other bytes where the library goes"
+                    raise LibraryError(msg)
+
+                patch.setattr(core_decompose, "put_into", refusing)
+            if n in self.killed_before_line:
+                kind, emit = self.killed_before_line[n], RunRecord.emit
+
+                def killing(record: RunRecord, event: Any) -> None:  # noqa: ANN401
+                    if type(event).__name__ == kind:
+                        raise Killed
+                    emit(record, event)
+
+                patch.setattr(RunRecord, "emit", killing)
+            if n in self.killed_before_journal_end:
+                end = design_rounds._Loop.end
+
+                def cut(loop: Any, k: int, follows: str, *rest: Any) -> None:  # noqa: ANN401
+                    if follows != "void":
+                        raise Killed
+                    end(loop, k, follows, *rest)
+
+                patch.setattr(design_rounds._Loop, "end", cut)
             made = decompose_in_rounds(
                 call.brief.read_bytes().decode(),
                 config=config,
