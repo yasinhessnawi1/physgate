@@ -62,6 +62,7 @@ from test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset import 
     LimitDispatcher,
     clock,  # noqa: F401 - the rig's clock, a fixture
 )
+from wait_cycle_rig import under_release  # noqa: F401 - the fixture, by name
 
 from physgate import roles
 from physgate.contracts.pairs import ContractPair, Side
@@ -669,6 +670,9 @@ def test_a_marked_run_whose_mutual_reader_was_dispatched_with_no_release_line_do
 
 
 # --- a chain: a reader of a held reader waits on the item at the root --------------------------
+#
+# Under the mark ``release`` (these rows). Under ``release_2`` a reader is held only on a producer
+# with a person, so no chain forms: the converse rows follow them.
 
 
 def _held_on(rows: Sequence[dict[str, Any]]) -> list[tuple[str, str, str, list[str]]]:
@@ -678,6 +682,7 @@ def _held_on(rows: Sequence[dict[str, Any]]) -> list[tuple[str, str, str, list[s
     ]
 
 
+@pytest.mark.usefixtures("under_release")
 def test_a_reader_of_a_held_reader_is_held_on_the_item_at_the_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -695,6 +700,7 @@ def test_a_reader_of_a_held_reader_is_held_on_the_item_at_the_root(
     assert step.kind == "wait"
 
 
+@pytest.mark.usefixtures("under_release")
 def test_a_chain_is_released_link_by_link_once_its_root_is_approved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -724,6 +730,7 @@ def _chain_reference(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Rig:
     return rig
 
 
+@pytest.mark.usefixtures("under_release")
 def test_a_chain_cut_at_its_second_hold_resumes_to_the_uninterrupted_lines(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -743,6 +750,7 @@ def test_a_chain_cut_at_its_second_hold_resumes_to_the_uninterrupted_lines(
     assert refusal(lines(rig)) is None
 
 
+@pytest.mark.usefixtures("under_release")
 def test_a_marked_chain_whose_second_reader_ran_with_no_hold_does_not_replay(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -757,6 +765,45 @@ def test_a_marked_chain_whose_second_reader_ran_with_no_hold_does_not_replay(
     said = refusal([*rows[:at], {**dispatch, "stage": "resolve"}])
     assert said is not None
     assert "with no hold line" in said, said
+
+
+def test_under_release_2_a_reader_of_a_held_reader_is_held_on_the_producer_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = chained(tmp_path)
+    assert first_run(rig, monkeypatch, budget=True, plan=CHAIN) == "wait"
+    rows = lines(rig)
+    item = drive_item(rows)
+    # Only the reader of the producer with a person is held, on its own item; the reader of that
+    # reader runs, so no chain is opened and no hold names an item that is not its producer's.
+    assert _held_on(rows) == [(FW, DRIVE, item, ["iface.drive"])]
+    assert requests_of(rig, FW) == []
+    assert requests_of(rig, BUDGET) != []
+    assert refusal(rows) is None
+
+
+def test_under_release_2_a_chain_is_released_as_its_one_hold_is_decided(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = chained(tmp_path)
+    assert first_run(rig, monkeypatch, budget=True, plan=CHAIN) == "wait"
+    decide(rig.run_dir, "approve", item_id=drive_item(lines(rig)))
+    assert resumed(rig, monkeypatch, budget=True) == "done"
+    rows = lines(rig)
+    released = of(rows, "dispatch_released")
+    assert [(r["subtask_id"], r["producer"], r["outcome"]) for r in released] == [
+        (FW, DRIVE, "merged")
+    ]
+    assert refusal(rows) is None
+
+
+def test_under_release_2_a_second_reader_dispatched_with_no_hold_line_replays(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = chained(tmp_path)
+    assert first_run(rig, monkeypatch, budget=True, plan=CHAIN) == "wait"
+    assert refusal(lines(rig)) is None
+    assert not [h for h in of(lines(rig), "dispatch_held") if h["subtask_id"] == BUDGET]
 
 
 # --- two producers, two items, a halt -------------------------------------------------------------

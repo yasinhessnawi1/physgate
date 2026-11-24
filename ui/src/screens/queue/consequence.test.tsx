@@ -495,6 +495,18 @@ describe("what the run did with a decision", () => {
         "read whole, so nothing was reopened.",
     );
     expect(bannedIn(`${reopened ?? ""} ${long ?? ""}`)).toEqual([]);
+    // A taken reopen that no reopening follows on the record is not said to have reopened.
+    const none = read({
+      effect: "reopen",
+      acts: true,
+      why_not: null,
+      order_too_long: false,
+      reopened: false,
+    });
+    expect(none, "the taken reopen with none on the record is read").not.toBeNull();
+    expect(none).not.toContain("was reopened");
+    expect(none).toContain("no reopening of the module is on the record");
+    expect(bannedIn(none ?? "")).toEqual([]);
   });
 
   it("a decision the run has not taken carries nothing", () => {

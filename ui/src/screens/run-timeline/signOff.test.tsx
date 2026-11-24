@@ -166,3 +166,14 @@ describe("each line a sign-off writes is a timeline row", () => {
     );
   });
 });
+
+describe("a choice on a contract item that could reopen nothing is said as recorded only", () => {
+  it("names the module with no merge on its last attempt, and no raw reason", () => {
+    const words = takenWords(taken({ whyNot: "not_merged" }), "contract");
+    expect(words).toBe(
+      "Recorded only: the module the choice would reopen has no merge on its last attempt, so " +
+        "nothing could be reopened.",
+    );
+    expect(words).not.toMatch(/not_merged|_/);
+  });
+});

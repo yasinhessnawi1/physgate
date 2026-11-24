@@ -536,6 +536,9 @@ const NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
   module_reopened:
     "Recorded only: the module was reopened for its follow-up after the item was listed, so " +
     "the fix the item offered could no longer be ordered.",
+  not_merged:
+    "Recorded only: the module the choice would reopen has no merge on its last attempt, so " +
+    "nothing could be reopened.",
 };
 
 /** What a decision on a sign-off item did not do, where its words differ from another item's. */
@@ -644,6 +647,14 @@ export function takenWords(t: Taken, source?: QueueSource): string {
     none: "The run took it; it changed nothing.",
   };
   const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;
+  if (t.effect === "reopen" && t.reopened === false)
+    // The record gives no reopening: it is not yet written, or the run ended there (a record an
+    // earlier version made) and no module could take it. Say only what the record shows.
+    return (
+      "The run took it, and no reopening of the module is on the record for it: the run writes " +
+      "it next, or, in a record made by an earlier version, there was none to write." +
+      by
+    );
   if (isSignatureItem && t.effect === "reopen")
     return (
       "The run took it: the module was reopened for its one fix, told your note and the values " +

@@ -80,6 +80,7 @@ from physgate.orchestrator.events import (
     Position,
     SessionEnded,
     StageEntered,
+    SubtaskReopened,
     parse_events,
     read_jsonl,
 )
@@ -96,6 +97,7 @@ from physgate.orchestrator.repair import Finding, Writer, held_line
 from physgate.orchestrator.sign_off import SignOffReject
 from physgate.orchestrator.trajectory import Seal, seal
 from physgate.reviewers.scan import ScanHit
+from physgate.state import operator_problem
 from physgate.state.exceptions import RecordMovedError
 from physgate.state.held_file import HeldFile
 from physgate.state.write_account import WriteAccount
@@ -1423,8 +1425,12 @@ class ContractChoice:
 
     ``why``: ``reopen``, the other module alone deviates and has an attempt left; ``deviates``, the
     chosen module's own nodes break the contract; ``both``, both modules' do; ``spent``, the other
-    module has no attempt left; ``closed``, it is not merged now, or the integration call is on the
-    record. ``module`` and ``subtask`` are the other side's, ``attempt`` the one a reopen starts.
+    module has no attempt left; ``closed``, it cannot be reopened now, or the integration call is
+    on the record. A module cannot be reopened while it is not merged (planned, active, waiting,
+    escalated, rejected), and when it is done with an earlier merge standing but no merge on its
+    last attempt: a sign-off's fix or a follow-up ended unmerged, so no merge is left to start
+    another attempt from. ``module`` and ``subtask`` are the other side's, ``attempt`` the one a
+    reopen starts.
     """
 
     why: Literal["reopen", "deviates", "both", "spent", "closed"]
@@ -1464,7 +1470,11 @@ def _choice_words(choices: Mapping[Position, ContractChoice] | None) -> str:
         elif choice.why == "spent":
             words.append(f"{lead} records only: {other} has no attempt left.")
         else:
-            words.append(f"{lead} records only: {other} is not merged now, or integration ran.")
+            words.append(
+                f"{lead} records only: {other} cannot be reopened now (it is not merged, or its "
+                "last attempt did not merge: a sign-off's fix or a follow-up ended without one), "
+                "or integration ran."
+            )
     return " ".join(words)
 
 
@@ -1834,8 +1844,15 @@ def _taken_of(events: list[Event]) -> dict[str, dict[str, object]]:
     """Each decision the run took, by item: its effect, whether it acted, why not, who confirmed.
 
     A confirmation of a held decision replaces what the held line said, since it is what acted.
+    A decision that acts as a reopen and that no ``subtask_reopened`` line names says
+    ``reopened: false``: nothing is reopened on the record, because the run has not yet written
+    it or because a record an earlier version made ends at a reopen no module could take. The key
+    is left out of every other entry, so those keep their shape.
     """
     taken: dict[str, dict[str, object]] = {}
+    reopened = {
+        e.item_id for e in events if isinstance(e, SubtaskReopened) and e.item_id is not None
+    }
     for event in events:
         if isinstance(event, DecisionTaken):
             taken[event.item_id] = {
@@ -1845,6 +1862,8 @@ def _taken_of(events: list[Event]) -> dict[str, dict[str, object]]:
                 "confirmed_by": event.confirmed_by,
                 "order_too_long": event.order_too_long,
             }
+            if event.acts and event.effect == "reopen" and event.item_id not in reopened:
+                taken[event.item_id]["reopened"] = False
     return taken
 
 
@@ -2326,7 +2345,7 @@ def record_decision(
     Raises:
         QueueError: the item is not open (unknown, decided, or no queue at all), a file is not
             a plain file, a line is not one the writer could have written, or the decision is
-            not a record.
+            not a record, or the name it is taken by is one the design-state store would refuse.
         StaleViewError: the item is no longer as ``shown``.
     """
     queue_path = Path(run_dir) / QUEUE_NAME
@@ -2336,6 +2355,11 @@ def record_decision(
     if person is not None and shown is None:
         msg = "a decision with a verb is bound to the view it was taken on, and none was given"
         raise QueueError(msg, item=item_id)
+    # An empty name is the record's own refusal below. Any other the store would refuse is
+    # refused here: it goes onto every quantity the decision declares, and a line written
+    # first cannot be taken back.
+    if resolved_by and (problem := operator_problem(resolved_by)) is not None:
+        raise QueueError(problem, item=item_id)
     now = (clock or utc_now)()
     if person is None or shown_at is None or shown_at > now:
         shown_at = None

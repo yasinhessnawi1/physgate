@@ -1,0 +1,193 @@
+THE ANSWER
+
+Write one file, answer.json, in the directory you work in. It is UTF-8 JSON, with no byte-order
+mark, of at most 65536 bytes. It states the choices of your design: six settings and the control law
+your firmware runs. It holds no model of the robot. A fixed scorer computes every consequence
+itself, on a model of the kit that is not given to you. A requirement that depends on the robot's
+physics (a current, a margin) is judged over the stated tolerances and uncertainty of that model,
+not only at nominal values.
+
+Write exactly these four keys:
+  "form": "whole_run"
+  "version": 3
+  "controller": the law, below
+  "parameters": the six settings, below
+
+Every setting, every timing field and every coefficient is {"value": N, "unit": "U"}; a bare number
+there is refused. A number is a finite JSON number. For the settings and the timing fields, the unit
+is spelt exactly as given here; any other spelling of the same unit is refused. Units inside the law
+are written as UNITS IN THE LAW says. Write each number of a law with at most 15 significant digits,
+and each key once.
+
+PARAMETERS (all six, each in its one unit, within its range)
+  update_rate                          Hz     from 1 to 1000
+  output_data_rate                     Hz     above 0 to 10000
+  gyro_full_scale                      deg/s  above 0 to 10000
+  pwm_frequency                        Hz     above 0 to 1000000
+  pwm_full_scale                       count  from 1 to 65535   (a whole number)
+  encoder_counts_per_wheel_revolution  count  above 0 to 1000000   (need not be whole)
+A setting the requirements above do not fix is still stated, within its range.
+  "update_rate" and the controller's "period" are two statements: each is held to its own range, and
+  nothing else ties one to the other.
+
+CONTROLLER
+  "structure": "sampled_law"
+  "period": unit "s", from 0.001 to 1. The law runs once every period.
+  "command_limit": unit "1", above 0 to 1. A duty: the average motor voltage as a fraction of the
+      pack voltage; the command is held to [-command_limit, +command_limit].
+  "sensor_delay": unit "s", from 0 to 0.5. The measurements the law reads at an update were taken
+      this long before the update.
+  "compute_delay": unit "s", from 0 to 0.5. The command computed at an update reaches the motors
+      this long after it.
+  The two delays together span at most 50 periods.
+  State the delays your design has.
+  "coefficients": an object, name to {"value": N, "unit": "U"}. At most 32. A name is one character
+      of a-z then at most 31 characters of a-z, 0-9, _. A coefficient's name is its own: a state or
+      a line may bear the same name. A value's size is at most 1000000; 0 is allowed. Do not declare
+      "period": it is the period above, in s, and any term may use it.
+  "memory" (optional): a list of at most 8 states kept from one update to the next. Each is {"name":
+      ..., "unit": ..., "next": <name of a line>}. A state's value at the next update is the value
+      of the line "next" at this update, and that line's unit must be the state's. Add "applied":
+      true only on the one state that holds the command as applied; its "next" is then the command
+      line and its unit "1".
+  "lines": an ordered list of 1 to 32 lines. Each is {"name": ..., "unit": ..., "terms": [...]} with
+      1 to 16 terms. A line's value is the sum of its terms. A line may read only lines before it. A
+      state and a line are named as a coefficient is, each name once, and never as a signal below or
+      as "period".
+  A term: {"sign": the number 1 or -1, "number": N (optional, default 1), "coefficients": [names]
+      (optional, at most 4), "per": [names] (optional, at most 4), "of": <one variable>}. A term's
+      sign and number are plain JSON numbers. Its value = sign * number * (the coefficients
+      multiplied) / (the "per" coefficients multiplied) * the variable. "number" is never 0 and its
+      size is at most 1000000: to switch a term off give a coefficient the value 0. A "per"
+      coefficient must not be 0.
+  "command": the name of the line that is the motor command. Its unit is "1".
+
+  The variable of a term, exactly one of:
+    tilt              rad   the body's true tilt from vertical; positive leaning forward
+    tilt_rate         rad/s the tilt's rate (the gyro)
+    wheel_angle       rad   the mean of the two wheels' turn relative to the body (the encoders);
+                            positive rolling forward
+    wheel_speed       rad/s the wheel angle's rate (the encoders)
+    wheel_reference   rad   the wheel angle the law holds; it advances at the commanded wheel speed,
+                            and is zero where no speed is commanded and in the loop whose stability
+                            is judged
+    previous.<state>  the value of a memory state before this update
+    line.<name>       the value of an earlier line this update
+  A positive command drives the wheels forward: the wheel_angle and the wheel_speed increase under
+  it. The wheel_angle is measured against the body, so the body leaning forward over wheels that
+  stay put reads as a negative wheel_angle.
+  No sensor of the kit gives the tilt: the gyro gives its rate (tilt_rate). A law that reads tilt is
+  judged as if it knew the tilt exactly.
+  A speed command appears as wheel_reference: an angle in rad that advances at the commanded wheel
+  speed in rad/s. A law that wants the commanded speed takes the change of wheel_reference since the
+  last update, over the period; that needs a memory state holding the last wheel_reference.
+
+UNITS IN THE LAW
+  The unit of a coefficient, a state or a line is a product of unit symbols with whole powers. The
+  symbols are rad and s, and 1 for none. Write a product with *, a quotient with /, a power with **:
+  rad*s, rad**2, s**-1, s/rad, 1/(rad*s). A bracket is allowed only after a /, to divide by a
+  product. A / divides by the one factor that follows it, so 1/rad*s is s/rad. A unit starts with a
+  symbol or with 1. Refused: a space or a dot between symbols (rad s, rad.s), a number other than a
+  leading 1 (2*rad), a bracket anywhere else ((rad*s)/rad), a space inside a power (rad ** 2).
+  Two writings with the same symbols and powers are one unit. A state's or a line's unit is at most
+  40 characters. Every term's coefficients, "per" coefficients and variable must multiply to the
+  line's unit, and the command's unit is "1". Use rad, never deg, in a law.
+
+WHAT IS JUDGED
+  The law, sampled at the period with the two delays, is closed around a linearised model of the
+  kit. The command limit, integer rounding, noise and sensor bias are not part of that analysis.
+  The loop must be stable with the wheels returning, not only the body upright.
+  A memory state that adds up the wheel angle, the wheel speed or the command (a counter, an
+  odometer, an anti-windup memory) and that the command does not read makes the loop unstable; keep
+  such a state out of the law. A state the command reads is judged with the loop, like any other.
+  A state that keeps its value exactly (a leak of exactly 1) is allowed where the loop drives it
+  back. If the tilt, its rate or the reference feeds such a state and the command reads it, the
+  answer is then reported in a class of its own. A leak that is not exactly 1 but within a rounding
+  error of it is judged unstable.
+
+WHAT IS REFUSED, AND WHAT IS NOT JUDGED
+  Where a name is given in brackets, the scorer reports the fault by that name.
+  Refused (a failed answer, with its reason):
+    - the file is not valid JSON (a byte-order mark makes it not valid), or is not UTF-8 text;
+    - the file is longer than 65536 bytes;
+    - the form or the version is not the one given above;
+    - a key given above, not marked optional, is missing;
+    - a key this form does not name (the scorer reads a few optional keys that a designer never
+      writes; any other is refused);
+    - a setting, a timing field or a coefficient that is not {"value": N, "unit": "U"}, or whose
+      number is not a finite JSON number;
+    - a setting or a timing field in any unit but the one given, however equivalent;
+    - a number outside its range;
+    - a setting that must be a whole number (pwm_full_scale) and is not;
+    - more coefficients, states, lines, terms or factors than the limits above;
+    - delays that together span more than 50 periods;
+    - a term's number of 0, or a number of a term or a coefficient larger than 1000000;
+    - a name used and not declared: a coefficient a term uses, or a state or a line it reads
+      (malformed);
+    - a line that reads a line after it (malformed);
+    - a state or a line named twice, or named as a signal or as period;
+    - a name that does not follow the name rule above;
+    - a term's sign that is not 1 or -1;
+    - a coefficient named period;
+    - a unit that is not written as the units rule above says;
+    - a term whose coefficients and variable do not multiply to its line's unit, or a state whose
+      unit is not its line's (units_do_not_balance);
+    - a command that is not a line in the unit 1;
+    - a state whose next is not the name of a line;
+    - a state marked "applied" whose next is not the command line (malformed);
+    - a "per" coefficient whose value is 0 (zero_divisor);
+    - a number of a law (a coefficient, the period, a term's number) that reads as 0 as a float
+      though it is not written as 0 (number_underflows);
+    - a number of a law that is infinite as a float (number_overflows);
+    - a law too large to analyse (a long delay, many states and a short period each add to the work)
+      (work_bound).
+  Not judged (the answer counts as not passed, and stays in the count; it is never a failed
+  design):
+    - a term that is not one coefficient-weighted variable: a product of two variables, a function,
+      a comparison, or any key in a term that is not given above (nonlinear);
+    - a variable that is a well-formed lower-case name but not one of the signals above (an
+      accelerometer's reading, say) (out_of_scope).
+  A law is judged only if it is otherwise valid: a fault listed under refused, anywhere in the
+  answer, fails it whatever else it holds. Write only linear laws over the listed signals.
+
+AN EXAMPLE OF THE FORM ONLY
+  It shows the form and nothing else. Its numbers are arbitrary placeholders: it is not a design,
+  not advice and not a starting point, and it is not claimed to meet any requirement above.
+  {
+    "form": "whole_run",
+    "version": 3,
+    "controller": {
+      "structure": "sampled_law",
+      "period": {"value": 0.02, "unit": "s"},
+      "command_limit": {"value": 0.6, "unit": "1"},
+      "sensor_delay": {"value": 0.01, "unit": "s"},
+      "compute_delay": {"value": 0.004, "unit": "s"},
+      "coefficients": {
+        "leak": {"value": 0.8, "unit": "1"},
+        "k_angle": {"value": 1, "unit": "1/rad"},
+        "k_rate": {"value": 1, "unit": "s/rad"},
+        "k_wheel": {"value": 1, "unit": "1/rad"},
+        "k_speed": {"value": 1, "unit": "s/rad"}
+      },
+      "memory": [{"name": "tilt_est", "unit": "rad", "next": "tilt_est_now"}],
+      "lines": [
+        {"name": "tilt_est_now", "unit": "rad", "terms": [
+          {"sign": 1, "coefficients": ["leak"], "of": "previous.tilt_est"},
+          {"sign": 1, "coefficients": ["period"], "of": "tilt_rate"}]},
+        {"name": "command", "unit": "1", "terms": [
+          {"sign": 1, "coefficients": ["k_angle"], "of": "line.tilt_est_now"},
+          {"sign": 1, "coefficients": ["k_rate"], "of": "tilt_rate"},
+          {"sign": 1, "coefficients": ["k_wheel"], "of": "wheel_angle"},
+          {"sign": 1, "coefficients": ["k_speed"], "of": "wheel_speed"}]}
+      ],
+      "command": "command"
+    },
+    "parameters": {
+      "update_rate": {"value": 50, "unit": "Hz"},
+      "output_data_rate": {"value": 120, "unit": "Hz"},
+      "gyro_full_scale": {"value": 500, "unit": "deg/s"},
+      "pwm_frequency": {"value": 10000, "unit": "Hz"},
+      "pwm_full_scale": {"value": 255, "unit": "count"},
+      "encoder_counts_per_wheel_revolution": {"value": 512, "unit": "count"}
+    }
+  }

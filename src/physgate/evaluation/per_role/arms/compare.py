@@ -264,7 +264,7 @@ class ComparisonError(PerRoleError):
 
 #: The steps a run stands at, replayed from its log, once the loop has nothing left to do:
 #: every session and every review it started has ended, and each stream was scanned as it did.
-ENDED_STEPS = frozenset({"done", "halted", "escalated"})
+ENDED_STEPS = frozenset({"done", "unrun", "halted", "escalated"})
 
 
 def next_step(events: Sequence[Event]) -> str:
@@ -287,7 +287,8 @@ def harness_total(run_dir: Path) -> int:
       result to check it against (``partial``), or such a session was read incomplete;
     - a role session was spawned and never ended or read;
     - the log is empty, or the run has not ended: its last step, replayed from the log as
-      the loop takes it, is not done, halted or escalated. A run killed during a review,
+      the loop takes it, is not done, unrun, halted or escalated (``unrun`` is a run that ended
+      with a module that never ran). A run killed during a review,
       during its decomposition or between sessions spawned nothing left open, and is
       refused here;
     - the run halted where a resume continues it (the infrastructure's retries ran out, the

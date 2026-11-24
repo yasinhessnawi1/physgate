@@ -1,0 +1,38 @@
+{
+  "form": "whole_run",
+  "version": 3,
+  "controller": {
+    "structure": "sampled_law",
+    "period": {"value": 0.02, "unit": "s"},
+    "command_limit": {"value": 0.6, "unit": "1"},
+    "sensor_delay": {"value": 0.01, "unit": "s"},
+    "compute_delay": {"value": 0.004, "unit": "s"},
+    "coefficients": {
+      "leak": {"value": 0.8, "unit": "1"},
+      "k_angle": {"value": 1, "unit": "1/rad"},
+      "k_rate": {"value": 1, "unit": "s/rad"},
+      "k_wheel": {"value": 1, "unit": "1/rad"},
+      "k_speed": {"value": 1, "unit": "s/rad"}
+    },
+    "memory": [{"name": "tilt_est", "unit": "rad", "next": "tilt_est_now"}],
+    "lines": [
+      {"name": "tilt_est_now", "unit": "rad", "terms": [
+        {"sign": 1, "coefficients": ["leak"], "of": "previous.tilt_est"},
+        {"sign": 1, "coefficients": ["period"], "of": "tilt_rate"}]},
+      {"name": "command", "unit": "1", "terms": [
+        {"sign": 1, "coefficients": ["k_angle"], "of": "line.tilt_est_now"},
+        {"sign": 1, "coefficients": ["k_rate"], "of": "tilt_rate"},
+        {"sign": 1, "coefficients": ["k_wheel"], "of": "wheel_angle"},
+        {"sign": 1, "coefficients": ["k_speed"], "of": "wheel_speed"}]}
+    ],
+    "command": "command"
+  },
+  "parameters": {
+    "update_rate": {"value": 50, "unit": "Hz"},
+    "output_data_rate": {"value": 120, "unit": "Hz"},
+    "gyro_full_scale": {"value": 500, "unit": "deg/s"},
+    "pwm_frequency": {"value": 10000, "unit": "Hz"},
+    "pwm_full_scale": {"value": 255, "unit": "count"},
+    "encoder_counts_per_wheel_revolution": {"value": 512, "unit": "count"}
+  }
+}

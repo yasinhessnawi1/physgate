@@ -34,7 +34,8 @@ from wait_cycle_rig import (
     SIZING,
     Shape,
     first_run,
-    resumed,
+    resumed_expecting,
+    under_release,  # noqa: F401 - the fixture, by name
 )
 
 from physgate import roles
@@ -133,10 +134,16 @@ def play(seed: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Played:
         if step != "wait":
             break
         decisions(rng, rig.run_dir)
-        step = resumed(rig, monkeypatch, shape)
+        step = resumed_expecting(
+            rig,
+            monkeypatch,
+            shape,
+            f"{said}: a run begun before release_2 stops in its wait and writes no incident",
+        )
     return Played(said, shape, lines(rig), step, stalled)
 
 
+@pytest.mark.usefixtures("under_release")
 @pytest.mark.parametrize("seed", SEEDS)
 def test_a_random_plan_never_ends_in_a_wait_with_no_item_open(
     seed: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

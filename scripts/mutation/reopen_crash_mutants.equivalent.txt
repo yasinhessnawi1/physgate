@@ -1,0 +1,23 @@
+Mutants of reopen_crash_mutants.json judged equivalent and removed from it.
+
+A mutant stays in the list only if some row can tell it from the source. The entry below
+changes no behaviour a run can reach; it says why, from the code, and what would make it
+reachable. A change to the source named here means the argument is to be read again.
+
+the_lapse_of_a_confirmation_is_not_limited_to_contract_items
+  file: src/physgate/orchestrator/decisions.py, `require_taken`, the confirmation's `lapsed`
+  old:  `) or (event.item_id in state.contract_items and event.item_id in state.superseded)`
+  new:  `) or event.item_id in state.superseded`
+  The clause decides whether the confirmation of a held decision is read as one that records
+  only (effect "none") or as the held decision's own effect. The change lets a superseded item
+  that is not a contract item lapse it too. The only other items in `state.superseded` are
+  sign-off items a later raise of the same module superseded undecided (`replay.py`,
+  `_take_sign_off`), and for those the clause before it already decides: it holds when
+  `sign_off_outcome(...)[0] != earlier.effect`, and `sign_off_outcome` answers "none" for every
+  superseded item (its first line). So for a superseded sign-off item the source reads the line
+  as lapsed whenever the held effect is not "none", and, when the held effect is "none", expects
+  "none" anyway; the changed clause expects "none" in both. `lapsed` is used nowhere else than
+  to choose between "none" and `earlier.effect` there. The expected effect is "none" on every
+  reachable path, mutated or not. It would stop being equivalent if `sign_off_outcome` answered
+  something other than "none" for a superseded item, if another kind of item could be
+  superseded, or if `lapsed` were read anywhere else.

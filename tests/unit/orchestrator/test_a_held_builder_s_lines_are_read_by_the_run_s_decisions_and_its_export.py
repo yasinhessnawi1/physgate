@@ -37,6 +37,7 @@ from test_a_queue_decision_acts_at_a_boundary import decide
 
 from physgate.evaluation.observe.sequence import decisions
 from physgate.evaluation.whole.export import Export, export_whole_run
+from physgate.orchestrator import record
 from physgate.state.store import Store
 
 THIRD = "third-7a8b9c"
@@ -114,13 +115,15 @@ def exported(run_dir: Path, tmp_path: Path) -> str:
     return export_of(run_dir, tmp_path).status
 
 
+@pytest.mark.parametrize(("mark", "end"), [("release_2", "unrun"), ("release", "done")])
 def test_the_export_reads_a_builder_held_for_good_as_a_run_not_every_module_complete(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    mark: str, end: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(record, "WAIT_CYCLE", mark)
     rig = rigged(tmp_path / "rig")
     assert first_run(rig, monkeypatch) == "wait"
     decide(rig.run_dir, "reject", "no attempt is left", item_id=drive_item(lines(rig)))
-    assert resumed(rig, monkeypatch) == "done"
+    assert resumed(rig, monkeypatch) == end
     assert exported(rig.run_dir, tmp_path) == "unfinished"
 
 

@@ -9,6 +9,7 @@ import { statusWords } from "../home/Home";
 import { foldLedger, stateWords } from "../run-records/ledgerRows";
 import { inProgress } from "./runs";
 import { phaseOf, standingOf } from "../../words/standing";
+import { runEnd, unsignedEnd } from "../home/runEnd";
 import { dayAndMinute } from "../../words/runs";
 
 const LAST = "2026-11-16T20:08:34.910143Z";
@@ -148,5 +149,163 @@ describe("the screens say a run appears stopped, as an inference with the last r
     );
     const words = rows[0] === undefined ? "" : stateWords(rows[0].state);
     expect(words).toBe(`No activity at attempt 1 since ${since}; the run appears to have stopped`);
+  });
+});
+
+describe("a run that ended with a module that never ran names it", () => {
+  const unrun: RunStatus = {
+    ...attempting(MINUTE),
+    kind: "unrun",
+    subtask: null,
+    neverRan: [
+      {
+        subtask: "fw-3d4e5f",
+        why: "its designer drive-0a1b2c ended without a merge",
+        ranWithout: ["el-4a5b6c"],
+      },
+    ],
+  };
+
+  it("reads as ended, not as going or waiting", () => {
+    expect(phaseOf(unrun)).toBe("done");
+    expect(inProgress(unrun)).toBe(false);
+  });
+
+  it("says which module never ran and why, and what merged without it", () => {
+    const standing = standingOf(unrun, null);
+    expect(standing.word).toBe("Ended");
+    expect(standing.sentence).toBe(
+      "Ended: the fw module never ran: its designer drive-0a1b2c ended without a merge.",
+    );
+    expect(standing.detail).toBe(
+      "fw: its designer drive-0a1b2c ended without a merge; el merged without it",
+    );
+  });
+
+  it("says that a module's ordered retry never ran, where that is what happened", () => {
+    const retried: RunStatus = {
+      ...unrun,
+      neverRan: [
+        {
+          subtask: "fw-3d4e5f",
+          why: "its ordered retry never ran: its designer drive-0a1b2c ended without a merge",
+          ranWithout: [],
+        },
+      ],
+    };
+    expect(standingOf(retried, null).sentence).toBe(
+      "Ended: the fw module's ordered retry never ran: its designer drive-0a1b2c ended without a merge.",
+    );
+  });
+
+  it("is read from the route's never_ran list", () => {
+    const read = runStatus({
+      next_step: { kind: "unrun", subtask_id: null, attempt: null, point: null },
+      halted: null,
+      owed_halt: null,
+      completion: { owner: false, modules: [] },
+      never_ran: [{ subtask_id: "fw-3d4e5f", why: "its designer ended", ran_without: [] }],
+    });
+    expect(read.neverRan).toEqual([
+      { subtask: "fw-3d4e5f", why: "its designer ended", ranWithout: [] },
+    ]);
+  });
+});
+
+describe("a halt on an incident says what the incident says", () => {
+  const WAITS =
+    "the run waits and no item is open to a person: fw is held on drive, which it reads from.";
+  const halted: RunStatus = {
+    ...attempting(MINUTE),
+    kind: "halted",
+    subtask: null,
+    halted: {
+      reason: "incident",
+      detail: "waits_on_nothing",
+      incident: { cause: "waits_on_nothing", detail: WAITS },
+    },
+  };
+
+  it("shows what is held on what, beside the cause", () => {
+    expect(phaseOf(halted)).toBe("halted");
+    expect(standingOf(halted, null).detail).toBe(`incident: waits_on_nothing. ${WAITS}`);
+  });
+
+  it("joins them with one full stop where the halt's detail already ends in one", () => {
+    const stopped: RunStatus = {
+      ...halted,
+      halted: {
+        reason: "incident",
+        detail: "no_progress.",
+        incident: { cause: "no_progress", detail: "This halt is final." },
+      },
+    };
+    expect(standingOf(stopped, null).detail).toBe("incident: no_progress. This halt is final.");
+  });
+
+  it("shows the cause alone for a halt that rests on no incident line it can name", () => {
+    const bare = { reason: "incident", detail: "waits_on_nothing" };
+    expect(standingOf({ ...halted, halted: bare }, null).detail).toBe("incident: waits_on_nothing");
+  });
+
+  it("is read from the route's halt, with its incident", () => {
+    const read = runStatus({
+      next_step: { kind: "halted", subtask_id: null, attempt: null, point: null },
+      halted: {
+        seq: 9,
+        reason: "incident",
+        detail: "waits_on_nothing",
+        incident: { cause: "waits_on_nothing", detail: WAITS },
+      },
+      owed_halt: null,
+      completion: { owner: false, modules: [] },
+    });
+    expect(read.halted?.incident).toEqual({ cause: "waits_on_nothing", detail: WAITS });
+    const none = runStatus({
+      next_step: { kind: "halted", subtask_id: null, attempt: null, point: null },
+      halted: { seq: 9, reason: "incident", detail: "no_progress", incident: null },
+      owed_halt: null,
+      completion: { owner: false, modules: [] },
+    });
+    expect(none.halted?.incident).toBeUndefined();
+  });
+});
+
+describe("an escalated end that owes a sign-off names the module that never ran", () => {
+  // As the route serves a run that acts: the sign-off is owed, and its item is decided or open.
+  const escalated = (open: readonly string[]): RunStatus => ({
+    ...attempting(MINUTE),
+    kind: "escalated",
+    subtask: null,
+    acts: true,
+    signaturesOwed: ["drive-0a1b2c"],
+    signaturesOpenToDecide: open,
+    endsOnSignaturesAlone: true,
+    neverRan: [
+      { subtask: "fw-3d4e5f", why: "its designer el-4a5b6c ended without a merge", ranWithout: [] },
+    ],
+  });
+  const WORDS = "Also, the fw module never ran: fw: its designer el-4a5b6c ended without a merge.";
+  const ended = (status: RunStatus) => runEnd([], 0, status.completion, null, unsignedEnd(status));
+
+  it("ends where no decision left can give the sign-off: its sentence, and the module", () => {
+    const status = escalated([]);
+    expect(phaseOf(status)).toBe("done");
+    const standing = standingOf(status, ended(status));
+    expect(standing.sentence).toContain("sign-off was not given");
+    expect(standing.detail).toContain("sign-off not given");
+    expect(standing.detail).toContain(WORDS);
+  });
+
+  it("waits for a person where the sign-off's item is open, and still names the module", () => {
+    const status = escalated(["drive-0a1b2c"]);
+    expect(phaseOf(status)).toBe("waiting-person");
+    expect(standingOf(status, null).detail).toBe(WORDS);
+  });
+
+  it("names nothing where no module never ran, or at a step that is not the escalated end", () => {
+    expect(standingOf({ ...escalated([]), neverRan: [] }, null).detail).toBeNull();
+    const done: RunStatus = { ...escalated([]), kind: "done", signaturesOwed: [] };
+    expect(standingOf(done, null).detail).toBeNull();
   });
 });

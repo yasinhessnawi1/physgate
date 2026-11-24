@@ -46,7 +46,7 @@ from __future__ import annotations
 import errno
 import json
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -65,6 +65,9 @@ from physgate.orchestrator.common import render_jsonl, utc_now
 from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.design_wait import held_builders, misordered_words
 from physgate.orchestrator.events import (
+    Event,
+    Halted,
+    Incident,
     InfraRetryScheduled,
     SessionEnded,
     SessionSpawned,
@@ -84,6 +87,7 @@ from physgate.orchestrator.queue import (
 from physgate.orchestrator.replay import RunState, recorded_ledger, replay
 from physgate.orchestrator.run_config import RunBounds, load_run_config
 from physgate.orchestrator.trajectory import read_sealed
+from physgate.orchestrator.wait_cycle import never_ran_at
 from physgate.state.schema import validate_node
 from physgate.state.store import (
     JOURNAL_NAME,
@@ -384,6 +388,29 @@ def _silence_bound(last: object, bounds: RunBounds) -> float | None:
     return None
 
 
+def _incident_of(log: Sequence[Event], halt_seq: int) -> dict[str, str] | None:
+    """The cause and detail of the last incident before the halt at ``halt_seq``, if any."""
+    for event in reversed(log):
+        if event.seq < halt_seq and isinstance(event, Incident):
+            return {"cause": event.cause, "detail": event.detail}
+    return None
+
+
+def _halt_served(log: Sequence[Event], halted: Halted) -> dict[str, object]:
+    """The halt as the status route serves it, with the incident it rests on where one is named."""
+    served: dict[str, object] = {
+        "seq": halted.seq,
+        "reason": halted.reason,
+        "detail": halted.detail,
+    }
+    # What the incident says (what is held on what, for a wait with nothing to decide): the halt's
+    # own detail names only its cause. Left out where there is none, so a halt keeps its shape.
+    incident = _incident_of(log, halted.seq) if halted.reason == "incident" else None
+    if incident is not None:
+        served["incident"] = incident
+    return served
+
+
 def status(context: Context, params: Mapping[str, str]) -> Response:
     """Where the run stands: the loop's next step, a halt owed or taken, and each completion.
 
@@ -409,9 +436,7 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
                 "attempt": step.attempt,
                 "point": step.point,
             },
-            "halted": None
-            if halted is None
-            else {"seq": halted.seq, "reason": halted.reason, "detail": halted.detail},
+            "halted": None if halted is None else _halt_served(log, halted),
             "owed_halt": None
             if owed is None
             else {"cause": owed.cause, "subtask_id": owed.subtask_id, "detail": owed.detail},
@@ -427,6 +452,10 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             # call failed and its item is open to a person as well.
             "ends_on_sign_offs_alone": state.ends_on_sign_offs_alone(),
             "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
+            # Each subtask that never ran, or whose ordered retry never ran, where the run ended as
+            # ``unrun`` or escalated for a sign-off owed: why, and the readers that merged without
+            # it. Empty for every other run, a run still going included.
+            "never_ran": never_ran_at(state, step.kind),
             # Each builder held while the module whose design it implements has not merged.
             "held": held_builders(state).get("held", []),
             # Each closing pass held while a domain module has neither merged nor ended without

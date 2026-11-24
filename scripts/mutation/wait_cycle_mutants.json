@@ -5,10 +5,15 @@
     "old": "",
     "new": "",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
-      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py",
-      "tests/unit/orchestrator/test_a_run_without_a_parts_list_writes_what_it_wrote_before.py"
+      "tests/unit/orchestrator/test_a_run_without_a_parts_list_writes_what_it_wrote_before.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
       "tests/harness_pin.py",
@@ -27,11 +32,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -43,8 +50,13 @@
     "old": "        if design_wait.standing(state, pair.designer) is not None:",
     "new": "        if False and design_wait.standing(state, pair.designer) is not None:",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -62,11 +74,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -78,8 +92,13 @@
     "old": "        if held or root_item(state, producer, frozenset({subtask_id})) is not None:",
     "new": "        if held:",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -97,11 +116,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -113,8 +134,13 @@
     "old": "    if reaches(state, producer, reader):\n        return \"producer_waits_for_reader\"",
     "new": "    if False and reaches(state, producer, reader):\n        return \"producer_waits_for_reader\"",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -132,11 +158,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -148,8 +176,13 @@
     "old": "            if nxt == target:\n                return True",
     "new": "            if nxt == target:\n                return False",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -167,11 +200,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -183,8 +218,13 @@
     "old": "    if design_wait.held_for_good(state, producer):\n        return \"producer_held_for_good\"",
     "new": "    if False and design_wait.held_for_good(state, producer):\n        return \"producer_held_for_good\"",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -202,11 +242,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -218,8 +260,13 @@
     "old": "        return \"producer_waits_for_reader\"",
     "new": "        return \"producer_held_for_good\"",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -237,11 +284,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -250,11 +299,16 @@
   {
     "name": "an_open_hold_is_never_let_go_by_the_rule",
     "file": "src/physgate/orchestrator/producer_wait.py",
-    "old": "        if how is None and cycle:",
-    "new": "        if False and how is None and cycle:",
+    "old": "        if how is None and cycle:\n",
+    "new": "        if False and how is None and cycle:\n",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -272,11 +326,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -288,8 +344,13 @@
     "old": "        if cycle:\n            if let_go_key(",
     "new": "        if False and cycle:\n            if let_go_key(",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -307,11 +368,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -320,11 +383,16 @@
   {
     "name": "replay_does_not_read_the_mark",
     "file": "src/physgate/orchestrator/replay.py",
-    "old": "            self.producer_waits.cycle = event.wait_cycle == \"release\"",
+    "old": "            self.producer_waits.cycle = event.wait_cycle in (\"release\", \"release_2\")",
     "new": "            self.producer_waits.cycle = False",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -342,11 +410,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -358,8 +428,13 @@
     "old": "            wait_cycle=WAIT_CYCLE if self._said()[0] == \"act\" else None,",
     "new": "            wait_cycle=None,",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -377,11 +452,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -393,10 +470,15 @@
     "old": "            wait_cycle=WAIT_CYCLE if self._said()[0] == \"act\" else None,",
     "new": "            wait_cycle=WAIT_CYCLE,",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
-      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py",
-      "tests/unit/orchestrator/test_a_run_without_a_parts_list_writes_what_it_wrote_before.py"
+      "tests/unit/orchestrator/test_a_run_without_a_parts_list_writes_what_it_wrote_before.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
       "tests/harness_pin.py",
@@ -415,11 +497,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -431,8 +515,13 @@
     "old": "        if _mutual(state, subtask_id, producer):\n            continue",
     "new": "        if False and _mutual(state, subtask_id, producer):\n            continue",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -450,11 +539,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -466,8 +557,13 @@
     "old": "    return (reader, producer, len(state.subtasks[reader].attempts))",
     "new": "    return (reader, producer, 0)",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -485,11 +581,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -501,8 +599,13 @@
     "old": "        state.producer_waits.open.pop((subtask_id, event.producer), None)",
     "new": "        pass",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
       "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
@@ -520,11 +623,644 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "replay_does_not_read_release_2",
+    "file": "src/physgate/orchestrator/replay.py",
+    "old": "            self.producer_waits.narrow = event.wait_cycle == \"release_2\"",
+    "new": "            self.producer_waits.narrow = False",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "a_hold_is_followed_through_a_chain_again",
+    "file": "src/physgate/orchestrator/producer_wait.py",
+    "old": "    if item is not None or state.producer_waits.narrow:",
+    "new": "    if item is not None:",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_cycle_rule_lets_nothing_go_under_release_2",
+    "file": "src/physgate/orchestrator/wait_cycle.py",
+    "old": "    if reaches(state, producer, reader):\n",
+    "new": "    if state.producer_waits.narrow:\n        return None\n    if reaches(state, producer, reader):\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "a_run_with_a_module_that_never_ran_ends_done",
+    "file": "src/physgate/orchestrator/replay.py",
+    "old": "        return Step(kind=\"unrun\") if never_ran(self) else Step(kind=\"done\")",
+    "new": "        return Step(kind=\"done\")",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_readers_that_ran_without_it_are_not_named",
+    "file": "src/physgate/orchestrator/wait_cycle.py",
+    "old": "            and state.subtasks[p.consumer.subtask_id].status == \"done\"",
+    "new": "            and False",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_never_ran_list_is_not_printed",
+    "file": "src/physgate/orchestrator/waiting.py",
+    "old": "        printed[\"never_ran\"] = named",
+    "new": "        printed[\"never_ran\"] = []",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_wait_line_guard_never_trips",
+    "file": "src/physgate/orchestrator/loop.py",
+    "old": "        if signature in seen:",
+    "new": "        if False and signature in seen:",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_wait_line_streak_is_never_reset",
+    "file": "src/physgate/orchestrator/loop.py",
+    "old": "        if seen_at != last:\n            seen = set()  # a line of another kind came between: a new streak",
+    "new": "        if False:\n            seen = set()",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "a_producer_held_for_good_is_not_let_go_under_release_2",
+    "file": "src/physgate/orchestrator/wait_cycle.py",
+    "old": "    if design_wait.held_for_good(state, producer):\n        return \"producer_held_for_good\"",
+    "new": "    if False and design_wait.held_for_good(state, producer):\n        return \"producer_held_for_good\"",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_backstop_never_fires",
+    "file": "src/physgate/orchestrator/loop.py",
+    "old": "        if self.queue.open_items() or items_open(state):\n            return False",
+    "new": "        if True:\n            return False",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_backstop_fires_under_every_mark",
+    "file": "src/physgate/orchestrator/loop.py",
+    "old": "        if not (state.acts and state.producer_waits.narrow) or state.halted is not None:",
+    "new": "        if not state.acts or state.halted is not None:",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "a_decision_held_for_confirmation_is_no_item_open",
+    "file": "src/physgate/orchestrator/wait_cycle.py",
+    "old": "        item = producer_wait.waiting_item(state, sub.plan.subtask_id)\n        if item is not None:",
+    "new": "        item = producer_wait.waiting_item(state, sub.plan.subtask_id)\n        if item is not None and state.taken.get(item) is None:",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "never_ran_ignores_an_ordered_retry",
+    "file": "src/physgate/orchestrator/wait_cycle.py",
+    "old": "        retry = sub.status == \"active\" and bool(sub.attempts) and dispatch_due(state, subtask_id)",
+    "new": "        retry = False",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_closing_wait_holds_a_reader_of_a_stuck_producer_under_release_2",
+    "file": "src/physgate/orchestrator/closing_wait.py",
+    "old": "        if state.producer_waits.narrow:\n            break",
+    "new": "        if False:\n            break",
+    "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_status_route_prints_never_ran_in_a_run_still_going",
+    "file": "src/physgate/ui/readers.py",
+    "old": "never_ran_at(state, step.kind)",
+    "new": "never_ran_at(state, \"unrun\")",
+    "tests": [
+      "tests/unit/ui/test_the_status_names_each_builder_held_until_the_design_it_implements_merges.py"
+    ],
+    "data": [
+      "tests/harness_pin.py",
+      "tests/ui_rig.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/arbitration_runs.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/off_identity_reference.json",
+      "tests/unit/orchestrator/off_identity_rig.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/sign_off_rig.py",
+      "tests/unit/orchestrator/test_a_blocked_review_is_a_review_that_goes_to_a_person.py",
+      "tests/unit/orchestrator/test_a_builder_is_held_until_the_design_it_implements_merges.py",
+      "tests/unit/orchestrator/test_a_choice_on_a_failed_contract_reopens_the_other_module.py",
+      "tests/unit/orchestrator/test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item.py",
+      "tests/unit/orchestrator/test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes.py",
+      "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
+      "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
+      "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
+      "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
+      "tests/unit/orchestrator/test_a_run_that_ends_unrun_is_counted_decided_on_and_named_as_the_rules_say.py",
+      "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+      "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
+      "tests/unit/orchestrator/test_design_pairs_are_read_from_the_plan_and_recorded_before_any_dispatch.py",
+      "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
+      "tests/unit/orchestrator/test_every_pair_sharing_an_interface_is_enumerated_from_the_recorded_plan.py",
+      "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
+      "tests/unit/orchestrator/test_replay_refuses_a_wait_with_nothing_to_decide_in_a_run_that_could_not_write_it.py",
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"
@@ -536,10 +1272,15 @@
     "old": "",
     "new": "",
     "tests": [
+      "tests/unit/orchestrator/test_a_hold_outlives_its_producer_s_time_with_a_person_without_ending_the_run_in_a_wait.py",
+      "tests/unit/orchestrator/test_a_loop_that_would_write_the_same_wait_line_again_halts_on_an_incident.py",
+      "tests/unit/orchestrator/test_a_reader_is_held_only_on_a_producer_that_is_with_a_person.py",
       "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_run_never_waits_on_nothing_whatever_its_waits_form.py",
-      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py",
-      "tests/unit/orchestrator/test_a_run_without_a_parts_list_writes_what_it_wrote_before.py"
+      "tests/unit/orchestrator/test_a_run_without_a_parts_list_writes_what_it_wrote_before.py",
+      "tests/unit/orchestrator/test_over_random_plans_a_release_2_run_holds_only_on_a_producer_with_a_person.py",
+      "tests/unit/orchestrator/test_over_random_plans_with_reopens_retries_fixes_and_kills_a_run_never_waits_on_nothing.py",
+      "tests/unit/orchestrator/test_the_closing_pass_never_waits_for_a_module_that_cannot_move_before_it.py"
     ],
     "data": [
       "tests/harness_pin.py",
@@ -558,11 +1299,13 @@
       "tests/unit/orchestrator/test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing.py",
       "tests/unit/orchestrator/test_a_person_chooses_a_position_only_on_an_arbitration_item.py",
       "tests/unit/orchestrator/test_a_queue_decision_acts_at_a_boundary.py",
+      "tests/unit/orchestrator/test_a_reader_is_let_go_by_a_producer_that_waits_for_it.py",
       "tests/unit/orchestrator/test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt.py",
       "tests/unit/orchestrator/test_choosing_the_domain_s_value_waits_for_the_closing_pass_and_returns_to_the_gate.py",
       "tests/unit/orchestrator/test_every_merge_path_git_call_is_pinned_or_in_the_store.py",
       "tests/unit/orchestrator/test_how_each_follow_up_ended_is_told_by_the_integration_item_and_the_ledger.py",
-      "tests/unit/orchestrator/wait_cycle_rig.py"
+      "tests/unit/orchestrator/wait_cycle_rig.py",
+      "tests/unit/orchestrator/wait_sweep_rig.py"
     ],
     "paths": [
       "knowledge"

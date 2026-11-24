@@ -170,7 +170,12 @@ export interface ModuleCompletion {
 export interface RunStatus {
   readonly kind: string;
   readonly subtask: string | null;
-  readonly halted: { readonly reason: string; readonly detail: string } | null;
+  readonly halted: {
+    readonly reason: string;
+    readonly detail: string;
+    /** What the incident the halt rests on says: for a wait on nothing, what is held on what. */
+    readonly incident?: { readonly cause: string; readonly detail: string };
+  } | null;
   /** The incident on the record whose halt is owed, if any. */
   readonly owedHalt: { readonly cause: string; readonly subtask: string | null } | null;
   readonly completion: {
@@ -213,6 +218,15 @@ export interface RunStatus {
    * Absent where the server did not say.
    */
   readonly endsOnSignaturesAlone?: boolean;
+  /**
+   * Each subtask that never ran, or whose ordered retry never ran, where the run ended as
+   * ``unrun``: why, and the readers that merged without it. Absent where the server did not say.
+   */
+  readonly neverRan?: readonly {
+    readonly subtask: string;
+    readonly why: string;
+    readonly ranWithout: readonly string[];
+  }[];
 }
 
 function moduleCompletion(value: unknown): ModuleCompletion {
@@ -256,7 +270,21 @@ export function runStatus(value: unknown): RunStatus {
     halted:
       halted === null
         ? null
-        : { reason: text(halted.reason, "a halt reason"), detail: text(halted.detail, "a detail") },
+        : {
+            reason: text(halted.reason, "a halt reason"),
+            detail: text(halted.detail, "a detail"),
+            ...(halted.incident === undefined || halted.incident === null
+              ? {}
+              : {
+                  incident: (() => {
+                    const i = object(halted.incident, "the incident of a halt");
+                    return {
+                      cause: text(i.cause, "an incident cause"),
+                      detail: text(i.detail, "an incident detail"),
+                    };
+                  })(),
+                }),
+          },
     owedHalt:
       owed === null
         ? null
@@ -291,6 +319,20 @@ export function runStatus(value: unknown): RunStatus {
           signaturesOpenToDecide: list(s.sign_offs_open_to_decide, "the sign-offs open").map((m) =>
             text(m, "a module"),
           ),
+        }),
+    ...(s.never_ran === undefined
+      ? {}
+      : {
+          neverRan: list(s.never_ran, "the subtasks that never ran").map((raw) => {
+            const n = object(raw, "a subtask that never ran");
+            return {
+              subtask: text(n.subtask_id, "a subtask id"),
+              why: text(n.why, "why it never ran"),
+              ranWithout: list(n.ran_without ?? [], "the readers that ran without it").map((r) =>
+                text(r, "a subtask id"),
+              ),
+            };
+          }),
         }),
     ...(s.ends_on_sign_offs_alone === undefined
       ? {}

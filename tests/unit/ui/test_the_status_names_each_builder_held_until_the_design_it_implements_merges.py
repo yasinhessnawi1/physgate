@@ -29,6 +29,12 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
     FW,
 )
 from test_a_queue_decision_acts_at_a_boundary import decide  # noqa: E402
+from test_a_run_that_ends_unrun_is_counted_decided_on_and_named_as_the_rules_say import (  # noqa: E402
+    escalated_with_a_builder_never_run,
+)
+from test_replay_refuses_a_wait_with_nothing_to_decide_in_a_run_that_could_not_write_it import (  # noqa: E402
+    with_the_incident,
+)
 
 from physgate import roles  # noqa: E402
 
@@ -51,8 +57,17 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
         assert held.first_run(rig, monkeypatch) == "wait"
         decide(rig.run_dir, "reject", "no attempt is left", item_id=held.drive_item(lines(rig)))
         reaccount(rig.run_dir)
-        assert held.resumed(rig, monkeypatch) == "done"
+        assert held.resumed(rig, monkeypatch) == "unrun"
         shutil.copytree(rig.run_dir, root / "ended")
+        rig, state = escalated_with_a_builder_never_run(base / "escalated-end", monkeypatch)
+        reaccount(rig.run_dir)
+        shutil.copytree(rig.run_dir, root / "escalated-end")
+        halted = root / "halted-on-nothing"
+        shutil.copytree(rig.run_dir, halted)
+        forged = with_the_incident(lines(rig), "release_2")
+        (halted / "events.jsonl").write_bytes(
+            b"".join(json.dumps(r | {"seq": i}).encode() + b"\n" for i, r in enumerate(forged))
+        )
         rig = held.rigged(base / "no-pairs")
         held.first_run(rig, monkeypatch, design=False)
         shutil.copytree(rig.run_dir, root / "no-pairs")
@@ -92,8 +107,36 @@ def test_a_builder_whose_designer_ended_unmerged_is_served_held_with_no_item(liv
     assert found["held"] == [
         {"subtask_id": FW, "designer": DRIVE, "nodes": [LAW], "why": "ended_unmerged"}
     ]
-    assert found["next_step"]["kind"] == "done"
+    assert found["next_step"]["kind"] == "unrun"
+    # The list of what never ran is served only once the run has ended so.
+    assert [n["subtask_id"] for n in found["never_ran"]] == [FW]
+
+
+def test_a_run_still_waiting_serves_no_list_of_what_never_ran(live: Live) -> None:
+    found = served(live, "escalated")
+    assert found["next_step"]["kind"] == "wait"
+    assert found["never_ran"] == []
 
 
 def test_a_run_recorded_without_design_pairs_serves_no_hold(live: Live) -> None:
     assert served(live, "no-pairs")["held"] == []
+
+
+def test_an_escalated_end_that_owes_a_sign_off_is_served_with_the_module_that_never_ran(
+    live: Live,
+) -> None:
+    found = served(live, "escalated-end")
+    assert found["next_step"]["kind"] == "escalated"
+    assert [n["subtask_id"] for n in found["never_ran"]] == ["fw2-9a8b7c"]
+
+
+def test_a_halt_on_an_incident_is_served_with_what_the_incident_says(live: Live) -> None:
+    found = served(live, "halted-on-nothing")
+    assert found["halted"]["reason"] == "incident"
+    assert "incident" in found["halted"], (
+        f"a halt on an incident serves what the incident says; it served {found['halted']!r}"
+    )
+    assert found["halted"]["incident"]["cause"] == "waits_on_nothing"
+    assert "no item is open" in found["halted"]["incident"]["detail"]
+    # A run that is not halted serves no halt, and so no incident.
+    assert served(live, "ended")["halted"] is None
