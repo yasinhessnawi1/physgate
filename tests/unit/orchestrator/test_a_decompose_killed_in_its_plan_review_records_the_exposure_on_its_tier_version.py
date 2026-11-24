@@ -523,11 +523,12 @@ def test_a_decomposition_cut_before_its_run_json_after_an_exposed_review_marks_i
 def test_a_decomposition_with_no_plan_review_cut_before_its_run_json_leaves_the_register_readable(
     tier: OnTier, monkeypatch: pytest.MonkeyPatch, how: str
 ) -> None:
-    # No review, so no decomposition directory: its parameters record alone marks it.
+    # No review, so no round journal and no review record: only the call's own place.
     path = Path(tier.args[tier.args.index("--params") + 1])
     path.write_text(json.dumps({**json.loads(path.read_text()), "design_review": "off"}))
     _cut_before_run_json(tier, monkeypatch, how, None)
-    assert not (tier.run_dir / "decomposition").exists()
+    assert not (tier.run_dir / JOURNAL).exists()
+    assert not (tier.run_dir / REVIEW_RECORD).exists()
     assert tier.exposed() == frozenset()
     later = tier.later_refusal()
     assert later is None or "(register_unreadable)" not in later, later

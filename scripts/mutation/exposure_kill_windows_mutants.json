@@ -231,30 +231,6 @@
   ]
  },
  {
-  "name": "a_decomposition_s_parameters_record_marks_nothing",
-  "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "            (params is not None and params.is_file(follow_symlinks=False))\n            or (decomposed",
-  "new": "            False\n            or (decomposed",
-  "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
-  ],
-  "data": [
-   "tests/unit/evaluation/baseline/baseline_fixtures.py",
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
-   "tests/unit/evaluation/per_role/task_fixtures.py",
-   "tests/unit/orchestrator/design_review_rig.py",
-   "tests/unit/orchestrator/journal_helper.py",
-   "tests/unit/orchestrator/loop_fakes.py",
-   "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
-   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
-   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
-   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
-   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
-  ]
- },
- {
   "name": "a_cut_decomposition_is_walked_into",
   "file": "src/physgate/evaluation/tiers/exposure.py",
   "old": "            if unit and entry.name not in NESTED_RUN_PLACES:\n",
