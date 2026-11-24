@@ -222,3 +222,45 @@ def test_a_resume_after_the_target_moved_is_refused(tmp_path: Path) -> None:
     assert refused.value.context["refused_because"] == "inputs_differ"
     assert refused.value.context["fields"] == "target_head"
     assert later.decomposed == [] and later.drives == []
+
+
+def test_a_decomposition_the_command_refused_stops_the_round_and_is_asked_again_in_its_place(
+    tmp_path: Path,
+) -> None:
+    rig = make_rig(tmp_path)
+    first = rig.driver(refused={1})
+    with pytest.raises(RoundError) as refused:
+        _round(rig, first)
+    assert refused.value.context["refused_because"] == "decompose_refused"
+    # Nothing was recorded in its directory, so nothing is set aside: it is asked again there.
+    then = rig.driver()
+    status, _ = _round(rig, then, resume=True)
+    assert status == "done"
+    assert [c.run_dir.name for c in then.decomposed] == ["0000-1", "0001-1"]
+    assert [x for x in _ledger(rig) if x["kind"] == "left"] == []
+    assert _run_dirs(rig) == ["0000-1", "0001-1"]
+
+
+def test_a_decomposition_that_left_no_run_in_this_process_stops_the_round_for_a_person(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = make_rig(tmp_path)
+    driver = rig.driver()
+    made = driver.decompose
+
+    def records_and_refuses(call: Any) -> int:  # noqa: ANN401
+        # The parameters recorded, then refused before any run is written.
+        from physgate.orchestrator.params_record import record_params
+
+        driver.decomposed.append(call)
+        record_params(call.run_dir, call.params)
+        return 2 if len(driver.decomposed) == 1 else made(call)
+
+    monkeypatch.setattr(driver, "decompose", records_and_refuses)
+    with pytest.raises(RoundError) as refused:
+        _round(rig, driver)
+    assert refused.value.context["refused_because"] == "decompose_refused"
+    status, _ = _round(rig, rig.driver(), resume=True)
+    assert status == "done"
+    assert [(x["index"], x["attempt"]) for x in _ledger(rig) if x["kind"] == "left"] == [(0, 1)]
+    assert _run_dirs(rig) == ["0000-2", "0001-1"]

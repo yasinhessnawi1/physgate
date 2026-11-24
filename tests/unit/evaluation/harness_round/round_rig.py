@@ -199,6 +199,8 @@ class StandInDriver:
     fails: dict[int, str] = field(default_factory=dict)
     #: The decompositions the process is killed in, after the parameters are recorded.
     killed_in_decompose: set[int] = field(default_factory=set)
+    #: The decompositions the command refuses (exit 2) before it writes anything.
+    refused: set[int] = field(default_factory=set)
     #: The drives the process is killed in, before the loop is built.
     killed_in_drive: set[int] = field(default_factory=set)
     #: Session calls (across the row) that end on an API error, that write no answer, or in
@@ -217,6 +219,8 @@ class StandInDriver:
     def decompose(self, call: Decompose) -> int:
         self.decomposed.append(call)
         n = len(self.decomposed)
+        if n in self.refused:
+            return 2
         require_fresh(call.run_dir)
         record_params(call.run_dir, call.params)
         if n in self.killed_in_decompose:
