@@ -23,7 +23,9 @@ stops it, and removes its credential, as it does a role session's.
 
 from __future__ import annotations
 
+import os
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 from physgate.evaluation.inject.corpus import telltales
@@ -42,6 +44,19 @@ REVIEW_ID = re.compile(
 def standing_root(home: Path) -> Path:
     """The conventional review root under ``home``."""
     return Path(home) / STANDING_ROOT_NAME
+
+
+def standing_review_material(held_out: Sequence[str]) -> tuple[str, ...]:
+    """The standing review root as a session is withheld it, where its run names a held-out tier.
+
+    Runs made by hand review beneath it by convention, so it may hold any earlier review's packet
+    (the brief, the specification, the answer), its reviewer's record and the place apart with the
+    key for labels. A measured run reviews inside its own run directory instead, so its sessions
+    are not withheld the standing root as their own review root: each session of a run naming a
+    held-out tier, a role session or a raw one, is given it as review material, refused on every
+    layer, by this one definition. A run naming none is given nothing here, and installs as before.
+    """
+    return (os.path.realpath(standing_root(Path.home())),) if held_out else ()
 
 
 def inside_a_checkout(path: Path) -> Path | None:

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 from test_the_raw_arm_s_credential_is_handled_as_a_role_session_s import (
+    TASK,
     _script,
     _setup,
     capture_installer,
@@ -89,3 +90,46 @@ def test_a_root_given_whole_by_the_caller_is_passed_whole_with_the_place(
     (argv,) = [a for a in seen if a[1:3] == ["hooks", "install"]]
     assert _given(argv, "--withheld-whole") == [str(store)], argv
     assert _given(argv, "--own-place") == [str(place)], argv
+
+
+def test_a_harness_run_s_run_roots_are_withheld_whole_with_nothing_opened_in_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Where the round's harness runs lie: whole, beside the trial's own root and its place."""
+    store, place, elsewhere = _trial(tmp_path)
+    runs = tmp_path.resolve() / "runs"
+    runs.mkdir()
+    setup = dataclasses.replace(
+        _setup(tmp_path, _script(tmp_path / "claude", "true\n")),
+        held_out=(str(store), str(elsewhere)),
+        held_out_carved=str(place),
+        withheld_whole=(str(runs),),
+    )
+    seen = capture_installer(monkeypatch)
+    raw._install(setup, place / "worktree", place / "session", None)
+    (argv,) = [a for a in seen if a[1:3] == ["hooks", "install"]]
+    assert sorted(_given(argv, "--withheld-whole")) == sorted([str(runs), str(store)]), argv
+    assert _given(argv, "--own-place") == [str(place)], argv
+    assert str(runs) not in _given(argv, "--held-out"), argv
+    assert raw.pins(TASK, setup)["withheld_whole"] == [str(runs)]
+
+
+def test_run_roots_alone_give_the_session_no_place_and_a_run_naming_none_records_no_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _store, place, elsewhere = _trial(tmp_path)
+    runs = tmp_path.resolve() / "runs"
+    runs.mkdir()
+    base = dataclasses.replace(
+        _setup(tmp_path, _script(tmp_path / "claude", "true\n")), held_out=(str(elsewhere),)
+    )
+    seen = capture_installer(monkeypatch)
+    raw._install(
+        dataclasses.replace(base, withheld_whole=(str(runs),)),
+        place / "worktree",
+        place / "session",
+        None,
+    )
+    (argv,) = [a for a in seen if a[1:3] == ["hooks", "install"]]
+    assert _given(argv, "--withheld-whole") == [str(runs)] and "--own-place" not in argv, argv
+    assert "withheld_whole" not in raw.pins(TASK, base)

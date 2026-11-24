@@ -207,16 +207,19 @@ class InstallRequest(BaseModel):
     #: whole in the session's hook state, as a session installed before the place existed has.
     sentinel_apart: AbsolutePath | None = None
     #: Roots withheld from the session whole, by rule rather than by a list taken now, but for
-    #: the worktree in ``own_place``: a protected trial's session in the store's work root, a
-    #: blind check's in the store. Whatever is made in them later, by anything, is refused to
-    #: every read and write on every layer; the session's worktree is not. Given with
-    #: ``own_place`` only, and both or neither.
+    #: the worktree in ``own_place`` where a root holds it: a protected trial's session in the
+    #: store's work root, a blind check's in the store, a measured run's role session in its run
+    #: root. Whatever is made in them later, by anything, is refused to every read and write on
+    #: every layer; the session's worktree is not. A root that holds the worktree is given with
+    #: ``own_place``; one that holds none of the session's (a run root where earlier runs lie) is
+    #: withheld with nothing opened.
     withheld_whole: tuple[AbsolutePath, ...] = ()
-    #: The session's own place inside every ``withheld_whole`` root: a real directory, reached
-    #: through no link, holding the worktree. Its tools read and write the worktree there exactly
-    #: as spelt (no link, no file with a second name), and nothing else of the place but the
-    #: directory of its interpreter, read only (``os_layer_readable`` there); the OS layer opens
-    #: the same.
+    #: The session's own place inside every ``withheld_whole`` root that holds its worktree: a
+    #: real directory, reached through no link, holding the worktree. Its tools read and write the
+    #: worktree there exactly as spelt (no link, no file with a second name), and nothing else of
+    #: the place but, read only, the directory of its interpreter (``os_layer_readable`` there)
+    #: and the files it is given to read in the run's session directories; the OS layer opens the
+    #: worktree and the interpreter's directory.
     own_place: AbsolutePath | None = None
     #: The source checkout the orchestrator runs from, when it runs from one: the
     #: gate's source, the curated library and the frozen experiments the run is
@@ -368,18 +371,34 @@ def _beneath(path: str, root: str) -> bool:
     return inner != outer and inner.is_relative_to(outer)
 
 
+def _around_the_worktree(request: InstallRequest) -> tuple[str, ...]:
+    """The roots withheld whole that hold the session's worktree, where it really is."""
+    worktree = os.path.realpath(request.worktree)
+    return tuple(r for r in request.withheld_whole if _beneath(worktree, os.path.realpath(r)))
+
+
 def _whole_roots_refusal(request: InstallRequest) -> str | None:
     """Why the request's roots withheld whole and its own place may not be installed, or ``None``.
 
-    Both or neither; the place a real directory, not a link and reached through none from any
-    root, lying strictly inside every root as spelt and as the system resolves it; the worktree
-    inside the place.
+    A root that holds the worktree is given with the session's own place in it; a root that
+    holds none of the session's is withheld with nothing opened (an earlier run's root, beside the
+    session's own); a place given with no root around it is refused. The place a real directory,
+    not a link and reached through none from any root around it, lying strictly inside every
+    such root as spelt and as the system resolves it; the worktree inside the place.
     """
-    roots, place = request.withheld_whole, request.own_place
+    roots, place = _around_the_worktree(request), request.own_place
+    for root in request.withheld_whole:
+        # A root of the session's own: its worktree's or its place's, or inside either.
+        real = os.path.realpath(root)
+        own = (request.worktree, *([place] if place is not None else []))
+        if any(real == os.path.realpath(p) or _beneath(real, os.path.realpath(p)) for p in own):
+            return f"the root withheld whole {root} is the session's own place or lies in it"
     if not roots and place is None:
         return None
-    if not roots or place is None:
-        return "a root withheld whole and the session's own place in it are given together"
+    if place is None:
+        return "a root withheld whole holds the worktree, and the session's own place is not given"
+    if not roots:
+        return "the session's own place is given, and no root withheld whole holds its worktree"
     try:
         st = os.lstat(place)
     except OSError as exc:
@@ -404,11 +423,13 @@ def _own_in_place(request: InstallRequest) -> tuple[str, tuple[str, ...]]:
 
     The worktree, spelt beneath the own place as the place is given (the place is checked to be
     reached through no link, and the worktree to lie in it where it really is), is read and
-    written. Beside it, the one thing named exactly: each further place of its own the OS layer
-    opens to its commands (``os_layer_readable``: the directory of the interpreter they run)
-    that lies in the place, never in its home, where its commands write and could make a link.
-    Read only. Nothing else of the place: its login, its hook records and anything made there
-    beside the worktree are refused, as the OS layer refuses them.
+    written. Beside it, each thing named exactly, read only: each further place of its own the
+    OS layer opens to its commands (``os_layer_readable``: the directory of the interpreter they
+    run) that lies in the place, and each file it is given to read in the run's session
+    directories that lies in the place (integration's issued state, the parts record): what the
+    session directories' own carve opens to it, no more. Never a place in its home, where its
+    commands write and could make a link. Nothing else of the place: its login, its hook records
+    and anything made there beside the worktree are refused, as the OS layer refuses them.
     """
     place = str(request.own_place)  # given with the roots (checked before)
     real = os.path.realpath(place)
@@ -418,7 +439,21 @@ def _own_in_place(request: InstallRequest) -> tuple[str, tuple[str, ...]]:
         for p in request.os_layer_readable
         if _inside(p, place) and not _inside(p, request.user_home)
     )
-    return os.path.normpath(worktree), interpreter
+    sessions = request.sessions_root
+    given = tuple(
+        sorted(
+            {
+                p
+                for p in (*request.required_reading, *request.always_loaded)
+                if sessions is not None
+                and _inside(p, sessions)
+                and _inside(p, place)
+                and not _inside(p, request.user_home)
+                and not _inside(p, worktree)
+            }
+        )
+    )
+    return os.path.normpath(worktree), (*interpreter, *given)
 
 
 def _knowledge_root(worktree: Path) -> str:
@@ -853,7 +888,15 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     refusal = _whole_roots_refusal(request)
     if refusal is not None:
         raise ValueError(refusal)
+    around = _around_the_worktree(request)
     for path in request.withheld_whole:
+        if path not in around:
+            # A root that holds none of the session's: refused whole, nothing opened, never put
+            # back (an earlier run's place, written by none of this session's tools).
+            watch = protected[path][1] if path in protected else "none"
+            protected[path] = (WITHHELD_WHOLE_REASON, watch)
+            reads[path] = "denied"
+            continue
         excepted, interpreter = _own_in_place(request)
         # Assigned, not defaulted: refused to every read and write but the session's worktree in
         # its own place, whatever is made there later, the rest of the place included: the OS

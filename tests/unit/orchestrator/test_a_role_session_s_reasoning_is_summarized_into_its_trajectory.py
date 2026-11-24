@@ -38,6 +38,7 @@ def test_a_run_recorded_before_the_field_reads_as_omitted_with_its_digest_unchan
         "held_out",
         "held_out_canaries",
         "held_out_sha256",
+        "withheld_whole",
         "network",
         "network_enforced",
         "queue_decisions",
