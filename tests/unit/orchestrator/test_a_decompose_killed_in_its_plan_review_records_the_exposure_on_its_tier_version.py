@@ -51,8 +51,10 @@ from test_decompose_reviews_the_plan_before_it_writes_anything import (  # noqa:
 
 from physgate.evaluation.tiers.heldout import tier_digest  # noqa: E402
 from physgate.orchestrator import design_rounds  # noqa: E402
+from physgate.orchestrator.events import Incident  # noqa: E402
 from physgate.orchestrator.exceptions import HeldOutExposedError  # noqa: E402
 from physgate.orchestrator.protocols import MessageUsage  # noqa: E402
+from physgate.orchestrator.record import RunRecord  # noqa: E402
 
 __all__ = ["calls"]  # the fixture, used by name
 
@@ -166,3 +168,59 @@ def test_a_decompose_killed_in_its_plan_review_marks_its_version_exposed_once_fo
     later = tier.later_refusal()
     assert later is not None, "a later reportable run on the exposed version was not refused"
     assert "(version_exposed)" in later, later
+
+
+def _killed_before_its_opening(tier: OnTier, monkeypatch: pytest.MonkeyPatch) -> None:
+    def dies_before_the_opening(*args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        raise Stopped
+
+    monkeypatch.setattr(design_rounds, "start_run", dies_before_the_opening)
+    reviewer = Recording(
+        _exposed_review(), (SESSION, 4242, OTHER_START), stream=tier.shown(), root=tier.review_root
+    )
+    with pytest.raises(BaseException) as stopped:  # noqa: PT011 - the stop is the point
+        _exit(tier.args, reviewer)
+    assert stopped.type is Stopped
+    monkeypatch.undo()
+    assert not (tier.run_dir / "run.json").exists()
+
+
+def _killed_before_its_opening_s_exposure_line(
+    tier: OnTier, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    emit = RunRecord.emit
+
+    def dies_at_the_exposure(self: RunRecord, line: Any) -> Any:  # noqa: ANN401
+        if isinstance(line, Incident):
+            raise Stopped
+        return emit(self, line)
+
+    monkeypatch.setattr(RunRecord, "emit", dies_at_the_exposure)
+    reviewer = Recording(
+        _exposed_review(), (SESSION, 4242, OTHER_START), stream=tier.shown(), root=tier.review_root
+    )
+    with pytest.raises(BaseException) as stopped:  # noqa: PT011 - the stop is the point
+        _exit(tier.args, reviewer)
+    assert stopped.type is Stopped
+    monkeypatch.undo()
+    assert (tier.run_dir / "run.json").exists()
+    events = (tier.run_dir / "events.jsonl").read_text()
+    assert "held_out_read" not in events
+
+
+@pytest.mark.parametrize(
+    "kill",
+    [_killed_before_its_opening, _killed_before_its_opening_s_exposure_line],
+    ids=["after its round's end line, before its opening", "in its opening, before the exposure"],
+)
+def test_a_decompose_killed_after_its_exposed_review_s_round_ended_marks_its_version_exposed(
+    tier: OnTier, monkeypatch: pytest.MonkeyPatch, kill: Any
+) -> None:
+    kill(tier, monkeypatch)
+    # The review's record went with its round's end line: no command finds anything to scan.
+    assert not (tier.run_dir / "decomposition" / "review_session.json").exists()
+    assert tier.exposed() == frozenset({tier.made.version}), (
+        "the register does not hold the exposure an ended review of a killed decompose showed"
+    )
+    later = tier.later_refusal()
+    assert later is not None and "(version_exposed)" in later, later
