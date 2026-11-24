@@ -58,8 +58,8 @@
   {
     "name": "no_path_is_labelled",
     "file": "src/physgate/hooks/sentinel.py",
-    "old": "        if kind is None:\n            return path\n",
-    "new": "        if kind is None or kind:\n            return path\n",
+    "old": "        if kind is None:\n            return path\n        if not keys:\n            if apart is not None:\n",
+    "new": "        if kind is None or kind:\n            return path\n        if not keys:\n            if apart is not None:\n",
     "tests": [
       "tests/unit/hooks/test_the_sentinel_names_no_path_of_the_protected_material_in_a_refusal_the_log_or_a_halt.py",
       "tests/unit/hooks/test_the_sentinel_keeps_what_names_a_protected_task_apart_from_the_session.py"
