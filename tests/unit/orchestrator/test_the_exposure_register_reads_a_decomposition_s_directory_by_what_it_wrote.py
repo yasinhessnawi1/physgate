@@ -679,8 +679,48 @@ def test_a_decomposition_s_folder_this_user_cannot_search_refuses_by_its_kind(ti
     directory = _by_hand(tier, "old", held_out=_recorded(tier))
     (directory / "decomposition").chmod(0o000)
     try:
-        assert "cannot be searched" in str(_refused(tier))
+        assert "cannot be read" in str(_refused(tier))
         _settle(tier, directory)
         assert _readable(tier) == frozenset({tier.made.version})
     finally:
         (directory / "decomposition").chmod(0o700)
+
+
+def test_a_settled_directory_keeps_what_it_showed_when_a_later_step_cannot_be_read(
+    tier: OnTier, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.orchestrator import decomposition_review  # noqa: PLC0415
+
+    later = second_version(tier.made)
+    directory = _by_hand(tier, "old", held_out=_recorded(tier))
+    (directory / EXPOSED_FILE).write_text(json.dumps({"session_id": "an-earlier-review"}))
+
+    def unreadable(run_dir: Path) -> None:
+        msg = "Permission denied"
+        raise PermissionError(13, msg)
+
+    monkeypatch.setattr(decomposition_review, "review_record", unreadable)
+    assert "cannot be read" in str(_refused(tier))
+    # The person settles it marking the later version; the exposure it showed still marks its own.
+    api(f"{EXPOSURE}.mark_exposed")(
+        tier.made.store,
+        ROLE,
+        later.version,
+        by="a person",
+        reason="looked at the directory and marked what it may have shown",
+        settles=directory,
+    )
+    assert _readable(tier) == frozenset({tier.made.version, later.version})
+
+
+def test_a_canary_a_scan_showed_marks_its_version_where_its_result_cannot_be_kept(
+    tier: OnTier,
+) -> None:
+    _by_hand(tier, "shown", held_out=_recorded(tier), stream=tier.shown())
+    withheld = tier.made.store / ROLE / "withheld"
+    withheld.chmod(0o500)
+    try:
+        assert _readable(tier) == frozenset({tier.made.version})
+        assert not (withheld / "scans").exists()
+    finally:
+        withheld.chmod(0o700)

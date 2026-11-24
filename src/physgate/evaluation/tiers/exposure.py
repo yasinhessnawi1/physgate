@@ -895,8 +895,8 @@ def _decomposition_findings(
     try:
         return _reading(directory, known, settled, withheld)
     except OSError as exc:
-        if _settle_key(directory) in settled:
-            return []
+        # Each read step of it catches its own; one left uncaught refuses, settled or not: a
+        # settled directory passes over only what cannot be read, never what was found.
         what = "a decomposition's directory under the run roots cannot be searched"
         raise _unreadable(what) from exc
 
@@ -930,7 +930,7 @@ def _reading(
     settles = _settle_key(directory) in settled
     try:
         digests = review.recorded_held_out(directory)
-    except review.ReviewRecordError as exc:
+    except (review.ReviewRecordError, OSError) as exc:
         if not settles:
             what = (
                 "a decomposition's record of its held-out tiers under the run roots cannot be read"
@@ -947,12 +947,18 @@ def _reading(
     except ExposureError:
         if not settles:
             raise
-    named = review.exposed_review(directory)
+    try:
+        named = review.exposed_review(directory)
+    except OSError as exc:
+        if not settles:
+            what = "a decomposition's exposure file under the run roots cannot be read"
+            raise _unreadable(what) from exc
+        named = None
     if named is not None:
         sessions.add(named)
     try:
         record = review.review_record(directory)
-    except review.ReviewRecordError as exc:
+    except (review.ReviewRecordError, OSError) as exc:
         if not settles:
             what = "a decomposition's review record under the run roots cannot be read"
             raise _unreadable(what) from exc

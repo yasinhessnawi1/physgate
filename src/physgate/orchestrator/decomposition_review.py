@@ -251,6 +251,9 @@ def read_review_streams(record: ReviewRecord) -> list[StreamRead]:
         except ValueError:
             found.append(StreamRead(name, None, "directory"))
             continue
+        except OSError:
+            found.append(StreamRead(name, None, "file"))
+            continue
         found.append(StreamRead(name, data))
     return found
 
