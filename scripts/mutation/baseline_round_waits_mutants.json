@@ -62,7 +62,10 @@
       "tests/unit/evaluation/per_role/task_fixtures.py",
       "tests/unit/evaluation/per_role/harness_rig.py",
       "tests/unit/orchestrator/loop_fakes.py",
-      "tests/unit/orchestrator/orch_helpers.py"
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ],
     "paths": [
       "knowledge"

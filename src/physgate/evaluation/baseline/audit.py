@@ -211,11 +211,11 @@ def _kinds(derived: Line, written: Line) -> list[str]:
 def _sessions(trial: Planned, out: Path, protected_root: Path) -> list[int]:
     """The numbers of the sessions the round kept of ``trial``'s entry, in order."""
     place = protected_root if trial.tier in PROTECTED_TIERS else out / WORK
-    pattern = re.compile(rf"^{trial.index:04d}-([0-9]+)$")
+    pattern = re.compile(rf"{trial.index:04d}-([0-9]+)")
     if not place.is_dir():
         return []
     return sorted(
-        int(found.group(1)) for entry in place.iterdir() if (found := pattern.match(entry.name))
+        int(found.group(1)) for entry in place.iterdir() if (found := pattern.fullmatch(entry.name))
     )
 
 
