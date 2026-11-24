@@ -969,16 +969,16 @@ def _go(
     except RoundError:
         raise
     except Exception as exc:
-        planned = current[0]
-        tier = None if planned is None else planned.tier
+        stopped_at = current[0]
+        tier = None if stopped_at is None else stopped_at.tier
         if tier in PROTECTED_TIERS or (tier is None and protected_named):
             # An error of a protected trial, or of the protected tiers' records, may name a task;
             # its tier and its kind alone are said.
-            where = "trial" if planned is not None else "round's records"
+            where = "trial" if stopped_at is not None else "round's records"
             msg = f"a {tier or 'protected'} {where} stopped on an error ({type(exc).__name__})"
-            context = {"tier": tier} if tier is not None else {}
-            if planned is not None:
-                context["index"] = str(planned.index)
+            context: dict[str, str] = {} if tier is None else {"tier": tier}
+            if stopped_at is not None:
+                context["index"] = str(stopped_at.index)
             raise RoundError(msg, **context) from None
         raise
     capped = all(line["harness_total"] is not None for _, line in _assembled(ctx))

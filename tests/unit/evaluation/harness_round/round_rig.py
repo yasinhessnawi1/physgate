@@ -320,7 +320,8 @@ class StandInDriver:
 
     def pins(self) -> dict[str, Any]:
         """The harness, the client and its version, as the command would measure them."""
-        return json.loads(json.dumps(self.pin_record))
+        measured: dict[str, Any] = json.loads(json.dumps(self.pin_record))
+        return measured
 
     def decompose(self, call: Decompose) -> int:
         self.decomposed.append(call)
@@ -397,7 +398,14 @@ class StandInDriver:
         root = review_root_path(call.review_root)
         reviewer = PlanReview(self, n, root)
 
-        def make_call(_brief: str, *, workdir: Path, session_id: str, **_given: Any) -> Outcome:  # noqa: ANN401
+        def make_call(
+            _brief: str,
+            *,
+            workdir: Path,
+            prompt: str | None,
+            session_id: str,
+            accept_misorder: bool = False,
+        ) -> Outcome:
             workdir.mkdir(parents=True, exist_ok=True)
             stream = workdir / "stdout.jsonl"
             stream.write_text(json.dumps({"type": "result", "session_id": session_id}) + "\n")
