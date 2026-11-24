@@ -60,6 +60,16 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
     run.set_defaults(func=_run)
 
 
+def _score(task: Any, answer: Path) -> Any:  # noqa: ANN401 - the scorer's own types
+    """The control scorer, imported only once there is an answer to score.
+
+    Its numerical libraries are the evaluation group's, which a refusal never needs.
+    """
+    from physgate.evaluation.per_role.scorers.control import score
+
+    return score(task, answer)
+
+
 def _refused(reason: str, words: str) -> int:
     print(json.dumps({"refused_because": reason, "error": words}, sort_keys=True))
     return 1
@@ -75,7 +85,6 @@ def _run(args: argparse.Namespace) -> int:
     from physgate.evaluation.observe.cost import load_price_sheet
     from physgate.evaluation.observe.exceptions import ObserveError
     from physgate.evaluation.per_role.exceptions import PerRoleError
-    from physgate.evaluation.per_role.scorers.control import score
     from physgate.orchestrator.waiting import EXIT_WAITING_FOR_LIMIT
 
     if args.trials < 1 or (args.tasks is not None and args.tasks < 1):
@@ -101,7 +110,7 @@ def _run(args: argparse.Namespace) -> int:
         status, summary = run_round(
             inputs,
             driver=CommandDriver(),
-            scorer=score,
+            scorer=_score,
             resume=args.resume,
             limit_reset=args.limit_reset,
         )
