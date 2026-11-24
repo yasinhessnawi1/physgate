@@ -12,9 +12,10 @@ left, from the stream this process captured and the hook layer's own records.
 
 **What is a verdict.** Only a session that completed, was answered by the pinned
 model alone, never compacted, read everything required, and gave a structured
-verdict that :func:`verdict.judge` accepts. A session that ended with none, its last try a
-text the binary refused only for being one, is read through :mod:`verdict_text`: the object
-the text holds, held to the same schema, then to every check here. Everything else raises
+verdict that :func:`verdict.judge` accepts. A session the binary ended at its cap on refused
+verdicts, whose last tool call was a text it refused only for being one, is read through
+:mod:`verdict_text`: the object the text holds, held to the same schema, then to every check
+here. Everything else raises
 :class:`ReviewUnavailableError` with its cause, which the loop records and escalates
 (retrying once only for an infrastructure cause); it is never a pass or a fail:
 
@@ -976,20 +977,19 @@ class ClaudeReviewer:
             compaction=self._setup.review_compaction,
         )
         structured = (result or {}).get("structured_output")
-        # A session that gave no structured verdict, at the binary's cap on refused ones or at
-        # its end: its last try is read, where the binary refused it only for being a text
-        # (``verdict_text``). Never after any other end, nor where the binary could not parse
-        # the call at all.
+        # Only a session the binary ended at its cap on refused structured answers, with no
+        # verdict, whose last tool call was a try refused only for being a text: that try is
+        # read (``verdict_text``). Every other end is read exactly as before.
         told = (
             last_text_verdict(text, schema)
             if structured is None
-            and (cut is None or cut[0] == "invalid_verdict")
-            and (result or {}).get("terminal_reason") != MALFORMED_TOOL_USE
+            and cut is not None
+            and cut[0] == "invalid_verdict"
+            and (result or {}).get("terminal_reason") == STRUCTURED_OUTPUT_EXHAUSTED
             else None
         )
-        if told is not None and told.refused is not None:
-            before = f"{cut[1]}; " if cut is not None else ""
-            return ended("invalid_verdict", f"{before}{told.refused}"[:900])
+        if cut is not None and told is not None and told.refused is not None:
+            return ended("invalid_verdict", f"{cut[1]}; {told.refused}"[:900])
         if cut is not None and told is None:
             stop = ended(*cut)
             if cut[0] == "infrastructure":

@@ -20,6 +20,8 @@ classification and the real verdict check, against streams scripted as the binar
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from functools import cache
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -35,14 +37,21 @@ from physgate.orchestrator.run_config import RunBounds
 from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.contract import WRAPPER
 from physgate.reviewers.packet import SPEC_AS_ISSUED_NAME
-from physgate.reviewers.rubric import load_rubric
+from physgate.reviewers.rubric import Rubric, load_rubric
 from physgate.reviewers.scan import ScanHit
 
 REPO = Path(__file__).resolve().parents[3]
 ROLE = "electrical"
 MODEL = "claude-sonnet-5"
 VERSION = "2.1.283"
-RUBRIC = load_rubric(REPO / "knowledge", ROLE)
+
+
+@cache
+def rubric() -> Rubric:
+    """The role's promoted rubric, read when a row first needs it."""
+    return load_rubric(REPO / "knowledge", ROLE)
+
+
 SPEC = "# Subtask\n\n## Acceptance criteria\n\n1. The rail holds 5 V.\n2. The fuse is rated.\n"
 #: The one marker the scan found in the attempt: every verdict must judge it by its evidence.
 HIT = ScanHit(kind="disabled_checks", evidence="call-17", what="a test was marked skipped")
@@ -95,7 +104,7 @@ def accept() -> dict[str, Any]:
         "numeric_output": None,
         "items": {
             i.id: {"result": CLEAN[i.section], "evidence": "design/nodes/rail.json: 5 V"}
-            for i in RUBRIC.items
+            for i in rubric().items
         },
         "acceptance_criteria": [
             {"criterion": "1", "result": "met", "evidence": "design/nodes/rail.json: 5 V"},
@@ -109,7 +118,7 @@ def accept() -> dict[str, Any]:
 def reject() -> dict[str, Any]:
     """A reject the schema and the check both take: the first item unmet, named as failing."""
     answer = accept()
-    first = RUBRIC.items[0]
+    first = rubric().items[0]
     answer.update(verdict="reject", failing_item=first.id)
     answer["finding"] = "the fuse is rated below the current the rail carries"
     answer["items"][first.id] = {"result": "unmet", "evidence": "design/nodes/fuse.json: 2 A"}
@@ -240,7 +249,7 @@ def review(
         library=tmp_path / "harness",
         repair_resumes=repairs,
     )
-    reviewer = ClaudeReviewer(role=ROLE, setup=setup, rubric=RUBRIC)
+    reviewer = ClaudeReviewer(role=ROLE, setup=setup, rubric=rubric())
     try:
         return reviewer.review(SimpleNamespace()), spawns  # type: ignore[arg-type]
     except ReviewUnavailableError as exc:
@@ -263,7 +272,7 @@ def test_the_first_lost_sequence_a_try_too_early_then_four_texts_now_yields_its_
         ),
     )
     assert isinstance(result, ReviewResult), result
-    assert result.verdict == "fail" and result.failing_item == RUBRIC.items[0].id
+    assert result.verdict == "fail" and result.failing_item == rubric().items[0].id
     assert result.verdict_from_text is True
     # The binary's own refusals are counted as they were: four schema refusals, each told.
     assert result.schema_refusals == 4
@@ -275,7 +284,7 @@ def test_the_second_lost_sequence_ending_in_two_good_texts_yields_the_last_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     missing = reject()
-    del missing["items"][RUBRIC.items[-1].id]
+    del missing["items"][rubric().items[-1].id]
     result, _ = review(
         tmp_path,
         monkeypatch,
@@ -326,24 +335,42 @@ def test_a_text_the_check_alone_would_take_is_still_refused_where_the_schema_ref
     assert "must NOT have additional properties ('attempt')" in str(result)
 
 
-@pytest.mark.parametrize(
-    ("text", "said"),
-    [
-        (json.dumps(accept()) + "\n}\n}", "more than one JSON object, or more after it"),
-        (
-            json.dumps(accept()) + json.dumps(accept()),
-            "more than one JSON object, or more after it",
-        ),
-        (json.dumps(accept())[:-40], "is not one JSON object"),
-        (json.dumps(accept()).replace('"numeric_output": null', '"numeric_output": NaN'), "NaN"),
-        ('{"verdict": "accept", "verdict": "reject"}}', "gives the key 'verdict' twice"),
-        ('"accept"}', "holds no JSON object"),
-    ],
-    ids=["two-braces", "two-objects", "cut-short", "nan", "duplicate-key", "not-an-object"],
-)
+def _put(field: str, literal: str) -> str:
+    """The good verdict's JSON with ``field``'s null replaced by ``literal``, as written."""
+    return json.dumps(accept()).replace(f'"{field}": null', f'"{field}": {literal}') + "}"
+
+
+#: Texts that are not one JSON object the check can read, each with the words its refusal says.
+BROKEN: dict[str, tuple[Callable[[], str], str]] = {
+    "two-braces": (lambda: json.dumps(accept()) + "\n}\n}", "more than one JSON object"),
+    "two-objects": (lambda: json.dumps(accept()) * 2, "more than one JSON object"),
+    "cut-short": (lambda: json.dumps(accept())[:-40], "is not one JSON object"),
+    "nan": (lambda: _put("numeric_output", "NaN"), "NaN"),
+    "duplicate-key": (lambda: '{"verdict": "accept", "verdict": "reject"}}', "twice"),
+    "not-an-object": (lambda: '"accept"}', "holds no JSON object"),
+    "a-5000-digit-integer": (
+        lambda: _put("numeric_output", '{"value": ' + "9" * 5000 + ', "unit": "V"}'),
+        "a number of more than",
+    ),
+    "a-number-past-a-double": (
+        lambda: _put("numeric_output", '{"value": 1e999, "unit": "V"}'),
+        "a number too large to hold",
+    ),
+    "a-nest-20000-deep": (lambda: _put("subject", "[" * 20000 + "]" * 20000), "nests too deep"),
+    "a-nest-past-the-bound": (lambda: _put("subject", "[" * 40 + "]" * 40), "nests deeper than"),
+    "an-oversize-text": (
+        lambda: json.dumps({**accept(), "finding": "the rail holds " * 30000}) + "}",
+        "longer than the",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", list(BROKEN))
 def test_a_text_that_is_not_one_json_object_is_refused_in_words(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str, said: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
 ) -> None:
+    make, said = BROKEN[name]
+    text = make()
     result, _ = review(tmp_path, monkeypatch, stream(tried(1, text, FORM)))
     assert isinstance(result, ReviewUnavailableError) and result.cause == "invalid_verdict"
     assert "the verdict was sent as text" in str(result) and said in str(result)
@@ -360,6 +387,47 @@ def test_only_the_last_try_is_read_never_an_earlier_text(
         stream(tried(1, as_sent(accept()), FORM), tried(2, unjudged(), EVIDENCE)),
     )
     assert isinstance(result, ReviewUnavailableError) and result.cause == "invalid_verdict"
+    assert "sent as text" not in str(result)
+
+
+def a_read(n: int) -> list[dict[str, Any]]:
+    """A Read call and its result, after the verdict tool was tried."""
+    call = {"type": "tool_use", "id": f"call-r{n}", "name": "Read", "input": {"file_path": "x"}}
+    told = {"type": "tool_result", "tool_use_id": f"call-r{n}", "content": "1\tone"}
+    return [
+        {
+            "type": "assistant",
+            "message": {
+                "id": f"msg-r{n}",
+                "model": MODEL,
+                "role": "assistant",
+                "content": [call],
+                "usage": USAGE,
+            },
+        },
+        {"type": "user", "message": {"role": "user", "content": [told]}},
+    ]
+
+
+def test_a_good_text_the_reviewer_went_on_from_is_not_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Refused for its form, then a Read and nothing else: the text is not the reviewer's last word.
+    result, _ = review(tmp_path, monkeypatch, stream(tried(1, as_sent(accept()), FORM), a_read(2)))
+    assert isinstance(result, ReviewUnavailableError) and result.cause == "invalid_verdict"
+    assert "sent as text" not in str(result)
+
+
+@pytest.mark.parametrize("terminal", ["max_turns", "completed"])
+def test_a_good_text_is_read_at_the_binary_s_cap_and_at_no_other_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, terminal: str
+) -> None:
+    # The turn limit after a text refused for its form, or a session that stopped there: each
+    # stays what it was, an invalid verdict or no verdict, and the text is not read.
+    end = {"type": "result", "is_error": terminal != "completed", "terminal_reason": terminal}
+    result, _ = review(tmp_path, monkeypatch, stream(tried(1, as_sent(accept()), FORM), end=end))
+    assert isinstance(result, ReviewUnavailableError)
+    assert result.cause == ("invalid_verdict" if terminal == "max_turns" else "no_verdict")
     assert "sent as text" not in str(result)
 
 

@@ -187,3 +187,33 @@ def test_the_measured_form_parses_and_nothing_wider_does() -> None:
         "[" + json.dumps(body) + "]",
     ):
         assert isinstance(parse_verdict_text(text), str), text
+
+
+def test_a_text_followed_by_any_other_tool_call_is_not_read() -> None:
+    text = json.dumps({"verdict": "accept"}) + "}"
+    read = {
+        "type": "assistant",
+        "message": {
+            "model": "m",
+            "content": [
+                {"type": "tool_use", "id": "r1", "name": "Read", "input": {"file_path": "x"}}
+            ],
+        },
+    }
+    answer = {
+        "type": "user",
+        "message": {"content": [{"type": "tool_result", "tool_use_id": "r1", "content": "1"}]},
+    }
+    assert last_text_verdict(_stream(text, FORM_REFUSAL, read, answer), OPEN) is None
+
+
+@pytest.mark.parametrize(
+    "literal",
+    ["9" * 5000, "1e999", "-1e999", "[" * 20000 + "]" * 20000, "[" * 900 + "]" * 900],
+    ids=["5000-digits", "past-a-double", "past-a-double-below", "20000-deep", "900-deep"],
+)
+def test_reading_a_text_never_raises_whatever_it_holds(literal: str) -> None:
+    text = '{"verdict": "accept", "n": ' + literal + "}}"
+    told = last_text_verdict(_stream(text, FORM_REFUSAL), OPEN)
+    assert told is not None and told.answer is None
+    assert told.refused is not None and told.refused.startswith("the verdict was sent as text")

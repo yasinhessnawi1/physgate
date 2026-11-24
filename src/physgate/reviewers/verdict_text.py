@@ -64,6 +64,14 @@ KNOWN_KEYWORDS = frozenset(
 )
 #: How many of a refused text's schema errors its reason names.
 NAMED_ERRORS = 5
+#: The longest text read, in characters: six times the longest verdict text measured (about
+#: 42,000). A longer one is refused unread.
+MAX_TEXT_CHARACTERS = 262_144
+#: The deepest nesting of arrays and objects a verdict text may hold. The contract's own is six.
+MAX_DEPTH = 32
+#: The most characters a number in a verdict text may have; the contract's numbers are values
+#: with units and counts, never this long. A longer one is refused, never converted.
+MAX_NUMBER_CHARACTERS = 40
 
 
 @dataclass(frozen=True)
@@ -79,9 +87,11 @@ class TextVerdict:
 def last_text_verdict(stream: str, schema: dict[str, Any]) -> TextVerdict | None:
     """What the stream's last try of the verdict tool amounts to, if it was a text refused for form.
 
-    ``None`` when the stream has no try, when its last try was not answered, or was refused for
-    anything but the form alone (the reading hook's refusal, a schema refusal of an object), or was
-    not a text: then nothing here applies and the session's end is read as it always was.
+    ``None`` when the stream has no try, when its last tool call is not that try (the reviewer went
+    on after it), when the try was not answered, or was refused for anything but the form alone
+    (the reading hook's refusal, a schema refusal of an object), or was not a text: then nothing
+    here applies and the session's end is read as it always was. Reading the text never raises:
+    whatever goes wrong in it is a refused verdict, in words.
     """
     last = _last_try(stream)
     if last is None:
@@ -92,6 +102,17 @@ def last_text_verdict(stream: str, schema: dict[str, Any]) -> TextVerdict | None
     text = given[WRAPPER]
     if not isinstance(text, str):
         return None
+    try:
+        return _held(text, schema)
+    except (ValueError, OverflowError, RecursionError, TypeError) as exc:
+        return TextVerdict(
+            answer=None,
+            refused=f"the verdict was sent as text, and it could not be read: {type(exc).__name__}",
+        )
+
+
+def _held(text: str, schema: dict[str, Any]) -> TextVerdict:
+    """``text`` parsed and held to ``schema``: the verdict, or why it is none."""
     parsed = parse_verdict_text(text)
     if isinstance(parsed, str):
         return TextVerdict(answer=None, refused=f"the verdict was sent as text, and {parsed}")
@@ -110,8 +131,9 @@ def last_text_verdict(stream: str, schema: dict[str, Any]) -> TextVerdict | None
 
 
 def _last_try(stream: str) -> tuple[object, str] | None:
-    """The last try of the verdict tool in ``stream``: its input, and what it was answered."""
+    """The last tool call, if it is a try of the verdict tool: its input, and its answer."""
     last_id: str | None = None
+    last_name: object = None
     given: object = None
     answers: dict[str, str] = {}
     for line in split_lines(stream):
@@ -125,13 +147,14 @@ def _last_try(stream: str) -> tuple[object, str] | None:
         blocks = [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
         if event.get("type") == "assistant":
             for block in blocks:
-                if block.get("type") == "tool_use" and block.get("name") == VERDICT_TOOL:
+                if block.get("type") == "tool_use":
+                    last_name = block.get("name")
                     last_id, given = block.get("id"), block.get("input")
         elif event.get("type") == "user":
             for block in blocks:
                 if block.get("type") == "tool_result" and isinstance(block.get("tool_use_id"), str):
                     answers[block["tool_use_id"]] = _result_text(block.get("content"))
-    if not isinstance(last_id, str) or last_id not in answers:
+    if last_name != VERDICT_TOOL or not isinstance(last_id, str) or last_id not in answers:
         return None
     return given, answers[last_id].strip()
 
@@ -165,26 +188,71 @@ def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return seen
 
 
+def _integer(literal: str) -> int:
+    if len(literal) > MAX_NUMBER_CHARACTERS:
+        msg = f"it holds a number of more than {MAX_NUMBER_CHARACTERS} characters"
+        raise _NotJsonError(msg)
+    return int(literal)
+
+
+def _real(literal: str) -> float:
+    if len(literal) > MAX_NUMBER_CHARACTERS:
+        msg = f"it holds a number of more than {MAX_NUMBER_CHARACTERS} characters"
+        raise _NotJsonError(msg)
+    value = float(literal)
+    if not math.isfinite(value):
+        msg = f"it holds {literal}, a number too large to hold"
+        raise _NotJsonError(msg)
+    return value
+
+
+def _depth(value: object) -> int:
+    """How deep ``value``'s arrays and objects nest, counted without recursion."""
+    deepest, stack = 0, [(value, 1)]
+    while stack:
+        item, level = stack.pop()
+        children = (
+            item.values() if isinstance(item, dict) else item if isinstance(item, list) else ()
+        )
+        if children:
+            deepest = max(deepest, level)
+            stack.extend((child, level + 1) for child in children)
+    return deepest
+
+
 def parse_verdict_text(text: str) -> dict[str, Any] | str:
     """The verdict object ``text`` holds, or why it holds none, in words.
 
     The one form measured: a JSON object, then nothing but at most one closing brace (the
     wrapper's), with white space around. Nothing else is tolerated: no second value, no text
-    around it, no duplicated key, no ``NaN`` or ``Infinity``.
+    around it, no duplicated key, no ``NaN`` or ``Infinity``, no number too long or too large to
+    hold, no nesting deeper than :data:`MAX_DEPTH`, and no text longer than
+    :data:`MAX_TEXT_CHARACTERS`.
     """
+    if len(text) > MAX_TEXT_CHARACTERS:
+        return f"that text is longer than the {MAX_TEXT_CHARACTERS} characters read"
     stripped = text.strip()
-    decoder = json.JSONDecoder(parse_constant=_no_constant, object_pairs_hook=_no_duplicates)
+    decoder = json.JSONDecoder(
+        parse_constant=_no_constant,
+        parse_int=_integer,
+        parse_float=_real,
+        object_pairs_hook=_no_duplicates,
+    )
     try:
         value, end = decoder.raw_decode(stripped)
     except _NotJsonError as exc:
         return f"that text is not one JSON object: {exc}"
     except json.JSONDecodeError as exc:
         return f"that text is not one JSON object: {exc.msg} at character {exc.pos}"
+    except RecursionError:
+        return "that text is not one JSON object: it nests too deep to read"
     if not isinstance(value, dict):
         return "that text holds no JSON object"
     rest = stripped[end:].strip()
     if rest not in ("", "}"):
         return "that text holds more than one JSON object, or more after it"
+    if _depth(value) > MAX_DEPTH:
+        return f"that text nests deeper than {MAX_DEPTH} levels"
     return value
 
 
@@ -203,7 +271,11 @@ def _is(value: object, kind: str) -> bool:
     if kind == "number":
         return number and math.isfinite(value)  # type: ignore[arg-type]
     if kind == "integer":
-        return number and float(value).is_integer()  # type: ignore[arg-type]
+        return (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            or (isinstance(value, float) and value.is_integer())
+        )
     return False
 
 
