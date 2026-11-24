@@ -30,6 +30,8 @@ rather than leaving a test with nothing to look at:
   that the collector discards from every session;
 - ``run-series-large``: one record at the format's sample bound, and one frequency record that
   is not a loop's frequency response;
+- ``run-series-real-shape``: records of the kinds and fields a real run's control session
+  leaves (see ``REAL_SHAPE_SCRIPT``), made by the same writer;
 - ``run-series-tampered``: a copy of ``run-series`` with one byte of one sealed record changed.
 
 ``bound_run`` makes one more, ``run-series-bound``, whose sessions each leave as many records as
@@ -144,6 +146,75 @@ for k in range({MAX_RECORDS_PER_SESSION}):
         inputs={{"seed": ({BIG_SEED} if k == 0 else k, "dimensionless")}},
         group="short_runs",
     )
+"""
+
+#: A script that records what a real control session records, in the kinds a real run's records
+#: are: the role's own groups, time records of eight traces carrying twelve inputs with units as
+#: they are spelt (``1``, ``kg*m**2``, ``m/s**2``), a loop's frequency response, a record whose
+#: traces are fewer. Made-up numbers; the names and units are the real records' own.
+REAL_SHAPE_SCRIPT = """import math, os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+while not os.path.isfile(os.path.join(here, ".physgate", "lib", "series_writer.py")):
+    here = os.path.dirname(here)
+sys.path.insert(0, os.path.join(here, ".physgate", "lib"))
+import series_writer
+INPUTS = {
+    "body_inertia_scale": (2.0, "1"),
+    "delay": (0.008807692307692308, "s"),
+    "duty_cycle": (0.9425, "1"),
+    "fall_ratio": (0.14, "s"),
+    "rotor_inertia": (1e-08, "kg*m**2"),
+    "sample_period": (0.01, "s"),
+    "seed": (0, "dimensionless"),
+    "speed_command": (1.205, "m/s"),
+    "speed_ramp": (0.1, "m/s**2"),
+    "stage_efficiency": (1.0, "1"),
+    "supply_voltage": (7.2, "V"),
+    "wheel_gyration": (0.6, "1"),
+}
+n = 400
+t = [round(i * 0.01, 2) for i in range(n)]
+TIME = [
+    ("tilt", "rad"), ("tilt_rate", "rad/s"), ("ground_speed", "m/s"), ("speed_mean_1s", "m/s"),
+    ("position", "m"), ("command", "1"), ("speed_command", "m/s"), ("theta_hat", "rad"),
+]
+for record_id, group in (
+    ("nominal_fall", "simulation"), ("edge_body_low", "edge_runs"), ("corner_a", "corners"),
+    ("sweep_gain_01", "sweeps"), ("noise_encoder_01", "noise"), ("model_check", "model"),
+    ("sensitivity_delay", "sensitivity"),
+):
+    series_writer.record(
+        record_id,
+        title="Stand-in " + record_id.replace("_", " ") + ", made-up numbers, not a simulation",
+        axis="time",
+        x=("time", "s", t),
+        traces=[(name, unit, [round(math.sin(i * 0.01 * (k + 1)), 6) for i in range(n)])
+                for k, (name, unit) in enumerate(TIME)],
+        inputs=INPUTS,
+        group=group,
+    )
+w = [round(0.01 * 10 ** (4.0 * i / 199), 6) for i in range(200)]
+series_writer.record(
+    "loop_body_high",
+    title="Stand-in loop gain, made-up numbers, not a loop's frequency response",
+    axis="frequency",
+    x=("angular_frequency", "rad/s", w),
+    traces=[
+        ("loop_magnitude", "dimensionless", [round(2.0 / (x * math.hypot(1.0, x)), 9) for x in w]),
+        ("loop_phase", "rad", [round(-math.pi / 2 - math.atan(x), 9) for x in w]),
+    ],
+    inputs=INPUTS,
+    group="margins",
+)
+series_writer.record(
+    "ratio_check",
+    title="Stand-in ratio, made-up numbers, not a simulation",
+    axis="time",
+    x=("time", "s", t),
+    traces=[("tilt_over_rate", "s", [round(1.0 + i * 1e-3, 6) for i in range(n)])],
+    inputs=INPUTS,
+    group="model",
+)
 """
 
 _TABLE = """[meta]
@@ -301,6 +372,12 @@ def series_runs(root: Path, runs: Path) -> dict[str, Path]:
     large = _kinds(made["run-series-large"], SessionEnded)[0].series.records
     assert [r.record_id for r in large] == ["long_run", "sweep_gain"]
     assert all(r.length <= MAX_FILE_BYTES for r in large)
+
+    made["run-series-real-shape"] = series_run(
+        root, runs, repo, "run-series-real-shape", script=REAL_SHAPE_SCRIPT
+    )
+    shaped = _kinds(made["run-series-real-shape"], SessionEnded)[0].series.records
+    assert len(shaped) == 9
 
     made["run-series-tampered"] = tamper(made["run-series"], runs / "run-series-tampered")
     return made
