@@ -20,6 +20,16 @@
 >   and the held-out set* — not as zero reach for a harness the session does not
 >   share a tree with.
 
+> **Preface, 2026-11-24: a wrong count of catalog binaries in the prose. It changes no
+> number; everything below it is as first committed.** The first sentence of "Coverage
+> and its limit" says the corpus is "755 attempts over 302 catalog binaries". The
+> experiment's own `attempts.jsonl` holds 755 attempts over **222** distinct `binary`
+> values, and the run log `evidence/runlog_server_2026_09_26.jsonl` splits those 222
+> into 75 binaries whose 230 attempts ran and 147 whose 525 attempts were absent (the
+> 147 that same section states). No attempt count, outcome count, rate or verdict in
+> this file rests on the number of binaries, so none changes. Where the 302 came from
+> could not be established. The original sentence stands unchanged below.
+
 **Pre-registration:** `CRITERIA.md` frozen at commit `b7d8cd8` (2026-09-26); the
 generator and checksummed list at the same commit, the runner at `c0e2b4f`.
 **Run:** commit `c0e2b4f`, 2026-09-26.
