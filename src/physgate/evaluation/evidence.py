@@ -54,6 +54,13 @@ The routes:
   refused the trend, the file is not one its writer could have written, a link out of the
   roots, or a publication in more than one root). The server never runs the reader: its head
   and register lie beneath the role's withheld root, which no root may reach.
+- ``GET /api/evidence/tiers``: each role's current tier version as a person published it from
+  ``tiers status`` at a terminal, found under the role's name at the top of a root, as the gap
+  trend is: no publication; the version id, the three tiers' task counts, the blind check's
+  counts and source, the exposure word, the version's state, whether it was measured and when it
+  was read; or a refusal in a fixed sentence. The record is closed and the answer copies its
+  named fields alone, so nothing else a file held is ever served. The server never reads the
+  store.
 """
 
 from __future__ import annotations
@@ -77,7 +84,7 @@ from physgate.orchestrator.events import Event, SessionEnded, SubtaskPlanned, re
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.gate_events import GateEvent, gate_events
 from physgate.orchestrator.run_config import RunConfig, load_run_config
-from physgate.ui.exceptions import PathRefusedError
+from physgate.ui.exceptions import GuardRefusedError, PathRefusedError
 from physgate.ui.readers import HELD_OUT_FIELDS, run_dir_of
 from physgate.ui.routes import Context, Response, Route, json_response, run_directories
 
@@ -111,13 +118,32 @@ class TrendCensus:
 
 
 @dataclass(frozen=True)
+class TiersCensus:
+    """The published tier status's own names, bound, parser and sentences, handed in by the root.
+
+    ``roles``: the roles a status is published for, in order; ``name``: the name a role's
+    publication is found under at the top of a root; ``most``: the most of it read; ``parse``:
+    its own parser, given the bytes and the role; ``refused``: what that parser refuses with;
+    ``said``: the fixed sentence for a role published as refused, by its word.
+    """
+
+    roles: tuple[str, ...]
+    name: Callable[[str], str]
+    most: int
+    parse: Callable[[bytes, str], BaseModel]
+    refused: type[Exception]
+    said: Callable[[str], str]
+
+
+@dataclass(frozen=True)
 class Census:
     """What the comparison classes and how it compares, and the catch count, handed in.
 
     ``drift``: the settings two runs are refused across, by path; ``reported``: the settings it
     reports beside the numbers; ``compare``: the comparison itself; ``catches``: the gate's catch
-    count over a set of gate events; ``trend``: the published gap trend's names and parser. The
-    fence admits none of their modules, so the root hands them in at registration.
+    count over a set of gate events; ``trend``: the published gap trend's names and parser;
+    ``tiers``: the published tier status's. The fence admits none of their modules, so the root
+    hands them in at registration.
     """
 
     drift: tuple[str, ...]
@@ -125,6 +151,7 @@ class Census:
     compare: Callable[[Path, Path], BaseModel]
     catches: Callable[[list[GateEvent]], Sequence[BaseModel]]
     trend: TrendCensus
+    tiers: TiersCensus
 
     @property
     def flags(self) -> tuple[str, ...]:
@@ -530,6 +557,20 @@ def _published_bytes(context: Context, path: Path, most: int) -> bytes | None:
         os.close(fd)
 
 
+def _publications(context: Context, name: str, most: int) -> list[bytes]:
+    """Every publication under ``name`` at the top of a root, each read as :func:`_published_bytes`.
+
+    Raises:
+        PathRefusedError: a place where one would lie is refused, in words.
+    """
+    found: list[bytes] = []
+    for root in context.allowlist.roots:
+        data = _published_bytes(context, root.path / name, most)
+        if data is not None:
+            found.append(data)
+    return found
+
+
 def _trend_refused(role: str, error: str, reason: str, read_at: object = None) -> dict[str, object]:
     """A role's trend that is not shown: the sentence, its reason, and when it was read, if so."""
     return {"role": role, "state": "refused", "error": error, "reason": reason, "read_at": read_at}
@@ -548,14 +589,10 @@ class GapTrend:
     def _role(self, context: Context, role: str) -> dict[str, object]:
         """The one publication of ``role`` at the top of a root, read by its own parser."""
         trend = self.census.trend
-        found: list[bytes] = []
-        for root in context.allowlist.roots:
-            try:
-                data = _published_bytes(context, root.path / trend.name(role), trend.most)
-            except PathRefusedError as exc:
-                return _trend_refused(role, f"the published gap trend is not read: {exc}", REFUSED)
-            if data is not None:
-                found.append(data)
+        try:
+            found = _publications(context, trend.name(role), trend.most)
+        except PathRefusedError as exc:
+            return _trend_refused(role, f"the published gap trend is not read: {exc}", REFUSED)
         if not found:
             return {"role": role, "state": "none"}
         if len(found) > 1:
@@ -581,6 +618,85 @@ class GapTrend:
         }
 
 
+# -- the tier status ---------------------------------------------------------------------------
+
+#: The fields a published check's counts are served by, and the three tiers' counts.
+CHECK_SHOWN = ("tasks", "all_yes", "left_out", "source")
+#: How the request's guard ends its refusal of an open beyond the roots, as it words it.
+OUTSIDE_THE_ROOTS = "outside the roots it may read"
+#: Why a publication is not read when its place changed between the judgement and the open.
+TIERS_SWAPPED = (
+    "the published tier status is not read: its place changed while it was being read, so "
+    "nothing of it was opened; load the page again"
+)
+
+
+def _shown_check(check: Mapping[str, Any] | None) -> dict[str, object] | None:
+    """A published check cut to its named fields: none, its counts and source, or why refused."""
+    if check is None:
+        return None
+    if "refused" in check:
+        return {"refused": check["refused"]}
+    return {key: check[key] for key in CHECK_SHOWN}
+
+
+@dataclass(frozen=True)
+class TierStatus:
+    """``GET /api/evidence/tiers``: each role's published current tier version, or why not shown."""
+
+    census: Census
+
+    def __call__(self, context: Context, params: Mapping[str, str]) -> Response:
+        """Per role, in order: no publication, its version as published, or a refusal."""
+        return json_response({"roles": [self._role(context, r) for r in self.census.tiers.roles]})
+
+    def _role(self, context: Context, role: str) -> dict[str, object]:
+        """The one publication of ``role`` at the top of a root, read by its own parser.
+
+        Every field served is named here and copied from what the parser read: nothing else a
+        file held reaches the answer.
+        """
+        tiers = self.census.tiers
+        try:
+            found = _publications(context, tiers.name(role), tiers.most)
+        except PathRefusedError as exc:
+            return _trend_refused(role, f"the published tier status is not read: {exc}", REFUSED)
+        except GuardRefusedError as exc:
+            # The place was judged, then swapped before the open, and the request's guard refused
+            # the open itself: nothing was read. Any other guard refusal is this package's fault.
+            if exc.context.get("event") != "open" or not str(exc).endswith(OUTSIDE_THE_ROOTS):
+                raise
+            return _trend_refused(role, TIERS_SWAPPED, REFUSED)
+        if not found:
+            return {"role": role, "state": "none"}
+        if len(found) > 1:
+            msg = (
+                f"two or more of the folders this server reads each hold a published tier status "
+                f"of the {role} role, so which one is meant cannot be told; keep it in one folder"
+            )
+            return _trend_refused(role, msg, "publications_more_than_one")
+        try:
+            published = tiers.parse(found[0], role).model_dump(mode="json")
+        except tiers.refused as exc:
+            reason = getattr(exc, "context", {}).get("refused_because", "publication_unreadable")
+            return _trend_refused(role, str(exc), str(reason))
+        if "refused" in published:
+            reason = str(published["refused"])
+            return _trend_refused(role, tiers.said(reason), reason, published["read_at"])
+        counts = published["counts"]
+        return {
+            "role": role,
+            "state": "read",
+            "read_at": published["read_at"],
+            "version": published["version"],
+            "counts": {tier: counts[tier] for tier in TIERS},
+            "check": _shown_check(published["check"]),
+            "exposure": published["exposure"],
+            "version_state": published["version_state"],
+            "measured": published["measured"],
+        }
+
+
 #: The path of the spend route over one run at one price sheet's date.
 SPEND = "/api/evidence/spend/{root:index}/{name:name}/{date:date}"
 #: The path of the comparison of a baseline run with a candidate.
@@ -589,6 +705,8 @@ COMPARE = "/api/evidence/compare/{a_root:index}/{a_name:name}/{b_root:index}/{b_
 CATCHES = "/api/evidence/catches"
 #: The path of each role's published gap trend.
 GAPS = "/api/evidence/gaps"
+#: The path of each role's published current tier version.
+TIERS_STATUS = "/api/evidence/tiers"
 
 
 def routes(census: Census) -> tuple[Route, ...]:
@@ -603,4 +721,5 @@ def routes(census: Census) -> tuple[Route, ...]:
         Route("GET", COMPARE, "read", Comparison(census)),
         Route("GET", CATCHES, "read", Catches(census)),
         Route("GET", GAPS, "read", GapTrend(census)),
+        Route("GET", TIERS_STATUS, "read", TierStatus(census)),
     )

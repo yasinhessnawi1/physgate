@@ -65,7 +65,7 @@ async function settle(page: Page) {
 
 /** The routes the page may ask: the screen's four, the price sheets, and what the shell reads. */
 const ROUTES: readonly RegExp[] = [
-  /^\/api\/evidence\/(runs|catches|gaps)$/,
+  /^\/api\/evidence\/(runs|catches|gaps|tiers)$/,
   /^\/api\/evidence\/spend\/0\/[^/]+\/\d{4}-\d{2}-\d{2}$/,
   /^\/api\/evidence\/compare\/0\/[^/]+\/0\/[^/]+$/,
   /^\/api\/prices$/,
