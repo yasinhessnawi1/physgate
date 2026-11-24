@@ -20,6 +20,7 @@ import shutil
 import stat
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -35,14 +36,17 @@ from ui_library_rig import (
 )
 from ui_rig import RECORDER, Live, context_over, fake_ui, serving, snapshot, write_run
 
-from physgate.gate.bounds_table import load_table
-from physgate.gate.catalogue import STORE_CLASSES, catalogue_digest
-from physgate.gate.laws import LawTable
+from physgate import cli
+from physgate.gate import catalogue
+from physgate.gate.bounds_table import KNOWLEDGE_DIR, load_table
+from physgate.gate.catalogue import QUANTITIES, STORE_CLASSES, Entry, catalogue_digest
+from physgate.gate.laws import LAWS_PATH, PROMOTIONS_PATH, load_laws
 from physgate.knowledge.promote import _apply, canaries
 from physgate.knowledge.staging import Candidate
 from physgate.orchestrator.credentials import KEY_FILE, KEY_HELPER, LOGIN_FILE
 from physgate.ui import assets, guard
 from physgate.ui import library as library_routes
+from physgate.ui import table as ui_table
 from physgate.ui.exceptions import PathRefusedError, UIError
 from physgate.ui.library import CAP
 from physgate.ui.paths import Allowlist
@@ -359,7 +363,13 @@ def test_the_ratings_carry_every_value_with_its_unit_and_its_source(
     for store, served in zip(STORE_CLASSES, sent, strict=True):
         assert served["fastest_discharge"] == {"value": store.per_hour, "unit": "1/h"}
         assert served["source"] == store.source
-    assert answer["catalogue_digest"] == catalogue_digest(LawTable(laws={}, sha256="", path=""))
+    # The fixture's law table is a comment alone, so no gate is built from this library.
+    assert answer["gate_digest"] == {
+        "state": "refused",
+        "file": "knowledge/laws/laws.toml",
+        "reason": "the law table does not load, so no gate is built from it",
+    }
+    assert str(world["checkout"]) not in json.dumps(answer)
 
 
 def test_with_no_library_every_library_route_answers_404(world: dict[str, Any]) -> None:
@@ -369,6 +379,119 @@ def test_with_no_library_every_library_route_answers_404(world: dict[str, Any]) 
             status, body = _ask(live, target)
             assert status == 404, target
             assert body["error"] == "this server reads no library", target
+
+
+# -- the gate's digest ------------------------------------------------------------------------
+
+
+def _with_the_checkout_s_laws(world: dict[str, Any]) -> tuple[Path, Path]:
+    """Put the checkout's own law table and promotion record into the fixture library."""
+    table = world["lib"] / "laws" / "laws.toml"
+    promotions = world["lib"] / "promotions.jsonl"
+    shutil.copyfile(LAWS_PATH, table)
+    shutil.copyfile(PROMOTIONS_PATH, promotions)
+    return table, promotions
+
+
+def _gate_digest(world: dict[str, Any]) -> dict[str, Any]:
+    status, answer = _ask_all(world, [RATINGS])[RATINGS]
+    assert status == 200, answer
+    digest: dict[str, Any] = answer["gate_digest"]
+    return digest
+
+
+def test_the_law_table_is_read_where_the_gate_reads_it_in_its_own_checkout() -> None:
+    assert Path(*library_routes.LAW_TABLE) == LAWS_PATH.relative_to(KNOWLEDGE_DIR)
+    assert PROMOTIONS_PATH.relative_to(KNOWLEDGE_DIR) == Path(library_routes.PROMOTIONS_NAME)
+
+
+def test_the_served_digest_is_the_gate_s_and_moves_when_a_law_or_a_catalogue_entry_changes(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    table, promotions = _with_the_checkout_s_laws(world)
+    loaded = load_laws(table, promotions)
+    first = _gate_digest(world)
+    assert first == {
+        "state": "read",
+        "file": "knowledge/laws/laws.toml",
+        "sha256": catalogue_digest(loaded),
+        "table_sha256": hashlib.sha256(table.read_bytes()).hexdigest(),
+        "laws": len(loaded.laws),
+    }
+    assert first["laws"] >= 1
+
+    text = table.read_text()
+    statement = 'statement = "the power a node draws from a DC supply'
+    assert text.count(statement) == 1
+    table.write_text(text.replace(statement, statement.replace("draws", "takes")))
+    second = _gate_digest(world)
+    assert second["state"] == "read" and second["laws"] == first["laws"]
+    assert second["sha256"] != first["sha256"]
+    assert second["sha256"] == catalogue_digest(load_laws(table, promotions))
+
+    changed = dict(QUANTITIES)
+    changed["loop_gain"] = Entry(name="loop_gain", kind="dimensionless", source="another source")
+    monkeypatch.setattr(catalogue, "QUANTITIES", MappingProxyType(changed))
+    third = _gate_digest(world)
+    assert third["table_sha256"] == second["table_sha256"]
+    assert third["sha256"] not in (first["sha256"], second["sha256"])
+
+
+def test_with_no_law_table_the_digest_is_refused_in_words_and_the_ratings_are_served(
+    world: dict[str, Any],
+) -> None:
+    (world["lib"] / "laws" / "laws.toml").unlink()
+    status, answer = _ask_all(world, [RATINGS])[RATINGS]
+    assert status == 200, answer
+    assert {table["domain"] for table in answer["tables"]} == {"cross", "electrical"}
+    assert answer["gate_digest"] == {
+        "state": "refused",
+        "file": "knowledge/laws/laws.toml",
+        "reason": "this library holds no law table, so no gate is built from it",
+    }
+
+
+def test_without_the_gate_s_digest_handed_in_the_screen_shows_none_in_its_place(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _with_the_checkout_s_laws(world)
+    monkeypatch.setattr(library_routes, "_digester", None)
+    # The product's table as it stands, without running the composition root that hands it in.
+    with serving(_context(world), routes=ui_table.served()) as live:
+        status, answer = _ask(live, RATINGS)
+    assert status == 200, answer
+    assert answer["gate_digest"] == {
+        "state": "refused",
+        "file": "knowledge/laws/laws.toml",
+        "reason": "this server was started without the gate's digest, so it shows none",
+    }
+
+
+def test_a_table_loaded_from_other_bytes_than_the_ones_read_is_refused(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _with_the_checkout_s_laws(world)
+
+    def elsewhere(table: Path, promotions: Path) -> library_routes.GateDigest:
+        digest = cli.gate_digest(table, promotions)
+        return library_routes.GateDigest(sha256=digest.sha256, table_sha256="0" * 64, laws=1)
+
+    monkeypatch.setattr(library_routes, "_digester", elsewhere)
+    with serving(_context(world), routes=ui_table.served()) as live:
+        status, answer = _ask(live, RATINGS)
+    assert status == 422, answer
+    assert answer["error"] == "the file changed while it was read"
+
+
+def test_the_gate_s_digest_is_handed_in_once_and_the_same_again_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(library_routes, "_digester", None)
+    cli.compose()
+    assert library_routes._digester is cli.gate_digest
+    library_routes.register_digester(cli.gate_digest)
+    with pytest.raises(ValueError, match="registered once"):
+        library_routes.register_digester(lambda table, record: cli.gate_digest(table, record))
 
 
 # -- what never leaves the server ------------------------------------------------------------

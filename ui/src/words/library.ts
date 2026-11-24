@@ -115,8 +115,17 @@ export const LIBRARY_COPY = {
   antipatterns: "Proposed antipatterns",
   storeClasses: "Energy store classes",
   catalogue: "gate catalogue",
+  gateDigest: "Gate digest (catalogue and laws)",
+  gateDigestNote:
+    "Every gate result of a run from this library carries this digest as its catalogue digest: compare it with a run's.",
+  noGateDigest: "No gate digest",
   openTheFile: "Open the file",
 } as const;
+
+/** "from 9 laws in knowledge/laws/laws.toml": what the gate's digest was taken over. */
+export function lawsCount(n: number, file: string): string {
+  return `from ${String(n)} law${n === 1 ? "" : "s"} in ${file}`;
+}
 
 /** "57 promotions recorded": a count, never a percentage. */
 export function promotionsCount(n: number): string {

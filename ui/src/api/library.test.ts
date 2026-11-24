@@ -286,7 +286,13 @@ describe("the ratings", () => {
         confirmed: "2026-10-12",
       },
     ],
-    catalogue_digest: OTHER,
+    gate_digest: {
+      state: "read",
+      file: "knowledge/laws/laws.toml",
+      sha256: OTHER,
+      table_sha256: DIGEST,
+      laws: 9,
+    },
   };
 
   it("keeps every value with its unit, unrounded", () => {
@@ -301,7 +307,44 @@ describe("the ratings", () => {
     expect(envelope?.key).toBe("voltage");
     expect(envelope?.kind).toBe("voltage");
     expect(read.storeClasses[0]?.fastestDischarge).toEqual({ value: 150, unit: "1/h" });
-    expect(read.catalogueDigest).toBe(OTHER);
+    expect(read.gateDigest).toEqual({
+      state: "read",
+      file: "knowledge/laws/laws.toml",
+      sha256: OTHER,
+      tableSha256: DIGEST,
+      laws: 9,
+    });
+  });
+
+  it("keeps the server's sentence when no gate is built from the library", () => {
+    const refused = {
+      ...RATINGS,
+      gate_digest: {
+        state: "refused",
+        file: "knowledge/laws/laws.toml",
+        reason: "this library holds no law table, so no gate is built from it",
+      },
+    };
+    expect(ratings(refused).gateDigest).toEqual({
+      state: "refused",
+      file: "knowledge/laws/laws.toml",
+      reason: "this library holds no law table, so no gate is built from it",
+    });
+  });
+
+  it("refuses a gate digest that is not one, or the catalogue's alone in its place", () => {
+    const digestOf = (gate_digest: unknown) => ratings({ ...RATINGS, gate_digest });
+    expect(() => digestOf(OTHER)).toThrow(ShapeError);
+    expect(() => digestOf(undefined)).toThrow(ShapeError);
+    expect(() => digestOf({ ...RATINGS.gate_digest, sha256: "short" })).toThrow(ShapeError);
+    expect(() => digestOf({ ...RATINGS.gate_digest, laws: -1 })).toThrow(ShapeError);
+    expect(() => digestOf({ ...RATINGS.gate_digest, state: "absent" })).toThrow(ShapeError);
+    expect(() => digestOf({ state: "refused", file: "knowledge/laws/laws.toml" })).toThrow(
+      ShapeError,
+    );
+    expect(() => ratings({ ...RATINGS, gate_digest: undefined, catalogue_digest: OTHER })).toThrow(
+      ShapeError,
+    );
   });
 
   it("refuses a bare number where a quantity belongs", () => {

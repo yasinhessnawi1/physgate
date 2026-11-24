@@ -15,7 +15,7 @@ import { quantityLabel } from "../../words/humanise";
 import { documentLabel, LIBRARY_COPY } from "../../words/library";
 import type { Open } from "./model";
 import { useFocusOnOpen } from "./parts";
-import { RangeOf, storeLabel, tableRole } from "./Ratings";
+import { GateDigest, RangeOf, storeLabel, tableRole } from "./Ratings";
 
 export function RatingInspector({
   open,
@@ -56,9 +56,9 @@ export function RatingInspector({
               <dd>{store.source}</dd>
               <dt>Confirmed</dt>
               <dd>{store.confirmed}</dd>
-              <dt>Catalogue digest</dt>
+              <dt>Gate digest</dt>
               <dd>
-                <Id value={ratings.catalogueDigest} />
+                <GateDigest digest={ratings.gateDigest} />
               </dd>
             </dl>
             <SourceChip id={LIBRARY_COPY.catalogue} commit={null} />

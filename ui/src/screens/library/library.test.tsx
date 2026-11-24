@@ -206,7 +206,13 @@ const RATINGS = {
       confirmed: "2026-10-12",
     },
   ],
-  catalogue_digest: SHA("3"),
+  gate_digest: {
+    state: "read",
+    file: "knowledge/laws/laws.toml",
+    sha256: SHA("3"),
+    table_sha256: SHA("4"),
+    laws: 9,
+  },
 };
 
 type Answer = readonly [number, unknown];
@@ -788,6 +794,36 @@ describe("data-sheet ratings", () => {
     expect(host.textContent).toContain(SHA("3"));
   });
 
+  it("shows the gate's digest, labelled as what a run's gate results carry", async () => {
+    const host = await mount("tab=ratings");
+    const shown = host.querySelector('.pg-lib-gate-digest[data-state="read"]');
+    expect(shown?.textContent).toContain(LIBRARY_COPY.gateDigest);
+    expect(shown?.textContent).toContain(SHA("3"));
+    expect(shown?.textContent).toContain("from 9 laws in knowledge/laws/laws.toml");
+    expect(shown?.textContent).toContain(LIBRARY_COPY.gateDigestNote);
+    expect(shown?.textContent).not.toContain(SHA("4"));
+  });
+
+  it("shows the server's sentence and no digest when no gate is built from the library", async () => {
+    const reason = "the law table does not load, so no gate is built from it";
+    serve({
+      "/api/library/ratings": [
+        200,
+        {
+          ...RATINGS,
+          gate_digest: { state: "refused", file: "knowledge/laws/laws.toml", reason },
+        },
+      ],
+    });
+    const host = await mount("tab=ratings");
+    const shown = host.querySelector('.pg-lib-gate-digest[data-state="refused"]');
+    expect(shown?.textContent).toContain(LIBRARY_COPY.noGateDigest);
+    expect(shown?.textContent).toContain(reason);
+    expect(host.querySelector('.pg-lib-gate-digest[data-state="read"]')).toBeNull();
+    expect(host.textContent).not.toContain(SHA("3"));
+    expect(rows(host, "Energy store classes")).toHaveLength(1);
+  });
+
   it("says so when no bounds table is loaded, and still lists the store classes", async () => {
     serve({ "/api/library/ratings": [200, { ...RATINGS, tables: [] }] });
     const host = await mount("tab=ratings");
@@ -833,6 +869,7 @@ describe("data-sheet ratings", () => {
     );
     expect(panel.textContent).toContain("A maker's sheet, as the catalogue cites it.");
     expect(panel.querySelector(".pg-quantity")?.textContent).toBe("1501/h");
+    expect(panel.querySelector(".pg-lib-gate-digest")?.textContent).toContain(SHA("3"));
   });
 });
 

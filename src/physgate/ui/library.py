@@ -8,7 +8,8 @@ Five reads, each over the library slot of the allowlist and nothing else:
 - the staged candidates, without their content;
 - one staged candidate with what promoting it would do: its effect, the destination's
   fingerprints now and after, and the changed lines;
-- the bounds tables' ranges and envelopes, and the catalogue's energy-store classes.
+- the bounds tables' ranges and envelopes, the catalogue's energy-store classes, and the
+  digest a gate built from this library stamps on every result: the catalogue's with the laws.
 
 **Nothing here writes, and nothing here promotes.** Promotion is a person's act at a terminal.
 A staged candidate is found by promotion's own finder, and what promoting it would write comes
@@ -48,13 +49,14 @@ import os
 import stat
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
 from physgate.gate.bounds_table import BOUNDS_NAME, Bounds, Envelope, Range, load_table
-from physgate.gate.catalogue import STORE_CLASSES, catalogue_alone_digest, kind_of
+from physgate.gate.catalogue import STORE_CLASSES, kind_of
 from physgate.gate.exceptions import GateError
 from physgate.knowledge.exceptions import KnowledgeError, RoleNameError
 from physgate.knowledge.loader import always_loaded
@@ -101,8 +103,53 @@ CARRIAGE_RETURN = "\u240d"
 #: The line a unified diff puts after a line that ends the file with no newline.
 NO_NEWLINE = "\\ No newline at end of file"
 
+#: The law table inside the library, as the gate reads it from the checkout's own.
+LAW_TABLE = ("laws", "laws.toml")
+
 #: How the request's guard ends its refusal of a read outside every root it may read.
 GUARD_READ_REFUSAL = "outside the roots it may read"
+
+
+# -- the gate's digest, handed in ------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GateDigest:
+    """What a gate built from one law table stamps on every result, and the table it read.
+
+    ``sha256`` is the digest of the catalogue's content with the table's laws, the one every
+    gate result carries as its catalogue digest; ``table_sha256`` is the digest of the table's
+    bytes as they were loaded, and ``laws`` how many laws the table holds.
+    """
+
+    sha256: str
+    table_sha256: str
+    laws: int
+
+
+#: The gate's own digest of a law table and its promotion record, as the command's composition
+#: root hands it in. No module of this package imports the law module, so the function that
+#: loads a law table and digests it with the catalogue comes from outside, as the Evidence
+#: screen's comparison does.
+GateDigester = Callable[[Path, Path], GateDigest]
+
+_digester: GateDigester | None = None
+
+
+def register_digester(digester: GateDigester) -> None:
+    """Take the gate's digest function from the command's composition root, once.
+
+    The same function again is the same registration, since the root runs once per command and
+    a test process runs it many times; any other is refused.
+
+    Raises:
+        ValueError: another function is already registered.
+    """
+    global _digester  # noqa: PLW0603 - the one place the command's root sets it
+    if _digester is not None and _digester is not digester:
+        msg = "the gate's digest is registered once, by the command's composition root"
+        raise ValueError(msg)
+    _digester = digester
 
 
 # -- errors as sentences ---------------------------------------------------------------------
@@ -646,7 +693,7 @@ def _range(entry: Range) -> dict[str, Any]:
 
 @_route
 def ratings(context: Context, params: Mapping[str, str]) -> dict[str, Any]:
-    """The bounds tables' ranges and envelopes, and the catalogue's energy-store classes."""
+    """The bounds tables' ranges and envelopes, the store classes, and the gate's digest."""
     library = _library(context)
     tables = []
     for role in _roles(context, library):
@@ -685,7 +732,50 @@ def ratings(context: Context, params: Mapping[str, str]) -> dict[str, Any]:
             }
             for store in STORE_CLASSES
         ],
-        # The law table is a file outside the roots a request may read, so this digest is the
-        # catalogue's alone, which is a gate result's digest while no law is in the table.
-        "catalogue_digest": catalogue_alone_digest(),
+        "gate_digest": _gate_digest(context, library),
+    }
+
+
+def _gate_digest(context: Context, library: Path) -> dict[str, Any]:
+    """The digest a gate built from this library's law table stamps on every result, or why not.
+
+    Read per request, as the bounds tables are, so a law promoted while the server runs is
+    seen at the next read. The table's bytes are judged and read here first; the gate's own
+    function then loads the same file, and what it loaded must be those bytes. A table that is
+    absent or does not load is a state with a sentence, never the catalogue's digest alone: no
+    gate is built from such a library, so no result carries any digest of it.
+    """
+    table = library.joinpath(*LAW_TABLE)
+    shown = _recorded(library, table)
+    if _digester is None:
+        return {
+            "state": "refused",
+            "file": shown,
+            "reason": "this server was started without the gate's digest, so it shows none",
+        }
+    data = _read(context, library, table)
+    if data is None:
+        return {
+            "state": "refused",
+            "file": shown,
+            "reason": "this library holds no law table, so no gate is built from it",
+        }
+    try:
+        digest = _digester(table, library / PROMOTIONS_NAME)
+    except GateError:
+        # In the route's own words: the loader's message may name the table by its full path.
+        return {
+            "state": "refused",
+            "file": shown,
+            "reason": "the law table does not load, so no gate is built from it",
+        }
+    if digest.table_sha256 != hashlib.sha256(data).hexdigest():
+        msg = "the file changed while it was read"
+        raise UIError(msg, path=shown)
+    return {
+        "state": "read",
+        "file": shown,
+        "sha256": digest.sha256,
+        "table_sha256": digest.table_sha256,
+        "laws": digest.laws,
     }
