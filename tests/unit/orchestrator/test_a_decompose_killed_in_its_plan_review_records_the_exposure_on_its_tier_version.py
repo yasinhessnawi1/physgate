@@ -53,6 +53,7 @@ from test_decompose_reviews_the_plan_before_it_writes_anything import (  # noqa:
 from physgate.evaluation.tiers.checks import CheckError  # noqa: E402
 from physgate.evaluation.tiers.exposure import ExposureError  # noqa: E402
 from physgate.evaluation.tiers.heldout import tier_digest  # noqa: E402
+from physgate.knowledge.library import put_into as real_put_into  # noqa: E402
 from physgate.orchestrator import design_rounds, processes  # noqa: E402
 from physgate.orchestrator.decompose import start_run as real_start_run  # noqa: E402
 from physgate.orchestrator.decomposition_review import (  # noqa: E402
@@ -444,3 +445,75 @@ def test_a_journal_line_a_kill_cut_is_read_in_its_review_s_record(tier: OnTier) 
         journal.write(cut)
     # The record is read in its place, and its streams showed nothing.
     assert tier.exposed() == frozenset()
+
+
+# --- a decomposition cut before its run's configuration is written -------------------------------
+
+
+def _cut_before_run_json(
+    tier: OnTier, monkeypatch: pytest.MonkeyPatch, how: str, review: Any
+) -> None:  # noqa: ANN401
+    """The start opens the run's record, then a kill or a refusal cuts it before ``run.json``.
+
+    What it leaves: an empty event log, no run configuration, the decomposition's own records,
+    and the run branch's checkout, here as deep as one goes.
+    """
+    from physgate.knowledge.library import LibraryError  # noqa: PLC0415
+    from physgate.orchestrator import decompose  # noqa: PLC0415
+
+    def cut(*args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        if how == "killed":
+            raise Stopped
+        msg = "the library cannot be put into the run branch"
+        raise LibraryError(msg)
+
+    monkeypatch.setattr(decompose, "put_into", cut)
+    if how == "killed":
+        with pytest.raises(Stopped):
+            _exit(tier.args, review)
+    else:
+        assert _exit(tier.args, review) == 2
+    monkeypatch.setattr(decompose, "put_into", real_put_into)
+    assert (tier.run_dir / "events.jsonl").read_bytes() == b""
+    assert not (tier.run_dir / "run.json").exists()
+    assert (tier.run_dir / "params_source.json").is_file()
+    deep = tier.run_dir / "worktrees" / "integration" / ".git" / "a" / "b" / "c" / "d" / "e" / "f"
+    deep.mkdir(parents=True)
+
+
+def _passed() -> Any:  # noqa: ANN401
+    return StandIn(_verdict("pass"))
+
+
+def _exposed(tier: OnTier) -> Any:  # noqa: ANN401
+    return Recording(
+        _exposed_review(), (SESSION, 4242, OTHER_START), stream=tier.shown(), root=tier.review_root
+    )
+
+
+@pytest.mark.parametrize("how", ["killed", "raised"])
+def test_a_decomposition_cut_before_its_run_json_after_a_clean_review_leaves_the_register_readable(
+    tier: OnTier, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    _cut_before_run_json(tier, monkeypatch, how, _passed())
+    # Read as a run's directory: not walked into, and nothing in it is an exposure.
+    assert tier.exposed() == frozenset()
+    later = tier.later_refusal()
+    assert later is None or "(register_unreadable)" not in later, later
+    assert later is None or "(version_exposed)" not in later, later
+    # The store still refuses a reportable run on a version exposed elsewhere.
+    api(f"{EXPOSURE}.mark_exposed")(
+        tier.made.store, ROLE, tier.made.version, by="a person", reason="opened the tier by hand"
+    )
+    later = tier.later_refusal()
+    assert later is not None and "(version_exposed)" in later, later
+
+
+@pytest.mark.parametrize("how", ["killed", "raised"])
+def test_a_decomposition_cut_before_its_run_json_after_an_exposed_review_marks_its_version_exposed(
+    tier: OnTier, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    _cut_before_run_json(tier, monkeypatch, how, _exposed(tier))
+    assert tier.exposed() == frozenset({tier.made.version})
+    later = tier.later_refusal()
+    assert later is not None and "(version_exposed)" in later, later
