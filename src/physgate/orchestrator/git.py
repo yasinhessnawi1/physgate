@@ -717,6 +717,18 @@ def _command(
     return argv, run_in, env
 
 
+def git_blob(cwd: Path, spec: str, *, git_dir: GitDir | None = None) -> bytes:
+    """The bytes of the object ``spec`` names (``<commit>:<path>``), as git holds them.
+
+    Read as :func:`git` reads with ``objects_only``: against a clean object store, so nothing
+    the repository holds can run. Never decoded, so no line ending is translated.
+
+    Raises:
+        GitError: git cannot read it.
+    """
+    return git_bytes(cwd, "cat-file", "blob", spec, objects_only=True, git_dir=git_dir)
+
+
 def git_timed(
     cwd: Path, *args: str, timeout: float, git_dir: GitDir | None = None
 ) -> tuple[int | None, str, float]:
