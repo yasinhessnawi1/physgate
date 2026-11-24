@@ -12,8 +12,9 @@ at registration unless it is given as its real path, spelt as the disk spells ea
 - not through a linked parent.
 
 A root on the register that is not so spelt (one registered before the rule, or renamed since)
-refuses every measured run naming its store when the run starts. A trailing slash names the same
-directory and is registered as the real path.
+refuses every measured run naming its store when the run starts. So does a run directory typed in
+another case beneath a root spelt as on disk: its sessions' worktrees would be spelt so. A
+trailing slash names the same directory and is registered as the real path.
 """
 
 from __future__ import annotations
@@ -126,4 +127,17 @@ def test_a_root_on_the_register_spelt_as_on_disk_lets_the_run_go_on(
     runs = tmp_path.resolve() / "runs"
     runs.mkdir()
     assert add_run_root(made.store, "control", runs)
+    assert _ask(made, runs / "run-1") is None
+
+
+def test_a_run_directory_typed_in_another_case_beneath_a_root_spelt_as_on_disk_is_refused(
+    made: StandInStore, tmp_path: Path
+) -> None:
+    runs = tmp_path.resolve() / "runs"
+    (runs / "run-1").mkdir(parents=True)
+    assert add_run_root(made.store, "control", runs)
+    typed = _other_case(runs / "run-1")
+    why = _ask(made, typed.resolve())
+    assert why is not None and "(run_dir_not_spelt_as_on_disk)" in why, why
+    assert str(tmp_path.resolve()) not in why, why
     assert _ask(made, runs / "run-1") is None

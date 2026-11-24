@@ -17,7 +17,9 @@ A measured run reviews only inside its own run directory, which lies in a run ro
 whole from every later session. So:
 - the requirement refuses any other review root;
 - a baseline round refuses a harness run that recorded any other;
-- a raw session is also withheld the harness run's recorded review root and the standing one.
+- a raw session is also withheld the harness run's recorded review root and the standing one;
+- a role session of a run naming a held-out tier is withheld the standing one too, where runs
+  made by hand review by convention.
 
 A reviewer reads only its own review's packet, by its allowance; it was refused before the
 change as after. Each read is judged at the layer that enforces it: the file tool's hook
@@ -292,6 +294,28 @@ def test_a_role_session_of_a_later_trial_reads_nothing_an_earlier_trial_s_review
     assert let == [], f"a later trial's role session reads the earlier's {what} through {let}"
 
 
+@pytest.mark.parametrize("what", THINGS)
+def test_a_role_session_of_a_measured_run_reads_nothing_beneath_the_standing_review_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, what: str
+) -> None:
+    """Its run reviews inside its run directory, so the standing root is not its review root.
+
+    Runs made by hand review beneath the standing root by convention: their packets, their
+    reviewers' records, the place apart with the key for labels. Where the run names a held-out
+    tier, a role session is refused that root whole on every layer, as a raw session is.
+    """
+    base = tmp_path.resolve()
+    home = base / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    trials = _trials(base, "in its run")
+    assert _admitted(trials), "the measured run was refused its own review root"
+    left = _leave_reviews(standing_root(Path.home()), REVIEW_A, trials.task_b)
+    session = _role_session(trials, base)
+    let = _let_through(session, left[what], trials.b / "sessions" / "s-b" / "home")
+    assert let == [], f"a measured run's role session reads the standing root's {what}: {let}"
+
+
 def test_a_role_session_whose_review_root_lies_in_its_run_still_reaches_its_worktree(
     tmp_path: Path,
 ) -> None:
@@ -425,6 +449,42 @@ def test_a_baseline_round_refuses_a_harness_run_that_recorded_no_review_root(
     ran = _raw_round(trials, tmp_path.resolve() / "round", ())
     assert isinstance(ran, PerRoleError), "the round ran a raw session on the harness trial"
     assert ran.context.get("refused_because") == "review_root_unrecorded", ran.context
+
+
+@pytest.mark.parametrize(
+    "body",
+    ["{not json", '{"review_root": "review"}'],
+    ids=["not a record", "a root that is not absolute"],
+)
+def test_a_baseline_round_refuses_a_harness_run_whose_review_root_record_cannot_be_read(
+    tmp_path: Path, body: str
+) -> None:
+    """Refused as unrecorded, by what it is: the record's own error names the run directory."""
+    base = tmp_path.resolve()
+    trials = _trials(base, "in its run", later=False)
+    (trials.a / "review_root.json").write_text(body)
+    arm = StandInArm()
+    raised: Exception | None = None
+    try:
+        run_baseline(
+            store=trials.made.store,
+            role="control",
+            version=trials.made.version,
+            runs=run_set((trials.a, 0)),
+            out=base / "round",
+            setup_for=setup_for,
+            score=lambda _task, _answer: dict(SCORED),
+            prices=load_price_sheet(PRICES),
+            arm=arm,
+            sleep=lambda _s: None,
+        )
+    except Exception as exc:  # noqa: BLE001 - what the round raises is what is asked
+        raised = exc
+    assert arm.calls == [], "a raw session started on a run whose review root is unknown"
+    assert isinstance(raised, PerRoleError), f"the round was not refused for it: {raised!r}"
+    assert raised.context.get("refused_because") == "review_root_unrecorded", raised.context
+    said = f"{raised} {json.dumps(raised.context)}"
+    assert str(base) not in said, said
 
 
 def _reviewer(trials: Trials, review: str) -> SessionConfig:

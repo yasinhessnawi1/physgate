@@ -41,7 +41,9 @@ def _measured(made: StandInStore, **changes: object) -> RunConfig:
     return config(made.tasks["held_out"][0], made, withheld_whole=roots, **changes)
 
 
-def _ask(run: RunConfig, run_dir: Path, review_root: Path | None, *, new_run: bool) -> str | None:
+def _ask(
+    run: RunConfig, run_dir: Path | None, review_root: Path | None, *, new_run: bool
+) -> str | None:
     try:
         facts = RunFacts(
             config=run,
@@ -87,6 +89,30 @@ def test_a_measured_run_reviewing_anywhere_else_is_refused_and_no_path_is_said(
     why = _ask(_measured(made), run_dir, review, new_run=new_run)
     assert why is not None and "(review_root_outside_the_run)" in why, why
     assert str(base) not in why, why
+
+
+@pytest.mark.parametrize("new_run", [True, False], ids=["at decompose", "at run or resume"])
+def test_a_measured_run_shown_a_review_root_and_no_run_directory_is_refused(
+    made: StandInStore, tmp_path: Path, new_run: bool
+) -> None:
+    """With no directory to judge it against, the root is not shown to lie inside one."""
+    runs = with_run_root(made, tmp_path.resolve() / "runs")
+    why = _ask(_measured(made), None, runs / "run-1" / "review", new_run=new_run)
+    assert why is not None and "(review_root_outside_the_run)" in why, why
+
+
+@pytest.mark.parametrize("place", ["worktrees", "sessions"])
+def test_a_measured_run_reviewing_inside_its_worktrees_or_sessions_is_refused(
+    made: StandInStore, tmp_path: Path, place: str
+) -> None:
+    """A module's work is committed from its worktree, and a session's own files lie beside it."""
+    base = tmp_path.resolve()
+    runs = with_run_root(made, base / "runs")
+    run_dir = runs / "round" / "0000-1"
+    for review in (run_dir / place, run_dir / place / "m1" / "review"):
+        why = _ask(_measured(made), run_dir, review, new_run=False)
+        assert why is not None and "(review_root_in_a_session_place)" in why, (review, why)
+        assert str(base) not in why, why
 
 
 def test_a_review_root_reached_through_a_link_is_judged_where_it_really_is(

@@ -56,3 +56,16 @@ def test_a_run_that_did_not_withhold_every_run_root_whole_is_not_counted(
         _count(made, base, withheld_whole=[] if named == "none" else roots)
     assert raised.value.context.get("refused_because") == "run_roots_not_withheld"
     assert str(base) not in str(raised.value), raised.value
+
+
+def test_a_run_that_did_not_withhold_another_role_s_run_root_whole_is_not_counted(
+    made: StandInStore, tmp_path: Path
+) -> None:
+    base = tmp_path.resolve()
+    roots = _registered(made, base / "runs")
+    (base / "firmware-runs").mkdir()
+    assert add_run_root(made.store, "firmware", base / "firmware-runs")
+    with pytest.raises(GapsError) as raised:
+        _count(made, base, withheld_whole=roots)
+    assert raised.value.context.get("refused_because") == "run_roots_not_withheld"
+    assert str(base) not in str(raised.value), raised.value
