@@ -286,7 +286,7 @@ def audit_raw(
     counted = EXTERNAL_TIERS if isinstance(source, ExternalSetRecord) else VERSION_TIERS
     derived: dict[SourceTier, dict[int, Line]] = {tier: {} for tier in counted}
     found: list[Difference] = []
-    summed = []
+    summed: list[tuple[Planned, Mapping[str, Any], Line]] = []
     for trial in planned:
         sessions = _sessions(trial, out, protected_root)
         try:

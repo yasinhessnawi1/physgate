@@ -49,7 +49,10 @@ directory ``S``, a store holding one version of practice tasks written for a sha
 in its brief and held to the split's entry checks, and a stand-in check record in the imported
 form that flags none and names no session. It never reads another store. It prints the version
 and its tiers' counts and digests on one JSON line, or ``refused_because`` with exit 1. It runs
-in the evaluation environment, since each task's scorer is run on its references.
+in the evaluation environment, since each task's scorer is run on its references; elsewhere
+it refuses (``evaluation_environment_missing``) and writes nothing. A shakedown on it then
+registers a run root for the store (``physgate tiers add-run-root --withheld
+S/control/withheld --path DIR``) before its harness runs, as every measured run's store needs.
 
 ``physgate tiers probe --withheld W --version V --seed N`` is the isolation probe
 (:mod:`physgate.evaluation.tiers.probe`): for each task of ``V``'s held-out tier and each
@@ -294,6 +297,20 @@ def _practice(args: argparse.Namespace) -> int:
     from physgate.evaluation.per_role.exceptions import PerRoleError
     from physgate.evaluation.tiers.practice import SEED, build_practice_store, describe
 
+    try:
+        from physgate.evaluation.per_role.validate import sound
+    except ImportError:
+        said = {
+            "refused_because": "evaluation_environment_missing",
+            "error": (
+                "the practice store's tasks are held to their scorer, in the evaluation "
+                "environment: UV_PROJECT_ENVIRONMENT=.venv-evaluation uv run --group evaluation "
+                "physgate ..."
+            ),
+        }
+        print(json.dumps(said, sort_keys=True))
+        return 1
+    del sound
     try:
         manifest = build_practice_store(
             args.store.absolute(),

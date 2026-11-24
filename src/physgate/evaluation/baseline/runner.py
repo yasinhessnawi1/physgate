@@ -91,7 +91,7 @@ import shutil
 import stat
 import time
 from collections import Counter
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1279,7 +1279,7 @@ def read_lines(path: Path) -> list[TrialRecord | ExcludedTrial]:
 
 
 def tallied(
-    recorded: list[tuple[Planned, Mapping[str, Any], TrialRecord | ExcludedTrial]],
+    recorded: Sequence[tuple[Planned, Mapping[str, Any], TrialRecord | ExcludedTrial]],
     counted: tuple[SourceTier, ...],
 ) -> dict[SourceTier, _Tally]:
     """Each tier's counts from its recorded trials' records and lines: summed here alone."""
@@ -1322,7 +1322,7 @@ def _tallies(
         False: iter(read_lines(out / TRIALS)),
         True: iter(read_lines(protected_root / TRIALS)),
     }
-    recorded = []
+    recorded: list[tuple[Planned, Mapping[str, Any], TrialRecord | ExcludedTrial]] = []
     for line in ledger.recorded():
         trial = by_index[int(line["index"])]
         _, harness, _ = _trial_files(trial, int(line["session"]), out, protected_root)

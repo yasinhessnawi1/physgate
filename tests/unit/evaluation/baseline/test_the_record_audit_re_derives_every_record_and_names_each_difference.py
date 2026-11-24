@@ -275,3 +275,16 @@ def test_a_visible_difference_is_said_by_kind_and_place(tmp_path: Path) -> None:
             {"kind": "outcome", "index": 2, "field": None},
         ]
     }
+
+
+def test_the_audit_s_detail_leaves_the_store_open_to_the_next_round(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """The detail it writes beneath the withheld root is no work left: a round starts after it."""
+    from physgate.evaluation.tierset_cli import status
+
+    runs, out = _cell(tmp_path, store)
+    write_detail(store.store, "control", [Difference("raw", "visible", "outcome", 0)])
+    assert not any(status(store.store)["left"].values())
+    _start(store, runs, tmp_path / "next", StandInArm())
+    assert (tmp_path / "next" / BASELINE_RECORD).is_file()
