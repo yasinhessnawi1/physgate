@@ -481,6 +481,16 @@ def _cut_before_run_json(
     deep.mkdir(parents=True)
 
 
+def _readable(tier: OnTier) -> frozenset[str]:
+    """The exposed versions, the register held to being readable: a refusal fails the row."""
+    try:
+        return tier.exposed()
+    except ExposureError as exc:
+        reason = exc.context.get("refused_because")
+        msg = f"the register refuses every reader ({reason})"
+        raise AssertionError(msg) from exc
+
+
 def _passed() -> Any:  # noqa: ANN401
     return StandIn(_verdict("pass"))
 
@@ -497,7 +507,7 @@ def test_a_decomposition_cut_before_its_run_json_after_a_clean_review_leaves_the
 ) -> None:
     _cut_before_run_json(tier, monkeypatch, how, _passed())
     # Read as a run's directory: not walked into, and nothing in it is an exposure.
-    assert tier.exposed() == frozenset()
+    assert _readable(tier) == frozenset()
     later = tier.later_refusal()
     assert later is None or "(register_unreadable)" not in later, later
     assert later is None or "(version_exposed)" not in later, later
@@ -514,7 +524,7 @@ def test_a_decomposition_cut_before_its_run_json_after_an_exposed_review_marks_i
     tier: OnTier, monkeypatch: pytest.MonkeyPatch, how: str
 ) -> None:
     _cut_before_run_json(tier, monkeypatch, how, _exposed(tier))
-    assert tier.exposed() == frozenset({tier.made.version})
+    assert _readable(tier) == frozenset({tier.made.version})
     later = tier.later_refusal()
     assert later is not None and "(version_exposed)" in later, later
 
@@ -529,6 +539,6 @@ def test_a_decomposition_with_no_plan_review_cut_before_its_run_json_leaves_the_
     _cut_before_run_json(tier, monkeypatch, how, None)
     assert not (tier.run_dir / JOURNAL).exists()
     assert not (tier.run_dir / REVIEW_RECORD).exists()
-    assert tier.exposed() == frozenset()
+    assert _readable(tier) == frozenset()
     later = tier.later_refusal()
     assert later is None or "(register_unreadable)" not in later, later
