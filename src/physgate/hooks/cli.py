@@ -209,9 +209,20 @@ def _os_layer_refusal(args: argparse.Namespace) -> str | None:
 
     Without ``--os-layer-temp`` the settings carry no sandbox, so the OS layer is absent for
     that session. They are written only for a run whose recorded configuration passes the
-    check the run itself is held to at its configuration, run and resume.
+    check the run itself is held to at its configuration, run and resume. A raw session
+    withheld a root whole (a harness run's run roots, a blind check's store) is never written
+    without it: the hooks alone do not hold a root whole against a path a command builds as it
+    runs. A reviewer runs no command, so it needs none.
     """
-    if args.profile != "role" or args.os_layer_temp:
+    if args.os_layer_temp:
+        return None
+    if args.profile == "baseline" and args.withheld_whole:
+        return (
+            "a raw session withheld a root whole is installed only with the OS layer "
+            "(--os-layer-temp): the hooks alone do not hold a root whole against a path a "
+            "command builds as it runs"
+        )
+    if args.profile != "role":
         return None
     # Only here: the hook layer's own modules import nothing of the orchestrator.
     from physgate.orchestrator.exceptions import RunConfigError  # noqa: PLC0415

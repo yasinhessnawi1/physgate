@@ -73,6 +73,7 @@ from physgate.evaluation.tiers.store import (
     PROTECTED,
     role_root,
     role_roots,
+    spelt_as_on_disk,
     withheld_root,
 )
 from physgate.evaluation.tiers.task import Role, Sha256, canonical_json, parse_task
@@ -1050,6 +1051,13 @@ def add_run_root(store: Path, role: Role, root: Path) -> bool:
     if root.is_symlink() or not root.is_dir():
         raise _refuse("run_root_not_a_directory", f"{root} is not a directory of its own")
     real, home = root.resolve(), store.resolve()
+    if not _spelt_as_its_real_path(root.absolute()):
+        msg = (
+            f"{root} is not its real path spelt as the disk spells it (another case, or a linked "
+            "parent): a run root is registered as it is on disk, so every layer that withholds "
+            "it is given the spelling that is there"
+        )
+        raise _refuse("run_root_not_spelt_as_on_disk", msg)
     if not os.access(real, os.R_OK | os.X_OK):
         raise _refuse("run_root_unreadable", f"{root} cannot be listed")
     if real.is_relative_to(home) or home.is_relative_to(real):
@@ -1402,6 +1410,15 @@ def run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str
         )
 
 
+def _spelt_as_its_real_path(path: Path) -> bool:
+    """Whether ``path`` is its real path (no linked part) and spelt as the disk spells each part.
+
+    Raises:
+        OSError: a directory on the way cannot be listed, so the spelling cannot be judged.
+    """
+    return os.path.realpath(path) == os.path.normpath(path) and spelt_as_on_disk(path)
+
+
 def _run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str] | None:
     registered: set[str] = set()
     for store in sorted({store for store, _ in role_roots(tuple(config.held_out))}):
@@ -1409,6 +1426,15 @@ def _run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, st
         for role in get_args(Role):
             if os.path.lexists(role_root(store, role)):
                 registered |= {str(root) for root in run_roots(store, role)}
+    # As it is on disk, or a session's hooks would match another spelling than the layer's: one
+    # registered before the rule, or renamed since, refuses the run until it is registered anew.
+    wrong = [root for root in registered if not _spelt_as_its_real_path(Path(root))]
+    if wrong:
+        return "run_root_not_spelt_as_on_disk", (
+            f"{len(wrong)} of the run roots of the stores the run names are not their real path "
+            "spelt as the disk spells it (another case, or a linked parent); a person registers "
+            "each as it is on disk"
+        )
     given = set(config.withheld_whole)
     missing = registered - given
     if missing:

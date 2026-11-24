@@ -15,11 +15,15 @@
       "tests/unit/ui/test_no_route_serves_the_held_out_tier.py",
       "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py",
       "tests/unit/evaluation/exposure/test_a_measured_run_reviews_only_inside_its_own_run_directory.py",
-      "tests/unit/orchestrator/test_a_requirement_is_shown_the_run_s_review_root.py"
+      "tests/unit/orchestrator/test_a_requirement_is_shown_the_run_s_review_root.py",
+      "tests/unit/evaluation/exposure/test_a_run_root_is_registered_and_withheld_only_as_the_disk_spells_it.py",
+      "tests/unit/evaluation/gaps/test_a_run_counted_for_a_version_withheld_its_store_s_run_roots.py",
+      "tests/unit/orchestrator/test_a_module_in_a_run_withheld_whole_reads_what_was_merged_before_it_in_its_worktree.py"
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
       "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/gaps/gap_fixtures.py",
       "tests/unit/evaluation/per_role/task_fixtures.py",
       "tests/unit/evaluation/per_role/test_the_raw_arm_s_credential_is_handled_as_a_role_session_s.py",
       "tests/unit/orchestrator/loop_fakes.py",
@@ -499,6 +503,112 @@
     ]
   },
   {
+    "name": "a_raw_session_withheld_a_root_whole_installs_without_the_layer",
+    "file": "src/physgate/hooks/cli.py",
+    "old": "    if args.profile == \"baseline\" and args.withheld_whole:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_round_starts_a_raw_session_where_the_layer_is_absent",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if setup.withheld_whole and not isinstance(setup.os_layer, Present):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_given_files_opening_is_not_bound_to_the_session_directories",
+    "file": "src/physgate/hooks/settings.py",
+    "old": "                and _inside(p, sessions)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/hooks/test_a_run_root_withheld_whole_opens_a_role_session_its_worktree_and_what_it_is_given.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_run_root_is_registered_as_spelt",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "    if not _spelt_as_its_real_path(root.absolute()):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_run_root_is_registered_and_withheld_only_as_the_disk_spells_it.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_run_root_on_the_register_is_taken_as_spelt",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "    if wrong:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_run_root_is_registered_and_withheld_only_as_the_disk_spells_it.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_linked_parent_is_taken_for_the_real_path",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "    return os.path.realpath(path) == os.path.normpath(path) and spelt_as_on_disk(path)\n",
+    "new": "    return spelt_as_on_disk(path)\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_run_root_is_registered_and_withheld_only_as_the_disk_spells_it.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_run_that_withheld_no_run_root_is_counted",
+    "file": "src/physgate/evaluation/tiers/measure.py",
+    "old": "        if not registered <= set(config.withheld_whole):\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/gaps/test_a_run_counted_for_a_version_withheld_its_store_s_run_roots.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/gaps/gap_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
     "name": "baseline_last",
     "file": "src/physgate/evaluation/tiers/exposure.py",
     "old": "",
@@ -514,11 +624,15 @@
       "tests/unit/ui/test_no_route_serves_the_held_out_tier.py",
       "tests/unit/evaluation/exposure/test_no_later_session_reads_what_an_earlier_trial_s_reviews_left.py",
       "tests/unit/evaluation/exposure/test_a_measured_run_reviews_only_inside_its_own_run_directory.py",
-      "tests/unit/orchestrator/test_a_requirement_is_shown_the_run_s_review_root.py"
+      "tests/unit/orchestrator/test_a_requirement_is_shown_the_run_s_review_root.py",
+      "tests/unit/evaluation/exposure/test_a_run_root_is_registered_and_withheld_only_as_the_disk_spells_it.py",
+      "tests/unit/evaluation/gaps/test_a_run_counted_for_a_version_withheld_its_store_s_run_roots.py",
+      "tests/unit/orchestrator/test_a_module_in_a_run_withheld_whole_reads_what_was_merged_before_it_in_its_worktree.py"
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
       "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/gaps/gap_fixtures.py",
       "tests/unit/evaluation/per_role/task_fixtures.py",
       "tests/unit/evaluation/per_role/test_the_raw_arm_s_credential_is_handled_as_a_role_session_s.py",
       "tests/unit/orchestrator/loop_fakes.py",
