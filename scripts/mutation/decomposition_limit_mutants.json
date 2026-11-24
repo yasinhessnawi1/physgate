@@ -1,0 +1,242 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/orchestrator/decompose.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "plan_call_never_reads_the_limit",
+  "file": "src/physgate/orchestrator/decompose.py",
+  "old": "    if cause == \"api_error\":\n        # The API error",
+  "new": "    if False:\n        # The API error",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "start_run_drops_the_limit",
+  "file": "src/physgate/orchestrator/decompose.py",
+  "old": "usage_limit=outcome.usage_limit if refused is None else None,",
+  "new": "usage_limit=None,",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "halt_takes_any_failed_decomposition_s_limit",
+  "file": "src/physgate/orchestrator/events.py",
+  "old": "        on_the_limit = self.reason == \"decomposition_failed\" and (\n            self.detail.split(\":\", 1)[0].strip() == LIMIT_CAUSE\n        )",
+  "new": "        on_the_limit = self.reason == \"decomposition_failed\"",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "review_s_limit_dropped",
+  "file": "src/physgate/orchestrator/design_rounds.py",
+  "old": "            usage_limit=exc.usage_limit,\n        )",
+  "new": "            usage_limit=None,\n        )",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "review_limit_terminal_names_infrastructure",
+  "file": "src/physgate/orchestrator/design_rounds.py",
+  "old": "        if limit is not None:\n            cause = LIMIT",
+  "new": "        if False:\n            cause = LIMIT",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "journal_limit_check_removed",
+  "file": "src/physgate/orchestrator/design_rounds.py",
+  "old": "            if (line.usage_limit is not None) != _on_the_limit(line.ending, line.review):",
+  "new": "            if False:",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "cli_record_path_exits_1",
+  "file": "src/physgate/orchestrator/cli.py",
+  "old": "    if made.cause == LIMIT_CAUSE and halt is not None:",
+  "new": "    if False:",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "cli_void_path_refused",
+  "file": "src/physgate/orchestrator/cli.py",
+  "old": "        on_limit = rounds_on_the_limit(run_dir) if isinstance(exc, DecompositionError) else None",
+  "new": "        on_limit = None",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "halt_limit_not_held",
+  "file": "src/physgate/orchestrator/record.py",
+  "old": "usage_limit=held_at(usage_limit, envelope[\"ts\"]),",
+  "new": "usage_limit=usage_limit,",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py"
+  ],
+  "data": [
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ }
+]
