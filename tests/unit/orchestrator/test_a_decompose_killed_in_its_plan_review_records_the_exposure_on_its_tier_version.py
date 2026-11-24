@@ -50,6 +50,8 @@ from test_decompose_reviews_the_plan_before_it_writes_anything import (  # noqa:
     calls,
 )
 
+from physgate.evaluation.tiers.checks import CheckError  # noqa: E402
+from physgate.evaluation.tiers.exposure import ExposureError  # noqa: E402
 from physgate.evaluation.tiers.heldout import tier_digest  # noqa: E402
 from physgate.orchestrator import design_rounds, processes  # noqa: E402
 from physgate.orchestrator.events import Incident  # noqa: E402
@@ -338,7 +340,12 @@ def test_a_killed_decompose_s_exposure_marks_the_version_it_recorded_and_no_late
     tier: OnTier,
 ) -> None:
     _killed_in_its_review_showing(tier, tier.shown())
-    later = second_version(tier.made)
+    try:
+        # Its blind check is recorded as it is written, which an exposed version refuses.
+        later = second_version(tier.made)
+    except CheckError as exc:
+        msg = "a version written after the killed decompose is marked exposed"
+        raise AssertionError(msg) from exc
     assert tier.exposed() == frozenset({tier.made.version})
     told = refusal(config(later.tasks["visible"][0], later), tier.runs / "r3")
     assert told is None or "(version_exposed)" not in told, told
@@ -369,7 +376,11 @@ def test_a_killed_decompose_s_record_that_cannot_be_read_refuses_the_reportable_
     (tier.run_dir / broken).write_text("{not json")
     later = tier.later_refusal()
     assert later is not None and "(register_unreadable)" in later, later
-    assert str(tier.run_dir) not in later
+    with pytest.raises(ExposureError) as refused:
+        tier.exposed()
+    assert refused.value.context.get("refused_because") == "register_unreadable"
+    # Named by its kind of place: neither the run directory nor the record's path is said.
+    assert str(tier.runs) not in str(refused.value), str(refused.value)
 
 
 def test_a_killed_decompose_whose_review_stream_is_gone_marks_its_version_exposed(
