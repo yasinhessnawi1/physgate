@@ -654,10 +654,12 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
     """Every run directory and raw record beneath ``root``, no link followed, bounded.
 
     Inside a run directory the walk enters only :data:`NESTED_RUN_PLACES` and parses nothing
-    else. A directory with no run configuration that holds a decomposition's records (its
-    parameters record, the first thing a ``decompose`` writes, or its ``decomposition``
-    directory) is a run's directory too: read by :func:`_decomposition_findings`, not walked. A
-    directory there that holds a run's configuration is neither read nor ignored: its root is
+    else. A directory with no run configuration, beneath the root and not the root itself, whose
+    parameters record (the first thing a ``decompose`` writes) reads as one is a decomposition's:
+    read by :func:`_decomposition_findings`, and walked but for what it put there (:func:`_own`;
+    a settled one whose record does not read is walked only into an entry holding a run's
+    configuration at its top). A directory inside a run that holds a run's configuration is
+    neither read nor ignored: its root is
     recorded as not read whole, with its position. A link to a directory is not followed, and
     its root is recorded so too. A ``required`` root that is not there is recorded as missing,
     never read as empty.

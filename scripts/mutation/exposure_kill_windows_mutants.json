@@ -438,9 +438,9 @@
  },
  {
   "name": "decompose_takes_any_run_directory",
-  "file": "src/physgate/orchestrator/cli.py",
-  "old": "        require_only_its_own(\n            run_dir,\n",
-  "new": "        (lambda *a, **k: None)(\n            run_dir,\n",
+  "file": "src/physgate/orchestrator/decompose.py",
+  "old": "    require_only_its_own(\n        run_dir, given=[",
+  "new": "    (lambda *a, **k: None)(\n        run_dir, given=[",
   "tests": [
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
    "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
@@ -463,9 +463,9 @@
  },
  {
   "name": "the_target_is_not_recorded",
-  "file": "src/physgate/orchestrator/cli.py",
-  "old": "        record_params(run_dir, args.params, target=args.target)\n",
-  "new": "        record_params(run_dir, args.params)\n",
+  "file": "src/physgate/orchestrator/decompose.py",
+  "old": "    record_params(run_dir, params, target=target)\n",
+  "new": "    record_params(run_dir, params)\n",
   "tests": [
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
    "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
@@ -1480,6 +1480,56 @@
   "file": "src/physgate/evaluation/tiers/exposure.py",
   "old": "    return _digest(f\"settled\\0{identity}\\0{_params_print(directory)}\".encode())\n",
   "new": "    return _digest(f\"settled\\0{os.path.realpath(directory)}\".encode())\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_settled_unreadable_parameters_record_is_walked_whole",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "                    return frozenset(os.listdir(fd))\n",
+  "new": "                    return None\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "the_unsearchable_refusal_advises_a_settle",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            \"permissions, its disk) and reads again\"\n        )\n        raise _refuse(\"register_unreadable\", msg) from exc\n",
+  "new": "            \"permissions, its disk) and reads again\"\n        )\n        raise _unreadable(\"a decomposition's directory under the run roots cannot be searched\") from exc\n",
   "tests": [
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
    "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"

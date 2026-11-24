@@ -7,6 +7,15 @@ the tasks are read from the version (:func:`_version_tasks`, this module's one r
 store), and every place a protected task's brief, answer, score or record is written lies
 beneath the role's withheld root, which every run on the store withholds.
 
+**What the round's own earlier process left is dealt with first** each time it is started again
+(:func:`_what_its_earlier_process_left`): once the round is found by its output directory and its
+lock held, every directory its ledger placed has its left review stopped, its sessions'
+credentials removed and its exposure written, before anything below can refuse the start; a left
+review that showed held-out material then refuses it. Only a start from inside a session, an
+output directory that names no round, a round another driver holds, and a ledger that cannot be
+read are refused before it: the round's own directories are then not known, or not this
+process's to touch.
+
 **Everything is refused before the first trial** (:func:`_refusals`), and again each time the
 round is started: inside a harness session's environment; while a session left in the work
 root still runs; a store a split or a session's work has not left clean; a version the role does
@@ -91,7 +100,7 @@ trial is never repeated and never skipped, and a killed run is resumed, never re
 - before a directory is left behind, what the core's commands do first with one a killed
   decomposition left is done: the credential files of its sessions no process runs as are
   removed, and a plan review session left running is stopped, its streams scanned for the
-  held-out canaries; one that showed one stops the round;
+  held-out canaries; one that showed one stops the round (a restart does it first, above);
 - any other end is the run's own, and is assembled as it is: its answer is the one file of the
   task's answer name directly inside the module directory its own recorded plan names.
 

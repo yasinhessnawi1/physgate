@@ -926,7 +926,7 @@
  {
   "name": "a_left_review_s_exposure_is_not_refused",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "    if left.exposed:",
+  "old": "    if _deal_with(ctx.place, planned.index, attempt, run_dir):",
   "new": "    if False:",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py"
@@ -2295,6 +2295,103 @@
    "tests/unit/evaluation/per_role/harness_rig.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_restart_deals_with_what_it_left_only_after_the_register",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "            _what_its_earlier_process_left(place, round_id)\n            found, flagged, check_sha256, given, order, pins = _checked(inputs, driver)\n",
+  "new": "            found, flagged, check_sha256, given, order, pins = _checked(inputs, driver)\n            _what_its_earlier_process_left(place, round_id)\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_restart_deals_only_with_the_last_directory_placed",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    for index, attempt in placed:\n",
+  "new": "    for index, attempt in placed[-1:]:\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_restart_stops_at_the_first_exposed_directory",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "            exposed.append((index, attempt))\n",
+  "new": "            raise _left_exposed(index, attempt, directories=\"1\")\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_target_is_not_recorded_through_the_round",
+  "file": "src/physgate/orchestrator/decompose.py",
+  "old": "    record_params(run_dir, params, target=target)\n",
+  "new": "    record_params(run_dir, params)\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_cut_before_its_run_configuration_through_the_command_is_superseded_once.py",
+   "tests/unit/evaluation/harness_round/test_a_run_begun_and_never_finished_is_a_decomposition_that_spent_its_call.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/call.rounds.jsonl",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/review.rounds.jsonl",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/harness_round/test_a_decomposition_the_usage_limit_stopped_through_the_command_is_waited_for_and_made_again.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ],
   "paths": [
    "knowledge"

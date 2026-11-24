@@ -62,6 +62,7 @@ from physgate.orchestrator import design_rounds  # noqa: E402
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper  # noqa: E402
 from physgate.orchestrator.budget import SessionEnd  # noqa: E402
 from physgate.orchestrator.canaries import CanaryCheck  # noqa: E402
+from physgate.orchestrator.credentials import remove_secrets  # noqa: E402
 from physgate.orchestrator.decompose import (  # noqa: E402
     Outcome,
     Plan,
@@ -302,8 +303,9 @@ class StandInDriver:
     #: Under a parameters' ``design_review: observe``, the plan's call and its review, scripted:
     #: the decompositions killed once the call wrote its stream; killed during the review, the
     #: review's session left running (and its stream holding ``review_shows`` where given); whose
-    #: review errs (``invocation_error`` or ``model_separation``, a void); whose run cannot be
-    #: started (a void after the round's end line).
+    #: review errs (``invocation_error`` or ``model_separation``, a void; an invocation error with
+    #: ``review_shows`` given after its session wrote it and ended); whose run cannot be started (a
+    #: void after the round's end line).
     killed_after_call: set[int] = field(default_factory=set)
     killed_in_review: set[int] = field(default_factory=set)
     review_shows: str | None = None
@@ -594,6 +596,14 @@ class PlanReview:
             raise Killed
         error = self.driver.review_errs.get(self.n)
         if error == "invocation_error":
+            if self.driver.review_shows is not None:
+                # Its session spawned, recorded and wrote its stream, and ended before the error;
+                # the reviewer removes the session's credential once it ends, as the real one does.
+                ended = self._left_running(session_id)
+                ended.kill()
+                ended.wait()
+                session = self.root / session_id / "session"
+                remove_secrets(session / "state", session / "config")
             msg = "the review was answered by a model other than the pinned one"
             raise InvocationError(msg)
         if error == "model_separation":
@@ -622,7 +632,7 @@ class PlanReview:
             rubric_sha256=hashlib.sha256(b"the design rubric, scripted").hexdigest(),
         )
 
-    def _left_running(self, session_id: str) -> None:
+    def _left_running(self, session_id: str) -> subprocess.Popen[bytes]:
         """A review session spawned and recorded as the reviewer does, then left running."""
         process = subprocess.Popen(  # noqa: S603 - this interpreter, fixed arguments
             [sys.executable, "-c", "import time; time.sleep(300)", "--session-id", session_id],
@@ -648,6 +658,7 @@ class PlanReview:
         )
         assert self.hook is not None
         self.hook(session_id, process.pid, started)
+        return process
 
 
 @dataclass

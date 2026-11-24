@@ -266,7 +266,7 @@ def test_a_refused_start_deals_with_every_directory_the_round_left_not_only_the_
     _killed(rig, first)
     # Started again while the process table cannot say whether the first left review runs: the
     # stop keeps its record and signals nothing, so it is left; the trial's one more go is then
-    # killed in its own review, which showed the canary. Two directories are left.
+    # killed in its own review. Two directories are left, each with a review still running.
     with monkeypatch.context() as patch:
 
         def unreadable(*_: Any) -> bool:  # noqa: ANN401
@@ -274,15 +274,35 @@ def test_a_refused_start_deals_with_every_directory_the_round_left_not_only_the_
             raise OSError(msg)
 
         patch.setattr(decomposition_review, "is_session", unreadable)
-        second = _driver(rig, drivers, killed_in_review={1}, review_shows=f"read {canary}")
+        second = _driver(rig, drivers, killed_in_review={1})
         _killed(rig, second, resume=True)
     left = [*first.left_reviews, *second.left_reviews]
     assert len(left) == 2 and all(started_at(pid) is not None for pid, _ in left)
+    # The first, still running, writes the canary into its stream after that start read it.
+    (stream,) = (rig.run_root / _place(rig).name / "0000-1" / "review").rglob("stdout.jsonl")
+    with stream.open("a") as written:
+        written.write(json.dumps({"type": "assistant", "text": f"read {canary}"}) + "\n")
     status, said = _go(rig, _driver(rig, drivers), [], resume=True)
     assert status == "refused:left_review_exposed"
-    assert (said["index"], said["attempt"], said["directories"]) == ("0", "2", "1")
+    assert (said["index"], said["attempt"], said["directories"]) == ("0", "1", "1")
+    # Every directory dealt with before the refusal, the one after the exposed one too.
     assert [pid for pid, _ in left if started_at(pid) is not None] == []
     assert _keys(rig) == [], "a credential file stays beneath the run root"
+
+
+def test_a_review_that_showed_the_canary_and_raised_in_the_round_s_own_process_stops_it(
+    tmp_path: Path, drivers: list[StandInDriver]
+) -> None:
+    rig = make_rig(tmp_path, design_review="observe")
+    canary = sorted(rig.made.canaries)[0]
+    driver = _driver(
+        rig, drivers, review_errs={1: "invocation_error"}, review_shows=f"read {canary}"
+    )
+    status, said = _go(rig, driver, [])
+    assert status == "refused:left_review_exposed"
+    assert (said["index"], said["attempt"]) == ("0", "1")
+    assert [c.run_dir.name for c in driver.decomposed] == ["0000-1"]
+    assert _ledger(rig, "superseded") == [] and _keys(rig) == []
 
 
 def test_a_restart_deals_only_with_the_directories_its_own_ledger_placed(
@@ -303,6 +323,31 @@ def test_a_restart_deals_only_with_the_directories_its_own_ledger_placed(
     assert started_at(pid) is not None and len(_keys(rig)) == 1
     status, _ = _go(rig, _driver(rig, drivers), [], resume=True)
     assert status == "done" and started_at(pid) is None and _keys(rig) == []
+
+
+def test_a_restart_given_another_run_root_deals_with_the_round_s_own_directories_first(
+    tmp_path: Path, drivers: list[StandInDriver]
+) -> None:
+    rig = make_rig(tmp_path, design_review="observe")
+    first = _driver(rig, drivers, killed_in_review={1})
+    _killed(rig, first)
+    ((pid, _sid),) = first.left_reviews
+    elsewhere = rig.root / "elsewhere"
+    elsewhere.mkdir()
+    # The directories are the ones the round's ledger placed, beneath the run root it records:
+    # never found beneath the root a restart names.
+    with pytest.raises(RoundError) as refused:
+        run_round(
+            rig.inputs(trials=1, run_root=elsewhere),
+            driver=_driver(rig, drivers),
+            scorer=_score,
+            resume=True,
+            sleep=lambda _: None,
+        )
+    assert refused.value.context.get("refused_because") == "run_root_not_registered"
+    assert started_at(pid) is None and _keys(rig) == []
+    status, _ = _go(rig, _driver(rig, drivers), [], resume=True)
+    assert status == "done" and _outcomes(rig) == ["pass"]
 
 
 def test_a_start_refused_because_another_driver_holds_the_round_touches_nothing(
