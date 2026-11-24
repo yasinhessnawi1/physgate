@@ -1451,8 +1451,8 @@
  {
   "name": "a_decomposition_s_limit_wait_is_not_held",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "    if halted_at is not None and resume_refusal(halted_at, None, now, limit_reset=False) is None:\n",
-  "new": "    if True:\n",
+  "old": "        if resume_refusal(halted_at, limit, now, limit_reset=False) is None:\n",
+  "new": "        if True:\n",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_round_waiting_for_the_usage_limit_says_when_to_come_back.py"
   ],
@@ -1968,6 +1968,294 @@
    "tests/unit/evaluation/per_role/harness_rig.py",
    "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "rounds_void_on_the_limit_are_superseded",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        on_limit = rounds_on_the_limit(run_dir)\n        if on_limit is not None:\n            # Rounds",
+  "new": "        on_limit = None\n        if on_limit is not None:\n            # Rounds",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_the_usage_limit_stopped_through_the_command_is_waited_for_and_made_again.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/call.rounds.jsonl",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/review.rounds.jsonl"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_void_line_names_the_stated_wait_after_a_read_reset",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "\"resume_after\": resume_after(ended, limit),",
+  "new": "\"resume_after\": resume_after(ended, None),",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_the_usage_limit_stopped_through_the_command_is_waited_for_and_made_again.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/call.rounds.jsonl",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/review.rounds.jsonl"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_void_line_names_no_spend",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "\"tokens\": \"unread\" if spent is None else spent,",
+  "new": "\"tokens\": \"unread\",",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_the_usage_limit_stopped_through_the_command_is_waited_for_and_made_again.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/call.rounds.jsonl",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/review.rounds.jsonl"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_void_line_names_no_instant",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "\"halted_at\": ended,",
+  "new": "\"halted_at\": None,",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_the_usage_limit_stopped_through_the_command_is_waited_for_and_made_again.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/call.rounds.jsonl",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/review.rounds.jsonl"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_halt_line_names_the_stated_wait_after_a_read_reset",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "\"resume_after\": resume_after(halt.ts, halt.usage_limit),",
+  "new": "\"resume_after\": resume_after(halt.ts, None),",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_the_usage_limit_stopped_through_the_command_is_waited_for_and_made_again.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/call.rounds.jsonl",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/review.rounds.jsonl"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_restart_reads_no_recorded_limit",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    limit = _limit_recorded(ctx.run_dir(i, attempt))\n",
+  "new": "    limit = None\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_the_usage_limit_stopped_through_the_command_is_waited_for_and_made_again.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/call.rounds.jsonl",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/review.rounds.jsonl"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_word_helps_past_a_read_reset",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        helps = resume_refusal(halted_at, limit, now, limit_reset=True) is None\n",
+  "new": "        helps = True\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_the_usage_limit_stopped_through_the_command_is_waited_for_and_made_again.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/call.rounds.jsonl",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/review.rounds.jsonl"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_halt_s_limit_is_not_read_at_a_restart",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        return None if halt is None else halt.usage_limit\n",
+  "new": "        return None\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_the_usage_limit_stopped_through_the_command_is_waited_for_and_made_again.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/call.rounds.jsonl",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/review.rounds.jsonl"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_rounds_limit_is_not_read_at_a_restart",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    return None if on_limit is None else on_limit[1]\n",
+  "new": "    return None\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_decomposition_the_usage_limit_stopped_through_the_command_is_waited_for_and_made_again.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/call.rounds.jsonl",
+   "tests/unit/evaluation/harness_round/journals_before_the_limit/review.rounds.jsonl"
   ],
   "paths": [
    "knowledge"
