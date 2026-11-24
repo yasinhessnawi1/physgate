@@ -74,12 +74,14 @@ the halt it keeps and returns) names no path of the protected material (beneath 
 answer-key root, a withheld run record, a root withheld whole, the place apart, the reviewers'
 material; :func:`_kind`): a label stands in its place (:func:`label_of`), the kind of
 protection and a digest of the path keyed by a key the session does not read, kept in the place
-apart (made there the first time a label is needed; refused to reviewers and role sessions, not
-yet to a raw baseline session, which is not withheld the review root), or, where none is named,
-in the session's own record, beside the paths it holds already. One path has one label, so two
-are told apart; the operator finds the path from the key and the record kept apart. A label made
-with a key for one call alone says so. A halt kept by a record made before the labels is
-returned as it was kept. An exception that escapes the check is written by its kind alone
+apart (made there the first time a label is needed; refused to reviewers, to the role sessions of
+the run whose place apart it is, and, under a review root, to every session given that root as
+review material: a role session its own run's, a raw baseline session the harness run's, and
+either the standing one where its run names a held-out tier), or, where none is named, in the
+session's own record, beside the paths it holds already. One path has one label,
+so two are told apart; the operator finds the path from the key and the record kept apart.
+A label made with a key for one call alone says so. A halt kept by a record made before the
+labels is returned as it was kept. An exception that escapes the check is written by its kind alone
 (:func:`physgate.hooks.runtime.failure`).
 """
 

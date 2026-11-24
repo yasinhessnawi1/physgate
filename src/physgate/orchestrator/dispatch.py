@@ -176,7 +176,11 @@ from physgate.oslayer.reaper_install import CANARY_EXPORT
 from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
-from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
+from physgate.reviewers.places import (
+    SESSION_DIRNAME,
+    review_root_path,
+    standing_review_material,
+)
 from physgate.series.collect import collect, empty_outbox, temporary_roots
 from physgate.series.seal import SetAside
 from physgate.state.write_account import ACCOUNT_NAME, Settled, account_of, read_account
@@ -492,6 +496,35 @@ def session_protected_roots(
         Path(store_root) / ".git",
     )
     return reverted, refused
+
+
+def withheld_whole_args(run_dir: Path, roots: Sequence[str]) -> list[str]:
+    """The installer's options for the roots the run withholds whole from every role session.
+
+    Each root, where it really is, refused to every read and write on every layer by rule,
+    whatever is made in it later (an earlier run made beside this one). A root that holds the run's
+    directory has the run's directory as the session's own place in it, so the session reaches
+    its worktree there, and what it is given to read in its own session directory, as it does
+    today; nothing else of the root.
+
+    Raises:
+        InvocationError: a root is the run's directory or lies in it: the session would have no
+            place of its own inside it. Said by what it is, never by the path.
+    """
+    place = os.path.realpath(run_dir)
+    args: list[str] = []
+    around = False
+    for root in roots:
+        real = os.path.realpath(root)
+        if real == place or real.startswith(place.rstrip("/") + "/"):
+            msg = (
+                "a root the run withholds whole is the run's own directory or lies in it, so no "
+                "session of the run has a place of its own inside it"
+            )
+            raise InvocationError(msg, refused_because="withheld_whole_holds_no_place")
+        args += ["--withheld-whole", real]
+        around = around or place.startswith(real.rstrip("/") + "/")
+    return [*args, "--own-place", place] if around else args
 
 
 #: The files and directories in a repository's common git directory through which a write
@@ -1795,6 +1828,15 @@ class ClaudeDispatcher:
         # Where reviews are prepared, each packet with its copy of a rubric: withheld
         # from the role session like the library's reviewer tree.
         protect += ["--review-material", str(self._review_root)]
+        # And the standing review root, where runs made by hand review by convention, where the
+        # run names a held-out tier: a measured run reviews inside its own run directory, so
+        # its review root is never the standing one, which would otherwise lie open to it.
+        protect += [
+            arg
+            for root in standing_review_material(self._config.held_out)
+            if root != str(self._review_root)
+            for arg in ("--review-material", root)
+        ]
         # The run's records that name the held-out tier's canaries, and its parameters file:
         # no read of them, by any route, though they lie within reach of the worktree.
         try:
@@ -1872,6 +1914,8 @@ class ClaudeDispatcher:
             *protect,
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
+            # The run roots where earlier runs on the tier lie, whole, but for the session's own.
+            *withheld_whole_args(self._run.run_dir, self._config.withheld_whole),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
             # The tool servers the session is offered: their admitted tools join its closed
             # list. None without the OS layer, which alone contains them.

@@ -37,6 +37,10 @@ class RunFacts:
     #: The run's directory, resolved: where its records are, judged by a requirement on where
     #: a run is made. ``None`` where a caller has no run directory to show.
     run_dir: Path | None = None
+    #: The review root the run's reviews run under, resolved, as the command names it: given at
+    #: decompose when one is named there, at every run and resume always. ``None`` where none is
+    #: named, or a caller has none to show.
+    review_root: Path | None = None
 
 
 #: A requirement: ``None`` if the run may start, else why it may not.

@@ -168,7 +168,8 @@ from physgate.evaluation.tiers.task import (
 from physgate.orchestrator.binaries import ClaudeBinary, measure
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import MAX_SESSION_FILE_BYTES
-from physgate.orchestrator.exceptions import InvocationError, RunConfigError
+from physgate.orchestrator.exceptions import InvocationError, RunConfigError, RunStateError
+from physgate.orchestrator.review_root_record import recorded_review_root
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.run_config import (
     RunConfig,
@@ -177,6 +178,7 @@ from physgate.orchestrator.run_config import (
 )
 from physgate.orchestrator.session_files import FileRefused, open_beneath, read_bounded
 from physgate.oslayer.probe import Absent, Present
+from physgate.reviewers.places import standing_review_material
 
 #: Where a round's finished visible trials lie, beneath the round's own directory.
 WORK = "work"
@@ -220,6 +222,9 @@ class Planned:
     task: Task
     tier: TierName
     cap: int
+    #: Where the harness run's reviews ran, as it recorded it: inside its own run directory
+    #: (:func:`_require_reviewed_inside`), withheld from the raw session whole.
+    review_root: Path
 
 
 #: The raw arm: one session on the task, in a new directory, capped; its record.
@@ -280,6 +285,13 @@ def setup_from_run(
         tool_environment=config.tool_environment,
         tool_servers=config.tool_servers,
         held_out_sha256=tuple(config.held_out_sha256),
+        # The run roots the harness run withheld whole, where the round's harness runs lie.
+        withheld_whole=tuple(config.withheld_whole),
+        # The standing review root, where a run made by hand reviews by convention: refused to
+        # the raw session whole, every packet, reviewer's record and the key for labels there,
+        # where the harness run names a held-out tier. The harness run's own review root is
+        # added for each trial (:func:`_one_trial`).
+        withheld_reads=standing_review_material(config.held_out),
     )
 
 
@@ -415,6 +427,7 @@ def plan(
             )
             raise BaselineError(msg, **where, **exc.context) from None
         _require_withheld(store, role, config, canaries, where)
+        reviewed = _require_reviewed_inside(run_dir, where)
         found = tasks.get(config.brief_sha256)
         if found is None:
             msg = f"the harness run was given no task of {of_what}"
@@ -449,7 +462,7 @@ def plan(
             msg = "the harness runs executed different builds of the session binary"
             raise BaselineError(msg, **where, refused_because="binary")
         binary_seen = config.binary
-        planned.append(Planned(index, entry, config, task, tier, cap))
+        planned.append(Planned(index, entry, config, task, tier, cap, reviewed))
     return source, planned
 
 
@@ -554,6 +567,8 @@ def _require_withheld(
     Raises:
         BaselineError: a place or a canary is missing; places by path, canaries by count.
     """
+    from physgate.evaluation.tiers.exposure import run_roots_refusal
+
     others = [r for r in get_args(Role) if r != role and os.path.lexists(role_root(store, r))]
     also = [(store, role), *((store, other) for other in others)]
     for refusal in (
@@ -561,6 +576,9 @@ def _require_withheld(
         withheld_refusal(config.held_out, also=also),
         work_refusal(config.held_out),
         protected_tier_refusal(config.held_out, also=also),
+        # The run roots, whole, where the round's harness runs lie: the raw session is given
+        # them as the harness run withheld them.
+        run_roots_refusal(config, None),
     ):
         if refusal is not None:
             msg = (
@@ -574,6 +592,41 @@ def _require_withheld(
             "and of every role's root in the store"
         )
         raise BaselineError(msg, missing=str(len(missing)), **where)
+
+
+def _require_reviewed_inside(run_dir: Path, where: dict[str, str]) -> Path:
+    """The harness run's review root, as it recorded it, if it lies inside its run directory.
+
+    Its reviews leave the brief, the specification and the answer in each packet, each
+    reviewer's record, and the key for labels under its review root. A raw session is withheld
+    that root whole, and every later session is withheld it with the run roots, only where it
+    lies strictly inside the run's own directory, which is where a measured run reviews
+    (:func:`physgate.evaluation.tiers.exposure.review_root_refusal`). A development round is held
+    to it too.
+
+    Raises:
+        BaselineError: the run recorded no review root, or one that cannot be read, so where its
+            reviews ran is unknown; or one outside its directory. Said by what it is, never by
+            the path.
+    """
+    from physgate.evaluation.tiers.exposure import review_root_refusal
+
+    try:
+        recorded = recorded_review_root(run_dir)
+    except RunStateError:
+        recorded = None
+    if recorded is None:
+        msg = (
+            "the harness run recorded no review root that can be read, so where its reviews left "
+            "the brief and the answer is unknown and nothing could withhold it from the raw "
+            "session"
+        )
+        raise BaselineError(msg, refused_because="review_root_unrecorded", **where)
+    refusal = review_root_refusal(run_dir, recorded, reviewing=True)
+    if refusal is not None:
+        msg = f"the harness run did not review where every run on the store must: {refusal[1]}"
+        raise BaselineError(msg, refused_because=refusal[0], **where)
+    return Path(os.path.realpath(recorded))
 
 
 @dataclass
@@ -860,6 +913,17 @@ def _one_trial(
     if built != trial.config.binary:
         msg = "the binary here is not the build the harness run executed"
         raise BaselineError(msg, entry=str(trial.index), refused_because="binary")
+    if not isinstance(setup.os_layer, Present):
+        # Before the session, never only after it (``differences``): every raw session is
+        # withheld a root whole (the work root around its trial's place, and the run roots), and
+        # with the hooks alone a path a command builds as it runs reaches it. The installer
+        # refuses such a session too; here the round stops before it makes any place.
+        msg = (
+            "the OS layer is absent here, and every raw session is withheld a root whole (its "
+            "trial's place in the work root, the run roots), which the hooks alone do not hold; "
+            "no raw session runs without the layer"
+        )
+        raise BaselineError(msg, entry=str(trial.index), refused_because="os_layer_absent")
     for attempt in (1, 2):
         name = f"{trial.index:04d}-{attempt}"
         if attempt == 2:
@@ -873,7 +937,12 @@ def _one_trial(
         # The work root is held until the trial is out (:func:`trial_place`).
         with trial_place(store, role, round_id, name) as (trial_dir, working):
             given = replace(
-                setup, held_out_carved=str(trial_dir / PLACE), held_out_also=(withheld_out,)
+                setup,
+                held_out_carved=str(trial_dir / PLACE),
+                held_out_also=(withheld_out,),
+                # The harness run's own review root, whole: where its reviews left the brief and
+                # the answer, refused to the raw session wherever its run lies.
+                withheld_reads=(*setup.withheld_reads, str(trial.review_root)),
             )
             work, harness = trial_dir / PLACE, trial_dir / HARNESS
             harness.mkdir(mode=0o700)

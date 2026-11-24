@@ -20,6 +20,7 @@ from physgate.evaluation.baseline.runner import BaselineError, _require_withheld
 from physgate.evaluation.tiers import store as store_module
 from physgate.evaluation.tiers.authoring import AuthoringError, author_brief
 from physgate.evaluation.tiers.canaries import store_canaries
+from physgate.evaluation.tiers.exposure import start_logs
 from physgate.evaluation.tiers.manifest import requirements_source, staleness
 from physgate.evaluation.tiers.store import is_visible_tier, role_roots
 from physgate.evaluation.tiers.task import AnswerForm, Role, ScorerId
@@ -36,6 +37,9 @@ def _version(store: Path, role: str, canary: str | None = None) -> Path:
         (root / part).mkdir(parents=True, exist_ok=True)
     for name in ("visible", "validation", "held_out"):
         (root / VERSION / name).mkdir(parents=True, exist_ok=True)
+    # As a version's writer leaves a role's root: its register and run roots, empty.
+    if not (root / "withheld" / "register.jsonl").exists():
+        start_logs(root / "withheld")
     if canary is not None:
         tier = root / VERSION / "held_out"
         (tier / "t-1").mkdir()
@@ -107,7 +111,9 @@ def test_the_status_command_reads_a_whole_run_root_as_it_reads_every_role_s(
 
 
 def _config(*entries: Path) -> Any:  # noqa: ANN401
-    return SimpleNamespace(held_out=tuple(str(e) for e in entries), held_out_canaries=())
+    return SimpleNamespace(
+        held_out=tuple(str(e) for e in entries), held_out_canaries=(), withheld_whole=()
+    )
 
 
 def _control_alone(store: Path) -> list[Path]:

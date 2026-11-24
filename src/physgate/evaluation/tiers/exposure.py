@@ -73,7 +73,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import Field, StringConstraints, TypeAdapter, ValidationError, model_validator
 
@@ -86,6 +86,7 @@ from physgate.evaluation.tiers.store import (
     PROTECTED,
     role_root,
     role_roots,
+    spelt_as_on_disk,
     withheld_root,
 )
 from physgate.evaluation.tiers.task import Role, Sha256, canonical_json, parse_task
@@ -1148,6 +1149,13 @@ def add_run_root(store: Path, role: Role, root: Path) -> bool:
     if root.is_symlink() or not root.is_dir():
         raise _refuse("run_root_not_a_directory", f"{root} is not a directory of its own")
     real, home = root.resolve(), store.resolve()
+    if not _spelt_as_its_real_path(root.absolute()):
+        msg = (
+            f"{root} is not its real path spelt as the disk spells it (another case, or a linked "
+            "parent): a run root is registered as it is on disk, so every layer that withholds "
+            "it is given the spelling that is there"
+        )
+        raise _refuse("run_root_not_spelt_as_on_disk", msg)
     if not os.access(real, os.R_OK | os.X_OK):
         raise _refuse("run_root_unreadable", f"{root} cannot be listed")
     if real.is_relative_to(home) or home.is_relative_to(real):
@@ -1476,3 +1484,132 @@ def _version_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str]
         if (s, r, v) == (store, role, version)
     }
     return _scan_refusal(config, run_dir, role_root(store, role) / version, named)
+
+
+def run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str] | None:
+    """Why a measured run does not withhold whole the run roots every run on its stores must.
+
+    The earlier runs on a store lie under its roles' run roots, each with every canary of the
+    store in its record, the plan and specifications written from its brief, and its answer. A
+    measured run withholds whole, in ``withheld_whole``, exactly the run roots of every role's
+    root in each store it names, its own role's or another's, spelt as the run-roots logs hold
+    them: all of them
+    (``run_root_not_withheld``), and nothing else (``withheld_whole_not_a_run_root``). Its
+    sessions reach only their own worktree inside them, so its directory lies strictly inside a
+    run root, never at one (``run_dir_is_a_run_root``). Only counts are said, never a path.
+    ``None`` if the run may go on.
+    """
+    try:
+        return _run_roots_refusal(config, run_dir)
+    except Exception as exc:  # noqa: BLE001 - anything unchecked is a refusal, never a pass
+        reason = exc.context.get("refused_because") if isinstance(exc, PerRoleError) else None
+        return reason or "register_unreadable", (
+            f"the run roots the run must withhold cannot be read: {type(exc).__name__}"
+        )
+
+
+def _spelt_as_its_real_path(path: Path) -> bool:
+    """Whether ``path`` is its real path (no linked part) and spelt as the disk spells each part.
+
+    Raises:
+        OSError: a directory on the way cannot be listed, so the spelling cannot be judged.
+    """
+    return os.path.realpath(path) == os.path.normpath(path) and spelt_as_on_disk(path)
+
+
+def _run_roots_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str] | None:
+    registered: set[str] = set()
+    for store in sorted({store for store, _ in role_roots(tuple(config.held_out))}):
+        # Every role's root in the store, named or not: its runs lie on the same store.
+        for role in get_args(Role):
+            if os.path.lexists(role_root(store, role)):
+                registered |= {str(root) for root in run_roots(store, role)}
+    # As it is on disk, or a session's hooks would match another spelling than the layer's: one
+    # registered before the rule, or renamed since, refuses the run until it is registered anew.
+    wrong = [root for root in registered if not _spelt_as_its_real_path(Path(root))]
+    if wrong:
+        return "run_root_not_spelt_as_on_disk", (
+            f"{len(wrong)} of the run roots of the stores the run names are not their real path "
+            "spelt as the disk spells it (another case, or a linked parent), and no command "
+            "retires a run root's line, so measured runs on the store wait for a person to "
+            "correct the register"
+        )
+    given = set(config.withheld_whole)
+    missing = registered - given
+    if missing:
+        return "run_root_not_withheld", (
+            f"the run does not withhold whole {len(missing)} of the run roots of the stores it "
+            "names, where the earlier runs on them lie: a measured run withholds each of them "
+            "whole, spelt as the run roots record it"
+        )
+    other = given - registered
+    if other:
+        return "withheld_whole_not_a_run_root", (
+            f"{len(other)} of the roots the run withholds whole are no run root of a store it "
+            "names: a measured run withholds whole the run roots of its stores, and nothing else"
+        )
+    if run_dir is not None and str(run_dir.resolve()) in registered:
+        return "run_dir_is_a_run_root", (
+            "the run's directory is itself a run root, so its sessions would have no place of "
+            "their own inside the root they withhold whole; a measured run is made inside one"
+        )
+    # As the roots are: a directory typed in another case would spell its sessions' worktrees
+    # so, and the hooks, which match the spelling, would refuse nearly every command of theirs.
+    if run_dir is not None and not spelt_as_on_disk(run_dir.resolve()):
+        return "run_dir_not_spelt_as_on_disk", (
+            "the run's directory is not spelt as the disk spells it (another case), so its "
+            "sessions' places would be spelt otherwise than the run roots that hold them; a "
+            "measured run is named as its directory is on disk"
+        )
+    return None
+
+
+#: The places in a run's directory its sessions work in: the modules' worktrees (each module's
+#: work is committed from its own) and the sessions' own directories. No review root lies there.
+RUN_SESSION_PLACES = ("worktrees", "sessions")
+
+
+def review_root_refusal(
+    run_dir: Path | None, review_root: Path | None, *, reviewing: bool
+) -> tuple[str, str] | None:
+    """Why a run's reviews would lie where a later session on its stores could read them.
+
+    A review leaves under its review root the packet it reads (the brief, the specification, the
+    answer), the reviewer's own record, and the place apart with the key that maps every label
+    back. A measured run's directory lies strictly inside a run root of its stores, and every
+    measured run on them and every raw session withholds those roots whole. So its reviews are
+    withheld with it when its review root lies strictly inside that directory, where both really
+    are (``review_root_outside_the_run``), and not in its worktrees or session directories
+    (``review_root_in_a_session_place``). Then every review root of the stores' measured runs
+    lies in their run roots. Nothing but the run roots is withheld whole, and no register of
+    review roots is needed. ``reviewing``: the run is about to review (at run and resume), so a
+    root not shown refuses it (``review_root_not_shown``); at decompose none is shown where the
+    plan is not reviewed. Only what the root is is said, never a path. ``None`` if the run may go
+    on.
+    """
+    if review_root is None:
+        if not reviewing:
+            return None
+        return "review_root_not_shown", (
+            "the run is about to review and no review root was shown, so where its reviews leave "
+            "the brief and the answer cannot be judged"
+        )
+    place = os.path.realpath(review_root)
+    run = None if run_dir is None else os.path.realpath(run_dir)
+    if run is None or not place.startswith(run.rstrip("/") + "/"):
+        return "review_root_outside_the_run", (
+            "the run's review root lies outside its own run directory, so a later session on its "
+            "stores could read what its reviews leave there (each packet with the brief and the "
+            "answer, each reviewer's record, the key for labels): a measured run reviews inside "
+            "its own run directory, which the run roots withhold whole"
+        )
+    if any(
+        place == inner or place.startswith(inner + "/")
+        for inner in (os.path.join(run, name) for name in RUN_SESSION_PLACES)
+    ):
+        return "review_root_in_a_session_place", (
+            "the run's review root lies in its worktrees or its session directories, where a "
+            "module's work is committed from and a session's own files lie: a measured run "
+            "reviews beside them in its run directory"
+        )
+    return None

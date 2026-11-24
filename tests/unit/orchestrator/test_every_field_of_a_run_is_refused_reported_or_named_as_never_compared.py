@@ -70,6 +70,7 @@ NEVER_COMPARED = {
     "seed",
     "held_out",
     "held_out_canaries",
+    "withheld_whole",
     "network_enforced",
     "account",
 }
