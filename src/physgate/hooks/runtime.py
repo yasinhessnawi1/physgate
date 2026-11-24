@@ -225,8 +225,9 @@ def failure(exc: BaseException, config: ConfigView | None) -> str:
     Its kind, never its own text: an ``OSError``'s text carries the file it met, which can be a
     held-out file whose path is its task's id, and any other exception's can quote what it was
     handed. So it is written as its class; for an error of the system, its errno's name and each
-    file it names as every refusal names a path (a path of the protected material by its label,
-    :func:`physgate.hooks.sentinel.labeller`; any other as it is); and the function it was
+    file it names (a path of the protected material by its label,
+    :func:`physgate.hooks.sentinel.labeller`; any other by the kind of place it lies in, never
+    its path); and the function it was
     raised in. Only the hook layer's own errors (:class:`HookError`) keep their message, which is
     written for the agent and names no protected path. Never raises.
     """
@@ -262,12 +263,24 @@ def _subject(name: object, config: ConfigView | None) -> str:
     if config is None:
         return "a path not named, as no configuration was read to judge it by"
     try:
-        # Imported here: only a hook that failed on a file needs it, and it imports this module.
+        # Imported here: only a hook that failed on a file needs them, and one imports this module.
+        from physgate.hooks.paths import reaches
         from physgate.hooks.sentinel import labeller
 
-        return labeller(config)(name)
+        said = labeller(config)(name)
+        if said != name:
+            return said
+        # A path no rule protects is still never written: one outside the protected material
+        # can be named after an entry of it (what the sentinel moves aside, a restore's twin).
+        # Only the kind of place it lies in is said, where that is the session's state or its
+        # worktree.
+        if reaches(name, config.state_dir):
+            return "a path in the hooks' state directory, not named"
+        if reaches(name, config.worktree):
+            return "a path in the worktree, not named"
     except BaseException:  # noqa: BLE001 - a path that cannot be judged is not named
         return "a path not named, as it could not be judged"
+    return "a path not named"
 
 
 def _raised_in(exc: BaseException) -> str | None:

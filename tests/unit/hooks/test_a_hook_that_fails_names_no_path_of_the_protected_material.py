@@ -4,8 +4,9 @@ Anything that escapes a hook becomes a refusal, so that Claude Code does not run
 refusal goes to the session, its line to the hook log and its text to stderr. What the refusal
 says of the failure is its kind (the exception's class, and for an error of the system the name
 of its errno), never the exception's own text: an ``OSError`` carries the file it met, and a held-
-out file's path carries its task's id. A file it names is named as every refusal names it: a
-path of the protected material by its label, any other path as it is.
+out file's path carries its task's id. A file it names is named by its label where it is a path
+of the protected material, and any other by the kind of place it lies in alone: a path outside
+the protected material can be named after an entry of it.
 
 The sentinel meets such a file where a held-out file cannot be read: at the session's first hook
 (a fault no session causes under the OS layer), or after a command the session ran without the
@@ -17,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -188,6 +190,52 @@ def test_a_blind_recursive_mode_change_teaches_the_session_no_protected_path_wit
         assert code == 2, f"{event}: a hook that could not decide let the call through"
         seen = {"the refusal": out, "stderr": err, "the hook log": _log(root)}
         assert _named(root, **seen) == dict.fromkeys(seen, []), (event, _named(root, **seen))
+
+
+def _swapped_for_a_file(root: Path) -> None:
+    """What a command run without the OS layer can do: the task's directory becomes a file."""
+    shutil.rmtree(root / "heldout" / TASK_ID)
+    (root / "heldout" / TASK_ID).write_bytes(b"planted\n")
+
+
+def test_a_held_out_entry_that_cannot_be_moved_aside_is_refused_with_no_path_named_on_every_call(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The move aside fails on a place outside the protected material: that place is not named.
+
+    Its path is the session's own, but what it is moved to was named after the entry, and a
+    failure names no path it cannot label, whatever path it is.
+    """
+    installed = _install(root)
+    assert _hook(root, installed, capsys, "SessionStart")[0] == 0
+    aside = root / "outside" / "state" / "sessions" / SESSION / "sentinel" / "quarantine"
+    aside.mkdir(parents=True)
+    _swapped_for_a_file(root)
+    aside.chmod(0o500)
+    for call in ("first", "second"):
+        code, out, err = _hook(root, installed, capsys, "PostToolUse")
+        assert code == 2, f"{call}: the call was not refused: {out}"
+        reason = _reason(out)
+        assert "PermissionError" in reason and "the hooks' state directory" in reason, reason
+        seen = {"the refusal": out, "stderr": err, "the hook log": _log(root)}
+        named = {w: [n for n in (TASK_ID, str(root)) if n in text] for w, text in seen.items()}
+        assert named == dict.fromkeys(seen, []), (call, named)
+
+
+def test_a_held_out_entry_moved_aside_leaves_no_name_of_its_task_in_the_session_s_directory(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    installed = _install(root)
+    assert _hook(root, installed, capsys, "SessionStart")[0] == 0
+    _swapped_for_a_file(root)
+    code, out, _err = _hook(root, installed, capsys, "PostToolUse")
+    assert code == 2, out
+    state = root / "outside" / "state"
+    names = [p.relative_to(state) for p in state.rglob("*") if TASK_ID in p.name]
+    assert names == [], names
+    # What was planted is kept as evidence all the same.
+    aside = state / "sessions" / SESSION / "sentinel" / "quarantine"
+    assert [p.read_bytes() for p in aside.iterdir()] == [b"planted\n"]
 
 
 def test_a_failure_that_is_no_error_of_the_system_is_named_by_its_kind_alone(

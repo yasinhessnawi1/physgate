@@ -128,11 +128,13 @@ def test_a_new_file_is_moved_aside_not_deleted(root: Path) -> None:
     (root / GATE / "newdir" / "deep" / "x.py").write_text("x\n")
     assert "put back" in _check(root)
     assert sorted(p.name for p in (root / GATE).iterdir()) == ["bounds", "check.py"]
-    kept = _quarantine(root)
-    assert any(n.endswith("planted.py") for n in kept) and any(n.endswith("newdir") for n in kept)
+    # Each is kept under a counter, never under its own name.
+    assert _quarantine(root) == ["0001", "0002"]
     q = root / "outside" / "state" / "sessions" / SESSION / "sentinel" / "quarantine"
-    (planted,) = [p for p in q.iterdir() if p.name.endswith("planted.py")]
+    (planted,) = [p for p in q.iterdir() if p.is_file()]
     assert planted.read_text() == "PASS = True\n"
+    (newdir,) = [p for p in q.iterdir() if p.is_dir()]
+    assert (newdir / "deep" / "x.py").read_text() == "x\n"
 
 
 def test_a_second_plant_of_the_same_name_does_not_overwrite_the_first(root: Path) -> None:

@@ -17,7 +17,7 @@ it a new inode and breaks the alias.
 
 **Nothing is deleted.** Something new inside a protected tree, or something of
 the wrong type where a file was, is moved into the session's quarantine under a
-name that is never reused, so what an agent planted is kept as evidence.
+counter that is never reused, so what an agent planted is kept as evidence.
 
 **A root may name its own exclusions.** A root's caller may pass paths beneath
 it that this walk does not enter and does not record — the same carve-out
@@ -302,7 +302,11 @@ def record(
 
 
 def quarantine(path: str, directory: str) -> str:
-    """Move ``path`` into ``directory`` under a name never used before; return it."""
+    """Move ``path`` into ``directory`` under a name never used before; return it.
+
+    The name is a counter alone, never the entry's own: a held-out task's directory is named
+    by its task's id, and the quarantine lies in the session's own state.
+    """
     # Imported here: a quarantine is rare, and the module is not free to load on
     # every hook's hot path.
     import shutil
@@ -310,7 +314,7 @@ def quarantine(path: str, directory: str) -> str:
     os.makedirs(directory, exist_ok=True)
     n = 1
     while True:
-        target = os.path.join(directory, f"{n:04d}-{os.path.basename(path)}")
+        target = os.path.join(directory, f"{n:04d}")
         if not os.path.lexists(target):
             # A move, which copies and then removes when the quarantine is on
             # another volume from the protected tree.
