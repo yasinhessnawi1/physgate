@@ -68,6 +68,15 @@ configuration names a place apart from its own directory (the run's, refused to 
 write of every layer), the part that names those entries is kept there under the session's id,
 and the record in the hook state holds none of them; every check reads both parts, and a part
 that is missing, or a record that holds it whole where a place apart is named, refuses.
+
+What the sentinel writes where the session or a later reader sees it (a refusal, the hook log,
+the halt it keeps and returns) names no path that no tool of the session may read, nor one
+beneath a held-out or answer-key root: a label stands in its place (:func:`label_of`), the kind of
+protection and a digest of the path keyed by a key no session reads, kept in the place apart
+(made there the first time a label is needed), or, where none is named, in the session's own
+record, beside the paths it holds already. One path has one label, so two are told apart; the
+operator finds the path from the key and the record kept apart. A halt kept by a record made
+before the labels is returned as it was kept.
 """
 
 from __future__ import annotations
@@ -85,16 +94,25 @@ from typing import TYPE_CHECKING
 
 from physgate.hooks import paths, withheld
 from physgate.hooks.journal_view import Head, heads
-from physgate.hooks.reasons import SENTINEL_APART_REASON
+from physgate.hooks.reasons import (
+    ANSWER_KEY_REASON,
+    HELD_OUT_REASON,
+    REVIEW_MATERIAL_REASON,
+    SENTINEL_APART_REASON,
+    WITHHELD_REASON,
+    WITHHELD_WHOLE_REASON,
+)
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.snapshot import BlobStore, Entry, file_digest, quarantine, record, signature
 from physgate.hooks.snapshot import signatures as take_signatures
 from physgate.hooks.state import append_log, session_dir
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from typing import Any
 
     from physgate.hooks.views import ConfigView, InputView
+    from physgate.hooks.withheld import Problem
 
 PUT_BACK = (
     "Protected paths changed during this session and were put back: {paths}. Protected "
@@ -328,6 +346,145 @@ def held_apart(place: str) -> None:
         ValueError: as :func:`opened_apart`.
     """
     os.close(opened_apart(place))
+
+
+#: The key labels are made with, in the place apart: one for every session that names the place.
+LABEL_KEY_NAME = "labels.key"
+#: The field of a record that keeps its own key, where no place apart is named.
+LABEL_KEY_FIELD = "label_key"
+_KEY_BYTES = 32
+#: The kind of protection a label names, by the rule that refuses the session's reads there.
+_KINDS = {
+    HELD_OUT_REASON: "held-out",
+    ANSWER_KEY_REASON: "answer-key",
+    WITHHELD_REASON: "withheld-record",
+    WITHHELD_WHOLE_REASON: "withheld-root",
+    SENTINEL_APART_REASON: "sentinel-record",
+    REVIEW_MATERIAL_REASON: "review-material",
+}
+
+
+def label_of(path: str, kind: str, key: bytes) -> str:
+    """What is written in place of ``path``: its kind, and a digest of it keyed by ``key``.
+
+    Twelve hex digits of keyed BLAKE2b (a keyed hash, so no module beyond ``hashlib`` is loaded)
+    over the path as the sentinel recorded it. Without the key a reader holding a guess at the
+    path cannot confirm it; with it, the operator finds the path among the record's entries.
+    """
+    digest = hashlib.blake2b(path.encode(), digest_size=6, key=key).hexdigest()
+    return f"{kind} entry {digest}"
+
+
+def label_key(place: str) -> bytes:
+    """The key in the place apart ``place``, made there the first time it is asked for.
+
+    Reached through the place's own descriptor (:func:`opened_apart`), with no link followed.
+    Made once: written under a name of its own and linked to the key's name, so two sessions
+    asking at once both take the one that was linked first, whole.
+
+    Raises:
+        ValueError: the place is not the run's own, or what is at the key's name is a link, no
+            file, or no key.
+    """
+    fd = opened_apart(place)
+    try:
+        try:
+            return _read_key(fd, place)
+        except FileNotFoundError:
+            pass
+        tmp = f".{LABEL_KEY_NAME}.{os.getpid()}.{os.urandom(4).hex()}"
+        made = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+        try:
+            with os.fdopen(made, "w") as handle:
+                handle.write(os.urandom(_KEY_BYTES).hex())
+            with contextlib.suppress(FileExistsError):
+                os.link(tmp, LABEL_KEY_NAME, src_dir_fd=fd, dst_dir_fd=fd)
+        finally:
+            os.unlink(tmp, dir_fd=fd)
+        return _read_key(fd, place)
+    finally:
+        os.close(fd)
+
+
+def _read_key(place_fd: int, place: str) -> bytes:
+    try:
+        fd = os.open(LABEL_KEY_NAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=place_fd)
+    except OSError as exc:
+        if exc.errno != errno.ELOOP:
+            raise
+        msg = f"the key for labels in the place apart {place} is a link"
+        raise ValueError(msg) from None
+    with os.fdopen(fd, "rb") as handle:
+        text = handle.read() if stat.S_ISREG(os.fstat(handle.fileno()).st_mode) else b""
+    try:
+        key = bytes.fromhex(text.decode("ascii"))
+    except (UnicodeDecodeError, ValueError):
+        key = b""
+    if len(key) != _KEY_BYTES:
+        msg = f"what is at the key's name for labels in the place apart {place} is no key"
+        raise ValueError(msg)
+    return key
+
+
+def _kind(path: str, config: ConfigView) -> str | None:
+    """The protection a label names for ``path``, or ``None`` where the path is named as it is.
+
+    Beneath a held-out or answer-key root, for every profile; elsewhere, where the rules refuse
+    every tool of the session a read (:func:`paths.read_refusal`).
+    """
+    for held in config.held_out:
+        if paths.reaches(path, held):
+            return "held-out"
+    for key in config.answer_keys:
+        if paths.reaches(path, key):
+            return "answer-key"
+    reason = paths.read_refusal(path, config)
+    return None if reason is None else _KINDS.get(reason, "withheld")
+
+
+def _namer(
+    config: ConfigView, apart: str | None, base: dict[str, Any] | None
+) -> Callable[[str], str]:
+    """What names a path in a refusal, a log line or a halt: the path, or its label.
+
+    The key is taken the first time a label is made: the place apart's, or, where none is named,
+    the record ``base``'s own (made there, kept when it is saved); with neither, one for this
+    call alone.
+    """
+    keys: list[bytes] = []
+
+    def named(path: str) -> str:
+        kind = _kind(path, config)
+        if kind is None:
+            return path
+        if not keys:
+            if apart is not None:
+                keys.append(label_key(apart))
+            elif base is not None:
+                kept = base.setdefault(LABEL_KEY_FIELD, os.urandom(_KEY_BYTES).hex())
+                keys.append(bytes.fromhex(kept))
+            else:
+                keys.append(os.urandom(_KEY_BYTES))
+        return label_of(path, kind, keys[0])
+
+    return named
+
+
+def labeller(config: ConfigView) -> Callable[[str], str]:
+    """What names a path in what the orchestrator writes of a session: the path, or its label.
+
+    The same label the session's sentinel writes for the path, where the configuration names a
+    place apart; with none, labels told apart within one record.
+
+    Raises:
+        ValueError: the configuration names more than one place apart.
+    """
+    return _namer(config, _apart_place(config), None)
+
+
+def named_problems(problems: list[Problem], named: Callable[[str], str]) -> list[str]:
+    """Each problem the withheld-file tripwire found, with its path named by ``named``."""
+    return [f"{named(path)}: {what}" for path, what in problems]
 
 
 def _entry_json(entry: Entry) -> list[Any]:
@@ -1079,7 +1236,12 @@ def _event(
 
 
 def check(hook_input: InputView, config: ConfigView) -> Decision:
-    """Compare the protected paths with the session's record, and act on any change."""
+    """Compare the protected paths with the session's record, and act on any change.
+
+    Every path in what it writes is named by the session's namer (:func:`_namer`): a path no
+    tool of the session may read is given its label. The names are taken while the record is
+    held, before it is saved, so a key made for them is kept with it.
+    """
     directory = os.path.join(session_dir(config, hook_input.session_id), "sentinel")
     fd = _lock(directory)
     try:
@@ -1087,8 +1249,9 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         base = state.load()
         if base is None:
             base = _baseline(config, state)
-            files, problems = withheld.survey(_withheld_roots(config))
+            files, found = withheld.survey_found(_withheld_roots(config))
             base["withheld"] = {p: list(i) for p, i in files.items()}
+            problems = named_problems(found, _namer(config, state.apart, base))
             if problems:
                 base["halted"] = LINKED.format(paths=", ".join(problems))
             state.save(base)
@@ -1098,7 +1261,8 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
             return ALLOW
         if base.get("halted"):
             return refuse(base["halted"])
-        halted = _check_halt(base, config)
+        named = _namer(config, state.apart, base)
+        halted = [named(p) for p in _check_halt(base, config)]
         if halted:
             base["halted"] = HALTED.format(paths=", ".join(halted))
             state.save(base)
@@ -1117,9 +1281,16 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         # finding something there never costs a put-back; it adds a halt of its own.
         unsure: list[str] = []
         if hook_input.hook_event_name in WITHHELD_EVENTS:
-            now, unsure = withheld.survey(_withheld_roots(config))
+            now, found = withheld.survey_found(_withheld_roots(config))
             recorded = {p: (i[0], i[1]) for p, i in base.get("withheld", {}).items()}
-            unsure += withheld.changed(recorded, now)
+            unsure = named_problems(found, named)
+            unsure += named_problems(withheld.changed_found(recorded, now), named)
+        put_back, failed = [named(p) for p in put_back], [named(p) for p in failed]
+        journals_changed = [named(p) for p in journals_changed]
+        appended = [(named(journal), first, end) for journal, first, end in appended]
+        records_changed = [one | {"path": named(str(one["path"]))} for one in records_changed]
+        mismatched, restored = [named(p) for p in mismatched], [named(p) for p in restored]
+        logged = [named(p) for p in logged]
         if failed:
             base["halted"] = UNRESTORABLE.format(paths=", ".join(failed))
         elif journals_changed:
@@ -1162,8 +1333,8 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
     if put_back:
         return refuse(PUT_BACK.format(paths=", ".join(put_back)))
     if records_changed:
-        named = ", ".join(str(found["path"]) for found in records_changed)
-        return refuse(RECORD_CHANGED.format(paths=named))
+        listed = ", ".join(str(found["path"]) for found in records_changed)
+        return refuse(RECORD_CHANGED.format(paths=listed))
     return ALLOW
 
 

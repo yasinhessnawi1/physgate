@@ -79,6 +79,7 @@ from physgate.orchestrator.dispatch import (
     Installed,
     compactions_seen,
     harness_protection,
+    place_apart,
     read_captured,
     read_in_full,
     read_stream_file,
@@ -1063,6 +1064,12 @@ class ClaudeReviewer:
         )
 
     def _install(self, packet: Packet | PlanPacket, sdir: Path, temp: Path) -> Installed:
+        # The part of the sentinel's record that names the held-out entries is kept here,
+        # beside every review's directory under the review root, never in one: a review's
+        # directory is read and can be handed on, and this place is refused to every session.
+        # Role sessions are withheld the whole review root, this place with it. Made and judged
+        # before anything of the session is written, a credential above all.
+        apart = place_apart(self._root)
         state = sdir / "state"
         state.mkdir()
         helper: list[str] = []
@@ -1113,6 +1120,8 @@ class ClaudeReviewer:
             *helper,
             *harness_protection(),
             *(arg for root in self._setup.held_out for arg in ("--held-out", root)),
+            "--sentinel-apart",
+            str(apart),
         ]
         done = subprocess.run(argv, capture_output=True, text=True, check=False)
         if done.returncode != 0:

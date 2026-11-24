@@ -15,7 +15,6 @@ the record the sentinel keeps apart. A path the session may read is named as bef
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import os
 import re
@@ -199,7 +198,7 @@ def test_the_label_is_keyed_and_the_operator_finds_the_path_from_the_place_apart
     assert label_of is not None and key_in is not None, "the operator has no way to find a label"
     key = key_in(str(root / "apart"))
     assert label_of(str(task), "held-out", key) in reason, reason
-    expected = hmac.new(key, str(task).encode(), hashlib.sha256).hexdigest()[:12]
+    expected = hashlib.blake2b(str(task).encode(), digest_size=6, key=key).hexdigest()
     assert f"held-out entry {expected}" in reason, reason
     # The key lies in the place apart, nowhere in the session's own directory.
     assert all(key.hex() not in p.read_text(errors="replace") for p in _files(root / "outside"))

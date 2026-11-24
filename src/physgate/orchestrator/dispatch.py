@@ -45,7 +45,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 from physgate.hooks import withheld
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import compactions, outstanding
-from physgate.hooks.sentinel import _frozen_experiment_paths, held_apart
+from physgate.hooks.sentinel import _frozen_experiment_paths, held_apart, labeller, named_problems
 from physgate.hooks.settings import CONFIG_NAME, SETTINGS_NAME
 from physgate.hooks.shell_startup import held_or_refused
 from physgate.hooks.snapshot import Signature, file_digest, signature
@@ -406,10 +406,13 @@ def withheld_before_commit(config_path: Path) -> str | None:
 
     The held-out tier, the answer-key corpora and the run's withheld records, as the session's
     own configuration names them: one problem per file with a second name or that cannot be
-    checked, joined; ``None`` when there is none.
+    checked, joined; ``None`` when there is none. Each file is named by its label, as the
+    session's sentinel names it (:func:`physgate.hooks.sentinel.labeller`): what is found goes
+    into the run's incident, which names no place of the protected material.
     """
     session_config = SessionConfig.model_validate_json(config_path.read_bytes())
-    _, problems = withheld.survey(withheld.roots_of(session_config))
+    _, found = withheld.survey_found(withheld.roots_of(session_config))
+    problems = named_problems(found, labeller(session_config))
     return "; ".join(problems) if problems else None
 
 
@@ -1349,6 +1352,14 @@ def _links(path: str) -> int | None:
         return None
 
 
+def _os_error(exc: OSError, named: Callable[[str], str]) -> str:
+    """An error reading a put-back root, its path named by ``named`` (a label, where protected)."""
+    where = exc.filename
+    if not isinstance(where, str):
+        return f"{type(exc).__name__}: {exc.strerror or exc}"
+    return f"{type(exc).__name__}: {exc.strerror} ({named(where)})"
+
+
 def changed_since(record: RootsRecord) -> list[str]:
     """Every put-back root path that is not now what the record holds, read afresh.
 
@@ -2109,6 +2120,9 @@ class ClaudeDispatcher:
         installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
         # Read before the session starts, while nothing of it can have touched the file.
         end_check = session_end_command(Path(installed.settings))
+        # What names a path in the session's end record and in its refusal: a path the session
+        # may not read is given the label its sentinel gives it, never named.
+        named = labeller(SessionConfig.model_validate_json(Path(installed.config).read_bytes()))
         env.update(installed.spawn_env)
         recorded_python = self._config.role_python
         if recorded_tools is not None:
@@ -2252,25 +2266,26 @@ class ClaudeDispatcher:
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
         try:
-            moved, unread = changed_since(roots), None
+            moved, unread = [named(p) for p in changed_since(roots)], None
         except OSError as exc:
-            moved, unread = [], f"a put-back root could not be read: {exc!r}"
+            moved, unread = [], f"a put-back root could not be read: {_os_error(exc, named)}"
         # A second name for a held record, where the session could write: its worktree, and its
         # directory, which holds what the sentinel moved aside. An attempt commit never holds one.
-        linked = second_names(
+        seen = second_names(
             roots.held_identities(), (worktree, sdir)
         ) if unread is None else []  # fmt: skip
+        linked = [named(p) for p in seen]
         # And each held record has exactly one name, wherever another was made, before the spawn
         # or since: the others the run directory holds are named, any further one is counted.
         for path in roots.held:
             links = _links(path)
             if links not in (None, 1):
                 elsewhere = [
-                    f"{p} (a name of {path})"
+                    f"{named(p)} (a name of {named(path)})"
                     for p in second_names(roots.held_identities(), (self._run.run_dir,))
-                    if p not in roots.held and p not in linked
+                    if p not in roots.held and p not in seen
                 ]
-                linked += elsewhere or [f"{path} ({links} names)"]
+                linked += elsewhere or [f"{named(path)} ({links} names)"]
         # The tool environment, scanned once more: a change now was made while this session
         # ran, by a write no layer refused. Nothing it left is then collected or committed.
         tools_changed = (

@@ -811,6 +811,8 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         places: list[str | None] = [request.worktree, request.user_home, request.state_dir]
         places += [request.target_dir]
         places += [request.claude_config_dir, request.os_layer_temp_dir, request.temp_dir]
+        # And a reviewer's read allowance, which it reads whole.
+        places += list(request.read_roots)
         for place in (p for p in places if p is not None):
             if _inside(apart, place) or _inside(place, apart):
                 msg = (

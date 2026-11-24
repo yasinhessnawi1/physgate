@@ -597,10 +597,20 @@ def read_refused(path: str, config: ConfigView) -> bool:
     # checkout alone holds: :func:`_rules` asks the checkout after every other root, so one nested
     # in it answers first with its own reason (and the installer refuses a run's withheld places
     # inside the checkout besides).
-    return any(
-        _rules(spelling, config, writing=False) not in (None, SESSIONS_REASON, HARNESS_REASON)
-        for spelling in dict.fromkeys((path, os.path.realpath(path)))
-    )
+    return read_refusal(path, config) is not None
+
+
+def read_refusal(path: str, config: ConfigView) -> str | None:
+    """The rule that refuses every tool of the session a read of ``path``, as :func:`read_refused`.
+
+    The path as given is asked before the path as resolved; ``None`` exactly where
+    :func:`read_refused` is false.
+    """
+    for spelling in dict.fromkeys((path, os.path.realpath(path))):
+        reason = _rules(spelling, config, writing=False)
+        if reason not in (None, SESSIONS_REASON, HARNESS_REASON):
+            return reason
+    return None
 
 
 def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:

@@ -61,9 +61,17 @@ def _holders(where: Path) -> list[str]:
 
 
 def _installed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, strip_place: bool = False
-) -> tuple[SessionConfig, list[str]]:
-    """The reviewer's own install arguments, run through the real installer: its configuration."""
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    strip_place: bool = False,
+    place: str | None = None,
+) -> tuple[SessionConfig | int, list[str]]:
+    """The reviewer's own install arguments, run through the real installer: its configuration.
+
+    ``strip_place`` installs it as before the place apart, ``place`` names another place apart;
+    an installer that refuses gives its exit code in the configuration's place.
+    """
     held_out = tmp_path / "tier" / "held_out"
     (held_out / TASK_ID).mkdir(parents=True)
     (held_out / TASK_ID / FILE_NAME).write_bytes(BYTES)
@@ -95,14 +103,24 @@ def _installed(
         reviewer._install(packet, sdir, temp)  # type: ignore[arg-type]  # noqa: SLF001
         monkeypatch.undo()
         (argv,) = asked
+        at = [i for i, w in enumerate(argv) if w == "--sentinel-apart"]
         if strip_place:
-            at = [i for i, w in enumerate(argv) if w == "--sentinel-apart"]
             argv = [w for i, w in enumerate(argv) if not any(i in (j, j + 1) for j in at)]
-        assert cli.main(argv[1:]) == 0, "the real installer refused the reviewer's arguments"
+        if place is not None:
+            argv = [place if any(i == j + 1 for j in at) else w for i, w in enumerate(argv)]
+        code = cli.main(argv[1:])
     finally:
         shutil.rmtree(temp, ignore_errors=True)
+    if code != 0:
+        return code, argv
     config = SessionConfig.model_validate_json((sdir / "settings" / CONFIG_NAME).read_bytes())
     return config, argv
+
+
+def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **kw: Any) -> SessionConfig:  # noqa: ANN401
+    config, _argv = _installed(tmp_path, monkeypatch, **kw)
+    assert isinstance(config, SessionConfig), "the real installer refused the reviewer's arguments"
+    return config
 
 
 def _check(config: SessionConfig, name: str) -> str:
@@ -126,7 +144,7 @@ def _places(config: SessionConfig) -> list[str]:
 def test_a_review_session_s_own_directory_names_no_protected_task_after_its_start_and_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config, _argv = _installed(tmp_path, monkeypatch)
+    config = _config(tmp_path, monkeypatch)
     for event in ("SessionStart", "PostToolUse", "SessionEnd"):
         assert _check(config, event) == "allow", event
     # Not vacuous: the protected entries were recorded, beneath the review root.
@@ -138,7 +156,7 @@ def test_a_review_session_s_own_directory_names_no_protected_task_after_its_star
 def test_the_review_s_place_apart_is_under_the_review_root_beside_every_review_and_private(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config, _argv = _installed(tmp_path, monkeypatch)
+    config = _config(tmp_path, monkeypatch)
     places = _places(config)
     assert len(places) == 1, f"the reviewer is installed with no single place apart: {places}"
     (place,) = (Path(p) for p in places)
@@ -155,7 +173,7 @@ def test_the_review_s_place_apart_is_under_the_review_root_beside_every_review_a
 def test_a_held_out_file_changed_beside_a_review_is_still_caught(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config, _argv = _installed(tmp_path, monkeypatch)
+    config = _config(tmp_path, monkeypatch)
     assert _check(config, "SessionStart") == "allow"
     (tmp_path / "tier" / "held_out" / TASK_ID / FILE_NAME).write_bytes(b"changed\n")
     reason = _check(config, "SessionEnd")
@@ -167,8 +185,19 @@ def test_a_review_installed_before_the_place_apart_keeps_its_record_whole_and_st
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, argv = _installed(tmp_path, monkeypatch, strip_place=True)
+    assert isinstance(config, SessionConfig), "the real installer refused the reviewer's arguments"
     assert "--sentinel-apart" not in argv
     assert _places(config) == []
     assert _check(config, "SessionStart") == "allow"
     assert _holders(tmp_path / "rs" / REVIEW_ID), "not a record taken as before: it is not whole"
     assert _check(config, "SessionEnd") == "allow"
+
+
+def test_a_place_apart_inside_the_reviewer_s_read_allowance_is_refused_by_the_installer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inside = tmp_path / "rs" / REVIEW_ID / READ_DIRNAME / "apart"
+    inside.parent.mkdir(parents=True)
+    inside.mkdir(mode=0o700)
+    with pytest.raises(ValueError, match="place apart .* overlap"):
+        _installed(tmp_path, monkeypatch, place=str(inside))
