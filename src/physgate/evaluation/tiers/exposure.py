@@ -886,6 +886,24 @@ def _named_exactly(digests: Iterable[str], known: Mapping[str, TierSet]) -> froz
 def _decomposition_findings(
     directory: Path, known: Mapping[str, TierSet], settled: frozenset[str], withheld: Path
 ) -> list[Finding]:
+    """The exposure a decomposition cut before its run's configuration holds (:func:`_reading`).
+
+    Raises:
+        ExposureError: as :func:`_reading`, or a place in it cannot be searched (said by its
+            kind, never by its path, which the filesystem's own error names).
+    """
+    try:
+        return _reading(directory, known, settled, withheld)
+    except OSError as exc:
+        if _settle_key(directory) in settled:
+            return []
+        what = "a decomposition's directory under the run roots cannot be searched"
+        raise _unreadable(what) from exc
+
+
+def _reading(
+    directory: Path, known: Mapping[str, TierSet], settled: frozenset[str], withheld: Path
+) -> list[Finding]:
     """The exposure a decomposition cut before its run's configuration holds, found in place.
 
     Read only, but for what a scan of a finished review's stream came to, kept beside the

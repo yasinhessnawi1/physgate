@@ -673,3 +673,14 @@ def test_the_kept_scan_is_not_written_where_the_check_says_nothing_is(
     _by_hand(tier, "shown", held_out=_recorded(tier), stream=tier.shown())
     assert _readable(tier) == frozenset({tier.made.version})
     assert not (tier.made.store / ROLE / "withheld" / "scans").exists()
+
+
+def test_a_decomposition_s_folder_this_user_cannot_search_refuses_by_its_kind(tier: OnTier) -> None:
+    directory = _by_hand(tier, "old", held_out=_recorded(tier))
+    (directory / "decomposition").chmod(0o000)
+    try:
+        assert "cannot be searched" in str(_refused(tier))
+        _settle(tier, directory)
+        assert _readable(tier) == frozenset({tier.made.version})
+    finally:
+        (directory / "decomposition").chmod(0o700)
