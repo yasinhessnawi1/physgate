@@ -5,8 +5,10 @@
   "old": "",
   "new": "",
   "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
    "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py",
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+   "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
   ],
   "data": [
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -26,7 +28,10 @@
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
    "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
    "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
-   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+   "tests/unit/reviewers/packet_fixture.py",
+   "tests/unit/reviewers/rubric_fixture.py",
+   "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py"
   ]
  },
  {
@@ -207,12 +212,163 @@
   ]
  },
  {
-  "name": "the_register_walks_past_a_decomposition",
+  "name": "the_parameters_record_is_no_marker",
   "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "            walk.decompositions.append(here)\n",
+  "old": "        own = None if is_run or here == root or PARAMS_RECORD not in names else _own(here, walk)\n",
+  "new": "        own = None\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_decomposition_s_directory_is_passed_over_whole",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            if own is not None and entry.name in own and not os.path.lexists(where / RUN_RECORD):\n",
+  "new": "            if own is not None:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_parameters_record_is_a_marker_unread",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            params = _record_at(fd, PARAMS_RECORD)\n",
+  "new": "            params = {\"params\": \"/\"}\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "the_run_root_is_a_decomposition_s_directory",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        own = None if is_run or here == root or PARAMS_RECORD not in names else _own(here, walk)\n",
+  "new": "        own = None if is_run or PARAMS_RECORD not in names else _own(here, walk)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_run_is_read_as_a_decomposition_too",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        own = None if is_run or here == root or PARAMS_RECORD not in names else _own(here, walk)\n",
+  "new": "        own = None if here == root or PARAMS_RECORD not in names else _own(here, walk)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_raw_record_beside_a_parameters_record_is_not_read",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        if not is_run and record is not None and not record.is_dir(follow_symlinks=False):\n",
+  "new": "        if not is_run and own is None and record is not None and not record.is_dir(follow_symlinks=False):\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "the_target_s_clone_is_walked",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            own.add(Path(target).name)\n",
   "new": "            pass\n",
   "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
   ],
   "data": [
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -231,12 +387,13 @@
   ]
  },
  {
-  "name": "a_cut_decomposition_is_walked_into",
+  "name": "the_review_root_is_walked",
   "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "            if unit and entry.name not in NESTED_RUN_PLACES:\n",
-  "new": "            if is_run and entry.name not in NESTED_RUN_PLACES:\n",
+  "old": "            own.add(Path(root).name)\n",
+  "new": "            pass\n",
   "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
   ],
   "data": [
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -255,12 +412,13 @@
   ]
  },
  {
-  "name": "a_decomposition_s_journal_is_not_read",
+  "name": "a_run_inside_a_decomposition_s_directory_is_not_inside_a_run",
   "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "    sessions = set(_journal_exposures(directory))\n",
-  "new": "    sessions: set[str] = set()\n",
+  "old": "            if (parent / RUN_RECORD).is_file() or os.path.lexists(parent / PARAMS_RECORD):\n",
+  "new": "            if (parent / RUN_RECORD).is_file():\n",
   "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
   ],
   "data": [
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -279,12 +437,63 @@
   ]
  },
  {
-  "name": "a_started_run_s_journal_is_not_read",
+  "name": "decompose_takes_any_run_directory",
+  "file": "src/physgate/orchestrator/cli.py",
+  "old": "        require_only_its_own(\n            run_dir,\n",
+  "new": "        (lambda *a, **k: None)(\n            run_dir,\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "the_target_is_not_recorded",
+  "file": "src/physgate/orchestrator/cli.py",
+  "old": "        record_params(run_dir, args.params, target=args.target)\n",
+  "new": "        record_params(run_dir, args.params)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_decomposition_that_named_no_tier_marks_every_version",
   "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "    if found:\n        return found\n",
-  "new": "    if True:\n        return found\n",
+  "old": "    marked = frozenset(known) if digests is None else _named_exactly(digests, known)\n",
+  "new": "    marked = frozenset(known) if not digests else _named_exactly(digests, known)\n",
   "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
   ],
   "data": [
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -303,60 +512,13 @@
   ]
  },
  {
-  "name": "an_exposed_end_line_is_not_an_exposure",
-  "file": "src/physgate/orchestrator/design_rounds.py",
-  "old": "        if cause == \"held_out_exposed\" or marked:\n",
-  "new": "        if False:\n",
-  "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
-  ],
-  "data": [
-   "tests/unit/evaluation/baseline/baseline_fixtures.py",
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
-   "tests/unit/evaluation/per_role/task_fixtures.py",
-   "tests/unit/orchestrator/design_review_rig.py",
-   "tests/unit/orchestrator/journal_helper.py",
-   "tests/unit/orchestrator/loop_fakes.py",
-   "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
-   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
-   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
-   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
-   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
-  ]
- },
- {
-  "name": "a_whole_journal_line_that_cannot_be_read_is_passed_over",
-  "file": "src/physgate/orchestrator/design_rounds.py",
-  "old": "        except ValueError as exc:\n            msg = \"a line of the round journal is not one the rounds write\"\n            raise RunStateError(msg, run_dir=str(run_dir)) from exc\n",
-  "new": "        except ValueError:\n            continue\n",
-  "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
-  ],
-  "data": [
-   "tests/unit/evaluation/baseline/baseline_fixtures.py",
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
-   "tests/unit/evaluation/per_role/task_fixtures.py",
-   "tests/unit/orchestrator/design_review_rig.py",
-   "tests/unit/orchestrator/journal_helper.py",
-   "tests/unit/orchestrator/loop_fakes.py",
-   "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
-   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
-   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
-   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
-   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
-  ]
- },
- {
-  "name": "the_next_command_s_exposure_file_is_not_read",
+  "name": "recorded_tiers_naming_none_of_the_role_mark_every_version",
   "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "        if named is not None:\n            sessions.add(named)\n",
-  "new": "        if False:\n            sessions.add(named)\n",
+  "old": "    marked = frozenset(known) if digests is None else _named_exactly(digests, known)\n",
+  "new": "    marked = frozenset(known) if digests is None else (_named_exactly(digests, known) or frozenset(known))\n",
   "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
   ],
   "data": [
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -375,84 +537,13 @@
   ]
  },
  {
-  "name": "an_unscanned_review_is_not_scanned",
+  "name": "the_recorded_held_out_tiers_are_not_read",
   "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "        if record is not None and record.session_id not in sessions:\n",
-  "new": "        if False:\n",
+  "old": "    marked = frozenset(known) if digests is None else _named_exactly(digests, known)\n",
+  "new": "    marked = frozenset(known)\n",
   "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
-  ],
-  "data": [
-   "tests/unit/evaluation/baseline/baseline_fixtures.py",
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
-   "tests/unit/evaluation/per_role/task_fixtures.py",
-   "tests/unit/orchestrator/design_review_rig.py",
-   "tests/unit/orchestrator/journal_helper.py",
-   "tests/unit/orchestrator/loop_fakes.py",
-   "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
-   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
-   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
-   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
-   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
-  ]
- },
- {
-  "name": "a_gone_review_stream_reads_clean",
-  "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "                shown = True  # a stream that is gone is never read as one that showed nothing\n",
-  "new": "                shown = False\n",
-  "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
-  ],
-  "data": [
-   "tests/unit/evaluation/baseline/baseline_fixtures.py",
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
-   "tests/unit/evaluation/per_role/task_fixtures.py",
-   "tests/unit/orchestrator/design_review_rig.py",
-   "tests/unit/orchestrator/journal_helper.py",
-   "tests/unit/orchestrator/loop_fakes.py",
-   "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
-   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
-   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
-   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
-   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
-  ]
- },
- {
-  "name": "a_running_review_s_last_line_is_read_cut",
-  "file": "src/physgate/orchestrator/decomposition_review.py",
-  "old": "        if running:\n",
-  "new": "        if False:\n",
-  "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
-  ],
-  "data": [
-   "tests/unit/evaluation/baseline/baseline_fixtures.py",
-   "tests/unit/evaluation/exposure/exposure_fixtures.py",
-   "tests/unit/evaluation/per_role/task_fixtures.py",
-   "tests/unit/orchestrator/design_review_rig.py",
-   "tests/unit/orchestrator/journal_helper.py",
-   "tests/unit/orchestrator/loop_fakes.py",
-   "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
-   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
-   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
-   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
-   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
-  ]
- },
- {
-  "name": "the_exposure_s_key_changes_with_the_record_that_shows_it",
-  "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "        if named is not None:\n            sessions.add(named)\n",
-  "new": "        if named is not None:\n            sessions.add(named + \"'\")\n",
-  "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
   ],
   "data": [
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -476,7 +567,8 @@
   "old": "    record_held_out(run_dir, config.held_out_sha256)\n",
   "new": "",
   "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
   ],
   "data": [
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -495,12 +587,13 @@
   ]
  },
  {
-  "name": "the_recorded_held_out_tiers_are_not_read",
+  "name": "a_gone_stream_with_no_tiers_recorded_marks_every_version",
   "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "    marked = _named_by(digests or (), known)\n",
-  "new": "    marked = _named_by((), known)\n",
+  "old": "            if shown or (refused == \"absent\" and digests is not None):\n",
+  "new": "            if shown or refused == \"absent\":\n",
   "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
   ],
   "data": [
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -519,12 +612,13 @@
   ]
  },
  {
-  "name": "a_record_that_cannot_be_read_counts_nothing",
+  "name": "a_gone_review_stream_reads_clean",
   "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "        msg = \"a decomposition's record under the run roots cannot be read\"\n        raise _refuse(\"register_unreadable\", msg) from exc\n",
-  "new": "        return []\n",
+  "old": "            if shown or (refused == \"absent\" and digests is not None):\n",
+  "new": "            if shown:\n",
   "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
   ],
   "data": [
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -543,12 +637,727 @@
   ]
  },
  {
-  "name": "the_refusal_names_the_decomposition_s_record",
+  "name": "a_stream_that_cannot_be_read_is_read_as_clean",
   "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "        msg = \"a decomposition's record under the run roots cannot be read\"\n",
-  "new": "        msg = f\"a decomposition's record {directory} cannot be read\"\n",
+  "old": "            elif refused is not None and not settles:\n",
+  "new": "            elif False:\n",
   "tests": [
-   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py"
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "an_unscanned_review_is_not_scanned",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            shown, refused = _scanned(record, running=running, withheld=withheld)\n",
+  "new": "            shown, refused = False, None\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "the_next_command_s_exposure_file_is_not_read",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    if named is not None:\n        sessions.add(named)\n",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "an_exposure_file_whose_session_cannot_be_read_is_no_exposure",
+  "file": "src/physgate/orchestrator/decomposition_review.py",
+  "old": "        return \"\"\n",
+  "new": "        return None\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_decomposition_s_journal_is_not_read",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        sessions |= set(_journal_exposures(directory))\n",
+  "new": "        sessions |= set()\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_started_run_s_journal_is_not_read",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        sessions = _journal_exposures(run)\n",
+  "new": "        sessions = ()\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_started_run_s_journal_is_read_beside_its_incident",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    if found:\n        return found\n    # Started, and killed before its opening's incident",
+  "new": "    # Started, and killed before its opening's incident",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_started_run_s_journal_exposure_marks_every_version",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    return [Finding(_review_key(run, session), \"incident\", marked) for session in sessions]\n",
+  "new": "    return [Finding(_review_key(run, session), \"incident\", frozenset(known)) for session in sessions]\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "the_journal_s_two_clauses_must_both_hold",
+  "file": "src/physgate/orchestrator/design_rounds.py",
+  "old": "        if cause == \"held_out_exposed\" or marked:\n",
+  "new": "        if cause == \"held_out_exposed\" and marked:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "an_exposed_end_line_is_not_an_exposure",
+  "file": "src/physgate/orchestrator/design_rounds.py",
+  "old": "        if cause == \"held_out_exposed\" or marked:\n",
+  "new": "        if False:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_whole_journal_line_that_cannot_be_read_is_passed_over",
+  "file": "src/physgate/orchestrator/design_rounds.py",
+  "old": "        except (ValueError, RecursionError) as exc:\n            msg = \"a line of the round journal is not one the rounds write\"\n            raise RunStateError(msg, run_dir=str(run_dir)) from exc\n",
+  "new": "        except (ValueError, RecursionError):\n            continue\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_journal_exposure_naming_no_session_is_dropped",
+  "file": "src/physgate/orchestrator/design_rounds.py",
+  "old": "            found.append(session if isinstance(session, str) else \"\")\n",
+  "new": "            found.extend([session] if isinstance(session, str) else [])\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "the_key_of_a_review_names_no_session",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    return _digest(f\"review\\0{directory}\\0{session}\".encode())\n",
+  "new": "    return _digest(f\"review\\0{directory}\".encode())\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "an_unreadable_held_out_record_refuses_nothing",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        if not settles:\n            what = (\n                \"a decomposition's record of its held-out tiers",
+  "new": "        if False:\n            what = (\n                \"a decomposition's record of its held-out tiers",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "an_unreadable_review_record_refuses_nothing",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        if not settles:\n            what = \"a decomposition's review record under the run roots cannot be read\"\n",
+  "new": "        if False:\n            what = \"a decomposition's review record under the run roots cannot be read\"\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "an_unreadable_process_table_refuses_nothing",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        except OSError as exc:\n            if not settles:\n                what = (\n",
+  "new": "        except OSError as exc:\n            if False:\n                what = (\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_settled_directory_still_refuses_its_stream",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            elif refused is not None and not settles:\n",
+  "new": "            elif refused is not None:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_settled_marker_still_refuses",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            if _settle_key(here) in walk.settled:\n",
+  "new": "            if False:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_hand_mark_settles_nothing",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        key = _settle_key(settles)\n",
+  "new": "        pass\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "the_settling_marks_are_not_read",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        if line.kind == \"exposure\" and line.source == \"hand\"\n",
+  "new": "        if False\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "the_refusal_names_the_directory",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            what = \"a decomposition's review record under the run roots cannot be read\"\n",
+  "new": "            what = f\"the review record in {directory} cannot be read\"\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "the_next_command_redacts_before_it_scans",
+  "file": "src/physgate/orchestrator/decomposition_review.py",
+  "old": "    try:\n        shown = streams_show(record)\n    except InvocationError as exc:\n",
+  "new": "    try:\n        for name in review_streams(record.spawns):\n            for secret in secrets:\n                redact(session / name, secret)\n        shown = streams_show(record)\n    except InvocationError as exc:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "the_live_review_scans_after_its_redaction",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "        exposed = showed if written is not None else canary_seen(data, canaries) is not None\n",
+  "new": "        exposed = canary_seen(data, canaries) is not None\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
+  ],
+  "data": [
+   "tests/unit/reviewers/packet_fixture.py",
+   "tests/unit/reviewers/rubric_fixture.py",
+   "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py"
+  ]
+ },
+ {
+  "name": "a_resumed_session_is_not_the_session",
+  "file": "src/physgate/orchestrator/processes.py",
+  "old": "        f\"{flag} {session_id}\" in command for flag in SESSION_ID_FLAGS\n",
+  "new": "        f\"{flag} {session_id}\" in command for flag in SESSION_ID_FLAGS[:1]\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_running_review_s_last_line_is_read_cut",
+  "file": "src/physgate/orchestrator/decomposition_review.py",
+  "old": "    if running:\n        data = data[",
+  "new": "    if False:\n        data = data[",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_review_that_raised_is_not_scanned_before_its_record_goes",
+  "file": "src/physgate/orchestrator/design_rounds.py",
+  "old": "        review_over(run_dir, scanned=ending.review_cause not in UNSCANNED_REVIEWS)\n",
+  "new": "        review_over(run_dir)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "the_record_of_a_review_whose_stream_cannot_be_read_goes",
+  "file": "src/physgate/orchestrator/decomposition_review.py",
+  "old": "                return  # kept: a stream that cannot be read is never read as clean\n",
+  "new": "                shown = False\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_finished_stream_is_scanned_at_every_read",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "        key = None if running else _scan_key(read.data, record.canaries)\n",
+  "new": "        key = None\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_kept_scan_is_written_where_the_check_writes_nothing",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    if not KEEP_SCANS:\n        return\n",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/exposure/exposure_fixtures.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+   "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
+  ]
+ },
+ {
+  "name": "a_kept_scan_that_does_not_read_is_taken_as_clean",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            return _KEPT.get(_read_at(fd, key, 16) or b\"\")\n",
+  "new": "            return _KEPT.get(_read_at(fd, key, 16) or b\"\", False)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+   "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
   ],
   "data": [
    "tests/unit/evaluation/baseline/baseline_fixtures.py",
