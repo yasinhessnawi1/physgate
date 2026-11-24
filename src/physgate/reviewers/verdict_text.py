@@ -358,7 +358,7 @@ def schema_errors(value: object, schema: object, where: str = "") -> list[str]: 
             found.append(f"{at}: must NOT have fewer than {schema['minLength']} characters")
         if "pattern" in schema and re.search(schema["pattern"], value) is None:
             found.append(f'{at}: must match pattern "{schema["pattern"]}"')
-    if _is(value, "number") and "minimum" in schema and value < schema["minimum"]:  # type: ignore[operator]
+    if _is(value, "number") and "minimum" in schema and value < schema["minimum"]:
         found.append(f"{at}: must be >= {schema['minimum']}")
     if isinstance(value, dict):
         found += [
