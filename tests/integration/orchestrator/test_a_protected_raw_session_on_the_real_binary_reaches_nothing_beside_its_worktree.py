@@ -235,6 +235,29 @@ def _sibling(cwd: str, sibling: Path, mark: str, case_ignored: bool) -> list[Att
             mark,
             shell=True,
         ),
+        # The link's name is a word no other command here uses. The hooks refuse a shell any of
+        # whose words resolves into protected material, and once this link lies in the worktree
+        # a word of its name does: named ``s``, it caught the ``s`` of every later shell's
+        # ``printf %s``, and those shells were refused before the OS layer was met.
+        Attempt(
+            "sibling",
+            "symlink_shell",
+            _shell(
+                cwd,
+                f'ln -s {_hidden(sibling.parent)} "{cwd}/sib-link" 2>&1; '
+                f'cat "{cwd}/sib-link/{MARKED}" 2>&1',
+            ),
+            str(sibling),
+            mark,
+            shell=True,
+        ),
+        Attempt(
+            "sibling",
+            "read_symlink",
+            tool("Read", file_path=f"{cwd}/sib-link/{MARKED}"),
+            str(sibling),
+            mark,
+        ),
         Attempt(
             "sibling",
             "link_shell",
@@ -251,25 +274,6 @@ def _sibling(cwd: str, sibling: Path, mark: str, case_ignored: bool) -> list[Att
             str(sibling),
             mark,
             extra={"link": f"{cwd}/hard-s", "made_by": "link_shell"},
-        ),
-        # The symbolic link last: once a link into a protected place lies in the worktree, the
-        # hooks refuse every later shell that names the worktree, before the OS layer is met.
-        Attempt(
-            "sibling",
-            "symlink_shell",
-            _shell(
-                cwd, f'ln -s {_hidden(sibling.parent)} "{cwd}/s" 2>&1; cat "{cwd}/s/{MARKED}" 2>&1'
-            ),
-            str(sibling),
-            mark,
-            shell=True,
-        ),
-        Attempt(
-            "sibling",
-            "read_symlink",
-            tool("Read", file_path=f"{cwd}/s/{MARKED}"),
-            str(sibling),
-            mark,
         ),
     ]
     if case_ignored:
@@ -303,6 +307,9 @@ def _attempts(
             shell=True,
         )
     )
+    # A sibling trial's directory in the work root, there at the install: on the list of siblings
+    # the install takes, and withheld by the rule besides.
+    found += _sibling(cwd, places["sibling"], marks["sibling"], case_ignored)
     # In the work root, made by the test after the install: on no list taken then.
     found += _reads("late", cwd, late, f"{cwd}/../../../{late.parent.name}/{MARKED}", marks["late"])
     found += [
@@ -469,11 +476,6 @@ def _attempts(
             extra={"moved_to": f"{place}/moved-seen"},
         )
     )
-    # A sibling trial's directory in the work root, there at the install: on the list of siblings
-    # the install takes, and withheld by the rule besides. After every other group, the moves
-    # among them (which fail): the symbolic link it leaves in the worktree makes the hooks refuse
-    # every later shell, which would keep the groups after it from the OS layer.
-    found += _sibling(cwd, places["sibling"], marks["sibling"], case_ignored)
     return found
 
 
