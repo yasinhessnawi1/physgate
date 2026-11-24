@@ -24,7 +24,7 @@ from physgate.orchestrator.dispute import Dispute
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import FlagCache, ObservedTraffic
-from physgate.orchestrator.protocols import IssuedState, MessageUsage
+from physgate.orchestrator.protocols import AdmittedExport, IssuedState, MessageUsage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.trajectory import Seal
 from physgate.orchestrator.usage_limit import AccountWindow, UsageLimit
@@ -239,7 +239,14 @@ class ChangeCheck(_Frozen):
 
     refused_by: (
         Literal[
-            "proposal", "write_scope", "series", "declaration", "dispute", "interface", "long_line"
+            "proposal",
+            "write_scope",
+            "series",
+            "declaration",
+            "dispute",
+            "interface",
+            "long_line",
+            "exports",
         ]
         | None
     )
@@ -263,6 +270,13 @@ class ChangeCheck(_Frozen):
     #: Each interface the attempt's nodes revise, derived at this check, in id order;
     #: empty unless the check was asked to follow and something differed.
     followed: tuple[FollowedInterface, ...] = ()
+    #: The exports the commit-time rule admitted (``merge.admitted_exports``), for the attempt
+    #: the reviewer is handed. Never on the change check's own line.
+    exports: tuple[AdmittedExport, ...] = ()
+    #: How many sets of exports the check made again from their committed sources and found
+    #: equal (``derived.HeldExports.regenerated``): 0 when the change touched none, and
+    #: ``None`` when the check was refused before it reached the exports.
+    exports_regenerated: Annotated[int, Field(ge=0)] | None = None
 
 
 class WorktreeRemoval(_Frozen):

@@ -53,7 +53,7 @@ import hashlib
 import json
 import re
 import shutil
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from physgate import roles
@@ -80,9 +80,12 @@ from physgate.orchestrator.declaration import (
     DeclarationError,
     parse,
 )
+from physgate.orchestrator.derived import Runner, held_exports
 from physgate.orchestrator.dispute import DISPUTES_DIR, Dispute, DisputeError, disputer_problem
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.exceptions import DutyUnownedError, RoleRegisterError, StoreRefusalError
+from physgate.orchestrator.export_writer import FREE_TEXT_BUDGET
+from physgate.orchestrator.exports import is_export, shown_in_full
 from physgate.orchestrator.follow import FollowedInterface, FollowRefusedError, follow
 from physgate.orchestrator.git import (
     GitDir,
@@ -93,8 +96,9 @@ from physgate.orchestrator.git import (
     merge_base,
     verified_git_dir,
 )
-from physgate.orchestrator.merge import RunGit, write_scope_violations
+from physgate.orchestrator.merge import RunGit, admitted_exports, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
+from physgate.oslayer.regeneration import default_runner
 from physgate.reviewers.packet import LINE_MAX_BYTES, PART_MAX_BYTES, LongLine, long_line
 from physgate.series.consistency import check_proposals
 from physgate.series.reader import SealedEntry, attempt_records
@@ -126,6 +130,7 @@ from physgate.state.store import (
     journal_records_after,
 )
 from physgate.state.vocabulary import nearest_quantity_names
+from physgate.toolenv.record import ToolEnvironment
 
 #: The hook's name for a proposal that is not a whole, valid node named for its file.
 INVALID = "invalid"
@@ -546,11 +551,19 @@ def too_long(long: LongLine) -> str:
         )
     else:
         where = f"line {long.line} of {long.path} is {long.bytes} bytes long"
-    return (
+    found = (
         f"{where}. The reviewer reads the attempt's diff in parts of at most {PART_MAX_BYTES} "
         "bytes, and a line is never cut across two, so this attempt cannot be shown to a "
         f"reviewer. Commit files with no line longer than {LINE_MAX_BYTES} bytes, for example "
         "one value or one row per line."
+    )
+    if not is_export(long.path) or shown_in_full(long.path):
+        return found
+    return (
+        f"{found} {long.path} is an export, and it is shown in full: a review shows an export "
+        f"as one line only while it holds at most {FREE_TEXT_BUDGET} bytes of free text "
+        "(comments, or strings, words or names its writer does not write). Write it with the "
+        "design helper and keep text out of it."
     )
 
 
@@ -568,11 +581,27 @@ def declares_completion(role: str) -> bool:
 class GitChangeChecker:
     """The change check before the gate: write scope, then every proposal pre-checked."""
 
-    def __init__(self, run: RunGit, store_root: Path, module_dirs: dict[str, str]) -> None:
-        """Check attempts of ``run`` against the canonical store at ``store_root``."""
+    def __init__(
+        self,
+        run: RunGit,
+        store_root: Path,
+        module_dirs: dict[str, str],
+        *,
+        environment: Callable[[], ToolEnvironment | None] | None = None,
+        regenerate: Runner | None = None,
+    ) -> None:
+        """Check attempts of ``run`` against the canonical store at ``store_root``.
+
+        ``environment`` holds the run's tool environment to its record and gives it (the
+        dispatcher's, which holds it before every session), and ``regenerate`` runs the command
+        that makes committed exports again (:mod:`physgate.orchestrator.derived`; by default
+        :func:`physgate.oslayer.regeneration.default_runner`, inside the tool containment).
+        """
         self._run = run
         self._store_root = store_root
         self._module_dirs = module_dirs
+        self._environment = environment or (lambda: None)
+        self._regenerate = regenerate or default_runner()
 
     def check(
         self,
@@ -618,6 +647,49 @@ class GitChangeChecker:
             return ChangeCheck(
                 refused_by="write_scope", reason=reason, subject=subject, graph_root=str(scratch)
             )
+        # The exports made from a source are what the committed source makes, made again here.
+        held = held_exports(
+            repo,
+            base,
+            attempt_commit,
+            module_dir,
+            environment=self._environment,
+            runner=self._regenerate,
+            git_dir=pinned,
+        )
+        if held.refusal is not None:
+            return ChangeCheck(
+                refused_by="exports",
+                reason=held.refusal.reason,
+                subject=held.refusal.subject,
+                graph_root=str(scratch),
+                exports_regenerated=held.regenerated,
+            )
+        found = self._past_exports(
+            subtask_id, attempt_commit, role, base, pinned, scratch, series=series, follows=follows
+        )
+        # Whatever is decided past the exports, the check says how many sets it made again.
+        return found.model_copy(update={"exports_regenerated": held.regenerated})
+
+    def _past_exports(  # noqa: PLR0913 - the attempt and where the check stands
+        self,
+        subtask_id: str,
+        attempt_commit: str,
+        role: str,
+        base: str,
+        pinned: GitDir,
+        scratch: Path,
+        *,
+        series: SessionSeries | None,
+        follows: int | None,
+    ) -> ChangeCheck:
+        """The rest of :meth:`check` once the attempt's exports held: the declaration on."""
+        repo = self._run.repo
+        module_dir = self._module_dirs[subtask_id]
+        declares = declares_completion(role)
+        disputes = disputer_problem(role) is None
+        # What the review may show of the attempt's exports by line, by the rule just passed.
+        exported = admitted_exports(repo, base, attempt_commit, module_dir, git_dir=pinned)
         try:
             declared = self._declaration(attempt_commit, subtask_id, pinned) if declares else None
         except DeclarationError as exc:
@@ -704,7 +776,8 @@ class GitChangeChecker:
                     series_checks=checks,
                 )
         # Last: the diff the review is issued, held to what one part of it can show.
-        long = long_line(pinned, base, attempt_commit)
+        admitted = frozenset((export.path, export.sha256) for export in exported)
+        long = long_line(pinned, base, attempt_commit, admitted)
         if long is not None:
             return ChangeCheck(
                 refused_by="long_line",
@@ -723,6 +796,7 @@ class GitChangeChecker:
             declaration=declared,
             disputes=disputed,
             followed=followed,
+            exports=exported,
         )
 
     def _follow(

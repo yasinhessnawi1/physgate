@@ -1079,7 +1079,12 @@ def _drive_run(
             gate=registrations.gate,
             reviewers=reviewers,
             dispatcher=dispatcher,
-            changes=GitChangeChecker(run, store_root, {e.subtask_id: e.module_dir for e in plan}),
+            changes=GitChangeChecker(
+                run,
+                store_root,
+                {e.subtask_id: e.module_dir for e in plan},
+                environment=dispatcher.held_tool_environment,
+            ),
             merger=GitMerger(run, removal_timeout_s=REMOVAL_TIMEOUT_S),
             graph=keeper,
             escalation=escalation,

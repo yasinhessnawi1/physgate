@@ -180,6 +180,7 @@ from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
 from physgate.series.collect import collect, empty_outbox, temporary_roots
 from physgate.series.seal import SetAside
 from physgate.state.write_account import ACCOUNT_NAME, Settled, account_of, read_account
+from physgate.toolenv.record import ToolEnvironment
 
 REDACTED = REDACTED_TEXT.encode()
 
@@ -2005,14 +2006,7 @@ class ClaudeDispatcher:
             # Before anything of the session exists: a session never runs on an environment
             # other than the one the run recorded, and a refusal here leaves nothing behind.
             self._tool_environment_scan = hold_before_session(
-                recorded_tools,
-                self._tool_environment_scan,
-                forbidden=forbidden_places(
-                    harness=harness_root(),
-                    install=self._install_bin.parent.parent,
-                    run_dir=self._run.run_dir,
-                    target=self._run.repo,
-                ),
+                recorded_tools, self._tool_environment_scan, forbidden=self._forbidden()
             )
         worktree = self._run.open_subtask(request.subtask_id, request.reopened)
         if self._layer_on():
@@ -2065,6 +2059,32 @@ class ClaudeDispatcher:
         if not self._tool_servers or not self._layer_on():
             return ()
         return tuple(server.name for server in self._tool_servers)
+
+    def _forbidden(self) -> dict[str, Path]:
+        """Every place on this machine the run's tool environment may not lie in or hold."""
+        return forbidden_places(
+            harness=harness_root(),
+            install=self._install_bin.parent.parent,
+            run_dir=self._run.run_dir,
+            target=self._run.repo,
+        )
+
+    def held_tool_environment(self) -> ToolEnvironment | None:
+        """The run's tool environment, held to its record now; ``None`` for a run naming none.
+
+        What the change check reads the command that makes committed exports again from: the
+        same hold every session starts behind (a full measure first, a scan against it after).
+
+        Raises:
+            InvocationError: the environment is not the recorded one, or changed since.
+        """
+        recorded = self._config.tool_environment
+        if recorded is None:
+            return None
+        self._tool_environment_scan = hold_before_session(
+            recorded, self._tool_environment_scan, forbidden=self._forbidden()
+        )
+        return recorded
 
     def _contained_servers(
         self, installed: Installed, sdir: Path, own_temp: Path, env: dict[str, str]
