@@ -15,6 +15,7 @@ tool server of the session is denied them), on Linux and on macOS.
 
 from __future__ import annotations
 
+import ast
 import os
 from pathlib import Path
 
@@ -22,13 +23,25 @@ import pytest
 from loop_fakes import Rig
 from test_a_role_session_s_own_directory_names_no_protected_task import HeldOutRun
 from test_a_session_s_hooks_never_fork_the_run_s_own_records import leftovers
+from test_committed_exports_are_regenerated_from_their_committed_schematic import (
+    FAILING,
+    PLANNED,
+    attempt,
+    made,
+    recorded,
+    stand_in_root,
+)
 
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.settings import CONFIG_NAME
 from physgate.orchestrator import dispatch
+from physgate.orchestrator.apply import GitChangeChecker
+from physgate.orchestrator.exceptions import RunStateError
 from physgate.oslayer.containment import ContainmentError, server_read_denied
 
 __all__ = ["leftovers"]
+
+REPO = Path(__file__).resolve().parents[3]
 
 
 def _within(path: str, place: str) -> bool:
@@ -80,7 +93,7 @@ def test_a_run_whose_parameters_file_is_not_known_refuses_in_words_that_name_no_
     dispatcher = run.dispatcher(monkeypatch)
 
     def unknown(_run_dir: Path) -> tuple[Path, ...]:
-        raise dispatch.RunStateError("no record", run_dir=str(run.run.run_dir))
+        raise RunStateError("no record", run_dir=str(run.run.run_dir))
 
     monkeypatch.setattr(dispatch, "withheld_paths", unknown)
     with pytest.raises(ContainmentError) as caught:
@@ -98,3 +111,34 @@ def test_the_run_s_parameters_file_is_withheld_wherever_it_lies(
     monkeypatch.setattr(dispatch, "withheld_paths", lambda run_dir: (run_dir / "run.json", params))
     withheld = dispatcher.regeneration_withheld()
     assert str(params) in withheld, withheld
+
+
+def test_a_change_check_given_no_withheld_places_refuses_a_set_and_starts_nothing(
+    tmp_path: Path,
+) -> None:
+    """Its default runner refuses every regeneration, on every platform, before any wrapper."""
+    run, commit = attempt(tmp_path, made(FAILING))
+    record = recorded(stand_in_root(tmp_path))
+    store = tmp_path / "store"
+    store.mkdir()
+    changes = GitChangeChecker(run, store, dict(PLANNED), environment=lambda: record)
+    found = changes.check("s1", commit, "control")
+    assert found.refused_by == "exports", (found.refused_by, found.reason)
+    assert found.reason is not None and "no places withheld" in found.reason, found.reason
+    assert found.exports_regenerated == 0
+
+
+def test_the_run_s_change_check_is_given_the_dispatcher_s_set() -> None:
+    """The one change check a run builds is handed the set, beside the held tool environment."""
+    tree = ast.parse((REPO / "src" / "physgate" / "orchestrator" / "cli.py").read_text("utf-8"))
+    built = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "GitChangeChecker"
+    ]
+    assert len(built) == 1, "the run builds one change check"
+    given = {k.arg: ast.unparse(k.value) for k in built[0].keywords}
+    assert given.get("withheld") == "dispatcher.regeneration_withheld", given
+    assert given.get("environment") == "dispatcher.held_tool_environment", given
