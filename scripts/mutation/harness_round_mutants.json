@@ -21,6 +21,7 @@
    "tests/unit/evaluation/harness_round/test_the_command_driver_relays_nothing_a_trial_s_command_prints.py",
    "tests/unit/evaluation/harness_round/test_the_command_exits_75_and_77_while_the_round_waits.py",
    "tests/unit/evaluation/harness_round/test_the_round_s_ledger_is_synced_line_by_line.py",
+   "tests/unit/evaluation/harness_round/test_the_run_and_review_directories_a_round_names_pass_the_core_s_rule.py",
    "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
    "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
   ],
@@ -1937,6 +1938,66 @@
   "new": "            review_root=run_dir / \"sessions\" / REVIEW,\n            log=_log(ctx, i, attempt, \"decompose\"),",
   "tests": [
    "tests/unit/evaluation/harness_round/test_the_run_and_review_directories_a_round_names_pass_the_core_s_rule.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_command_resolves_the_run_root_before_the_round_sees_it",
+  "file": "src/physgate/evaluation/harness_round_cli.py",
+  "old": "            run_root=args.run_root.absolute(),\n",
+  "new": "            run_root=args.run_root.resolve(),\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "baseline_last",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_complete_round_says_how_many_of_its_trials_the_baseline_cannot_cap.py",
+   "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py",
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py",
+   "tests/unit/evaluation/harness_round/test_a_harness_round_writes_run_sets_the_counting_rule_and_the_baseline_take.py",
+   "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py",
+   "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py",
+   "tests/unit/evaluation/harness_round/test_a_round_goes_on_only_on_the_code_and_client_it_began_with.py",
+   "tests/unit/evaluation/harness_round/test_a_round_waiting_for_the_usage_limit_says_when_to_come_back.py",
+   "tests/unit/evaluation/harness_round/test_a_run_begun_and_never_finished_is_a_decomposition_that_spent_its_call.py",
+   "tests/unit/evaluation/harness_round/test_a_trial_s_answer_is_read_from_the_module_directory_its_plan_names.py",
+   "tests/unit/evaluation/harness_round/test_a_usage_limit_never_spends_an_attempt_and_never_makes_a_trial_unscored.py",
+   "tests/unit/evaluation/harness_round/test_nothing_outside_the_withheld_root_tells_a_protected_trial_s_outcome.py",
+   "tests/unit/evaluation/harness_round/test_one_driver_drives_a_round_at_a_time.py",
+   "tests/unit/evaluation/harness_round/test_the_command_driver_relays_nothing_a_trial_s_command_prints.py",
+   "tests/unit/evaluation/harness_round/test_the_command_exits_75_and_77_while_the_round_waits.py",
+   "tests/unit/evaluation/harness_round/test_the_round_s_ledger_is_synced_line_by_line.py",
+   "tests/unit/evaluation/harness_round/test_the_run_and_review_directories_a_round_names_pass_the_core_s_rule.py",
+   "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",

@@ -287,11 +287,8 @@ def test_a_held_out_task_the_check_flagged_is_never_run(tmp_path: Path) -> None:
     assert len(given) == 7 and flagged.brief.encode() not in given
 
 
-def test_the_command_says_its_refusal_as_one_json_line_and_exits_1(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    rig = make_rig(tmp_path, reportable=False)
-    argv = [
+def _command(rig: Rig, run_root: Path) -> list[str]:
+    return [
         "harness-round",
         "--store",
         str(rig.made.store),
@@ -308,7 +305,7 @@ def test_the_command_says_its_refusal_as_one_json_line_and_exits_1(
         "--params",
         str(rig.params),
         "--run-root",
-        str(rig.run_root),
+        str(run_root),
         "--target-from",
         str(rig.target),
         "--install",
@@ -318,12 +315,35 @@ def test_the_command_says_its_refusal_as_one_json_line_and_exits_1(
         "--out",
         str(rig.root / "out"),
     ]
-    assert main(argv) == 1
+
+
+def _said(capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
     printed = capsys.readouterr().out.strip().splitlines()
     assert len(printed) == 1
-    said = json.loads(printed[0])
+    said: dict[str, Any] = json.loads(printed[0])
+    return said
+
+
+def test_the_command_says_its_refusal_as_one_json_line_and_exits_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rig = make_rig(tmp_path, reportable=False)
+    assert main(_command(rig, rig.run_root)) == 1
+    said = _said(capsys)
     assert said["refused_because"] == "params_not_reportable" and said["error"]
     assert not (rig.root / "out").exists()
+
+
+def test_the_command_given_its_run_root_through_a_linked_parent_refuses_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The command hands the root on as it was typed, so the spelling rule sees the link."""
+    rig = make_rig(tmp_path)
+    os.symlink(rig.root, rig.root.parent / f"{rig.root.name}-link")
+    linked = rig.root.parent / f"{rig.root.name}-link" / rig.run_root.name
+    assert main(_command(rig, linked)) == 1
+    assert _said(capsys)["refused_because"] == "run_root_not_spelt_as_on_disk"
+    assert not (rig.root / "out").exists() and list(rig.run_root.iterdir()) == []
 
 
 @pytest.mark.parametrize(

@@ -131,7 +131,8 @@ def _run(args: argparse.Namespace) -> int:
             trials=args.trials,
             seed_base=args.seed_base,
             params=args.params.resolve(),
-            run_root=args.run_root.resolve(),
+            # As typed, made absolute: the round holds it to its spelling on disk, links included.
+            run_root=args.run_root.absolute(),
             target_from=args.target_from.resolve(),
             install=args.install.resolve(),
             prices=load_price_sheet(args.prices),
