@@ -120,7 +120,8 @@ def _left(worktree: Path) -> list[str]:
         dirs[:] = [d for d in dirs if d != ".git"]
         for name in files + [d for d in dirs if d.casefold() == "__pycache__"]:
             rel = os.path.relpath(os.path.join(directory, name), worktree)
-            if rel.startswith(SCRATCH) or "__pycache__" in rel.casefold() or rel.endswith(".pyc"):
+            folded = rel.casefold()
+            if rel.startswith(SCRATCH) or "__pycache__" in folded or folded.endswith(".pyc"):
                 found.append(rel)
     if os.path.lexists(worktree / SCRATCH):
         found.append(SCRATCH)
@@ -211,6 +212,7 @@ def test_a_script_that_imports_another_module_leaves_no_bytecode_in_the_attempt(
         "modules/control/law.pyc",
         ".physgate/lib/__pycache__/helper.cpython-312.pyc",
         "modules/control/__pycache__/anything-at-all.txt",
+        "modules/control/__PyCache__/anything-at-all.txt",
         f"{MODULE}/__pycache__/base.cpython-312.pyc",
     ],
 )
