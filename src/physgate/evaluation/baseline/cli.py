@@ -10,8 +10,28 @@ reportable; the record says so. The endpoint is ``ANTHROPIC_BASE_URL``, or the b
 default, as for every other command, and every harness run must have recorded it; the
 credential is read from the environment variable the run's auth mode names, after every
 entry has been checked. It exits 1, naming no task, if the round is refused or stopped.
+
+A round waits, as the harness round driver's does, and the command returns at once: 75 while
+it waits for the account's usage limit to reset, 77 while it waits for a person (a refused
+credential to replace). It prints one line, ``status`` and ``waiting`` (the entry by its place
+in the run set, why, and for the limit ``resume_after``, the instant after which it goes on, and
+``word_helps``), and writes the same into ``O/round.json``. ``--resume`` goes on with the round
+``O`` holds, given the same inputs: before ``resume_after`` it makes nothing, writes nothing and
+exits 75 again. ``--limit-reset`` is a person's word that the limit has reset, used once and only
+where the client's stream gave no reset; a round that waits for no limit refuses it. A wrapper
+sleeps until ``resume_after`` between starts and never puts the word in a loop.
 ``--external DIR`` in place of ``--version`` runs the round on an external task set (one
 benchmark's published tasks, each ``DIR/<id>/task.json``), kept apart from the store's tiers.
+
+``physgate baseline audit --store S --role control --version V --runs R --out O --prices DATE
+[--harness TIER RUNS TRIALS ...]`` is the record audit of a cell
+(:mod:`physgate.evaluation.baseline.audit`): every record the baseline round in ``O`` wrote, and
+every harness trial record named by ``--harness`` (a tier, its run set and its trial records, as
+the harness round writes them), is derived again from its trial's own files and compared. It
+prints one JSON line: of a visible tier each difference by kind and the trial's place in its run
+set, of a protected tier only how many of each kind, and the digest of the whole detail, which is
+written beneath the role's withheld root. It exits 0 when nothing differs, 1 when anything does,
+and 2 with ``refused_because`` when the audit cannot be made.
 
 The scorer's numerical libraries are the evaluation group's; they are imported only when the
 command runs.
@@ -45,14 +65,47 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
     run.add_argument("--out", type=Path, required=True)
     run.add_argument("--prices", required=True, help="the dated price sheet the harness used")
     run.add_argument("--development", action="store_true")
+    run.add_argument("--resume", action="store_true", help="go on with the round OUT holds")
+    run.add_argument(
+        "--limit-reset",
+        dest="limit_reset",
+        action="store_true",
+        help=(
+            "say that the account's usage limit has reset, for the wait the round stands at; "
+            "exit 75 is not a wait: sleep until the printed resume_after between starts, and "
+            "never loop this word"
+        ),
+    )
     run.set_defaults(func=_run)
+    audit = commands.add_parser("audit", help="re-derive every record of a cell and compare")
+    audit.add_argument("--store", type=Path, required=True)
+    audit.add_argument("--role", choices=("control",), required=True)
+    audit.add_argument("--version", required=True)
+    audit.add_argument("--runs", type=Path, required=True)
+    audit.add_argument("--out", type=Path, required=True)
+    audit.add_argument("--prices", required=True)
+    audit.add_argument("--development", action="store_true")
+    audit.add_argument(
+        "--harness",
+        nargs=3,
+        action="append",
+        default=[],
+        metavar=("TIER", "RUNS", "TRIALS"),
+        help="a tier of the harness arm's cell: its run set and its trial records",
+    )
+    audit.set_defaults(func=_audit)
 
 
 def _run(args: argparse.Namespace) -> int:
     import os
     import shutil
 
-    from physgate.evaluation.baseline.runner import BaselineError, RunSet, run_baseline
+    from physgate.evaluation.baseline.runner import (
+        BaselineError,
+        RoundWaits,
+        RunSet,
+        run_baseline,
+    )
     from physgate.evaluation.observe.cost import load_price_sheet
     from physgate.evaluation.per_role.exceptions import PerRoleError
     from physgate.evaluation.per_role.scorers.control import score
@@ -86,7 +139,12 @@ def _run(args: argparse.Namespace) -> int:
             score=score,
             prices=load_price_sheet(args.prices),
             development=args.development,
+            resume=args.resume,
+            limit_reset=args.limit_reset,
         )
+    except RoundWaits as waits:
+        print(json.dumps(waits.printed(), sort_keys=True))
+        return waits.exit_code
     except (BaselineError, PerRoleError) as exc:
         print(f"physgate baseline: {exc}", file=sys.stderr)
         return 1
@@ -133,3 +191,64 @@ def _setup_for(install_bin: Path, base_url: str | None) -> Any:  # noqa: ANN401 
         )
 
     return setup_for
+
+
+def _audit(args: argparse.Namespace) -> int:
+    import os
+    import secrets
+
+    from physgate.evaluation.baseline.audit import (
+        HarnessCell,
+        audit_harness,
+        audit_raw,
+        printed,
+        write_detail,
+    )
+    from physgate.evaluation.baseline.runner import BASELINE_DIR, BaselineError, RunSet
+    from physgate.evaluation.observe.cost import load_price_sheet
+    from physgate.evaluation.per_role.exceptions import PerRoleError
+    from physgate.evaluation.per_role.scorers.control import score
+    from physgate.evaluation.tiers.store import withheld_root
+
+    store = args.store.resolve()
+    try:
+        prices = load_price_sheet(args.prices)
+        found = audit_raw(
+            store=store,
+            role=args.role,
+            version=args.version,
+            runs=RunSet.model_validate_json(args.runs.read_bytes()),
+            out=args.out.resolve(),
+            prices=prices,
+            score=score,
+            base_url=os.environ.get("ANTHROPIC_BASE_URL"),
+            development=args.development,
+        )
+        cells = []
+        for tier, runs, trials in args.harness:
+            if tier not in ("visible", "validation", "held_out"):
+                raise BaselineError(f"no tier {tier!r}", refused_because="tier")  # noqa: TRY301
+            cells.append(
+                HarnessCell(tier, RunSet.model_validate_json(Path(runs).read_bytes()), Path(trials))
+            )
+        if cells:
+            scratch = (
+                withheld_root(store, args.role) / BASELINE_DIR / f"audit-{secrets.token_hex(8)}"
+            )
+            found += audit_harness(
+                store=store,
+                role=args.role,
+                version=args.version,
+                cells=cells,
+                prices=prices,
+                score=score,
+                scratch=scratch,
+            )
+        digest = write_detail(store, args.role, found)
+    except (PerRoleError, OSError, ValueError) as exc:
+        context = getattr(exc, "context", {})
+        reason = str(context.get("refused_because", "audit_refused"))
+        print(json.dumps({"refused_because": reason, "error": type(exc).__name__}, sort_keys=True))
+        return 2
+    print(printed(found, digest))
+    return 1 if found else 0

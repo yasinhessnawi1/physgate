@@ -1938,6 +1938,82 @@ def _once(ctx: _Round, key: tuple[Any, ...], words: str) -> None:
     ctx.acted.add(key)
 
 
+@dataclass(frozen=True)
+class Assembled:
+    """A harness trial's record, assembled from its ended run, and what it was made from."""
+
+    record: TrialRecord | ExcludedTrial
+    #: How the answer's extraction ended; ``None`` where the run's plan named no directory.
+    answer: str | None
+    unscored: bool
+    manifest_id: str
+
+
+def assemble_trial(
+    run_dir: Path,
+    task: Task,
+    events: Sequence[Event],
+    *,
+    role: Role,
+    tier: str,
+    trial: int,
+    prices: DatedSheet,
+    scorer: Scorer,
+    place: Path,
+    name: str,
+    keep_score: bool = True,
+) -> Assembled:
+    """Extract, score, price and assemble a trial's ended run: the one step that writes its record.
+
+    The answer is taken from the run branch into ``place/answers/<name>/``, from the module
+    directories the run's own plan names, and scored; its score is kept beside it in
+    ``place/scores/<name>.json`` unless ``keep_score`` is false. The round runs it once per
+    trial; the record audit runs it again, into a place of its own, to derive the record anew.
+    """
+    config = load_run_config(run_dir / "run.json")
+    extraction = None
+    planned_dirs = planned_module_dirs(events, role)
+    if planned_dirs:
+        answer = place / "answers" / name / task.answer.path
+        (place / "answers").mkdir(mode=0o700, exist_ok=True)
+        extraction = extract(
+            run_dir / TARGET, config.run_id, task.answer.path, answer, module_dirs=planned_dirs
+        )
+    found = extraction is not None and extraction.status == "found"
+    score: Mapping[str, Any] | None = None
+    if found:
+        score = scorer(task, place / "answers" / name / task.answer.path)
+        if keep_score:
+            (place / "scores").mkdir(mode=0o700, exist_ok=True)
+            _write_whole(place / "scores" / f"{name}.json", canonical_json(dict(score)))
+    unscored = False
+    if not found:
+        try:
+            unscored = harness_ended_by_infrastructure(run_dir, task, answer_found=False)
+        except TrialExcludedError:
+            unscored = False  # assembled as excluded below, with its reason
+    cost = price_run(run_dir, prices, review_roots=(run_dir / REVIEW,))
+    manifest_id = manifest_id_of(run_dir, read_run_events(run_dir))
+    record = harness_trial(
+        suite=f"{role}_{tier}",
+        task=task,
+        trial=trial,
+        run_dir=run_dir,
+        manifest_id=manifest_id,
+        cost=cost,
+        score=score,
+        unscored=unscored,
+    )
+    return Assembled(
+        record, None if extraction is None else extraction.status, unscored, manifest_id
+    )
+
+
+def run_events(run_dir: Path) -> list[Event] | None:
+    """The run's events when its log can be read whole, as the round reads them; else ``None``."""
+    return _events(run_dir)[1]
+
+
 def _assemble(ctx: _Round, planned: _Planned, attempt: int, events: list[Event]) -> None:
     """Extract, score, price and assemble the trial's ended run, then record it in the ledger.
 
@@ -1949,39 +2025,19 @@ def _assemble(ctx: _Round, planned: _Planned, attempt: int, events: list[Event])
     task = ctx.tasks[planned.brief_sha256]
     _the_trial_s(ctx, planned, attempt)
     config = load_run_config(run_dir / "run.json")
-    name = f"{i:04d}-{attempt}"
-    extraction = None
-    planned_dirs = planned_module_dirs(events, ctx.inputs.role)
-    if planned_dirs:
-        answer = ctx.place / "answers" / name / task.answer.path
-        (ctx.place / "answers").mkdir(mode=0o700, exist_ok=True)
-        extraction = extract(
-            run_dir / TARGET, config.run_id, task.answer.path, answer, module_dirs=planned_dirs
-        )
-    found = extraction is not None and extraction.status == "found"
-    score: Mapping[str, Any] | None = None
-    if found:
-        score = ctx.scorer(task, ctx.place / "answers" / name / task.answer.path)
-        (ctx.place / "scores").mkdir(mode=0o700, exist_ok=True)
-        _write_whole(ctx.place / "scores" / f"{name}.json", canonical_json(dict(score)))
-    unscored = False
-    if not found:
-        try:
-            unscored = harness_ended_by_infrastructure(run_dir, task, answer_found=False)
-        except TrialExcludedError:
-            unscored = False  # assembled as excluded below, with its reason
-    cost = price_run(run_dir, ctx.inputs.prices, review_roots=(run_dir / REVIEW,))
-    manifest_id = manifest_id_of(run_dir, read_run_events(run_dir))
-    record = harness_trial(
-        suite=f"{ctx.inputs.role}_{planned.tier}",
-        task=task,
+    done = assemble_trial(
+        run_dir,
+        task,
+        events,
+        role=ctx.inputs.role,
+        tier=planned.tier,
         trial=planned.trial,
-        run_dir=run_dir,
-        manifest_id=manifest_id,
-        cost=cost,
-        score=score,
-        unscored=unscored,
+        prices=ctx.inputs.prices,
+        scorer=ctx.scorer,
+        place=ctx.place,
+        name=f"{i:04d}-{attempt}",
     )
+    record = done.record
     try:
         total: int | None = harness_total(run_dir)
         no_total = None
@@ -1994,9 +2050,9 @@ def _assemble(ctx: _Round, planned: _Planned, attempt: int, events: list[Event])
             "attempt": attempt,
             "run_id": config.run_id,
             "run_dir": str(run_dir),
-            "manifest_id": manifest_id,
-            "answer": None if extraction is None else extraction.status,
-            "unscored": unscored,
+            "manifest_id": done.manifest_id,
+            "answer": done.answer,
+            "unscored": done.unscored,
             "outcome": "excluded" if isinstance(record, ExcludedTrial) else record.outcome,
             "record": record.model_dump(mode="json"),
             "harness_total": total,
