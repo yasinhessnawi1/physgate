@@ -109,6 +109,7 @@ from physgate.orchestrator.invocation import (
 from physgate.orchestrator.left_out import SCRATCH_DIR, LeftOut, clear_left_out
 from physgate.orchestrator.managed import (
     ObservedTraffic,
+    answering_models,
     drift,
     flag_cache,
     model_answered,
@@ -2508,7 +2509,8 @@ class ClaudeDispatcher:
             claude_version=self._config.claude_version,
         )
         if end.outcome == "completed":
-            echoed = sorted(answered)
+            # The binary's own messages (an error's notice) are no model's; none at all is no pin.
+            echoed = answering_models(answered)
             if echoed != [request.model]:
                 msg = "the session was answered by a model other than the pinned one"
                 raise InvocationError(msg, asked=request.model, answered=",".join(echoed))

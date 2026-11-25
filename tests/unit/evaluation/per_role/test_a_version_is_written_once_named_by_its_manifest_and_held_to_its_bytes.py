@@ -280,7 +280,13 @@ def test_a_split_that_fails_leaves_no_version_and_the_pool_whole(
     store_module = _api("physgate.evaluation.tiers.store")
 
     def half_a_split(
-        staging: Path, visible: Path, held_out: Path, *, validation: Path, seed: int
+        staging: Path,
+        visible: Path,
+        held_out: Path,
+        *,
+        validation: Path,
+        seed: int,
+        per_tier: int,
     ) -> Any:
         visible.mkdir(parents=True)
         held_out.mkdir(parents=True)

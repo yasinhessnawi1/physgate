@@ -1,0 +1,28 @@
+[
+  {
+    "name": "the_practice_version_takes_the_real_tier_count",
+    "file": "src/physgate/evaluation/tiers/practice.py",
+    "old": "        per_tier=PER_TIER,\n",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_a_practice_store_holds_practice_tasks_a_shakedown_round_runs_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "a_practice_brief_is_not_labelled",
+    "file": "src/physgate/evaluation/tiers/practice.py",
+    "old": "        f\"{LABEL} The plant is",
+    "new": "        f\"The plant is",
+    "tests": [
+      "tests/scoring/test_a_practice_store_holds_practice_tasks_a_shakedown_round_runs_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  }
+]
