@@ -13,7 +13,7 @@ record written and sealed before is read and collected exactly as it was.
 from __future__ import annotations
 
 import importlib._bootstrap_external as bootstrap
-import importlib.util
+import sys
 from pathlib import Path
 
 from writer_rig import WRITER_SOURCE, run, worktree, write_script
@@ -49,7 +49,9 @@ def test_a_planted_cache_whose_header_matches_its_source_refuses_the_record(
 ) -> None:
     base = worktree(tmp_path)
     source = _helper(base)
-    cache = Path(importlib.util.cache_from_source(str(source)))
+    # Where the script's interpreter reads it: beside the source, as no cache prefix is set
+    # for it (``-E``), whatever prefix the process running this row has.
+    cache = source.parent / "__pycache__" / f"helper.{sys.implementation.cache_tag}.pyc"
     cache.parent.mkdir()
     cache.write_bytes(_planted_pyc(source))
     done = run(write_script(base))
