@@ -6,9 +6,16 @@
     "new": "",
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
-      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
+      "tests/unit/series/test_the_writer_stands_behind_no_compiled_code_in_the_worktree.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/series/writer_rig.py"
+    ]
   },
   {
     "name": "the_commit_stages_everything",
@@ -43,8 +50,8 @@
   {
     "name": "the_scratch_folder_s_link_is_followed",
     "file": "src/physgate/orchestrator/left_out.py",
-    "old": "        held = os.stat(name, dir_fd=parent, follow_symlinks=False)\n        if not stat.S_ISDIR(held.st_mode):\n            os.unlink",
-    "new": "        held = os.stat(name, dir_fd=parent, follow_symlinks=True)\n        if not stat.S_ISDIR(held.st_mode):\n            os.unlink",
+    "old": "    found = os.stat(name, dir_fd=parent, follow_symlinks=False)\n    if not stat.S_ISDIR(found.st_mode):\n        os.unlink(name, dir_fd=parent)\n",
+    "new": "    found = os.stat(name, dir_fd=parent, follow_symlinks=True)\n    if not stat.S_ISDIR(found.st_mode):\n        os.unlink(name, dir_fd=parent)\n",
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
     ],
@@ -53,8 +60,8 @@
   {
     "name": "what_a_session_shut_is_not_opened",
     "file": "src/physgate/orchestrator/left_out.py",
-    "old": "            _opened_up(parent, name)\n",
-    "new": "",
+    "old": "        _mode_opened_without_following(parent, name)\n",
+    "new": "        raise\n",
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
     ],
@@ -83,8 +90,8 @@
   {
     "name": "ignored_bytecode_is_carried",
     "file": "src/physgate/orchestrator/left_out.py",
-    "old": "        \"--others\",\n        \"--\",\n",
-    "new": "        \"--others\",\n        \"--exclude-standard\",\n        \"--\",\n",
+    "old": "            \"--others\",\n            \"--\",\n",
+    "new": "            \"--others\",\n            \"--exclude-standard\",\n            \"--\",\n",
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
     ],
@@ -128,7 +135,12 @@
     "tests": [
       "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py"
+    ]
   },
   {
     "name": "a_session_s_start_clears_nothing",
@@ -138,7 +150,12 @@
     "tests": [
       "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py"
+    ]
   },
   {
     "name": "the_census_holds_bytecode_writing_equal_by_overlooking_it",
@@ -148,7 +165,11 @@
     "tests": [
       "tests/unit/orchestrator/test_every_field_of_a_run_is_refused_reported_or_named_as_never_compared.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
   },
   {
     "name": "the_raw_arm_is_not_held_to_the_bytecode_pin",
@@ -158,7 +179,75 @@
     "tests": [
       "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
     ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "a_folder_s_mode_is_changed_by_its_name",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "    fd = _held_dir(parent, name)\n    try:\n        for entry in os.listdir(fd):\n            _remove_tree(fd, entry)\n",
+    "new": "    os.chmod(name, 0o700, dir_fd=parent)\n    fd = os.open(name, _DIRECTORY, dir_fd=parent)\n    try:\n        for entry in os.listdir(fd):\n            _remove_tree(fd, entry)\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
     "data": []
+  },
+  {
+    "name": "an_unlistable_bytecode_folder_is_left_shut",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "                        os.close(_held_dir(fd, name))\n",
+    "new": "                        pass\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "an_incomplete_clearing_refuses_nothing",
+    "file": "src/physgate/orchestrator/apply.py",
+    "old": "    if series is not None and series.left_out_incomplete:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_writer_stands_behind_compiled_code",
+    "file": "src/physgate/series/writer.py",
+    "old": "    compiled = _compiled_in_place(base)\n    if compiled is not None:\n",
+    "new": "    compiled = None\n    if compiled is not None:\n",
+    "tests": [
+      "tests/unit/series/test_the_writer_stands_behind_no_compiled_code_in_the_worktree.py"
+    ],
+    "data": [
+      "tests/unit/series/writer_rig.py"
+    ]
+  },
+  {
+    "name": "the_writer_ignores_a_compiled_file_beside_its_source",
+    "file": "src/physgate/series/writer.py",
+    "old": "        places = [stem + \".pyc\"]\n",
+    "new": "        places = []\n",
+    "tests": [
+      "tests/unit/series/test_the_writer_stands_behind_no_compiled_code_in_the_worktree.py"
+    ],
+    "data": [
+      "tests/unit/series/writer_rig.py"
+    ]
+  },
+  {
+    "name": "the_writer_takes_any_loader",
+    "file": "src/physgate/series/writer.py",
+    "old": "        if loader is not None and not isinstance(loader, importlib.machinery.SourceFileLoader):\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/series/test_the_writer_stands_behind_no_compiled_code_in_the_worktree.py"
+    ],
+    "data": [
+      "tests/unit/series/writer_rig.py"
+    ]
   },
   {
     "name": "baseline_last",
@@ -167,8 +256,15 @@
     "new": "",
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
-      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
+      "tests/unit/series/test_the_writer_stands_behind_no_compiled_code_in_the_worktree.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/series/writer_rig.py"
+    ]
   }
 ]

@@ -423,6 +423,11 @@ def test_a_bytecode_folder_made_unlistable_is_opened_recorded_and_left_out(
     run, worktree = _run(tmp_path)
     _write(worktree, {f"{MODULE}/a.py": "x = 2\n", "modules/control/__pycache__/law.pyc": "c\n"})
     (worktree / "modules" / "control" / "__pycache__").chmod(0o000)
+    cleared = _cleared(run, worktree)
+    assert [b.path for b in cleared.bytecode] == [  # type: ignore[attr-defined]
+        "modules/control/__pycache__/law.pyc"
+    ]
+    assert cleared.complete  # type: ignore[attr-defined]
     commit = _commit(run, worktree)
     assert _changed(run, commit) == [f"{MODULE}/a.py"]
     assert _left(worktree) == []
