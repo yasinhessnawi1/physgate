@@ -316,10 +316,10 @@ def test_a_restart_deals_only_with_the_directories_its_own_ledger_placed(
     # first round's, whose left review still runs with its credential.
     other = rig.inputs(trials=1, out=rig.root / "other")
     for resume in (False, True):
-        status, _ = run_round(
+        made, _ = run_round(
             other, driver=_driver(rig, drivers), scorer=_score, resume=resume, sleep=lambda _: None
         )
-        assert status == "done"
+        assert made == "done"
     assert started_at(pid) is not None and len(_keys(rig)) == 1
     status, _ = _go(rig, _driver(rig, drivers), [], resume=True)
     assert status == "done" and started_at(pid) is None and _keys(rig) == []
