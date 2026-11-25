@@ -38,6 +38,7 @@ from physgate.evaluation.baseline import runner
 from physgate.evaluation.baseline.record import BASELINE_RECORD, TIERS_RECORD, write_new
 from physgate.evaluation.baseline.runner import (
     BASELINE_DIR,
+    LEDGER,
     TRIALS,
     BaselineError,
     RunSet,
@@ -394,9 +395,13 @@ def test_a_protected_trial_that_fails_at_any_step_never_rests_in_a_visible_place
     new_outside = {
         p for p in _paths(tmp_path) - before if not any(p.is_relative_to(w) for w in places)
     }
-    assert {p.relative_to(out) for p in _paths(out)} == set(), "the round's directory holds a trial"
-    # The round's directory, made empty before any trial, and the record: nothing else.
-    assert new_outside == {out} | records, sorted(map(str, new_outside - records - {out}))
+    # The round's ledger alone, which names entries by their place and steps, never a task.
+    held = {p.relative_to(out) for p in _paths(out)}
+    assert held == {Path(LEDGER)}, "the round's directory holds a trial"
+    # The round's directory, made with its ledger before any trial, and the record: nothing else.
+    assert new_outside == {out, out / LEDGER} | records, sorted(
+        map(str, new_outside - records - {out, out / LEDGER})
+    )
     kept = [p for w in places for p in w.rglob("raw.json")]
     assert step in NOT_RUN or kept, "the trial's files are nowhere: the listings prove nothing"
     again = StandInArm()

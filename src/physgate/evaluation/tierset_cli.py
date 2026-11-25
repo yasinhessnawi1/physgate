@@ -62,6 +62,17 @@ inside a harness session's environment, as defence in depth only.
 
 Each prints one JSON line, and a refusal as ``refused_because`` with exit 1.
 
+``physgate tiers practice --store S --implementer-model M [--seed N]`` builds, at the new
+directory ``S``, a store holding one version of practice tasks written for a shakedown
+(:mod:`physgate.evaluation.tiers.practice`): two control tasks to a tier, each labelled practice
+in its brief and held to the split's entry checks, and a stand-in check record in the imported
+form that flags none and names no session. It never reads another store. It prints the version
+and its tiers' counts and digests on one JSON line, or ``refused_because`` with exit 1. It runs
+in the evaluation environment, since each task's scorer is run on its references; elsewhere
+it refuses (``evaluation_environment_missing``) and writes nothing. A shakedown on it then
+registers a run root for the store (``physgate tiers add-run-root --withheld
+S/control/withheld --path DIR``) before its harness runs, as every measured run's store needs.
+
 ``physgate tiers probe --withheld W --version V --seed N`` is the isolation probe
 (:mod:`physgate.evaluation.tiers.probe`): for each task of ``V``'s held-out tier and each
 requirement it composes, an answer is built for that requirement alone by the seeded search and
@@ -115,6 +126,13 @@ def add_parser(subparsers: Any) -> None:
     probe.add_argument("--version", required=True)
     probe.add_argument("--seed", type=int, required=True)
     probe.set_defaults(func=_probe)
+    practice = commands.add_parser(
+        "practice", help="build a store holding one version of practice tasks, for a shakedown"
+    )
+    practice.add_argument("--store", type=Path, required=True)
+    practice.add_argument("--implementer-model", dest="implementer_model", required=True)
+    practice.add_argument("--seed", type=int)
+    practice.set_defaults(func=_practice)
 
 
 #: What ``--publish`` takes, said where the flag is listed. Kept here, beside the parser, so the
@@ -335,4 +353,36 @@ def _probe(args: argparse.Namespace) -> int:
         )
         return 1
     print(line)
+    return 0
+
+
+def _practice(args: argparse.Namespace) -> int:
+    from physgate.evaluation.per_role.exceptions import PerRoleError
+    from physgate.evaluation.tiers.practice import SEED, build_practice_store, describe
+
+    try:
+        from physgate.evaluation.per_role.validate import sound
+    except ImportError:
+        said = {
+            "refused_because": "evaluation_environment_missing",
+            "error": (
+                "the practice store's tasks are held to their scorer, in the evaluation "
+                "environment: UV_PROJECT_ENVIRONMENT=.venv-evaluation uv run --group evaluation "
+                "physgate ..."
+            ),
+        }
+        print(json.dumps(said, sort_keys=True))
+        return 1
+    del sound
+    try:
+        manifest = build_practice_store(
+            args.store.absolute(),
+            implementer_model=args.implementer_model,
+            seed=SEED if args.seed is None else args.seed,
+        )
+    except PerRoleError as exc:
+        reason = exc.context.get("refused_because", "practice_refused")
+        print(json.dumps({"refused_because": reason, "error": str(exc)}, sort_keys=True))
+        return 1
+    print(describe(manifest))
     return 0

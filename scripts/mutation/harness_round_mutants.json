@@ -1199,8 +1199,8 @@
  {
   "name": "the_answer_is_read_outside_the_planned_directory",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "    planned_dirs = planned_module_dirs(events, ctx.inputs.role)\n",
-  "new": "    planned_dirs = (*planned_module_dirs(events, ctx.inputs.role), \"modules/old\")\n",
+  "old": "    planned_dirs = planned_module_dirs(events, role)\n",
+  "new": "    planned_dirs = (*planned_module_dirs(events, role), \"modules/old\")\n",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_trial_s_answer_is_read_from_the_module_directory_its_plan_names.py"
   ],

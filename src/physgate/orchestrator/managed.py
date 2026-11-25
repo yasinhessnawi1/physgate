@@ -327,6 +327,20 @@ def model_answered(answered: Iterable[str]) -> bool:
     return any(model != SYNTHETIC_MODEL for model in answered)
 
 
+def answering_models(answered: Iterable[str]) -> list[str]:
+    """The models that answered a session, sorted, from the models its stream names.
+
+    Every reading of who answered a session that is held against the model it was pinned to
+    is this one. The binary's own messages (``<synthetic>``: an API error's notice, the usage
+    limit's) are no model's answer and are left out, by that exact name; every other name is
+    kept, one that only looks like it included. So a session that met an error and was then
+    answered by its pinned model was answered by that model alone, and one only the binary
+    wrote to was answered by none: an empty list, which is no pin. The stream keeps what it
+    showed.
+    """
+    return sorted(set(answered) - {SYNTHETIC_MODEL})
+
+
 def policy_limits_unjudged(end: SessionEnd, *, answered: bool, now: str | None) -> str | None:
     """Why an invocation's missing policy limits are not held to the run's first, or ``None``.
 
