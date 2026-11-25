@@ -2553,9 +2553,13 @@ class ClaudeDispatcher:
         # place of a source: each file goes on the session's end line with its digest, which the
         # attempt's review is shown.
         cleared = self._clear_left_out(worktree, sdir, LEFT_OUT_NAME)
-        if cleared.bytecode_found:
+        if cleared.bytecode_found or not cleared.complete:
             series = series.model_copy(
-                update={"bytecode": cleared.bytecode, "bytecode_found": cleared.bytecode_found}
+                update={
+                    "bytecode": cleared.bytecode,
+                    "bytecode_found": cleared.bytecode_found,
+                    "left_out_incomplete": not cleared.complete,
+                }
             )
         commit = (
             commit_attempt(

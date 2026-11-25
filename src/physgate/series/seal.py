@@ -125,6 +125,9 @@ class SessionSeries(_Frozen):
         default=(), exclude_if=lambda v: not v
     )
     bytecode_found: Annotated[int, Field(ge=0)] = Field(default=0, exclude_if=lambda v: v == 0)
+    #: Whether the clearing at the session's end left something it could not record or remove;
+    #: the change check then refuses the attempt (left out of a dump when ``False``).
+    left_out_incomplete: bool = Field(default=False, exclude_if=lambda v: not v)
 
 
 class SeriesCheck(_Frozen):

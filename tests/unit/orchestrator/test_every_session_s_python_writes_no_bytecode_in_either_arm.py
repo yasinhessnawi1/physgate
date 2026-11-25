@@ -34,6 +34,8 @@ from physgate.orchestrator.git import merge_base
 from physgate.orchestrator.invocation import isolated_env
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.reviewers import claude as reviewers
+from physgate.series.seal import AttemptBytecode, AttemptSeries, Bytecode
+from physgate.series.summary import listing
 
 __all__ = ["leftovers"]
 
@@ -164,3 +166,28 @@ def test_a_role_session_finds_the_variable_and_leaves_nothing_of_scratch_or_byte
     assert ended["refused"] == []
     started = json.loads((sdir / "left_out_before.json").read_text())
     assert started["removed_count"] == 0
+    # The bytecode is evidence of what may have run: on the session's end line, by its digest.
+    planted = [b for b in report.series.bytecode if b.path.startswith("elsewhere/")]
+    assert [b.path for b in planted] == ["elsewhere/__pycache__/base.cpython-312.pyc"]
+    assert planted[0].sha256 is not None and planted[0].length
+    assert report.series.bytecode_found == len(report.series.bytecode)
+
+
+def test_the_review_s_series_listing_names_each_bytecode_file_a_session_left(
+    tmp_path: Path,
+) -> None:
+    left = AttemptBytecode(
+        session_id="session-1",
+        found=3,
+        files=(
+            Bytecode(path="elsewhere/__pycache__/base.cpython-312.pyc", sha256="a" * 64, length=9),
+            Bytecode(path="modules/power/x.pyc"),
+        ),
+    )
+    series = AttemptSeries(run_dir=str(tmp_path), subtask_id="s1", attempt=1, bytecode=(left,))
+    shown = listing(series).decode()
+    assert "# Bytecode left in the worktree" in shown
+    assert "Files found: 3." in shown
+    assert "elsewhere/__pycache__/base.cpython-312.pyc" in shown and "sha256 " + "a" * 64 in shown
+    assert "modules/power/x.pyc" in shown and "and 1 more, not named" in shown
+    assert "Bytecode" not in listing(series.model_copy(update={"bytecode": ()})).decode()

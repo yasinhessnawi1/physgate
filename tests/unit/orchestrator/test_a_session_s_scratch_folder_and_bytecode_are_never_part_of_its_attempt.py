@@ -24,6 +24,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
+from physgate.orchestrator import apply as apply_module
 from physgate.orchestrator.apply import GitChangeChecker
 from physgate.orchestrator.decompose import Plan, plan_problems
 from physgate.orchestrator.dispatch import role_prompt
@@ -32,6 +33,7 @@ from physgate.orchestrator.merge import RunGit, commit_attempt, write_scope_viol
 from physgate.orchestrator.ports import SessionRequest
 from physgate.orchestrator.run_config import RunBounds
 from physgate.series.collect import WRITER_PATH, collect, writer_source
+from physgate.series.seal import SessionSeries
 
 try:
     from physgate.orchestrator import left_out
@@ -368,6 +370,88 @@ def test_a_folder_swapped_for_a_link_while_it_is_removed_changes_nothing_outside
     assert swapped, "the swap never happened, so the row proves nothing"
     _untouched(outside)
     assert SCRATCH not in " ".join(_changed(run, commit))
+
+
+def _cleared(run: RunGit, worktree: Path) -> object:
+    """The clearing the session's end runs, called as the dispatcher calls it: it never raises."""
+    clear = getattr(left_out, "clear_left_out", None)
+    assert clear is not None, "no clearing to call"
+    return clear(worktree, repo=run.repo)
+
+
+def test_a_pyc_under_a_path_past_the_record_s_bound_is_recorded_cut_and_removed(
+    tmp_path: Path,
+) -> None:
+    run, worktree = _run(tmp_path)
+    folder = worktree / "modules" / "control" / "__pycache__"
+    folder.mkdir()
+    name = "\u00e9" * 125 + ".pyc"  # 254 bytes, each of its 250 escaped as four characters
+    (folder / name).write_bytes(b"compiled")
+    cleared = _cleared(run, worktree)
+    (found,) = cleared.bytecode  # type: ignore[attr-defined]
+    assert len(found.path) <= 1024
+    assert found.path.startswith("modules/control/__pycache__/\\xc3\\xa9")
+    assert "the whole path's sha256" in found.path
+    assert found.sha256 is not None and found.length == len(b"compiled")
+    assert cleared.complete  # type: ignore[attr-defined]
+    assert _left(worktree) == []
+
+
+def test_a_bytecode_name_that_is_not_text_is_recorded_escaped_and_removed(
+    tmp_path: Path,
+) -> None:
+    run, worktree = _run(tmp_path)
+    folder = worktree / "modules" / "control" / "__pycache__"
+    folder.mkdir()
+    try:
+        fd = os.open(os.fsencode(folder) + b"/\xff\xfe.pyc", os.O_WRONLY | os.O_CREAT, 0o600)
+    except OSError:
+        pytest.skip("this volume takes no name that is not UTF-8")
+    os.write(fd, b"compiled")
+    os.close(fd)
+    cleared = _cleared(run, worktree)
+    assert [b.path for b in cleared.bytecode] == [  # type: ignore[attr-defined]
+        "modules/control/__pycache__/\\xff\\xfe.pyc"
+    ]
+    assert cleared.complete  # type: ignore[attr-defined]
+    assert os.listdir(os.fsencode(worktree / "modules" / "control")) == [b"law.py"]
+
+
+def test_a_bytecode_folder_made_unlistable_is_opened_recorded_and_left_out(
+    tmp_path: Path,
+) -> None:
+    run, worktree = _run(tmp_path)
+    _write(worktree, {f"{MODULE}/a.py": "x = 2\n", "modules/control/__pycache__/law.pyc": "c\n"})
+    (worktree / "modules" / "control" / "__pycache__").chmod(0o000)
+    commit = _commit(run, worktree)
+    assert _changed(run, commit) == [f"{MODULE}/a.py"]
+    assert _left(worktree) == []
+
+
+def test_a_directory_that_cannot_be_listed_is_recorded_and_refuses_the_attempt(
+    tmp_path: Path,
+) -> None:
+    run, worktree = _run(tmp_path)
+    _write(worktree, {f"{MODULE}/a.py": "x = 2\n"})
+    commit = _commit(run, worktree)
+    locked = worktree / MODULE / "locked"
+    locked.mkdir()
+    locked.chmod(0o000)
+    try:
+        cleared = _cleared(run, worktree)
+    finally:
+        locked.chmod(0o700)
+    assert not cleared.complete  # type: ignore[attr-defined]
+    assert [p for p, _ in cleared.refused] == [f"{MODULE}/locked"]  # type: ignore[attr-defined]
+    # The end clearing not complete: the attempt is refused in closed words before its gate.
+    series = SessionSeries(**{"left_out_incomplete": True})
+    graph = run.run_dir / "graph"
+    graph.mkdir(parents=True, exist_ok=True)
+    check = GitChangeChecker(run, graph, {SUBTASK: MODULE}).check(
+        SUBTASK, commit, "electrical", series=series
+    )
+    assert check.refused_by == "series"
+    assert check.reason == getattr(apply_module, "LEFT_OUT_INCOMPLETE", None)
 
 
 def test_bytecode_the_run_branch_tracks_is_kept_and_a_change_to_it_left_out(

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import time
 from collections.abc import Iterator
@@ -31,6 +32,7 @@ from hook_session import volume_is_case_insensitive
 from os_layer_rig import MARKER, Layout, layer_here, make_layout, python, run_session
 
 from physgate.orchestrator.budget import classify_session_end
+from physgate.orchestrator.merge import commit_attempt
 from physgate.orchestrator.queue import read_queue
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import shared_temp_dirs
@@ -829,3 +831,95 @@ def test_with_hooks_only_no_file_tool_write_outside_the_worktree_lands(
     layout: Layout, *, raw: bool
 ) -> None:
     _no_outside_write_lands(layout, layer=False, raw=raw)
+
+
+# ── what a session leaves in its scratch folder or as bytecode, through the real binary ──
+
+
+#: The run repository the layout's worktree was made in.
+def _repo(layout: Layout) -> Path:
+    return layout.root / "run" / "repo"
+
+
+def _committed(layout: Layout) -> list[str]:
+    """What the attempt's commit, made as the orchestrator makes it, changed."""
+    commit = commit_attempt(layout.worktree, "sub1", 1, "session-1", repo=_repo(layout))
+    done = subprocess.run(
+        ["git", "diff", "--name-only", f"{commit}~1", commit],
+        cwd=_repo(layout),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return done.stdout.split()
+
+
+LAW = "def gain():\n    return 2\n"
+HELPER = (
+    "import sys\n"
+    "sys.path.insert(0, 'modules/control')\n"
+    "import law\n"
+    "print('gain', law.gain(), 'bytecode off', sys.flags.dont_write_bytecode)\n"
+)
+
+
+@pytest.mark.usefixtures("layer")
+def test_a_helper_the_file_tool_writes_in_the_scratch_folder_is_in_no_commit(
+    layout: Layout,
+) -> None:
+    worktree = Path(os.path.realpath(layout.worktree))
+    steps = [
+        tool(
+            "Write",
+            file_path=f"{worktree}/modules/control/law.py",
+            content="def gain():\n    return 2\n",
+        ),
+        tool("Write", file_path=f"{worktree}/.physgate/scratch/helper.py", content=HELPER),
+        tool(
+            "Bash",
+            command=f"cd {worktree} && python3 .physgate/scratch/helper.py",
+            description="run",
+        ),
+    ]
+    run = run_session(layout, steps, layer=True)
+    told = run["told"]
+    assert isinstance(told, list)
+    assert "gain 2 bytecode off 1" in str(told[2]), told
+    assert (worktree / ".physgate" / "scratch" / "helper.py").is_file(), told[1]
+    assert _committed(layout) == ["modules/control/law.py"]
+    assert not (worktree / ".physgate" / "scratch").exists()
+
+
+@pytest.mark.usefixtures("layer")
+def test_a_python_import_across_modules_leaves_the_attempt_s_commit_clean(
+    layout: Layout,
+) -> None:
+    worktree = Path(os.path.realpath(layout.worktree))
+    # Into the worktree by name: an interpreter with a cache prefix of its own (the system's
+    # Python on macOS keeps one beneath the home) would put it elsewhere.
+    force = (
+        "import py_compile\n"
+        "print('compiled', py_compile.compile('modules/control/law.py',"
+        " cfile='modules/control/__pycache__/law.cpython-39.pyc', doraise=True))"
+    )
+    steps = [
+        tool(
+            "Write",
+            file_path=f"{worktree}/modules/control/law.py",
+            content="def gain():\n    return 2\n",
+        ),
+        tool("Write", file_path=f"{worktree}/modules/power/run.py", content=HELPER),
+        tool("Bash", command=f"cd {worktree} && python3 modules/power/run.py", description="run"),
+        tool("Bash", command=f"cd {worktree} && ls modules/control", description="list"),
+        # A program that ignores the variable writes the cache all the same.
+        tool("Bash", command=f"cd {worktree} && " + python(force), description="compile"),
+    ]
+    run = run_session(layout, steps, layer=True)
+    told = run["told"]
+    assert isinstance(told, list)
+    assert "gain 2 bytecode off 1" in str(told[2]), told
+    assert "__pycache__" not in str(told[3]), told[3]
+    assert "compiled" in str(told[4]), told[4]
+    assert (worktree / "modules" / "control" / "__pycache__").is_dir(), told[4]
+    assert _committed(layout) == ["modules/control/law.py", "modules/power/run.py"]
+    assert not (worktree / "modules" / "control" / "__pycache__").exists()

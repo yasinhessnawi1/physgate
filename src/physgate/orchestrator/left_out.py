@@ -85,11 +85,28 @@ class LeftOut(BaseModel):
     #: :data:`MAX_NAMED`), and how many were found in all: evidence of what may have run.
     bytecode: tuple[Bytecode, ...] = ()
     bytecode_found: int = 0
+    #: Whether everything was recorded and removed. ``False`` where anything stays, where an
+    #: entry could not be recorded, or where the worktree could not be listed: the attempt the
+    #: session's end clearing finds so is refused (``SessionSeries.left_out_incomplete``).
+    complete: bool = True
+
+
+#: The longest path a record holds (``Bytecode.path``'s bound).
+MAX_PATH_SHOWN = 1024
 
 
 def _shown(path: str) -> str:
+    """``path`` as a record holds it: printable ASCII, cut to the bound with a marker.
+
+    A path past the bound keeps its start, and the marker names the digest of the whole path's
+    bytes, so the fact and the path's identity are kept.
+    """
     raw = path.encode("utf-8", "surrogateescape")
-    return "".join(chr(b) if 0x20 <= b < 0x7F and b != 0x5C else f"\\x{b:02x}" for b in raw)
+    shown = "".join(chr(b) if 0x20 <= b < 0x7F and b != 0x5C else f"\\x{b:02x}" for b in raw)
+    if len(shown) <= MAX_PATH_SHOWN:
+        return shown
+    marker = f"...[cut; the whole path's sha256 {hashlib.sha256(raw).hexdigest()}]"
+    return shown[: MAX_PATH_SHOWN - len(marker)] + marker
 
 
 class _Found:
@@ -99,6 +116,7 @@ class _Found:
         self.refused: list[tuple[str, str]] = []
         self.bytecode: list[Bytecode] = []
         self.bytecode_found = 0
+        self.complete = True
 
     def gone(self, path: str) -> None:
         self.count += 1
@@ -106,6 +124,7 @@ class _Found:
             self.removed.append(_shown(path))
 
     def stays(self, path: str, why: str) -> None:
+        self.complete = False
         if len(self.refused) < MAX_NAMED:
             self.refused.append((_shown(path), why))
 
@@ -123,6 +142,7 @@ class _Found:
             refused=tuple(self.refused),
             bytecode=tuple(self.bytecode),
             bytecode_found=self.bytecode_found,
+            complete=self.complete,
         )
 
 
@@ -252,6 +272,17 @@ def _read_compiled(parent: int, name: str) -> bytes | None:
 
 
 def _remove_bytecode(worktree: Path, relative: str, found: _Found) -> None:
+    """Record one listed bytecode path and remove it; whatever goes wrong is recorded for it."""
+    counted = found.bytecode_found
+    try:
+        _record_and_remove(worktree, relative, found)
+    except Exception as exc:  # noqa: BLE001 - recorded for the entry, never out of an attempt's end
+        if found.bytecode_found == counted:
+            found.compiled(relative, None)
+        found.stays(relative, f"it could not be recorded or removed ({type(exc).__name__})")
+
+
+def _record_and_remove(worktree: Path, relative: str, found: _Found) -> None:
     *above, name = relative.rstrip("/").split("/")
     try:
         parent = _open_parents(worktree, tuple(above))
@@ -291,6 +322,43 @@ def _remove_bytecode(worktree: Path, relative: str, found: _Found) -> None:
             os.close(grand)
 
 
+def _open_bytecode_folders(worktree: Path, found: _Found) -> None:
+    """Make every bytecode folder in the worktree listable; record a directory that is not.
+
+    git lists nothing beneath a directory it cannot open, so a bytecode folder a session made
+    unlistable would keep its files from the record and the removal: each is opened here by
+    descriptor, its mode changed on that descriptor (:func:`_held_dir`). Any other directory
+    that cannot be listed is recorded, and the clearing is then not complete.
+    """
+    pending: list[tuple[str, ...]] = [()]
+    while pending:
+        parts = pending.pop()
+        try:
+            fd = _open_parents(worktree, parts)
+        except OSError as exc:
+            found.stays("/".join(parts) or ".", f"it cannot be listed ({exc.strerror})")
+            continue
+        try:
+            for name in os.listdir(fd):
+                if name.casefold() == ".git":
+                    continue
+                try:
+                    held = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    if not stat.S_ISDIR(held.st_mode):
+                        continue
+                    if name.casefold() == BYTECODE_DIR:
+                        os.close(_held_dir(fd, name))
+                except OSError as exc:
+                    shown = "/".join((*parts, name))
+                    found.stays(shown, f"it cannot be opened ({exc.strerror})")
+                    continue
+                pending.append((*parts, name))
+        except OSError as exc:
+            found.stays("/".join(parts) or ".", f"it cannot be listed ({exc.strerror})")
+        finally:
+            os.close(fd)
+
+
 def clear_left_out(worktree: Path, *, repo: Path) -> LeftOut:
     """Remove the scratch folder and every untracked bytecode file from a session's worktree.
 
@@ -299,22 +367,34 @@ def clear_left_out(worktree: Path, *, repo: Path) -> LeftOut:
     listing of untracked bytecode) runs pinned to its admin directory. Every change below the
     worktree is made through descriptors opened without following a link.
 
-    Raises:
-        GitError: the worktree's pointer does not verify, or git cannot list its files.
+    It never raises: whatever stays, cannot be recorded or cannot be listed (the worktree's
+    pointer not verifying among it) is recorded with its reason, the walk goes on, and the
+    result says it is not complete, for the caller to act on.
     """
-    admin = verified_git_dir(worktree, linked=True, common=common_dir(repo))
     found = _Found()
-    _clear_scratch(worktree, found)
-    listed = git(
-        worktree,
-        "ls-files",
-        "-z",
-        "--others",
-        "--",
-        *_BYTECODE_LISTED,
-        git_dir=admin,
-        errors="surrogateescape",
-    )
+    try:
+        _clear_scratch(worktree, found)
+    except Exception as exc:  # noqa: BLE001 - recorded, never out of an attempt's end
+        found.stays(str(SCRATCH_DIR), f"it could not be cleared ({type(exc).__name__})")
+    try:
+        _open_bytecode_folders(worktree, found)
+    except Exception as exc:  # noqa: BLE001 - recorded, never out of an attempt's end
+        found.stays(".", f"the worktree could not be walked ({type(exc).__name__})")
+    try:
+        admin = verified_git_dir(worktree, linked=True, common=common_dir(repo))
+        listed = git(
+            worktree,
+            "ls-files",
+            "-z",
+            "--others",
+            "--",
+            *_BYTECODE_LISTED,
+            git_dir=admin,
+            errors="surrogateescape",
+        )
+    except Exception as exc:  # noqa: BLE001 - recorded, never out of an attempt's end
+        found.stays(".", f"the worktree's untracked bytecode could not be listed ({exc})")
+        return found.done()
     for relative in sorted(p for p in listed.split("\0") if p):
         _remove_bytecode(worktree, relative, found)
     return found.done()
