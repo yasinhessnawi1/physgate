@@ -608,6 +608,26 @@ def test_the_command_holds_only_the_copied_schematic_in_a_fresh_folder_removed_a
     assert call["roots"] == [str(tmp_path / "root")]
 
 
+def test_the_command_s_folder_is_named_where_it_really_is_when_its_parent_is_a_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # KiCad writes the netlist's sheet file relative to the place it resolves: a folder named
+    # through a link (macOS's temporary directory, beneath /var) puts its own path into the
+    # netlist made again, and an honest set is refused.
+    real = tmp_path / "real-temp"
+    real.mkdir()
+    linked = tmp_path / "linked-temp"
+    linked.symlink_to(real, target_is_directory=True)
+    monkeypatch.setattr(tempfile, "tempdir", str(linked))
+    found, runs = check(tmp_path, made(SOUND))
+    assert found.refused_by is None, found.reason
+    (call,) = runs.calls
+    work = call["work"]
+    assert str(work) == os.path.realpath(work), work
+    assert all(not a.startswith(str(linked)) for a in call["argv"]), call["argv"]
+    assert all(str(linked) not in value for value in call["env"].values()), call["env"]
+
+
 def test_a_failed_regeneration_s_folder_is_removed_too(tmp_path: Path) -> None:
     files = made(SOUND)
     files[f"{MODULE}/board.kicad_sch"] = (SOUND + "FAIL\n").encode()

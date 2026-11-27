@@ -265,6 +265,21 @@
   ]
  },
  {
+  "name": "on_macos_the_tls_library_s_settings_are_not_read",
+  "file": "src/physgate/oslayer/regeneration.py",
+  "old": "                        read_roots=(*roots, MACOS_TLS_CONFIGURATION),\n",
+  "new": "                        read_roots=roots,\n",
+  "tests": [
+   "tests/unit/oslayer/test_the_command_that_makes_exports_again_is_withheld_the_session_s_places_and_names_none.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ]
+ },
+ {
   "name": "a_runner_given_no_withheld_places_runs",
   "file": "src/physgate/oslayer/regeneration.py",
   "old": "            if withheld is None:\n                msg = \"no places withheld from the run's sessions are given to the regeneration\"\n                raise ContainmentError(msg)\n            denied = tuple(withheld())\n",
@@ -572,6 +587,20 @@
   "file": "src/physgate/oslayer/regeneration.py",
   "old": "                env=dict(env),\n",
   "new": "                env={**os.environ, **env},\n",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
+  "name": "the_command_s_folder_is_named_through_a_link",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "    work = Path(os.path.realpath(tempfile.mkdtemp(prefix=\"physgate-derived-\")))\n",
+  "new": "    work = Path(tempfile.mkdtemp(prefix=\"physgate-derived-\"))\n",
   "tests": [
    "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
   ],
