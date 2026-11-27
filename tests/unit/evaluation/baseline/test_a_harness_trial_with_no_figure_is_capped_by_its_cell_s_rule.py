@@ -336,6 +336,7 @@ def test_no_excluded_draw_ablation_trial_or_other_round_s_trial_is_in_a_cell_s_f
     assert isinstance(refused, BaselineError)
     assert refused.context["refused_because"] == "not_the_final_draw"
 
+
 def test_a_held_out_trial_s_cap_is_never_a_visible_trial_s_total(
     tmp_path: Path, store: StandInStore
 ) -> None:

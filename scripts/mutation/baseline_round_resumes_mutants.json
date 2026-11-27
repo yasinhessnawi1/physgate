@@ -437,8 +437,8 @@
   {
     "name": "the_refusal_line_never_says_a_session_started",
     "file": "src/physgate/evaluation/baseline/cli.py",
-    "old": "            \"session_started\": context.get(\"session_started\") == \"true\",\n",
-    "new": "            \"session_started\": False,\n",
+    "old": "        \"session_started\": context.get(\"session_started\") == \"true\",\n",
+    "new": "        \"session_started\": False,\n",
     "tests": [
       "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py"
     ],
