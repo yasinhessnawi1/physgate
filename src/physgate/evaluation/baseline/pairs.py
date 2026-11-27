@@ -22,7 +22,8 @@ baseline round that took the pair on, with the directory its ledger lies in. A r
 line before its first session, under the work root's hold, and the next round of the same pair
 reads every earlier one's ledger to say where the pair stands there (:func:`standing`): a record,
 a stop, a session started and not settled, or nothing yet. A round that ended before the register
-existed wrote no line, and is not seen by it.
+existed wrote no line, and is not seen by it. A development round is never counted: it writes no
+line, and no line holds it.
 """
 
 from __future__ import annotations

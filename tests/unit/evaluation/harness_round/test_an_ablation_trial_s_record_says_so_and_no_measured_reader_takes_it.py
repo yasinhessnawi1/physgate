@@ -23,7 +23,7 @@ from test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_har
     _whole,
 )
 
-from physgate.evaluation.baseline.audit import HarnessCell, audit_harness
+from physgate.evaluation.baseline.audit import AuditError, HarnessCell, audit_harness
 from physgate.evaluation.baseline.cli import replaced_run
 from physgate.evaluation.baseline.runner import BaselineError, RunSet
 from physgate.evaluation.observe.cost import load_price_sheet
@@ -138,12 +138,14 @@ def test_the_record_audit_holds_the_mark_to_the_run(ran: Rig, tmp_path: Path) ->
     out = ran.root / "out"
     runs = RunSet.model_validate_json((out / f"ablation.{ARM}.runs.json").read_bytes())
 
-    def audit(trials: Path) -> list[tuple[str, str, int | None]]:
+    def audit(
+        trials: Path, given: RunSet = runs, *, arm: bool = True
+    ) -> list[tuple[str, str, int | None]]:
         found = audit_harness(
             store=ran.made.store,
             role="control",
             version=ran.made.version,
-            cells=[HarnessCell("visible", runs, trials)],
+            cells=[HarnessCell("visible", given, trials, ablation=arm)],
             prices=load_price_sheet(PRICES),
             score=_score,
             scratch=tmp_path / "scratch",
@@ -156,3 +158,19 @@ def test_the_record_audit_holds_the_mark_to_the_run(ran: Rig, tmp_path: Path) ->
     del lines[0]["ablation"]
     stripped.write_text("".join(json.dumps(x) + "\n" for x in lines))
     assert audit(stripped) == [("visible", "ablation", 0)]
+    # Where a harness cell is asked for, the arm's set or its records refuse the audit, by the
+    # record's own mark and the run's: never "nothing differs".
+    measured = RunSet.model_validate_json((out / "visible.runs.json").read_bytes())
+    for trials, given in (
+        (_arm_trials(ran), runs),
+        (_arm_trials(ran), measured),
+        (out / "visible.trials.jsonl", runs),
+        (stripped, runs),
+    ):
+        with pytest.raises(AuditError) as refused:
+            audit(trials, given, arm=False)
+        assert refused.value.context["refused_because"] == "ablation_record"
+    # And a measured run where an arm's cell is asked for.
+    with pytest.raises(AuditError) as refused:
+        audit(out / "visible.trials.jsonl", measured)
+    assert refused.value.context["refused_because"] == "not_an_ablation_record"

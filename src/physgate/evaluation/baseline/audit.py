@@ -388,7 +388,9 @@ def audit_raw(
         shakedown=shakedown,
         own_places=own_places(store, role, round_id),
     )
-    _one_record_a_pair(store, role, planned, ledger)
+    if not development:
+        # A development round is never counted: it holds no pair, and none holds it.
+        _one_record_a_pair(store, role, planned, ledger)
     protected_root = withheld_root(store, role) / BASELINE_DIR / round_id
     counted = EXTERNAL_TIERS if isinstance(source, ExternalSetRecord) else VERSION_TIERS
     derived: dict[SourceTier, dict[int, Line]] = {tier: {} for tier in counted}
@@ -538,11 +540,16 @@ def rederive_harness_trial(
 
 @dataclass(frozen=True)
 class HarnessCell:
-    """One tier of the harness arm's cell: its run set and the records written of it."""
+    """One tier of the harness arm's cell: its run set and the records written of it.
+
+    ``ablation``: the cell is an ablation arm's, asked for as one; a cell of the harness as
+    measured is never given an arm's runs or records, and an arm's never a measured run.
+    """
 
     tier: SourceTier
     runs: RunSet
     trials: Path
+    ablation: bool = False
 
 
 def audit_harness(
@@ -596,24 +603,31 @@ def _a_harness_cell(cell: HarnessCell, tasks: Mapping[str, tuple[SourceTier, Tas
     """Refuse, before anything is derived, a cell that is not one tier of the harness as measured.
 
     By each record's and each run's own mark: an ablation arm's trial is a harness with a part
-    taken away, and its set and records are never a harness cell's, however they are named. A
-    run whose task is of another tier than the cell's is no trial of the cell.
+    taken away, and its set and records are never a harness cell's, however they are named; an
+    arm's cell, asked for as one, holds its runs alone (a record that lost its mark is a
+    difference of its own, ``ablation``). A run whose task is of another tier than the cell's is
+    no trial of the cell.
 
     Raises:
-        AuditError: ``ablation_record``, or ``tier`` naming the entry by its place.
+        AuditError: ``ablation_record`` or ``not_an_ablation_record``, or ``tier``, naming the
+            entry by its place.
     """
-    for number, line in enumerate(read_lines(cell.trials)):
-        if line.ablation is not None:
-            msg = f"record {number} of the cell is an ablation trial's; no harness cell holds one"
-            raise AuditError(msg, refused_because="ablation_record")
+    if not cell.ablation:
+        for number, line in enumerate(read_lines(cell.trials)):
+            if line.ablation is not None:
+                msg = f"record {number} of the cell is an ablation trial's; a harness cell has none"
+                raise AuditError(msg, refused_because="ablation_record")
     for index, entry in enumerate(cell.runs.trials):
         try:
             config = load_run_config(Path(entry.run_dir) / "run.json")
         except Exception:  # noqa: BLE001, S112 - unrederivable, said at its place when derived
             continue
-        if config.ablation:
+        if config.ablation and not cell.ablation:
             msg = "a run of the cell is an ablation run; no harness cell holds one"
             raise AuditError(msg, refused_because="ablation_record", index=str(index))
+        if cell.ablation and not config.ablation:
+            msg = "a run of the ablation arm's cell is no ablation run"
+            raise AuditError(msg, refused_because="not_an_ablation_record", index=str(index))
         found = tasks.get(config.brief_sha256)
         if found is not None and found[0] != cell.tier:
             msg = "a run of the cell was given a task of another tier than the cell's"

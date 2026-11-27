@@ -103,7 +103,29 @@ def test_an_entry_its_round_stopped_on_for_a_cause_is_run_once_more_as_a_round_o
         "session": 1,
         "because": "stopped:pair",
     }
-    assert _snapshot(first) == kept, "the earlier round is kept as it is"
+    # The earlier round is kept as it is, its ledger told which round runs the entry in its place.
+    now = _snapshot(first)
+    ledger = str(first / "ledger.jsonl")
+    assert {k: v for k, v in now.items() if k != ledger} == {
+        k: v for k, v in kept.items() if k != ledger
+    }
+    assert now[ledger].startswith(kept[ledger])
+    added = [json.loads(x) for x in now[ledger][len(kept[ledger]) :].splitlines()]
+    again_id = json.loads((tmp_path / "again" / "ledger.jsonl").read_text().splitlines()[0])
+    assert added == [
+        {
+            "kind": "superseded_by",
+            "entry": 0,
+            "round": again_id["round"],
+            "out": str((tmp_path / "again").resolve()),
+        }
+    ]
+    # A second once-more of the same round is refused, naming the one there is.
+    twice = _round(store, runs, tmp_path / "twice", StandInArm(), rerun_of=first)
+    assert _why(twice) == "rerun_twice"
+    assert isinstance(twice, BaselineError)
+    assert twice.context["earlier_round"] == again_id["round"]
+    assert not (tmp_path / "twice").exists()
     # A once-more is never run a third time.
     third = _round(store, runs, tmp_path / "third", StandInArm(), rerun_of=tmp_path / "again")
     assert _why(third) == "second_rerun"

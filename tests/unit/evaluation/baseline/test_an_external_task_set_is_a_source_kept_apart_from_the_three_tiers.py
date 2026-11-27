@@ -126,7 +126,9 @@ def test_an_external_set_is_run_as_a_source_of_its_own_and_recorded_apart_from_t
     assert not (out / TIERS_RECORD).exists()
     # A published task is no protected one: its trials lie in the round's own directory.
     assert len((out / TRIALS).read_text().splitlines()) == 3
-    assert not (withheld_root(store.store, "control") / BASELINE_DIR).exists()
+    # Beneath the withheld root, the pair register alone: which round took each harness trial on.
+    beneath = withheld_root(store.store, "control") / BASELINE_DIR
+    assert [p.name for p in beneath.iterdir()] == ["pairs"]
 
 
 @pytest.mark.parametrize(
@@ -166,6 +168,7 @@ def test_a_round_names_one_source_a_tier_version_or_an_external_set(
     refused = _round(store, runs, tmp_path / "round", arm, **source)
     assert type(refused).__name__ == "BaselineError", refused
     assert "one source" in str(refused) and arm.calls == []
+    assert refused.context["refused_because"] == "one_source"
 
 
 def test_a_run_on_a_tier_s_task_is_no_trial_of_an_external_set(

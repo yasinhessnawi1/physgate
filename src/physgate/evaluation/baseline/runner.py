@@ -1537,7 +1537,8 @@ def run_baseline(
         # Looked at, and the round's own lines written, under the work root's hold: no two
         # rounds take the same pair on at once, and no round is made for a pair another holds.
         with _work_root_held(store, role):
-            pairs_refusal(store, role, planned, None, link)
+            if not development:
+                pairs_refusal(store, role, planned, None, link)
             out.mkdir(mode=0o700, parents=True)
             round_id = secrets.token_hex(8)
             ledger = Ledger(out / LEDGER, [])
@@ -1553,10 +1554,12 @@ def run_baseline(
             if link is not None:
                 first["rerun_of"] = link
             ledger.add(first)
-            take_pairs(store, role, planned, round_id, out, link)
-    else:
+            if not development:
+                take_pairs(store, role, planned, round_id, out, link)
+    elif not development:
         # A round begun before it wrote its pairs, or killed before it had, writes them now; and
-        # it is held to every other round of its pairs as a new one is.
+        # it is held to every other round of its pairs as a new one is. A development round is
+        # never counted, so it neither holds a pair nor is held by one.
         link = ledger.lines[0].get("rerun_of")
         with _work_root_held(store, role):
             pairs_refusal(store, role, planned, round_id, link)

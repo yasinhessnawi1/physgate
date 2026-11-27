@@ -59,7 +59,9 @@ withheld root or not at all.
 [--harness TIER RUNS TRIALS ...]`` is the record audit of a cell
 (:mod:`physgate.evaluation.baseline.audit`): every record the baseline round in ``O`` wrote, and
 every harness trial record named by ``--harness`` (a tier, its run set and its trial records, as
-the harness round writes them), is derived again from its trial's own files and compared. It
+the harness round writes them), is derived again from its trial's own files and compared; an
+ablation arm's set or records named there refuse the audit (``ablation_record``, exit 3), and an
+arm's cell is audited only asked for as one, ``--ablation TIER RUNS TRIALS``. It
 prints one JSON line: of a visible tier each difference by kind and the trial's place in its run
 set, of a protected tier only how many of each kind, and the digest of the whole detail, which is
 written beneath the role's withheld root. ``--out`` and ``--runs`` may be left out to audit the
@@ -141,6 +143,14 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
         default=[],
         metavar=("TIER", "RUNS", "TRIALS"),
         help="a tier of the harness arm's cell: its run set and its trial records",
+    )
+    audit.add_argument(
+        "--ablation",
+        nargs=3,
+        action="append",
+        default=[],
+        metavar=("TIER", "RUNS", "TRIALS"),
+        help="a tier of an ablation arm's cell, asked for as one: its run set and its records",
     )
     audit.set_defaults(func=_audit)
     gather = commands.add_parser(
@@ -450,7 +460,7 @@ def _audit(args: argparse.Namespace) -> int:
         if (args.out is None) != (args.runs is None):
             msg = "a baseline round is audited from its directory and its run set, both"
             raise AuditError(msg, refused_because="round_half_named")  # noqa: TRY301
-        if args.out is None and not args.harness:
+        if args.out is None and not args.harness and not args.ablation:
             msg = "nothing to audit: name a baseline round, a tier of the harness arm, or both"
             raise AuditError(msg, refused_because="nothing_to_audit")  # noqa: TRY301
         prices = load_price_sheet(args.prices)
@@ -471,12 +481,12 @@ def _audit(args: argparse.Namespace) -> int:
                 shakedown=args.shakedown,
             )
         cells = []
-        for tier, runs, trials in args.harness:
-            if tier not in ("visible", "validation", "held_out"):
-                raise AuditError(f"no tier {tier!r}", refused_because="tier")  # noqa: TRY301
-            cells.append(
-                HarnessCell(tier, RunSet.model_validate_json(Path(runs).read_bytes()), Path(trials))
-            )
+        for arm, given in ((False, args.harness), (True, args.ablation)):
+            for tier, runs, trials in given:
+                if tier not in ("visible", "validation", "held_out"):
+                    raise AuditError(f"no tier {tier!r}", refused_because="tier")  # noqa: TRY301
+                runs_given = RunSet.model_validate_json(Path(runs).read_bytes())
+                cells.append(HarnessCell(tier, runs_given, Path(trials), ablation=arm))
         if cells:
             scratch = (
                 withheld_root(store, args.role) / BASELINE_DIR / f"audit-{secrets.token_hex(8)}"
