@@ -632,17 +632,22 @@
    "tests/unit/evaluation/harness_round/test_a_plan_call_s_refused_credential_spends_no_attempt_whatever_the_review_mode.py"
   ],
   "data": [
-   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
    "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py",
    "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
-   "tests/unit/evaluation/harness_round/round_rig.py",
-   "tests/unit/evaluation/baseline/baseline_fixtures.py",
-   "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/evaluation/per_role/task_fixtures.py",
-   "tests/unit/evaluation/per_role/harness_rig.py",
-   "tests/unit/orchestrator/loop_fakes.py",
-   "tests/unit/orchestrator/orch_helpers.py"
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py"
   ],
   "paths": [
    "knowledge"
@@ -657,10 +662,20 @@
    "tests/unit/orchestrator/test_a_plan_review_that_met_a_refused_credential_ends_the_rounds_on_it.py"
   ],
   "data": [
-   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/design_review_rig.py",
+   "tests/unit/orchestrator/journal_helper.py",
+   "tests/unit/orchestrator/loop_fakes.py",
    "tests/unit/orchestrator/orch_helpers.py",
-   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py",
-   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py"
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+   "tests/unit/orchestrator/replan_rig.py",
+   "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
+   "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+   "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py"
+  ],
+  "paths": [
+   "knowledge"
   ]
  }
 ]
