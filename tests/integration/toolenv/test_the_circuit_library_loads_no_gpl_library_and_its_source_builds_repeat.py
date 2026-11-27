@@ -217,7 +217,7 @@ def test_a_second_provisioning_from_a_fresh_cache_builds_wheels_of_the_same_cont
     if _build_cache_with_the_kept_archives(provision, downloads, fresh):
         # The archive the display libraries come from answers 502 and 503 under load: with
         # every pinned archive at hand, a fetch would only say something about its servers.
-        provision.fetch = _refuse_every_fetch
+        vars(provision)["fetch"] = _refuse_every_fetch
     assert not (fresh / "uv").exists(), "the second provisioning would not build its own wheels"
     again = tmp_path_factory.mktemp("again") / "env"
     try:
