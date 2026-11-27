@@ -291,6 +291,9 @@ def replaced_run(runs: Path) -> str | None:
     The harness round writes beside each trial's one-entry run set (``<n>.runs.json``) a sheet
     (``<n>.trial.json``) that names, for a trial run once more, the run it superseded
     (``rerun_of.run_dir``). ``None`` where there is no such sheet or it names none.
+
+    Raises:
+        BaselineError: the sheet is an ablation arm's trial's.
     """
     if not runs.name.endswith(".runs.json"):
         return None
@@ -299,6 +302,13 @@ def replaced_run(runs: Path) -> str | None:
         found = json.loads(sheet.read_bytes())
     except (OSError, ValueError):
         return None
+    if isinstance(found, dict) and found.get("arm", "harness") != "harness":
+        # The sheet of an ablation arm's trial: no raw trial is ever paired with one, whatever
+        # run set it lies beside.
+        from physgate.evaluation.baseline.runner import BaselineError
+
+        msg = "the sheet beside the run set is an ablation trial's; no baseline is held to one"
+        raise BaselineError(msg, refused_because="ablation_record")
     rerun = found.get("rerun_of") if isinstance(found, dict) else None
     run_dir = rerun.get("run_dir") if isinstance(rerun, dict) else None
     return run_dir if isinstance(run_dir, str) else None

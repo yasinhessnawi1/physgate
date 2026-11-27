@@ -2986,8 +2986,18 @@ def _lines_of(ctx: _Round, kind: str, arm: str | None) -> list[dict[str, Any]]:
     ]
 
 
-def _record_line(line: dict[str, Any]) -> bytes:
+def _record_line(line: dict[str, Any], *, arm: str | None = None) -> bytes:
+    """A trial's record as its set's records file holds it, held to the arm it is of.
+
+    An ablation arm's record carries the mark of what its run took away; the harness's never.
+
+    Raises:
+        RoundError: the record says another kind than the arm's place it was assembled at.
+    """
     raw = line["record"]
+    if (raw.get("ablation") is None) != (arm is None):
+        msg = "a trial's record does not say the arm it is of"
+        raise _refuse("record_not_the_arm_s", msg, index=str(line["index"]))
     model = ExcludedTrial if "reason" in raw and "outcome" not in raw else TrialRecord
     return model.model_validate_json(json.dumps(raw)).model_dump_json().encode() + b"\n"
 
@@ -3021,7 +3031,7 @@ def _outputs(ctx: _Round) -> None:
             runs = RunSet.model_validate_json(json.dumps({"format": 1, "trials": entries}))
             where = ctx.inputs.out
             _write_whole(where / f"{ABLATION}.{arm}.runs.json", runs.model_dump_json().encode())
-            records = b"".join(_record_line(x) for _, x in these)
+            records = b"".join(_record_line(x, arm=arm) for _, x in these)
             _write_whole(where / f"{ABLATION}.{arm}.trials.jsonl", records)
     if not any(x["kind"] == "ended" for x in ctx.lines):
         after = _register_head(ctx.inputs.store, ctx.inputs.role)

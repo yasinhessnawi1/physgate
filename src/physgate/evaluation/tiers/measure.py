@@ -161,6 +161,11 @@ def _records(raw: bytes) -> list[Any]:
             shape = json.loads(line)
         except ValueError:
             shape = None
+        if isinstance(shape, dict) and shape.get("ablation") is not None:
+            # An ablation trial's record says so itself: it is never counted as the measured
+            # arm's, whatever run set it is given beside.
+            msg = f"record {number} is an ablation trial's; no count of a measured arm holds one"
+            raise _refuse("ablation_record", msg)
         if isinstance(shape, dict) and "reason" in shape and "outcome" not in shape:
             msg = (
                 f"record {number} is an excluded trial; a run set is counted only when every "

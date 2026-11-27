@@ -63,7 +63,10 @@ one, and the round's record and line count the arm apart. ``--drop-ablation WHY 
 drops the arm's places not yet assembled, at once and for good, recorded on the ledger with who
 and why; the harness trials go on alone, and every later start says the same words, or is refused.
 
-It prints one JSON line of counts and digests, never a task, and writes the same into ``O``. Exit
+It prints one JSON line of counts and digests, never a task, and writes the same into ``O``.
+Its outcome counts, ``tiers.visible.pass``, ``.fail`` and ``.flaky`` and the same three under
+``arms.NAME``, are a look at a cell's outcomes: a launch script never prints or logs them before
+the cell's report is written (its ``unscored`` and ``excluded`` counts it may say). Exit
 0 once every trial is assembled, a trial that gives no figure stated as ``no_figure`` (the cap
 rule gives its pair the largest figure among the task's other trials, else the cell's middle one);
 3 once every trial is assembled but a tier with such a trial has no figure at all; 75 while the

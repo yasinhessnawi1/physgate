@@ -602,6 +602,138 @@
   ]
  },
  {
+  "name": "the_assembler_marks_no_ablation_trial",
+  "file": "src/physgate/evaluation/per_role/assemble.py",
+  "old": "    if not config.ablation:\n        return None\n    parts",
+  "new": "    if True:\n        return None\n    parts",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_an_ablation_trial_s_record_says_so_and_no_measured_reader_takes_it.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_harness.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_report_takes_an_ablation_record",
+  "file": "src/physgate/evaluation/per_role/report.py",
+  "old": "        if record.ablation is not None:\n            msg = (\n                f\"a record of",
+  "new": "        if False:\n            msg = (\n                f\"a record of",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_an_ablation_trial_s_record_says_so_and_no_measured_reader_takes_it.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_harness.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_census_takes_an_ablation_record",
+  "file": "src/physgate/evaluation/tiers/measure.py",
+  "old": "        if isinstance(shape, dict) and shape.get(\"ablation\") is not None:",
+  "new": "        if False:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_an_ablation_trial_s_record_says_so_and_no_measured_reader_takes_it.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_harness.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_baseline_takes_an_arm_s_sheet",
+  "file": "src/physgate/evaluation/baseline/cli.py",
+  "old": "    if isinstance(found, dict) and found.get(\"arm\", \"harness\") != \"harness\":",
+  "new": "    if False:",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_an_ablation_trial_s_record_says_so_and_no_measured_reader_takes_it.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_harness.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_arm_s_reader_takes_an_unmarked_record",
+  "file": "src/physgate/evaluation/per_role/assemble.py",
+  "old": "        if record.ablation is None:\n            msg = f\"line {number} is not an ablation",
+  "new": "        if False:\n            msg = f\"line {number} is not an ablation",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_an_ablation_trial_s_record_says_so_and_no_measured_reader_takes_it.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_harness.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_audit_names_a_lost_mark_as_other",
+  "file": "src/physgate/evaluation/baseline/audit.py",
+  "old": "    \"ablation\": \"ablation\",\n}",
+  "new": "}",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_an_ablation_trial_s_record_says_so_and_no_measured_reader_takes_it.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_harness.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
   "name": "the_command_takes_half_an_arm",
   "file": "src/physgate/evaluation/harness_round_cli.py",
   "old": "    if (args.ablation is None) != (args.ablation_params is None):",
