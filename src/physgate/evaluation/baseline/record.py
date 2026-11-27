@@ -168,6 +168,12 @@ class BaselineRecord(_Frozen):
     #: directory, the entry's place in its run set, its last session, and why it is run again.
     #: The earlier record is kept and never counted. Left out otherwise.
     rerun_of: dict[str, Any] | None = Field(default=None, exclude_if=lambda v: v is None)
+    #: Per tier, how many of the round's entries gave no figure of their own and ran under a
+    #: cap the cell's rule took from other trials (:mod:`.caps`), and of how many entries. Left
+    #: out of a round where every entry had its own figure.
+    no_figure: dict[SourceTier, dict[str, int]] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
     @model_validator(mode="after")
     def _one_source_and_its_tiers(self) -> BaselineRecord:

@@ -118,6 +118,7 @@ from physgate.evaluation.baseline.record import (
     tiers_record,
     write_new,
 )
+from physgate.evaluation.harness_round_reruns import RerunCause, rerun_cause
 from physgate.evaluation.observe.cost import DatedSheet
 from physgate.evaluation.per_role.arms.compare import ComparisonError, differences, harness_total
 from physgate.evaluation.per_role.arms.raw import (
@@ -1433,6 +1434,7 @@ def run_baseline(
         },
         practice=True if isinstance(source, TierSet) and source.practice else None,
         rerun_of=ledger.lines[0].get("rerun_of"),
+        no_figure=_no_figure(planned),
     )
     if external_set is not None:
         _write_end(out / EXTERNAL_RECORD, record_bytes(external_set))
@@ -1446,23 +1448,13 @@ def run_baseline(
     return baseline
 
 
-#: Of a raw trial's exclusion, by the field its reason begins with: a reason its records give for
-#: not trusting the answer, which runs the trial once more, or an exposure, which never does. Any
-#: other field runs nothing again. The harness arm's driver classes its own trials' reasons by
-#: the same reading; this is the raw arm's half of it.
-RAW_UNTRUSTED = frozenset({"end", "sentinel_after_stop", "stream", "score"})
-RAW_EXPOSURE = frozenset({"canary", "held_out_seen"})
-RerunCause = Literal["untrusted", "exposure", "unknown"]
-
-
 def raw_rerun_cause(reason: str) -> RerunCause:
-    """What a raw trial's exclusion reason is, by the field it begins with; nothing else is read."""
-    field = reason.split(":", 1)[0].strip()
-    if field in RAW_UNTRUSTED:
-        return "untrusted"
-    if field in RAW_EXPOSURE:
-        return "exposure"
-    return "unknown"
+    """What a raw trial's exclusion reason is, by the field it begins with; nothing else is read.
+
+    The harness round's own reading for the raw arm (:func:`.harness_round_reruns.rerun_cause`):
+    ``untrusted`` runs the trial once more, ``exposure`` and ``unknown`` never do.
+    """
+    return rerun_cause(reason, "raw")
 
 
 #: The stops a raw trial is run once more after, as a new round of its one entry, once the
@@ -1700,6 +1692,17 @@ def stop_own_left_sessions(store: Path, role: Role, own: frozenset[Path]) -> lis
             remove_secrets(sdir / "state", sdir / "config")
         stopped.append(place.name)
     return stopped
+
+
+def _no_figure(planned: Sequence[Planned]) -> dict[SourceTier, dict[str, int]] | None:
+    """Per tier, the entries that gave no figure of their own, of how many; ``None`` if none did."""
+    found: dict[SourceTier, dict[str, int]] = {}
+    for trial in planned:
+        tier = found.setdefault(trial.tier, {"entries": 0, "no_figure": 0})
+        tier["entries"] += 1
+        tier["no_figure"] += trial.no_figure
+    said = {tier: counts for tier, counts in found.items() if counts["no_figure"]}
+    return said or None
 
 
 def in_order(planned: Sequence[Planned]) -> list[Planned]:

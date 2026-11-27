@@ -139,6 +139,7 @@ def test_a_trial_with_no_figure_runs_last_capped_at_its_task_s_largest(
         "inputs": [{"place": 1, "total": 1800}],
     }
     assert record.counts["visible"].cap == 3600
+    assert record.no_figure == {"visible": {"entries": 2, "no_figure": 1}}
     found = audit_raw(
         store=store.store,
         role="control",
@@ -210,3 +211,40 @@ def test_the_audit_holds_a_session_s_cap_to_the_rule(tmp_path: Path, store: Stan
         score=lambda _t, _a: dict(SCORED),
     )
     assert [(d.kind, d.index) for d in found] == [("cap", 0)]
+
+
+def test_a_round_where_more_than_a_third_gave_no_figure_says_so_loudly(
+    tmp_path: Path,
+    store: StandInStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import sys
+    import types
+
+    import physgate.evaluation.baseline.runner as runner
+    import physgate.orchestrator.install as install
+    from physgate.cli import main
+
+    task = store.tasks["visible"][0]
+    stuck = harness_run(tmp_path / "runs", task, store, ended=False)
+    ended = harness_run_spending(tmp_path / "runs", task, store, 1800)
+    runs = run_set((stuck, 0), (ended, 1))
+    (tmp_path / "runs.json").write_text(runs.model_dump_json())
+    real = runner.run_baseline
+    module = types.ModuleType("physgate.evaluation.per_role.scorers.control")
+    module.score = lambda _task, _answer: dict(SCORED)  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    monkeypatch.setattr(
+        runner,
+        "run_baseline",
+        lambda **given: real(**{**given, "setup_for": setup_for, "arm": StandInArm()}),
+    )
+    monkeypatch.setattr(install, "prepare_install", lambda *_: tmp_path / "bin")
+    argv = ["baseline", "run", "--store", str(store.store), "--role", "control"]
+    argv += ["--version", store.version, "--runs", str(tmp_path / "runs.json")]
+    argv += ["--out", str(tmp_path / "o"), "--prices", PRICES]
+    assert main(argv) == 0
+    captured = capsys.readouterr()
+    assert "1 of the 2 visible entries gave no token total of their own" in captured.err
+    assert json.loads(captured.out)["no_figure"] == {"visible": {"entries": 2, "no_figure": 1}}

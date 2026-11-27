@@ -201,6 +201,16 @@ def _run(args: argparse.Namespace) -> int:
     finally:
         if install.exists():
             shutil.rmtree(install, onexc=writable_again)
+    for tier, counts in sorted((record.no_figure or {}).items()):
+        if 3 * counts["no_figure"] > counts["entries"]:
+            # Loud, never hidden: a cell where many harness trials give no total of their own
+            # may hide a fault in how the runs' records were read.
+            print(
+                f"physgate baseline: {counts['no_figure']} of the {counts['entries']} {tier} "
+                "entries gave no token total of their own and ran under a cap the cell's rule "
+                "took from other trials; look at why before the cell is reported",
+                file=sys.stderr,
+            )
     print(json.dumps(record.model_dump(mode="json"), sort_keys=True))
     return 0
 

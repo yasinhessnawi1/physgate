@@ -198,6 +198,7 @@ def test_a_once_more_is_a_round_of_one_entry(tmp_path: Path, store: StandInStore
         ("score: the verdict is not a bool", "untrusted"),
         ("canary: the task's own canary showed in the session's stream", "exposure"),
         ("held_out_seen: the record does not say whether a held-out canary showed", "exposure"),
+        ("incident: a held-out read the run recorded", "exposure"),
         ("something no one enumerated", "unknown"),
     ],
 )
