@@ -81,6 +81,7 @@ def _setup(config: RunConfig, base_url: str | None = None) -> object:
         os_layer=LAYER,
         role_python=None,
         base_url=base_url,
+        harness=None,
     )
 
 

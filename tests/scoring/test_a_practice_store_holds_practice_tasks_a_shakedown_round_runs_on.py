@@ -37,7 +37,7 @@ from physgate.evaluation.per_role.scorers.control import score  # noqa: E402
 from physgate.evaluation.tiers.checks import read_check  # noqa: E402
 from physgate.evaluation.tiers.manifest import read_version  # noqa: E402
 from physgate.evaluation.tiers.practice import (  # noqa: E402
-    LABEL,
+    ANSWER_SAID,
     NO_SESSION,
     PracticeError,
     build_practice_store,
@@ -61,10 +61,13 @@ def test_the_version_holds_two_practice_tasks_to_a_tier_and_nothing_else(
     store, version = built
     manifest = read_version(version_dir(store, "control", version))
     assert [getattr(manifest, tier).count for tier in TIERS] == [2, 2, 2]
+    # The version says it is practice where readers hold it; no brief says so to a session.
+    assert manifest.practice is True
     for tier in TIERS:
         for task_file in (version_dir(store, "control", version) / tier).glob("*/task.json"):
             task = parse_task(task_file.read_bytes())
-            assert task.brief.startswith(LABEL)
+            assert "practice" not in task.brief.lower() and "measured" not in task.brief
+            assert ANSWER_SAID in task.brief
             assert task.id.startswith("control.practice_")
             assert (task.canary is None) == (tier == "visible")
     assert sorted(p.name for p in (store / "control").iterdir() if len(p.name) == 64) == [version]
@@ -138,7 +141,9 @@ def test_a_baseline_round_runs_on_its_held_out_pair_end_to_end_and_its_audit_is_
         prices=prices,
         arm=StandInArm(),
         sleep=lambda _s: None,
+        shakedown=True,
     )
+    assert record.practice is True
     counts = record.counts["held_out"]
     assert (counts.trials, counts.covered, counts.of, counts.whole) == (2, 2, 2, True)
     assert counts.passed + counts.failed == 2
@@ -150,5 +155,6 @@ def test_a_baseline_round_runs_on_its_held_out_pair_end_to_end_and_its_audit_is_
         out=out,
         prices=prices,
         score=score,
+        shakedown=True,
     )
     assert found == []

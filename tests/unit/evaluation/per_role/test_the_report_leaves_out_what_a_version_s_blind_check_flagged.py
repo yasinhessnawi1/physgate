@@ -185,3 +185,13 @@ def test_the_report_command_refuses_a_record_not_bound_to_the_version_s_manifest
     assert check_path(made.store, "control", made.version).is_file()
     assert _cli(tmp_path, spec, "--store", str(made.store)) == 1, "an unbound record was read"
     assert not (tmp_path / "out.md").exists()
+
+
+def test_the_report_command_refuses_a_practice_version_unless_told_it_is_a_shakedown(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    made, spec = _stand_in(tmp_path, practice=True)
+    assert _cli(tmp_path, spec, "--store", str(made.store)) == 1, "a practice version reported"
+    assert "practice version" in capsys.readouterr().err
+    assert not (tmp_path / "out.md").exists()
+    assert _cli(tmp_path, spec, "--store", str(made.store), "--shakedown") == 0

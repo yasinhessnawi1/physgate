@@ -1,0 +1,729 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py",
+      "tests/unit/evaluation/baseline/test_the_usage_limit_and_a_refused_credential_stop_the_round_and_spend_nothing.py",
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py",
+      "tests/unit/evaluation/baseline/test_the_record_audit_re_derives_every_record_and_names_each_difference.py",
+      "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py",
+      "tests/unit/evaluation/baseline/test_a_practice_version_says_so_and_only_a_shakedown_counts_it.py",
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py",
+      "tests/unit/evaluation/baseline/test_a_stop_signal_ends_a_raw_session_cleanly_and_the_next_start_goes_on.py",
+      "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_killed_session_is_neither_named_nor_moved",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            _killed(trial, held, setup, session, last)\n",
+    "new": "            pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_session_with_a_record_is_run_again",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        if os.path.lexists(record_file):\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_killed_session_keeps_its_credential",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if left[\"session\"]:\n        try:\n            clean_left_session(work, setup.credential.secret)\n",
+    "new": "    if left[\"session\"]:\n        try:\n            pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_killed_session_s_streams_are_kept_under_another_credential",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        if started.get(\"credential\") != fingerprint(setup.credential):\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_killed_session_s_stream_is_not_scanned",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            seen = held_out_seen(stream, tuple(trial.config.held_out_canaries))\n",
+    "new": "            seen = False\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "no_moving_line_before_a_recorded_trial_s_move",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    ledger.add({\"kind\": \"moving\", \"index\": index, \"session\": session})\n",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py",
+      "tests/unit/evaluation/baseline/test_the_usage_limit_and_a_refused_credential_stop_the_round_and_spend_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_trial_line_written_before_a_kill_is_written_again",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if len(written) == here + 1 and written[-1] == line.model_dump(mode=\"json\"):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_cut_ledger_line_is_not_mended",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "                cut = _drop_a_cut_line(path)\n",
+    "new": "                pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_machine_line_s_delay_is_not_slept_after_a_kill",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            held.sleep(float(last[\"delay_s\"]))\n",
+    "new": "            pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_stop_on_an_error_is_not_named",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            started = _stopped_on_an_error(ledger, trial.index, exc)\n",
+    "new": "            started = False\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_checkout_is_not_held_at_a_restart",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    _require_the_round_s_checkout(ledger, setup, index)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_interpreter_is_not_held_before_start",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if here != (None if recorded is None else recorded.model_dump(mode=\"json\")):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_round_that_ended_is_refused_when_started_again",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            return finished\n",
+    "new": "            raise BaselineError(\"ended\", refused_because=\"round_ended\")\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_usage_limit_and_a_refused_credential_stop_the_round_and_spend_nothing.py",
+      "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "an_entry_with_no_figure_runs_in_its_place",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    return [t for t in planned if not t.no_figure] + [t for t in planned if t.no_figure]\n",
+    "new": "    return list(planned)\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_cell_is_every_tier_s_trials",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        return [trial for here, trial in self.trials if here == tier]\n",
+    "new": "        return [trial for _, trial in self.trials]\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_round_runs_on_a_practice_version",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        practice = practice_refusal(source, shakedown=shakedown)\n",
+    "new": "        practice = None\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_practice_version_says_so_and_only_a_shakedown_counts_it.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_no_figure_trial_takes_the_cell_s_median_before_its_task_s",
+    "file": "src/physgate/evaluation/baseline/caps.py",
+    "old": "    if others:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "an_even_median_is_its_upper_middle",
+    "file": "src/physgate/evaluation/baseline/caps.py",
+    "old": "    return (ordered[middle - 1] + ordered[middle]) // 2\n",
+    "new": "    return ordered[middle]\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_audit_does_not_hold_the_cap",
+    "file": "src/physgate/evaluation/baseline/audit.py",
+    "old": "            odd.append(\"cap\")\n",
+    "new": "            pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_record_audit_re_derives_every_record_and_names_each_difference.py",
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_audit_does_not_hold_the_recorded_session",
+    "file": "src/physgate/evaluation/baseline/audit.py",
+    "old": "            odd.append(\"ledger\")  # the ledger records another session, or none\n",
+    "new": "            pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_record_audit_re_derives_every_record_and_names_each_difference.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_round_with_no_record_has_no_count_difference",
+    "file": "src/physgate/evaluation/baseline/audit.py",
+    "old": "        return [Difference(\"raw\", tier, \"count\", None, \"record\") for tier in counted]\n",
+    "new": "        return []\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_record_audit_re_derives_every_record_and_names_each_difference.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_harness_run_of_another_tier_is_derived_under_the_cell_s",
+    "file": "src/physgate/evaluation/baseline/audit.py",
+    "old": "    if tier != cell.tier:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_audit_command_exits_0_whatever_it_found",
+    "file": "src/physgate/evaluation/baseline/cli.py",
+    "old": "    return 1 if found else 0\n",
+    "new": "    return 0\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_audit_command_that_cannot_audit_exits_1",
+    "file": "src/physgate/evaluation/baseline/cli.py",
+    "old": "        return EXIT_CANNOT_AUDIT\n",
+    "new": "        return 1\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_refusal_line_never_says_a_session_started",
+    "file": "src/physgate/evaluation/baseline/cli.py",
+    "old": "            \"session_started\": context.get(\"session_started\") == \"true\",\n",
+    "new": "            \"session_started\": False,\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_census_counts_a_practice_version",
+    "file": "src/physgate/evaluation/tiers/measure.py",
+    "old": "    practice = practice_refusal(known[version], shakedown=shakedown)\n",
+    "new": "    practice = None\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_practice_version_says_so_and_only_a_shakedown_counts_it.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "every_manifest_says_whether_it_is_practice",
+    "file": "src/physgate/evaluation/tiers/manifest.py",
+    "old": "    practice: Literal[True] | None = Field(default=None, exclude_if=lambda v: v is None)\n",
+    "new": "    practice: Literal[True] | None = None\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_practice_version_says_so_and_only_a_shakedown_counts_it.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_once_more_is_run_a_third_time",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if header.get(\"rerun_of\") is not None:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_trial_with_a_raw_record_is_run_again",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        if not isinstance(line, ExcludedTrial):\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_round_of_many_entries_is_a_once_more",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            if len(planned) != 1 or len(runs.trials) != 1:\n",
+    "new": "            if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_command_has_no_stop_handler",
+    "file": "src/physgate/evaluation/baseline/cli.py",
+    "old": "        with stopping():\n",
+    "new": "        with contextlib.nullcontext():\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_stop_signal_ends_a_raw_session_cleanly_and_the_next_start_goes_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_stopped_session_keeps_its_credential",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if (work / \"session\").exists():\n        try:\n            clean_left_session(work, setup.credential.secret)\n",
+    "new": "    if (work / \"session\").exists():\n        try:\n            pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_stop_signal_ends_a_raw_session_cleanly_and_the_next_start_goes_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_stop_is_said_as_a_refusal",
+    "file": "src/physgate/evaluation/baseline/cli.py",
+    "old": "    return EXIT_SESSIONS_ALIVE if alive else 128 + int(stop.signum)\n",
+    "new": "    return 1\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_stop_signal_ends_a_raw_session_cleanly_and_the_next_start_goes_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_start_settles_beside_a_runner_that_holds_the_work_root",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n",
+    "new": "            pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_left_session_is_not_stopped_at_a_restart",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            stop_own_left_sessions(store, role, own_places(store, role, round_id))\n",
+    "new": "            pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_cut_round_record_is_taken_as_ended",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    except ValueError:\n        return None\n\n\ndef _write_end(",
+    "new": "    except ValueError:\n        raise\n\n\ndef _write_end(",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "an_end_record_written_before_a_kill_refuses_the_next_start",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        if there == data:\n            return\n",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_visible_trial_s_error_names_no_entry",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "                raise BaselineError(\n                    msg,\n                    tier=trial.tier,\n                    entry=str(trial.index),\n                    refused_because=\"error\",\n                    session_started=str(started).lower(),\n                ) from exc\n",
+    "new": "                raise\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py",
+      "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_checkout_is_not_held_before_the_first_session",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if not held.development and _checkout(setup) != recorded_checkout:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_pair_check_holds_no_checkout",
+    "file": "src/physgate/evaluation/per_role/arms/compare.py",
+    "old": "    if pins[\"harness\"] != checkout:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_harness_round_runs_on_a_practice_version",
+    "file": "src/physgate/evaluation/harness_round.py",
+    "old": "    practice = practice_refusal(known[inputs.version], shakedown=inputs.shakedown)\n",
+    "new": "    practice = None\n",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_a_harness_round_runs_on_a_practice_version_only_as_a_shakedown.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "many_trials_with_no_figure_pass_in_silence",
+    "file": "src/physgate/evaluation/baseline/cli.py",
+    "old": "        if 3 * counts[\"no_figure\"] > counts[\"entries\"]:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/evaluation/harness_round/round_rig.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py",
+      "tests/unit/evaluation/baseline/test_the_usage_limit_and_a_refused_credential_stop_the_round_and_spend_nothing.py",
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py",
+      "tests/unit/evaluation/baseline/test_the_record_audit_re_derives_every_record_and_names_each_difference.py",
+      "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py",
+      "tests/unit/evaluation/baseline/test_a_practice_version_says_so_and_only_a_shakedown_counts_it.py",
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py",
+      "tests/unit/evaluation/baseline/test_a_stop_signal_ends_a_raw_session_cleanly_and_the_next_start_goes_on.py",
+      "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  }
+]

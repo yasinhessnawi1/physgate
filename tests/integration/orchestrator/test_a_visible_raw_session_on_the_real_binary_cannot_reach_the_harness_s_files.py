@@ -35,6 +35,7 @@ if str(BASELINE_TESTS) not in sys.path:
     sys.path.insert(0, str(BASELINE_TESTS))
 
 from baseline_fixtures import (  # noqa: E402
+    CHECKOUT,
     PRICES,
     SCORED,
     harness_run,
@@ -65,8 +66,9 @@ from physgate.oslayer.probe import judge_here  # noqa: E402
 pytestmark = pytest.mark.integration
 
 NO_CACHE_WRITES = {"cache_creation_input_tokens": 0}
-#: The harness's files a trial's directory holds once the arm has run: nothing else.
-HARNESS_FILES = {"raw.json", "answer", "score.json"}
+#: The harness's files a trial's directory holds once the arm has run: nothing else. The cap
+#: record is written before the session, beside where its record will lie.
+HARNESS_FILES = {"raw.json", "answer", "score.json", "cap.json"}
 
 
 @dataclass(frozen=True)
@@ -214,6 +216,7 @@ def _round(root: Path, install_bin: Path) -> Attempts:
                 os_layer=layer,
                 role_python=None,
                 base_url=url,
+                harness=CHECKOUT,
             )
 
         # The rows read what the trials left, whether the round was refused or not.

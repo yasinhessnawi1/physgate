@@ -681,7 +681,11 @@ def spelling_refusal(
 
 
 def leftovers(
-    store: Path, *, continuing: Path | None = None, out_of_place: bool = True
+    store: Path,
+    *,
+    continuing: Path | None = None,
+    out_of_place: bool = True,
+    ignoring: frozenset[Path] = frozenset(),
 ) -> dict[str, int]:
     """What only a split in progress holds, and work out of a role's root, counted by reason.
 
@@ -695,6 +699,8 @@ def leftovers(
     no run withholds; an authoring or blind-check session withholds the whole store but its
     own work, so it is not refused for one. Only names are looked at, but in a version that
     holds anything a run does not withhold, which is read and held to its manifest.
+    ``ignoring``: entries a baseline round being resumed left itself, in a role's root or its
+    work root, by path; that round settles them before anything else (:mod:`.baseline.runner`).
 
     Raises:
         OSError: the store or a role's root cannot be listed, or a role's root or withheld
@@ -715,14 +721,14 @@ def leftovers(
             if folded.startswith(TEMPORARY):
                 counts["temporary_version_left"] += 1
             elif folded.endswith(WORKING):
-                counts["work_left"] += 1
+                counts["work_left"] += here / name not in ignoring
             elif out_of_place and name not in (WITHHELD, WORK):
                 counts["work_left"] += _out_of_place(here / name)
         work = here / WORK
         if work.is_symlink():
             raise OSError(f"{work} is a link; a work root is a directory the harness made")
         if work.is_dir():
-            counts["work_left"] += len(os.listdir(work))
+            counts["work_left"] += sum(work / name not in ignoring for name in os.listdir(work))
         withheld = here / WITHHELD
         if withheld.is_symlink():
             raise OSError(f"{withheld} is a link; a withheld root is a directory the harness made")
@@ -790,7 +796,11 @@ def _out_of_place(path: Path) -> int:
 
 
 def leftover_refusal(
-    store: Path, *, continuing: Path | None = None, out_of_place: bool = True
+    store: Path,
+    *,
+    continuing: Path | None = None,
+    out_of_place: bool = True,
+    ignoring: frozenset[Path] = frozenset(),
 ) -> tuple[str, str] | None:
     """Why nothing may start on ``store``: a counted reason and its words; ``None`` if nothing.
 
@@ -798,7 +808,9 @@ def leftover_refusal(
     the store (:func:`leftovers`), or while the store cannot be listed (``store_unreadable``).
     """
     try:
-        counts = leftovers(store, continuing=continuing, out_of_place=out_of_place)
+        counts = leftovers(
+            store, continuing=continuing, out_of_place=out_of_place, ignoring=ignoring
+        )
     except OSError as exc:
         return "store_unreadable", (
             f"the tier-set store {store} cannot be listed ({exc}), so a pool or a version "
@@ -846,11 +858,14 @@ def write_version(
     retire: Path | None = None,
     generated: str | None = None,
     per_tier: int = PER_TIER,
+    practice: bool = False,
 ) -> tuple[TierSet, dict[str, Any]]:
     """Split ``chosen`` into a new version under the role's ``root``; its manifest and the split.
 
     ``per_tier`` is how many tasks each tier takes, so ``chosen`` holds three times as many:
     every real version takes the authoring rule's number; a practice version, fewer.
+    ``practice`` marks the manifest as a practice version's (:attr:`.manifest.TierSet.practice`);
+    a real version's manifest holds no such field.
 
     The tasks are copied into a fresh temporary directory beside the versions, split there by
     ``seed`` (:func:`.authoring.split`), and the provenance record and the manifest written
@@ -909,6 +924,7 @@ def write_version(
                 generated=generated or datetime.now(UTC).date().isoformat(),
                 runtime=runtime,
                 provenance_sha256=hashlib.sha256(provenance).hexdigest(),
+                **({"practice": True} if practice else {}),
             )
             written = manifest_bytes(manifest)
             _require_readable(MANIFEST_NAME, written)

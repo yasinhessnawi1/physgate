@@ -13,10 +13,10 @@
     ]
   },
   {
-    "name": "a_practice_brief_is_not_labelled",
+    "name": "a_practice_brief_tells_its_session_it_is_practice",
     "file": "src/physgate/evaluation/tiers/practice.py",
-    "old": "        f\"{LABEL} The plant is",
-    "new": "        f\"The plant is",
+    "old": "        f\"The plant is G(s)",
+    "new": "        f\"PRACTICE TASK, for a shakedown only. The plant is G(s)",
     "tests": [
       "tests/scoring/test_a_practice_store_holds_practice_tasks_a_shakedown_round_runs_on.py"
     ],

@@ -138,7 +138,8 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     # The record's own schema holds it ``None`` exactly when the checkout is clean, which
     # ``harness.clean`` requires; it has no check of its own to add.
     "harness.uncommitted_sha256": "not_compared",
-    "harness.commit": "identity",
+    # Held against the checkout the raw arm ran from, which its record carries (``harness``).
+    "harness.commit": "compared",
     "reportable": "required",
     # An ablation run is never reportable, and a run that is not reportable is named already.
     "ablation": "not_compared",
@@ -236,6 +237,9 @@ RAW_PINS = frozenset(
         "tool_environment",
         "tool_search",
         "tool_servers",
+        # The harness checkout the raw arm ran from, its commit and whether clean: held to the
+        # harness run's own (``harness``), so a baseline is held to one commit with its pair.
+        "harness",
     }
 )
 
@@ -250,6 +254,8 @@ BEFORE_THE_PIN: dict[str, Any] = {
     "python_bytecode": "written",
     # Left out of a record whose harness run withheld no root whole, as every one before it.
     "withheld_whole": [],
+    # Recorded nowhere before the pin: no checkout this code can be held to.
+    "harness": None,
 }
 
 
@@ -503,12 +509,15 @@ def differences(
     role: str,
     task: Task,
     record_dir: Path | None = None,
+    cap: int | None = None,
 ) -> list[str]:
     """Each way the raw arm differs from the harness run on ``task`` but the harness itself.
 
     ``run_dir`` is the harness run's directory; ``raw_dir`` is where the raw arm ran on
     the same task and trial (its stream and its generated settings, and its ``raw.json`` unless
-    ``record_dir`` names the directory the harness wrote that in).
+    ``record_dir`` names the directory the harness wrote that in). ``cap`` is the cap the raw
+    arm was to run under, where the round took it by its rule (:mod:`.baseline.caps`); left
+    out, it is the harness run's own total.
     An empty list is the only fair pair.
 
     Raises:
@@ -546,6 +555,11 @@ def differences(
         found.append("ablation: the harness run is an ablation run; no baseline is held to it")
     if not config.harness.clean:
         found.append("harness: the harness run's checkout was not clean")
+    checkout = {"commit": config.harness.commit, "clean": config.harness.clean}
+    if pins["harness"] != checkout:
+        found.append(
+            f"harness: the harness ran from {checkout!r}, the raw arm from {pins['harness']!r}"
+        )
     if hashlib.sha256(task.brief.encode()).hexdigest() != config.brief_sha256:
         found.append("brief: the harness run was not given this task's brief")
     if record.get("task") != task.id:
@@ -574,7 +588,7 @@ def differences(
         found.append(
             f"tools: the harness ran with {harness_lists[0]!r}, the raw arm with {raw_tools!r}"
         )
-    total = harness_total(run_dir)
+    total = harness_total(run_dir) if cap is None else cap
     if record.get("cap") != total:
         found.append(
             f"cap: the harness spent {total} tokens, the raw arm was capped at {record.get('cap')}"

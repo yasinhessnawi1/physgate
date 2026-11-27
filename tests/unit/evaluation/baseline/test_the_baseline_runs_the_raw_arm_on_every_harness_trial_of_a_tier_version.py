@@ -38,6 +38,7 @@ from physgate.evaluation.baseline.runner import (
     TRIALS,
     BaselineError,
     RunSet,
+    harness_figure,
     run_baseline,
 )
 from physgate.evaluation.observe.cost import load_price_sheet
@@ -224,11 +225,18 @@ def test_a_trial_listed_twice_is_refused_before_any_session(
     _refused(store, run_set((run, 0), (run, 0)), tmp_path / "round", "listed twice")
 
 
-def test_a_run_whose_token_account_gives_no_cap_is_refused_before_any_session(
+def test_a_run_that_gives_no_figure_alone_in_its_cell_is_refused_before_any_session(
     tmp_path: Path, store: StandInStore
 ) -> None:
+    """No trial of its cell gives a total, so the cap rule gives its raw trial none."""
     run = harness_run(tmp_path / "runs", store.tasks["held_out"][0], store, ended=False)
-    _refused(store, run_set((run, 0)), tmp_path / "round", "gives no cap")
+    _refused(
+        store,
+        run_set((run, 0)),
+        tmp_path / "round",
+        "no cap",
+        because={"refused_because": "no_cap_in_the_cell"},
+    )
 
 
 @pytest.mark.parametrize(
@@ -507,7 +515,8 @@ def test_a_version_two_of_whose_tasks_share_a_brief_is_refused_before_any_sessio
     arm = StandInArm()
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(runner, "read_version", lambda _d: None)
-        patch.setattr(runner, "leftover_refusal", lambda _s: None)
+        patch.setattr(runner, "practice_refusal", lambda *_a, **_k: None)
+        patch.setattr(runner, "leftover_refusal", lambda _s, **_k: None)
         outcome = _try(lambda: _round(store, run_set((run, 0)), tmp_path / "round", arm))
     assert isinstance(outcome, BaselineError), outcome
     assert "two tasks of the version share a brief" in str(outcome), outcome
@@ -572,7 +581,7 @@ def test_a_version_whose_provenance_is_not_its_manifest_s_is_refused_before_any_
     run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
     arm = StandInArm()
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(runner, "leftover_refusal", lambda _s: None)
+        patch.setattr(runner, "leftover_refusal", lambda _s, **_k: None)
         outcome = _try(lambda: _round(store, run_set((run, 0)), tmp_path / "round", arm))
     assert isinstance(outcome, PerRoleError), outcome
     assert "provenance" in str(outcome) and arm.calls == []
@@ -697,6 +706,7 @@ def test_a_held_out_run_killed_during_its_review_is_refused_before_any_session(
     run = loop_run(
         tmp_path / "runs" / "killed",
         kill="review",
+        binary=None if recorded.binary is None else recorded.binary.model_dump(mode="json"),
         brief_sha256=recorded.brief_sha256,
         reportable=True,
         harness=recorded.harness,
@@ -705,7 +715,9 @@ def test_a_held_out_run_killed_during_its_review_is_refused_before_any_session(
         held_out_sha256=recorded.held_out_sha256,
         held_out_canaries=recorded.held_out_canaries,
     )
-    _refused(store, run_set((run, 0)), tmp_path / "round", "the run has not ended")
+    # It gives no figure, and alone in its cell the cap rule gives its raw trial no cap.
+    assert harness_figure(run) is None
+    _refused(store, run_set((run, 0)), tmp_path / "round", "no cap")
 
 
 def _no_sleep(_seconds: float) -> None:
