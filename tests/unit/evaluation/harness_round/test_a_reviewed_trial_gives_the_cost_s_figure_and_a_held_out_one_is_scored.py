@@ -29,7 +29,8 @@ def _assembled(store: Path) -> dict[str, Any]:
     place = next((store / "control" / "withheld" / "harness").iterdir())
     lines = [json.loads(x) for x in (place / "ledger.jsonl").read_text().splitlines()]
     (assembled,) = [x for x in lines if x["kind"] == "assembled"]
-    return assembled
+    found: dict[str, Any] = assembled
+    return found
 
 
 def test_a_trial_reviewed_twice_after_its_plan_s_review_gives_the_figure_its_cost_line_prices(
