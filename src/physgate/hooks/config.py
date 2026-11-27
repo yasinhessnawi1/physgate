@@ -107,6 +107,20 @@ class ProtectedRoot(BaseModel):
     shell_writes: Literal["denied", "allowed"] = "denied"
 
 
+class WorktreeIdentity(BaseModel):
+    """The worktree's directory as the session was installed in it: its device and inode.
+
+    A hook holds the worktree's path to it before anything else, so a path renamed away and a
+    link or another directory left at it is no worktree of the session's (every rule that opens
+    "the worktree" names it by its path).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    device: Annotated[int, Field(ge=0)]
+    inode: Annotated[int, Field(ge=0)]
+
+
 class ExperimentRule(BaseModel):
     """Which files under an experiments directory are frozen.
 
@@ -163,6 +177,11 @@ class SessionConfig(BaseModel):
     #: one. Left out of the written configuration when false, so a session without the layer
     #: keeps its bytes, and a configuration without it reads as having none.
     os_layer: bool = False
+    #: The worktree's device and inode when the session was installed. Every hook call holds the
+    #: worktree's path to it first and refuses where it is no longer that directory, before the
+    #: sentinel puts anything back through it. Left out of the written configuration where the
+    #: worktree did not exist yet, and a configuration without it reads as having none.
+    worktree_identity: WorktreeIdentity | None = None
     #: For a reviewer whose run allows compaction (ARCH-060): the required files read again in
     #: full after each compaction before any tool but Read (the rubric, ARCH-020), and what the
     #: session is told when it starts again after one, in place of its required reading. Both

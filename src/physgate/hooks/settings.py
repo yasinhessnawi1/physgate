@@ -46,6 +46,7 @@ from physgate.hooks.config import (
     Reads,
     SessionConfig,
     Watch,
+    WorktreeIdentity,
     digest,
 )
 from physgate.hooks.graph import COMPLETION_DIR, DISPUTES_DIR, PROPOSALS_DIR
@@ -896,17 +897,21 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         protected[harness] = (HARNESS_TEMPS_REASON, "none")
         reads[harness] = "denied"
         # The temporary directories every session on the machine shares, both ways: what one
-        # trial leaves there another reads or changes, and the harness keeps nothing there. A
-        # directory that holds a place of the session's own is not named, since it would refuse
-        # the session its own files; only a session without the OS layer can be installed so (the
-        # installer refuses a sandboxed one a worktree there, and the layer a temporary
-        # directory), and the layer denies the rest to every sandboxed command.
-        owns = _own_places(request)
+        # trial leaves there another reads or changes, and the harness keeps nothing there.
+        # Always named whole. A place of the session's own that lies in one (a test's tree in
+        # pytest's temporary directory, a session without the OS layer: the installer refuses a
+        # sandboxed one a worktree there) is opened again there alone, exactly as the session's
+        # own temporary directory is: read where it is one of the session's places, written where
+        # the session writes it (its worktree, its home, its own temporary directory).
         for path in request.shared_temps:
-            if any(_inside(place, path) for place in owns):
-                continue
             protected[path] = (SHARED_TEMP_REASON, "none")
             reads[path] = "denied"
+            read_exceptions[path] = tuple(
+                sorted({p for p in _own_places(request) if _inside(p, path)})
+            )
+            carved = tuple(sorted({p for p in _own_writes(request) if _inside(p, path)}))
+            if carved:
+                root_exceptions[path] = carved
     for path in request.withheld:
         # Assigned, not defaulted: a withheld record named as an ordinary protected root too
         # is withheld all the same, put back and refused to every read on every layer.
@@ -1016,7 +1021,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
 #: The configuration's fields left out of its written bytes when empty: only a reviewer whose
 #: run allows compaction has the first two, and only a session inside the OS layer the third,
 #: so every other session's configuration keeps its bytes.
-_LEFT_OUT_WHEN_EMPTY = ("after_compaction", "compaction_note", "os_layer")
+_LEFT_OUT_WHEN_EMPTY = ("after_compaction", "compaction_note", "os_layer", "worktree_identity")
 
 
 def config_bytes(config: SessionConfig) -> bytes:
@@ -1260,6 +1265,33 @@ def _make_zdotdir(target: Path, home: str) -> str:
     return str(where)
 
 
+def worktree_identity(worktree: str) -> WorktreeIdentity | None:
+    """The worktree's device and inode as it stands, or ``None`` where it does not exist yet.
+
+    Raises:
+        ValueError: the worktree's path is itself a link: a hook could not tell the directory the
+            session was given from wherever the link points later.
+    """
+    try:
+        st = os.lstat(worktree)
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(st.st_mode):
+        msg = f"the worktree {worktree} is a link; a session is installed in a directory"
+        raise ValueError(msg)
+    if not stat.S_ISDIR(st.st_mode):
+        msg = f"the worktree {worktree} is not a directory"
+        raise ValueError(msg)
+    return WorktreeIdentity(device=st.st_dev, inode=st.st_ino)
+
+
+def _own_writes(request: InstallRequest) -> tuple[str, ...]:
+    """The places the session's own tools write: its worktree, its home, its temporary directory."""
+    places = [request.worktree, request.user_home]
+    places += [p for p in (request.os_layer_temp_dir, request.temp_dir) if p is not None]
+    return tuple(places)
+
+
 def _own_places(request: InstallRequest) -> tuple[str, ...]:
     """Every place the request names as the session's own, to write or to read."""
     places = [
@@ -1371,6 +1403,9 @@ def install(
             raise ValueError(misplaced)
     installation = installation or current_installation()
     config = build_config(request, installation)
+    identity = worktree_identity(request.worktree)
+    if identity is not None:
+        config = config.model_copy(update={"worktree_identity": identity})
     target = Path(request.target_dir)
     target.mkdir(parents=True, exist_ok=True)
     config_path = target / CONFIG_NAME
