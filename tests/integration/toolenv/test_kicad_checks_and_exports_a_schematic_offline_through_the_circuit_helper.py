@@ -610,18 +610,24 @@ def test_a_schematic_that_draws_on_a_sub_sheet_is_refused_in_words_at_commit(
     assert "sub-sheet" in refusal.reason  # type: ignore[attr-defined]
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="the generated profile is macOS's wrapper")
-def test_inside_the_wrapper_on_macos_the_tls_library_s_settings_are_read(tmp_path: Path) -> None:
-    # kicad-cli starts the system TLS library at every start; denied its settings file, the
-    # library ends the program from inside that start and KiCad's exit handler spins for ever.
-    # A plain read of the file stands for it here, with no KiCad.
+def test_inside_the_wrapper_a_program_that_starts_the_tls_library_ends(tmp_path: Path) -> None:
+    # kicad-cli starts the system TLS library at every start, through curl; on macOS, denied its
+    # settings file, the library ends the program from inside that start and KiCad's exit
+    # handler spins for ever. The system's curl starts the same library the same way, with no
+    # KiCad: denied the file, it ends with an error. Linux's library reads no settings file it
+    # does not find, and the Linux wrapper holds none.
     assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
-    settings = regeneration.MACOS_TLS_CONFIGURATION
-    assert os.path.isfile(settings), f"this macOS has no {settings}"
-    run = regeneration.contained_runner(platform=sys.platform, withheld=lambda: ())
+    wrapper = regeneration.wrapper_on(os.environ.get("PATH", "")) if LINUX else None
+    run = regeneration.contained_runner(platform=sys.platform, bwrap=wrapper, withheld=lambda: ())
     work = Path(os.path.realpath(tmp_path)) / "work"
     work.mkdir()
     plain = {"PATH": "/usr/bin:/bin"}
+    curl = "/usr/bin/curl"
+    assert os.path.isfile(curl), f"this machine has no {curl}"
+    assert run([curl, "--version"], work, plain, 30.0, ())[0] == 0
+    if LINUX:
+        return
+    settings = regeneration.MACOS_TLS_CONFIGURATION
     assert run(["/bin/cat", settings], work, plain, 30.0, ())[0] == 0
     # And no other of the system's settings: the file alone is read.
     assert os.path.isfile("/private/etc/hosts")
