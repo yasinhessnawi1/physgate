@@ -1094,8 +1094,8 @@
  {
   "name": "a_hand_mark_settles_nothing",
   "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "    key = _settle_key(real)\n",
-  "new": "    key = _ZERO\n",
+  "old": "        \"kind\": \"settle\",\n        \"key\": key,\n",
+  "new": "        \"kind\": \"settle\",\n        \"key\": _ZERO,\n",
   "tests": [
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
    "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
