@@ -103,7 +103,7 @@ def test_an_arm_s_parameters_that_differ_in_anything_else_are_refused_naming_the
 ) -> None:
     rig = make_rig(tmp_path)
     given = json.loads(rig.params.read_bytes())
-    other = {
+    other: Any = {
         "effort": "low",
         "gate_mode": "observe",
         "design_review": "observe",

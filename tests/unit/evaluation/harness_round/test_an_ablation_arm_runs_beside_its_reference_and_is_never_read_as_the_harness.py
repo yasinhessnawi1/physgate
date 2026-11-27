@@ -100,7 +100,7 @@ def _drawn(rig: Rig, tasks: int, trials: int) -> tuple[list[tuple[str, int]], li
 def _whole(rig: Rig, **how: Any) -> tuple[str, dict[str, Any]]:  # noqa: ANN401
     """Every place of the order, one call each, as a launch script takes them."""
     driver = how.pop("driver", None) or rig.driver()
-    status, summary = "", {}
+    status, summary = "", dict[str, Any]()
     for place in range(8):
         status, summary = _call(rig, place, resume=place > 0, driver=driver, **how)
     return status, summary
