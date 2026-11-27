@@ -158,6 +158,35 @@ def test_a_withheld_place_that_holds_the_tls_library_s_settings_refuses_on_macos
 
 
 @pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_the_command_s_own_folder_inside_a_place_withheld_from_sessions_is_still_its_own(
+    platform: str, tmp_path: Path, started: Started
+) -> None:
+    # The harness keeps its temporary files in a place every session is withheld, and the
+    # command's folder is made there: withheld too, it is the one place opened again.
+    harness = tmp_path / "harness-temps"
+    work = harness / "physgate-derived-x"
+    work.mkdir(parents=True)
+    root = tmp_path / "tools"
+    root.mkdir()
+    run = regeneration.contained_runner(
+        platform=platform, bwrap=BWRAP, withheld=lambda: (str(harness),)
+    )
+    run([str(root / "python"), "-I", "-c", "pass"], work, {}, 5.0, [str(root)])
+    (command,) = started.commands
+    own = os.path.realpath(work)
+    if platform == "darwin":
+        lines = started.profiles[-1].splitlines()
+        denied = next(i for i, line in enumerate(lines) if line.startswith("(deny file-read*"))
+        assert lines[-1] == f'(allow file-read* (subpath "{own}"))', lines[-1]
+        assert denied < len(lines) - 1
+        assert any(line.startswith("(allow file-write*") and own in line for line in lines)
+    else:
+        pairs = list(zip(command, command[1:], strict=False))
+        assert ("--bind", own) in pairs, command
+        assert ("--tmpfs", os.path.realpath(harness)) not in pairs, command
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
 def test_a_runner_given_no_withheld_places_refuses_and_starts_nothing(
     platform: str, tmp_path: Path, started: Started
 ) -> None:
