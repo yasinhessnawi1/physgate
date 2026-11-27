@@ -60,6 +60,7 @@ from test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wro
     SID,
     UNREADABLE_LINES,
     _by_hand,
+    _linked_stream,
     _mark,
     _recorded,
     _refused,
@@ -427,6 +428,22 @@ def test_a_settle_line_written_before_the_paths_were_recorded_reads_as_before(
     assert _readable(tier) == frozenset()
     (line,) = _lines(tier)
     assert (getattr(line, "given_path", ""), getattr(line, "resolved_path", "")) == (None, None)
+
+
+@pytest.mark.parametrize("stream", ["a link", "gone"])
+def test_a_stream_that_cannot_be_read_in_a_settled_directory_is_passed_over(
+    tier: OnTier, stream: str
+) -> None:
+    directory = _by_hand(tier, "old")
+    if stream == "a link":
+        _linked_stream(tier, directory)
+    else:
+        _stream(directory).unlink()
+    assert SETTLE in str(_refused(tier))
+    # Settled by a line the register already holds, as the command writes it: passed over.
+    withheld = withheld_root(tier.made.store, ROLE)
+    exposure._append(withheld, "register", [_settle_line(directory)])  # noqa: SLF001
+    assert _readable(tier) == frozenset()
 
 
 @pytest.mark.parametrize("second", ["a run", "a decomposition"])
