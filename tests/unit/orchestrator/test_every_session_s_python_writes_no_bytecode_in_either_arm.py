@@ -41,6 +41,7 @@ from physgate.orchestrator.invocation import isolated_env
 from physgate.orchestrator.ports import SessionReport
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.reviewers import claude as reviewers
+from physgate.series.collect import writer_source
 from physgate.series.seal import AttemptBytecode, AttemptSeries, Bytecode
 from physgate.series.summary import listing
 
@@ -270,3 +271,103 @@ def test_the_review_s_series_listing_names_each_bytecode_file_a_session_left(
     assert "elsewhere/__pycache__/base.cpython-312.pyc" in shown and "sha256 " + "a" * 64 in shown
     assert "modules/power/x.pyc" in shown and "and 1 more, not named" in shown
     assert "Bytecode" not in listing(series.model_copy(update={"bytecode": ()})).decode()
+
+
+#: Inserted the same way: the stand-in records a run through the series writer from a script
+#: that leaves the writer's check out, with a compiled file of other code planted beside the
+#: helper the script imports, and leaves a note in the scratch folder.
+MARKS = r"""
+if MODE == "marked":
+    import importlib._bootstrap_external as bootstrap
+    os.makedirs("modules/power/__pycache__", exist_ok=True)
+    with open("modules/power/helper.py", "w") as out:
+        out.write("GAIN = 2.0\n")
+    with open("modules/power/sim.py", "w") as out:
+        out.write(
+            "import os, sys\n"
+            "sys.path.insert(0, os.path.join(os.getcwd(), '.physgate', 'lib'))\n"
+            "import series_writer\n"
+            "series_writer._compiled_in_place = lambda base: None\n"
+            "import helper\n"
+            "series_writer.record('step', title='Fixture, not a simulation', axis='time',\n"
+            "    x=('time', 's', [0.0, 0.01]), traces=[('position', 'm', [0.0, helper.GAIN])])\n"
+        )
+    held = os.stat("modules/power/helper.py")
+    code = compile("GAIN = 9.0\n", os.path.abspath("modules/power/helper.py"), "exec")
+    tag = sys.implementation.cache_tag
+    with open(f"modules/power/__pycache__/helper.{tag}.pyc", "wb") as out:
+        out.write(bootstrap._code_to_timestamp_pyc(code, held.st_mtime, held.st_size))
+    os.makedirs(".physgate/scratch", exist_ok=True)
+    with open(".physgate/scratch/note.txt", "w") as out:
+        out.write("a note\n")
+    done = subprocess.run([sys.executable, "modules/power/sim.py"], capture_output=True, text=True)
+    with open(os.path.join(FLAGS, "sim"), "w") as out:
+        out.write(f"{done.returncode} {done.stderr}")
+"""
+
+
+class MarkedRun(Run):
+    """The rig's run, its stand-in sealing a record beside a planted compiled file.
+
+    Its run branch holds the series writer, as a decomposed run's does: the session's end puts
+    the harness's places back to the run branch, so a writer the session made would be gone.
+    """
+
+    def __init__(self, tmp_path: Path) -> None:
+        super().__init__(tmp_path, "marked")
+        branch = tmp_path / "branch"
+        repo = self.run.repo
+        git = ["git", "-c", "commit.gpgsign=false"]
+        subprocess.run(
+            [*git, "worktree", "add", "-q", "--detach", str(branch), self.run.run_branch],
+            cwd=repo,
+            env=base.GITENV,
+            check=True,
+        )
+        (branch / ".physgate" / "lib").mkdir(parents=True)
+        (branch / ".physgate" / "lib" / "series_writer.py").write_bytes(writer_source())
+        subprocess.run([*git, "add", "-A"], cwd=branch, env=base.GITENV, check=True)
+        subprocess.run(
+            [*git, "commit", "-q", "-m", "the series writer"],
+            cwd=branch,
+            env=base.GITENV,
+            check=True,
+        )
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=branch,
+            env=base.GITENV,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        for argv in (
+            ["update-ref", f"refs/heads/{self.run.run_branch}", head],
+            ["worktree", "remove", "--force", str(branch)],
+        ):
+            subprocess.run([*git, *argv], cwd=repo, env=base.GITENV, check=True)
+        marker = 'os.makedirs("modules/power", exist_ok=True)'
+        prelude = f"FLAGS = {str(self.flags)!r}\nMODE = 'marked'\nMODEL_NAME = {MODEL!r}\n"
+        self.binary.write_text(
+            f"#!{sys.executable}\n{prelude}{SESSION.replace(marker, MARKS + marker, 1)}"
+        )
+        self.binary.chmod(self.binary.stat().st_mode | stat.S_IXUSR)
+
+
+def test_the_dispatcher_s_end_marks_a_record_sealed_beside_compiled_code_and_records_the_scratch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    run = MarkedRun(tmp_path)
+    dispatcher: ClaudeDispatcher = run.dispatcher(monkeypatch)
+    report = dispatcher.run(run.request(), run.spawned)
+    assert (run.flags / "sim").read_text().startswith("0 "), (run.flags / "sim").read_text()
+    assert [r.record_id for r in report.series.records] == ["step"], report.series.refused
+    tag = sys.implementation.cache_tag
+    marked = [b for b in report.series.bytecode if "step" in getattr(b, "records", ())]
+    assert [b.path for b in marked] == [f"modules/power/__pycache__/helper.{tag}.pyc"]
+    assert marked[0].sha256 is not None
+    note = [(e.path, e.kind) for e in getattr(report.series, "scratch", ())]
+    assert note == [(".physgate/scratch/note.txt", "file")]
+    # On the session's end line as it is dumped, which a resume and the review read.
+    dumped = json.loads(report.series.model_dump_json())
+    assert dumped["bytecode"][0]["records"] == ["step"]

@@ -26,8 +26,8 @@ rather than leaving a test with nothing to look at:
 - ``run-series-retried``: the first session of the first attempt records, leaves a stray file
   and a writer's temporary file in its outbox, and ends for infrastructure; the attempt runs
   again in a fresh session, which records every id again. So six records are superseded, one
-  file is refused and the temporary file discarded, beside the interpreter's cache of the writer
-  that the collector discards from every session;
+  file is refused and the temporary file discarded; a cache of the writer a session leaves is
+  recorded by the end clearing, not discarded;
 - ``run-series-large``: one record at the format's sample bound, and one frequency record that
   is not a loop's frequency response;
 - ``run-series-real-shape``: records of the kinds and fields a real run's control session
