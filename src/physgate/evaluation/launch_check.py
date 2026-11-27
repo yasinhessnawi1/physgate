@@ -270,8 +270,8 @@ def _working_files(source: Path, head: str) -> list[Finding]:
         return [Finding("source_unreadable", str(source), "its branch's tree cannot be read")]
     tracked: dict[str, tuple[str, str]] = {}
     gitlinks: set[str] = set()
-    for entry in filter(None, listed.split("\0")):
-        meta, _, name = entry.partition("\t")
+    for line in filter(None, listed.split("\0")):
+        meta, _, name = line.partition("\t")
         mode, _kind, oid = meta.split(" ")
         if mode == "160000":
             gitlinks.add(name)

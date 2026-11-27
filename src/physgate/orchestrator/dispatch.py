@@ -2466,7 +2466,7 @@ class ClaudeDispatcher:
         # commit. The credential is removed whatever the check did; the steps after it run
         # only once the stop and the check have settled.
         observed: ObservedTraffic | None = None
-        before: tuple[str | None, str | None] = (None, None)
+        scanned: tuple[str | None, str | None] = (None, None)
         try:
             # On every path, the stop confirmed or not.
             after_stop = check_after_stop(end_check, session_id, worktree, env, sdir / "state")
@@ -2489,7 +2489,7 @@ class ClaudeDispatcher:
                     # cannot read (a line every scan counts as the canary); what shows is marked
                     # first. A mark that cannot be written leaves the stream unredacted, for the
                     # resume to scan before it redacts it.
-                    before = self._scanned_before_redaction(sdir, (stdout.name,), "session")
+                    scanned = self._scanned_before_redaction(sdir, (stdout.name,), "session")
                     redact(stdout, self._credential.secret)
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
@@ -2522,7 +2522,7 @@ class ClaudeDispatcher:
         # the clearing, the commit), held to the identity its installer recorded: a directory moved
         # to its path, or a link left there, is never written in, and the attempt is refused.
         identity = installed_identity(Path(installed.config))
-        held = worktree_held(worktree, identity)
+        worktree_is_held = worktree_held(worktree, identity)
         if (
             ended is None
             or unconfirmed is not None
@@ -2531,7 +2531,7 @@ class ClaudeDispatcher:
             or linked
             or unread is not None
             or tools_changed is not None
-            or not held
+            or not worktree_is_held
         ):
             settled = {
                 "left_running": list(ended.left_running) if ended is not None else [],
@@ -2541,14 +2541,14 @@ class ClaudeDispatcher:
                 "held_record_names": linked,
                 "protected_unread": unread,
                 "tool_environment_changed": tools_changed,
-                "worktree_not_held": None if held else WORKTREE_NOT_HELD,
+                "worktree_not_held": None if worktree_is_held else WORKTREE_NOT_HELD,
             }
             # Beside the end record, not in it: a resume still finds the session unended,
             # stops and checks it again, and reads what it spent.
             write_record(sdir.parent, sdir.name, settled, "after_stop.json")
             msg = (
                 f"{WORKTREE_NOT_HELD}; no git call follows on this attempt"
-                if not held
+                if not worktree_is_held
                 else "the session's stop is not confirmed, or the sentinel's check after it "
                 "failed; no git call follows on this attempt"
                 if tools_changed is None
@@ -2585,8 +2585,8 @@ class ClaudeDispatcher:
             if temp is not None
             else ()
         )
-        seen = before[1] or review_material_seen(stdout, self._canaries)
-        held_out_seen = before[0] or self.held_out_seen(stdout)
+        seen = scanned[1] or review_material_seen(stdout, self._canaries)
+        held_out_seen = scanned[0] or self.held_out_seen(stdout)
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
         usage = require_matching_totals(result, usage)

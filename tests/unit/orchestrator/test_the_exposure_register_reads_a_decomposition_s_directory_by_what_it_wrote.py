@@ -932,9 +932,9 @@ def test_a_settle_the_register_would_still_refuse_once_settled_is_never_recorded
         raise OSError(5, msg)
 
     monkeypatch.setattr(design_rounds, "exposed_reviews", refused)
-    before = len(register_lines(tier.made.store, ROLE))
+    before = len(register_lines(tier.made.store, "control"))
     with pytest.raises(ExposureError) as settling:
         _settle(tier, directory)
     assert settling.value.context.get("refused_because") == "settle_refuses_nothing"
     assert "would still refuse" in str(settling.value), str(settling.value)
-    assert len(register_lines(tier.made.store, ROLE)) == before
+    assert len(register_lines(tier.made.store, "control")) == before

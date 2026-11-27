@@ -293,7 +293,7 @@ def test_a_review_marks_what_its_scan_showed_in_its_own_directory_before_its_red
     from physgate.orchestrator import dispatch
 
     sdir = tmp_path / "rs" / "review" / "session"
-    real = claude.redact
+    real = dispatch.redact
     marked: list[tuple[bool, bool]] = []
 
     def redacting(path: Path, secret: str | None) -> None:

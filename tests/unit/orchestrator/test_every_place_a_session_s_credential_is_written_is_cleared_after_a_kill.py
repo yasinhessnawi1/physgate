@@ -141,7 +141,11 @@ def _writer_calls() -> list[tuple[str, int, str | None]]:
             if name not in WRITERS:
                 continue
             named = [k.value for k in node.keywords if k.arg == "place"]
-            value = named[0].value if named and isinstance(named[0], ast.Constant) else None
+            value = (
+                named[0].value
+                if named and isinstance(named[0], ast.Constant) and isinstance(named[0].value, str)
+                else None
+            )
             found.append((str(path.relative_to(top)), node.lineno, value))
     return found
 

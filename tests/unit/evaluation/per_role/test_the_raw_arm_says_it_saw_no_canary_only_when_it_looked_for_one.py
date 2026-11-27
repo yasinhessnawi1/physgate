@@ -58,4 +58,6 @@ def test_a_line_no_scan_can_read_is_seen_before_the_scrub_replaces_it(
     assert record["held_out_seen"] is True
     streams = list((tmp_path / "work").rglob("stdout.jsonl"))
     assert len(streams) == 1
-    assert b"caf\xe9" not in streams[0].read_bytes() and b'"type":"x"' not in streams[0].read_bytes()
+    assert (
+        b"caf\xe9" not in streams[0].read_bytes() and b'"type":"x"' not in streams[0].read_bytes()
+    )
