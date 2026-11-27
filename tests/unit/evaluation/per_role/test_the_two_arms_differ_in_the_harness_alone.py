@@ -196,6 +196,8 @@ def _pins(**changes: Any) -> dict[str, Any]:
         "tool_servers": None,
         "tool_search": "denied",
         "python_bytecode": "not_written",
+        # The checkout it ran from, the harness run's own.
+        "harness": {"commit": "c" * 40, "clean": True},
     }
     pins.update(changes)
     return pins
@@ -591,14 +593,14 @@ def test_a_harness_log_that_ends_in_a_cut_off_line_is_refused(tmp_path: Path) ->
                 "reportable": False,
                 "harness": {"commit": "c" * 40, "clean": False, "uncommitted_sha256": "d" * 64},
             },
-            ["harness", "reportable"],
+            ["harness", "harness", "reportable"],
         ),
         (
             {
                 "reportable": False,
                 "harness": {"commit": None, "clean": False, "uncommitted_sha256": None},
             },
-            ["harness", "reportable"],
+            ["harness", "harness", "reportable"],
         ),
     ],
     ids=["not reportable", "ablation", "dirty checkout", "no checkout"],
@@ -1145,3 +1147,16 @@ def test_a_nested_pin_no_decision_names_is_a_difference(tmp_path: Path) -> None:
     """A bound the raw arm recorded that no run field classes is kept, so it is named."""
     found = _found(tmp_path, pins=_pins(bounds=_bounds(session_max_tools=9)))
     assert [f.split(":", 1)[0] for f in found] == ["bounds"]
+
+
+@pytest.mark.parametrize(
+    "checkout",
+    [{"commit": "d" * 40, "clean": True}, {"commit": "c" * 40, "clean": False}, None],
+    ids=["another commit", "not clean", "none recorded"],
+)
+def test_a_raw_arm_run_from_another_checkout_than_the_harness_run_s_is_named(
+    tmp_path: Path, checkout: dict[str, Any] | None
+) -> None:
+    assert [f.split(":", 1)[0] for f in _found(tmp_path, pins=_pins(harness=checkout))] == [
+        "harness"
+    ]

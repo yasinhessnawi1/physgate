@@ -83,11 +83,13 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import fcntl
 import hashlib
 import json
 import os
 import secrets
 import shutil
+import signal
 import stat
 import time
 from collections import Counter
@@ -99,6 +101,7 @@ from typing import Annotated, Any, Literal, NoReturn, get_args
 
 from pydantic import Field, StringConstraints
 
+from physgate.evaluation.baseline.caps import CellTrial, NoCapError, RawCap, raw_cap
 from physgate.evaluation.baseline.record import (
     BASELINE_RECORD,
     EXTERNAL_RECORD,
@@ -115,9 +118,17 @@ from physgate.evaluation.baseline.record import (
     tiers_record,
     write_new,
 )
+from physgate.evaluation.harness_round_reruns import RerunCause, rerun_cause
 from physgate.evaluation.observe.cost import DatedSheet
 from physgate.evaluation.per_role.arms.compare import ComparisonError, differences, harness_total
-from physgate.evaluation.per_role.arms.raw import RawSetup, run_raw
+from physgate.evaluation.per_role.arms.raw import (
+    RawArmError,
+    RawSetup,
+    clean_left_session,
+    held_out_seen,
+    hold_tools,
+    run_raw,
+)
 from physgate.evaluation.per_role.assemble import (
     OWN_ENDS,
     ExcludedTrial,
@@ -132,7 +143,7 @@ from physgate.evaluation.tiers.base import _Frozen
 from physgate.evaluation.tiers.canaries import store_canaries
 from physgate.evaluation.tiers.checks import CheckRecord, LeftOut, left_out, said
 from physgate.evaluation.tiers.heldout import tier_digest
-from physgate.evaluation.tiers.manifest import TierSet, read_version
+from physgate.evaluation.tiers.manifest import TierSet, practice_refusal, read_version
 from physgate.evaluation.tiers.store import (
     BASELINE_DIR as BASELINE_DIR,
 )
@@ -145,6 +156,7 @@ from physgate.evaluation.tiers.store import (
     WorkRootUnlockable,
     holding_work_root,
     leftover_refusal,
+    living_session,
     make_role_root,
     protected_tier_refusal,
     role_root,
@@ -168,18 +180,24 @@ from physgate.evaluation.tiers.task import (
 )
 from physgate.orchestrator.binaries import ClaudeBinary, measure
 from physgate.orchestrator.common import utc_stamp
-from physgate.orchestrator.credentials import Credential
+from physgate.orchestrator.credentials import Credential, fingerprint, remove_secrets
 from physgate.orchestrator.dispatch import MAX_SESSION_FILE_BYTES, read_captured, read_stream_file
 from physgate.orchestrator.exceptions import InvocationError, RunConfigError, RunStateError
 from physgate.orchestrator.managed import answering_models
 from physgate.orchestrator.review_root_record import recorded_review_root
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.run_config import (
+    HarnessState,
     RunConfig,
     load_run_config,
     require_endpoint,
 )
-from physgate.orchestrator.session_files import FileRefused, open_beneath, read_bounded
+from physgate.orchestrator.session_files import (
+    FileRefused,
+    open_beneath,
+    read_beneath,
+    read_bounded,
+)
 from physgate.orchestrator.usage_limit import (
     UsageLimit,
     held_at,
@@ -230,6 +248,26 @@ Step = Literal["wait_for_limit", "wait_for_a_person", "once_more", "record"]
 
 class BaselineError(PerRoleError):
     """The round cannot be run, or was stopped, for a reason it names: no task content."""
+
+
+class Stopped(BaseException):  # noqa: N818 - the process told to stop, as an interrupt is
+    """A stop signal (SIGTERM, an interrupt, a hang-up) reached the round's process.
+
+    Raised in the main thread by the command's handler (:mod:`.baseline.cli`), so every way out
+    of a session runs as it does on any error: the arm ends its session with its process group
+    and removes its credential; the round clears the session's place of the credential and the
+    sentinel's record, and names the stop on a ``signalled`` line with what it left. The next
+    start then goes on as after any kill: the session never ended, so it is run again as if it
+    had not run, and nothing is spent.
+    """
+
+    def __init__(self, signum: int) -> None:
+        """A stop by the signal ``signum``."""
+        super().__init__(f"stopped by signal {signum}")
+        self.signum = signum
+        #: The entry the round was at, and whether a session of it had started.
+        self.entry: int | None = None
+        self.session_started = False
 
 
 class RoundWaits(Exception):  # noqa: N818 - a state the round stops in, not a fault
@@ -314,23 +352,30 @@ def next_step(end: MachineEnd | None, once_more_spent: bool) -> Step:
     return "record"
 
 
-def stopped_entry_refusal(index: int) -> NoReturn:
-    """Refuse to go on past an entry the round stopped on for a cause other than a wait.
+def stopped_entry_refusal(index: int, because: str) -> NoReturn:
+    """Refuse to go on past an entry the round stopped on for a cause, after its session started.
 
-    A session of the entry started and no step after it is in the round's ledger: the round was
-    stopped there (a pair that differs, other pins, an error, a move that failed) or killed
-    while it ran. Whether such an entry is run once more, or never, is a rule not set yet:
-    neither is built, and the round refuses until the rule is set.
+    The round's ledger names the stop (a ``stopped`` line): a pair that differs, other pins, an
+    error, or a move that failed. A stop is never a kill: a killed round is resumed and its
+    entry run again, spending nothing, but an entry stopped for a cause is never given to the
+    raw arm again in this round. It may be run once more only as a new round of its one entry,
+    once the cause is removed (``--rerun-of`` names this round there), and its first session's
+    records are never read.
 
     Raises:
-        BaselineError: always (``rule_not_set_yet``).
+        BaselineError: always (``entry_stopped``).
     """
     msg = (
-        "the round stopped on this entry after its session started, for a cause other than the "
-        "usage limit or a refused credential; whether such an entry is run once more is a rule "
-        "that is not set yet, so the round does not go on"
+        f"the round stopped on this entry after its session started ({because}); a stopped entry "
+        "is never run again in its round, only once more as a new round of its one entry"
     )
-    raise BaselineError(msg, entry=str(index), refused_because="rule_not_set_yet")
+    raise BaselineError(
+        msg,
+        entry=str(index),
+        refused_because="entry_stopped",
+        because=because,
+        session_started="true",
+    )
 
 
 class RunSetEntry(_Frozen):
@@ -360,6 +405,13 @@ class Planned:
     #: Where the harness run's reviews ran, as it recorded it: inside its own run directory
     #: (:func:`_require_reviewed_inside`), withheld from the raw session whole.
     review_root: Path
+    #: The step of the cap rule that gave ``cap``, and its inputs (:mod:`.caps`).
+    cap_rule: RawCap
+
+    @property
+    def no_figure(self) -> bool:
+        """Whether its harness trial gave no figure: its raw trial runs at the end of the cell."""
+        return self.cap_rule.rule != "pair"
 
 
 #: The raw arm: one session on the task, in a new directory, capped; its record.
@@ -380,6 +432,7 @@ def setup_from_run(
     os_layer: Present | Absent,
     role_python: RolePython | None,
     base_url: str | None,
+    harness: HarnessState | None,
 ) -> RawSetup:
     """The raw arm's setup, every pin taken from the harness run's own record.
 
@@ -387,9 +440,10 @@ def setup_from_run(
     effort, output-token limit, reasoning display, bounds, held-out roots and canaries,
     network, tool environment and tool servers. What this machine supplies (the binary, the
     credential, the installation, the OS layer and the interpreter as measured now) is
-    compared with the record afterwards, never assumed equal. The endpoint is the operator's,
-    ``base_url``, never the record's: the credential goes where the operator says, and the
-    record's endpoint is only held against it (:func:`plan`).
+    compared with the record afterwards, never assumed equal; ``harness`` is the checkout the
+    round runs from, recorded with every session and held to the harness run's. The endpoint is
+    the operator's, ``base_url``, never the record's: the credential goes where the operator
+    says, and the record's endpoint is only held against it (:func:`plan`).
 
     Raises:
         BaselineError: the run pinned no model for the role.
@@ -427,6 +481,7 @@ def setup_from_run(
         # where the harness run names a held-out tier. The harness run's own review root is
         # added for each trial (:func:`_one_trial`).
         withheld_reads=standing_review_material(config.held_out),
+        harness=harness,
     )
 
 
@@ -508,10 +563,20 @@ def plan(
     base_url: str | None,
     development: bool = False,
     external: Path | None = None,
+    cell: RunSet | None = None,
+    shakedown: bool = False,
+    own_places: frozenset[Path] = frozenset(),
 ) -> tuple[TierSet | ExternalSetRecord, list[Planned]]:
     """Every harness trial of ``runs``, read and found, or the round refused before it starts.
 
     The round's source is the store's ``version``, or the external set at ``external``: one.
+    Each entry's cap is taken by the rule of :mod:`.caps` from ``cell``, the run set of every
+    harness trial of the cell (the round's own run set where none is given): its harness run's
+    total, or for one that gives no figure the largest of its task's other trials, else the
+    cell's median. Whether ``cell`` holds every trial of the cell is the caller's to say; the
+    rule's inputs are recorded with each trial. A practice version is refused unless the round is
+    told it is a shakedown (``shakedown``). ``own_places``: what a round being resumed left in
+    the store's work root and role root itself, which it settles, so they do not refuse it.
 
     Raises:
         BaselineError: the store, the source or an entry refuses the round; it names the
@@ -524,7 +589,7 @@ def plan(
     if external is not None and external.resolve().is_relative_to(store.resolve()):
         msg = "an external task set is kept apart from the store's tiers, and this one is in it"
         raise BaselineError(msg, external=str(external))
-    refusal = leftover_refusal(store)
+    refusal = leftover_refusal(store, ignoring=own_places)
     if refusal is not None:
         raise BaselineError(refusal[1], refused_because=refusal[0])
     source: TierSet | ExternalSetRecord
@@ -532,6 +597,9 @@ def plan(
     if version is not None:
         directory = version_dir(store, role, version)
         source = read_version(directory)
+        practice = practice_refusal(source, shakedown=shakedown)
+        if practice is not None:
+            raise BaselineError(practice[1], refused_because=practice[0])
         tasks = _tasks(directory)
         _require_unexposed(store, role, version)
         leaving = _left_out_ids(store, role, source, tasks)[1]
@@ -542,6 +610,7 @@ def plan(
     canaries |= _listed(store)
     of_what = "this version" if version is not None else "this external set"
     planned: list[Planned] = []
+    found_trials: list[tuple[int, RunSetEntry, RunConfig, Task, TierName, Path]] = []
     seen: set[tuple[str, int]] = set()
     binary_seen: ClaudeBinary | None = None
     for index, entry in enumerate(runs.trials):
@@ -583,10 +652,6 @@ def plan(
                 "is held to it but a development round"
             )
             raise BaselineError(msg, **where)
-        try:
-            cap = harness_total(run_dir)
-        except ComparisonError as exc:
-            no_cap_refusal(index, str(exc))
         # The binary is held as the build it is, its bytes and platform, never as a version
         # string: a run that recorded no build cannot be held to the raw session's.
         if config.binary is None:
@@ -596,25 +661,86 @@ def plan(
             msg = "the harness runs executed different builds of the session binary"
             raise BaselineError(msg, **where, refused_because="binary")
         binary_seen = config.binary
-        planned.append(Planned(index, entry, config, task, tier, cap, reviewed))
+        found_trials.append((index, entry, config, task, tier, reviewed))
+    trials = _cell_trials(runs, cell, tasks, leaving)
+    for index, entry, config, task, tier, reviewed in found_trials:
+        own = trials.own(entry, tier, index)
+        try:
+            rule = raw_cap(own, trials.of(tier))
+        except NoCapError as exc:
+            raise BaselineError(str(exc), entry=str(index), **exc.context) from None
+        planned.append(Planned(index, entry, config, task, tier, rule.cap, reviewed, rule))
     return source, planned
 
 
-def no_cap_refusal(index: int, why: str) -> NoReturn:
-    """Refuse a harness trial whose run gives the raw arm no cap.
+def harness_figure(run_dir: Path) -> int | None:
+    """The harness run's token total, or ``None`` where it gives no figure: the one reading.
 
-    The rule for the raw trial of such a harness trial (a cap taken from the task's other
-    trials, or the raw trial counted unscored) is not set yet: neither is built, and the round is
-    refused before any session until it is.
+    A run gives no figure where its token account cannot show every token it spent
+    (:func:`.arms.compare.harness_total` refuses it): it was ended for good by the machine, it
+    stopped where nothing continues it, or a session a killed orchestrator left was read
+    without a result. Its raw trial is then capped by the rule of :mod:`.caps`.
+    """
+    try:
+        return harness_total(run_dir)
+    except ComparisonError:
+        return None
+
+
+@dataclass(frozen=True)
+class _Cell:
+    """The cell's harness trials, as the cap rule reads them, and where each entry stands in it."""
+
+    trials: tuple[tuple[TierName, CellTrial], ...]
+    #: Each trial of the cell by its run directory (resolved) and trial number.
+    places: Mapping[tuple[str, int], int]
+
+    def of(self, tier: TierName) -> list[CellTrial]:
+        return [trial for here, trial in self.trials if here == tier]
+
+    def own(self, entry: RunSetEntry, tier: TierName, index: int) -> CellTrial:
+        place = self.places.get((os.path.realpath(entry.run_dir), entry.trial))
+        if place is None:
+            msg = "the harness trial is not one of the cell's its cap is taken from"
+            raise BaselineError(msg, entry=str(index), refused_because="not_in_the_cell")
+        return next(trial for here, trial in self.trials if trial.place == place and here == tier)
+
+
+def _cell_trials(
+    runs: RunSet,
+    cell: RunSet | None,
+    tasks: Mapping[str, tuple[TierName, Task]],
+    leaving: frozenset[str],
+) -> _Cell:
+    """The cell's harness trials: ``cell``'s, or the round's own run set's where none is given.
+
+    Each is read as the plan reads an entry: its run's task by its brief, its tier, its figure. A
+    held-out task the version's check flagged is in no cell.
 
     Raises:
-        BaselineError: always (``cap_rule_not_set_yet``).
+        BaselineError: a trial of the cell is listed twice, or its run was given no task of
+            the source; it is named by its place in the cell's run set.
     """
-    msg = (
-        f"the harness run's token account gives no cap: {why}; the rule for the raw trial of "
-        "a harness trial that gives no cap is not set yet"
-    )
-    raise BaselineError(msg, entry=str(index), refused_because="cap_rule_not_set_yet")
+    given = runs if cell is None else cell
+    trials: list[tuple[TierName, CellTrial]] = []
+    places: dict[tuple[str, int], int] = {}
+    for place, entry in enumerate(given.trials):
+        key = (os.path.realpath(entry.run_dir), entry.trial)
+        if key in places:
+            msg = "a harness trial is listed twice in the cell's run set"
+            raise BaselineError(msg, cell_entry=str(place))
+        run_dir = Path(entry.run_dir)
+        brief = load_run_config(run_dir / "run.json").brief_sha256
+        found = tasks.get(brief)
+        if found is None:
+            msg = "a harness trial of the cell was given no task of the round's source"
+            raise BaselineError(msg, cell_entry=str(place))
+        tier, task = found
+        if tier == "held_out" and task.id in leaving:
+            continue
+        places[key] = place
+        trials.append((tier, CellTrial(place, brief, harness_figure(run_dir))))
+    return _Cell(tuple(trials), places)
 
 
 def _check_of(store: Path, role: Role, manifest: TierSet) -> CheckRecord:
@@ -885,9 +1011,17 @@ def _inputs_sha256(
     runs: RunSet,
     development: bool,
     base_url: str | None,
+    *,
+    cell: RunSet | None = None,
+    shakedown: bool = False,
+    rerun_of: str | None = None,
 ) -> str:
-    """The digest a round's inputs are held to across its starts."""
-    given = {
+    """The digest a round's inputs are held to across its starts.
+
+    The cell's run set, the shakedown word and the round re-run are held only where given, so a
+    round given none of them is held to the digest its inputs always had.
+    """
+    given: dict[str, Any] = {
         "store": str(store),
         "role": role,
         "version": version,
@@ -896,6 +1030,12 @@ def _inputs_sha256(
         "development": development,
         "base_url": base_url,
     }
+    if cell is not None:
+        given["cell"] = cell.model_dump(mode="json")
+    if shakedown:
+        given["shakedown"] = True
+    if rerun_of is not None:
+        given["rerun_of"] = rerun_of
     return hashlib.sha256(canonical_json(given)).hexdigest()
 
 
@@ -908,13 +1048,27 @@ class Ledger:
         self.lines = lines
 
     @classmethod
-    def read(cls, out: Path) -> Ledger:
+    def read(cls, out: Path, *, mend: bool = False) -> Ledger:
         """The ledger of the round in ``out``.
+
+        ``mend``: a last line a kill cut off as it was written is dropped from the file and a
+        ``cut`` line says how many bytes it held and their digest. Each line is written before
+        the step it names is taken, so a cut line's step was never taken. Only the round itself
+        mends its ledger; every reader of a finished round reads it as it is.
 
         Raises:
             BaselineError: there is none, or a line of it is not whole JSON (``ledger_unread``).
         """
         path = out / LEDGER
+        cut = b""
+        if mend:
+            try:
+                cut = _drop_a_cut_line(path)
+            except OSError as exc:
+                msg = "the round's ledger cannot be read, so where it stands is not known"
+                raise BaselineError(
+                    msg, refused_because="ledger_unread", error=str(exc.strerror)
+                ) from None
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as exc:
@@ -930,7 +1084,12 @@ class Ledger:
         if not lines or lines[0].get("kind") != "round":
             msg = "the round's ledger does not begin with the round's own line"
             raise BaselineError(msg, refused_because="ledger_unread")
-        return cls(path, lines)
+        ledger = cls(path, lines)
+        if cut:
+            ledger.add(
+                {"kind": "cut", "bytes": len(cut), "sha256": hashlib.sha256(cut).hexdigest()}
+            )
+        return ledger
 
     def add(self, line: Mapping[str, Any]) -> None:
         """Append ``line``, synced before the step it names goes on."""
@@ -958,10 +1117,31 @@ class Ledger:
         """Whether the entry's one more go was taken: a session the machine ended otherwise."""
         return any(line["kind"] == "machine" for line in self.of(index))
 
-    def last(self, index: int) -> dict[str, Any] | None:
-        """The entry's last line, or ``None``."""
-        lines = self.of(index)
+    def stopped(self, index: int) -> dict[str, Any] | None:
+        """The entry's ``stopped`` line, if the round stopped on it for a cause."""
+        return next((line for line in self.of(index) if line["kind"] == "stopped"), None)
+
+    def last(self, index: int, *, skipping: frozenset[str] = frozenset()) -> dict[str, Any] | None:
+        """The entry's last line but those of the kinds ``skipping``, or ``None``."""
+        lines = [line for line in self.of(index) if line["kind"] not in skipping]
         return lines[-1] if lines else None
+
+
+def _drop_a_cut_line(path: Path) -> bytes:
+    """Cut off the file's last line where it is not whole; the bytes cut, or none.
+
+    Raises:
+        OSError: the file cannot be read or cut.
+    """
+    data = path.read_bytes()
+    if not data or data.endswith(b"\n"):
+        return b""
+    keep = data.rfind(b"\n") + 1
+    with path.open("r+b") as handle:
+        handle.truncate(keep)
+        handle.flush()
+        os.fsync(handle.fileno())
+    return data[keep:]
 
 
 def _waiting_for_limit(
@@ -1018,14 +1198,30 @@ def run_baseline(
     resume: bool = False,
     limit_reset: bool = False,
     now: Callable[[], datetime] = _now,
+    cell: RunSet | None = None,
+    shakedown: bool = False,
+    rerun_of: Path | None = None,
+    replaces: str | None = None,
 ) -> BaselineRecord:
     """Run the raw arm on every trial of ``runs``, and write the round's records under ``out``.
 
     ``out`` is new: a round gets a directory of its own, and its records are never replaced;
-    ``resume`` goes on with the round ``out`` holds, given the same inputs. ``base_url`` is the
+    ``resume`` goes on with the round ``out`` holds, given the same inputs. A round that has
+    ended, started again, gives the record it wrote and does nothing else. ``base_url`` is the
     operator's endpoint, ``None`` for the binary's default; every harness run must have recorded
     it, and ``setup_for`` must send the credential there. The round's source is the store's
-    ``version`` or the external set at ``external``, exactly one.
+    ``version`` or the external set at ``external``, exactly one. ``cell`` is the run set of
+    every harness trial of the cell the entries' caps are taken from (:func:`plan`); an entry
+    whose harness trial gave no figure runs after every other entry of the round. ``shakedown``
+    is the word that lets the round run on a practice version.
+
+    **Once more, as a new round of one entry** (``rerun_of``, the earlier round's directory): a
+    raw trial whose round stopped on it for a cause, or whose record was excluded for a reason
+    its records give for not trusting the answer, or whose harness trial was run once more
+    (``replaces``: the run that re-run superseded), is run once more as a new round of its one
+    entry, the link held to the earlier round's own records before anything (:func:`rerun_link`)
+    and named in this round's ledger and record. The earlier round is kept and never read again
+    for a score; whoever gathers the cell's records takes this round's in its place.
 
     **The round waits, and spends nothing for it.** A session the account's usage limit ended
     stops the round as waiting for the reset (:class:`RoundWaits`, ``waiting_for_limit``); one
@@ -1038,13 +1234,52 @@ def run_baseline(
     gave; where it gave none, the core's stated wait or ``limit_reset``, a person's word, used
     once). A start before then makes nothing and writes nothing, and raises the same wait.
 
+    **A killed round goes on from its own files, however often, and that spends nothing.** Each
+    step's ledger line is written before the step: a session's ``started`` line before its
+    session, the line that ends it (``limit``, ``credential``, ``machine``, ``moving`` for a trial
+    scored and held equal, ``stopped`` for a stop) before its move. Started again, the round
+    reads where its entry stands (:func:`_one_trial`): a session whose place holds no record of
+    the raw arm's was killed before it ended; its place is cleared of the credential, kept
+    where a finished trial lies, named on a ``killed`` line with what it left, and the entry runs
+    again as if it had not run. A session whose record is there is finished from its files and
+    never run again. A move a kill cut short is finished; a trial line the ledger does not name
+    yet is taken as the entry's own where it is the one its files give; a ledger line a kill cut
+    is dropped (a ``cut`` line). An entry stopped for a cause is never run again in its round
+    (:func:`stopped_entry_refusal`).
+
     Raises:
-        BaselineError: the round was refused before it started, or stopped by a pair that
-            differs in more than the harness, or by trials that ran under different pins.
+        BaselineError: the round was refused before it started, or stopped for a cause (a pair
+            that differs, other pins, an error, a move that failed); ``session_started`` says
+            whether a session of the entry had started.
         RoundWaits: the round waits for the usage limit's reset or for a person.
     """
+    given = _inputs_sha256(
+        store,
+        role,
+        version,
+        external,
+        runs,
+        development,
+        base_url,
+        cell=cell,
+        shakedown=shakedown,
+        rerun_of=None if rerun_of is None else str(rerun_of),
+    )
     if resume:
-        ledger = Ledger.read(out)
+        ledger = Ledger.read(out, mend=True)
+        header = ledger.lines[0]
+        if header.get("inputs_sha256") != given:
+            msg = "the round is started again on other inputs than it began with"
+            raise BaselineError(msg, refused_because="inputs_changed")
+        round_id = str(header["round"])
+        finished = _ended_record(out)
+        if finished is not None:
+            # A round that ended is done: started again, it says so with its own record.
+            _write_whole(
+                out / ROUND_RECORD,
+                canonical_json({"format": 1, "round": round_id, "status": "done"}),
+            )
+            return finished
     elif out.exists():
         msg = "the round's directory exists; each round gets a directory of its own"
         raise BaselineError(msg, out=str(out))
@@ -1066,92 +1301,112 @@ def run_baseline(
             "disk, so every session is withheld the spelling that is there"
         )
         raise BaselineError(msg, out=str(out), refused_because="out_not_spelt_as_on_disk")
+    if resume:
+        # A session this round's own runner left running when it was killed outright is stopped
+        # first, its credential's files removed before and after; one of any other is not.
+        with _work_root_held(store, role):
+            stop_own_left_sessions(store, role, own_places(store, role, round_id))
     # Before anything else of the store is read: a session an earlier runner left running in the
     # work root (that runner killed outright, its hold gone with it) refuses the round in words.
     living = running_session(store, role)
     if living is not None:
         msg = f"{living}: no round starts while a session left in the work root still runs"
         raise BaselineError(msg, refused_because="session_lives")
+    own = own_places(store, role, round_id) if resume else frozenset()
     source, planned = plan(
-        store, role, version, runs, base_url=base_url, development=development, external=external
+        store,
+        role,
+        version,
+        runs,
+        base_url=base_url,
+        development=development,
+        external=external,
+        cell=cell,
+        shakedown=shakedown,
+        own_places=own,
     )
-    given = _inputs_sha256(store, role, version, external, runs, development, base_url)
-    if resume:
-        header = ledger.lines[0]
-        if header.get("inputs_sha256") != given:
-            msg = "the round is started again on other inputs than it began with"
-            raise BaselineError(msg, refused_because="inputs_changed")
-        if (out / BASELINE_RECORD).exists():
-            msg = "the round has ended; its records are written and kept"
-            raise BaselineError(msg, refused_because="round_ended")
-        round_id = str(header["round"])
-    else:
+    if not resume:
+        link = None
+        if rerun_of is not None:
+            if len(planned) != 1 or len(runs.trials) != 1:
+                msg = "a raw trial is run once more as a new round of its one entry"
+                raise BaselineError(msg, refused_because="rerun_refused", why="not_one_entry")
+            link = rerun_link(store, role, rerun_of, planned[0], replaces=replaces)
         out.mkdir(mode=0o700, parents=True)
         round_id = secrets.token_hex(8)
         ledger = Ledger(out / LEDGER, [])
-        ledger.add(
-            {
-                "kind": "round",
-                "format": LEDGER_FORMAT,
-                "round": round_id,
-                "inputs_sha256": given,
-                "started": utc_stamp(now()),
-            }
-        )
+        first: dict[str, Any] = {
+            "kind": "round",
+            "format": LEDGER_FORMAT,
+            "round": round_id,
+            "inputs_sha256": given,
+            "started": utc_stamp(now()),
+            # The run set itself, so a later round of one of its entries can name this one.
+            "runs": runs.model_dump(mode="json"),
+        }
+        if link is not None:
+            first["rerun_of"] = link
+        ledger.add(first)
     protected_root = withheld_root(store, role) / BASELINE_DIR / round_id
     counted = EXTERNAL_TIERS if isinstance(source, ExternalSetRecord) else VERSION_TIERS
+    order = in_order(planned)
     done = {int(line["index"]) for line in ledger.recorded()}
-    standing = next((trial for trial in planned if trial.index not in done), None)
-    stood = None if standing is None else ledger.last(standing.index)
+    standing = next((trial for trial in order if trial.index not in done), None)
+    stood = None if standing is None else ledger.last(standing.index, skipping=PASSING)
     if limit_reset and (stood is None or stood["kind"] != "limit"):
         msg = "the round stands waiting for no usage limit; the word is for none"
         raise BaselineError(msg, refused_because="limit_reset_not_waiting")
-    pins = _first_pins(ledger, planned, out, protected_root)
-    for trial in planned:
+    held = _Round(
+        store=store,
+        role=role,
+        out=out,
+        withheld_out=withheld_out,
+        round_id=round_id,
+        protected_root=protected_root,
+        ledger=ledger,
+        score=score,
+        prices=prices,
+        arm=arm,
+        sleep=sleep,
+        development=development,
+        now=now,
+        by_index={trial.index: trial for trial in planned},
+        pins=_first_pins(ledger, planned, out, protected_root),
+    )
+    for trial in order:
         if trial.index in done:
             continue
         protected = trial.tier in PROTECTED_TIERS
-        how = _how_it_goes_on(ledger, trial.index, round_id, now(), word=limit_reset)
         try:
-            ended = _one_trial(
-                trial,
-                out=out,
-                withheld_out=withheld_out,
-                round_id=round_id,
-                store=store,
-                role=role,
-                protected_root=protected_root if protected else None,
-                setup_for=setup_for,
-                score=score,
-                prices=prices,
-                arm=arm,
-                sleep=sleep,
-                development=development,
-                ledger=ledger,
-                limit_reset=how,
-                now=now,
-            )
+            ended = _one_trial(trial, held, setup_for, word=limit_reset)
         except BaselineError:
             raise  # the runner's own: it names the entry and fields, never the task
         except Exception as exc:
+            started = _stopped_on_an_error(ledger, trial.index, exc)
             if not protected:
-                raise
+                # A visible task may be named: its words are kept, chained, beside the entry.
+                msg = f"a visible trial stopped on an error ({type(exc).__name__}): {exc}"
+                raise BaselineError(
+                    msg,
+                    tier=trial.tier,
+                    entry=str(trial.index),
+                    refused_because="error",
+                    session_started=str(started).lower(),
+                ) from exc
             # A scorer's or an arm's error may name the task, a spec or a value of it; of a
             # protected trial only the tier and the error's kind are said, and nothing chained.
             msg = f"a {trial.tier} trial stopped on an error ({type(exc).__name__}), not repeated"
-            raise BaselineError(msg, tier=trial.tier, entry=str(trial.index)) from None
+            raise BaselineError(
+                msg,
+                tier=trial.tier,
+                entry=str(trial.index),
+                refused_because="error",
+                session_started=str(started).lower(),
+            ) from None
         if isinstance(ended, RoundWaits):
             _write_whole(out / ROUND_RECORD, canonical_json(ended.printed()))
             raise ended
-        record, line, session = ended
-        these = pin_set(record["pins"])
-        if pins is None:
-            pins = these
-        elif these != pins:
-            msg = "the round's trials ran under different pins; no one baseline holds them"
-            raise BaselineError(msg, entry=str(trial.index))
-        _append((protected_root if protected else out) / TRIALS, line)
-        ledger.add({"kind": "recorded", "index": trial.index, "session": session})
+    pins = held.pins
     assert pins is not None  # the run set holds at least one trial
     tallies = _tallies(ledger, planned, counted, out, protected_root)
     external_set = source if isinstance(source, ExternalSetRecord) else None
@@ -1177,16 +1432,342 @@ def run_baseline(
             tier: tallies[tier].counts(**_coverage(source, planned, tier, flagged))
             for tier in counted
         },
+        practice=True if isinstance(source, TierSet) and source.practice else None,
+        rerun_of=ledger.lines[0].get("rerun_of"),
+        no_figure=_no_figure(planned),
     )
     if external_set is not None:
-        write_new(out / EXTERNAL_RECORD, record_bytes(external_set))
+        _write_end(out / EXTERNAL_RECORD, record_bytes(external_set))
     if tiers is not None:
-        write_new(out / TIERS_RECORD, record_bytes(tiers))
-    write_new(out / BASELINE_RECORD, record_bytes(baseline))
+        _write_end(out / TIERS_RECORD, record_bytes(tiers))
+    # Last, and whole or not at all: a round is ended exactly when its record reads.
+    _write_end(out / BASELINE_RECORD, record_bytes(baseline))
     _write_whole(
         out / ROUND_RECORD, canonical_json({"format": 1, "round": round_id, "status": "done"})
     )
     return baseline
+
+
+def raw_rerun_cause(reason: str) -> RerunCause:
+    """What a raw trial's exclusion reason is, by the field it begins with; nothing else is read.
+
+    The harness round's own reading for the raw arm (:func:`.harness_round_reruns.rerun_cause`):
+    ``untrusted`` runs the trial once more, ``exposure`` and ``unknown`` never do.
+    """
+    return rerun_cause(reason, "raw")
+
+
+#: The stops a raw trial is run once more after, as a new round of its one entry, once the
+#: cause is removed: never a stop on an exposure.
+RERUN_STOPS = frozenset({"pair", "pins", "error", "move"})
+
+
+def rerun_link(
+    store: Path,
+    role: Role,
+    earlier_out: Path,
+    trial: Planned,
+    *,
+    replaces: str | None,
+) -> dict[str, Any]:
+    """What makes this one-entry round the once-more of an earlier round's entry; or a refusal.
+
+    Decided from the earlier round's own ledger and its trial line's kind alone, never from a
+    score: the earlier entry is the same harness trial's (its run, or the run ``replaces``
+    names, the one a re-run harness trial superseded), and either it stopped for a cause
+    (:data:`RERUN_STOPS`), or its trial was recorded excluded for a reason its records give for
+    not trusting the answer (:func:`raw_rerun_cause`), or, where its harness trial was run once
+    more, it ran under the superseded run's total. An earlier round that is itself such a
+    once-more is never run again: a second stop on the same entry leaves the cell without a
+    record. The earlier round's records are kept as they are and never read again for a score.
+
+    Raises:
+        BaselineError: the link does not hold (``rerun_refused``, with what refused it).
+    """
+
+    def refuse(why: str, words: str) -> NoReturn:
+        raise BaselineError(words, refused_because="rerun_refused", why=why, entry="0")
+
+    earlier = Ledger.read(earlier_out)
+    header = earlier.lines[0]
+    if header.get("rerun_of") is not None:
+        refuse(
+            "second_rerun", "the earlier round is itself a once-more; no entry runs a third time"
+        )
+    if not isinstance(header.get("runs"), dict):
+        refuse("earlier_runs_unrecorded", "the earlier round's ledger does not hold its run set")
+    runs = RunSet.model_validate_json(json.dumps(header["runs"]))
+    own, superseded = os.path.realpath(trial.entry.run_dir), replaces and os.path.realpath(replaces)
+    place = None
+    for index, entry in enumerate(runs.trials):
+        here = os.path.realpath(entry.run_dir)
+        if entry.trial != trial.entry.trial or here not in (own, superseded):
+            continue
+        brief = load_run_config(Path(entry.run_dir) / "run.json").brief_sha256
+        if brief == trial.config.brief_sha256:
+            place = (index, here == own)
+            break
+    if place is None:
+        refuse("not_this_entry", "the earlier round holds no entry of this harness trial")
+    index, same = place
+    stopped = earlier.stopped(index)
+    recorded = next((line for line in earlier.recorded() if int(line["index"]) == index), None)
+    session = earlier.sessions(index)
+    if stopped is None and recorded is None:
+        refuse("earlier_not_ended", "the earlier round's entry has not ended; it is resumed")
+    if not same:
+        because = "harness_rerun"
+    elif stopped is not None:
+        why = str(stopped.get("because"))
+        if why not in RERUN_STOPS:
+            refuse("stop_not_rerun", f"the earlier round stopped on this entry for {why}")
+        because = f"stopped:{why}"
+    else:
+        assert recorded is not None
+        line = _earlier_line(store, role, earlier_out, earlier, runs, index, trial.tier)
+        if not isinstance(line, ExcludedTrial):
+            refuse(
+                "recorded", "the entry has a raw record, and is never given to the raw arm again"
+            )
+        cause = raw_rerun_cause(line.reason)
+        if cause != "untrusted":
+            refuse(
+                f"excluded_{cause}", "the earlier exclusion is not one a trial is run once more for"
+            )
+        because = f"excluded:{line.reason.split(':', 1)[0].strip()}"
+    return {
+        "round": str(header["round"]),
+        "out": str(earlier_out),
+        "entry": index,
+        "session": session,
+        "because": because,
+    }
+
+
+def _earlier_line(
+    store: Path,
+    role: Role,
+    out: Path,
+    ledger: Ledger,
+    runs: RunSet,
+    index: int,
+    tier: TierName,
+) -> TrialRecord | ExcludedTrial:
+    """The trial line the earlier round recorded for ``index``, found by its place's order."""
+    protected = tier in PROTECTED_TIERS
+    place = (
+        withheld_root(store, role) / BASELINE_DIR / str(ledger.lines[0]["round"])
+        if protected
+        else out
+    )
+    lines = read_lines(place / TRIALS)
+    position = 0
+    for line in ledger.recorded():
+        at = int(line["index"])
+        if at == index:
+            return lines[position]
+        run = load_run_config(Path(runs.trials[at].run_dir) / "run.json")
+        if _protected_brief(store, role, run.brief_sha256) == protected:
+            position += 1
+    msg = "the earlier round's records do not hold the entry's line"
+    raise BaselineError(msg, refused_because="rerun_refused", why="records_short")
+
+
+def _protected_brief(store: Path, role: Role, brief: str) -> bool:
+    """Whether the brief is a protected tier's task's, in any version of the role's store."""
+    root = role_root(store, role)
+    for directory in sorted(p for p in root.iterdir() if len(p.name) == 64 and p.is_dir()):
+        found = _tasks(directory).get(brief)
+        if found is not None:
+            return found[0] in PROTECTED_TIERS
+    return False
+
+
+def _ended_record(out: Path) -> BaselineRecord | None:
+    """The round's record, where it was written whole; ``None`` where it was not, or is cut.
+
+    The record is the round's last write: a round killed before it, or while a record written
+    before the writes were whole was cut, has not ended, and its next start writes its end.
+    """
+    try:
+        data = (out / BASELINE_RECORD).read_bytes()
+    except FileNotFoundError:
+        return None
+    try:
+        return BaselineRecord.model_validate_json(data)
+    except ValueError:
+        return None
+
+
+def _write_end(path: Path, data: bytes) -> None:
+    """Write one of a round's end records whole, once; a start that ends the round again agrees.
+
+    The bytes a kill left are kept where they are the same bytes; where they are not whole JSON
+    (a write a kill cut), they are written whole in their place. A whole record that differs is
+    never replaced.
+
+    Raises:
+        BaselineError: a whole record of other bytes is there (``records_differ``).
+    """
+    if path.exists():
+        there = path.read_bytes()
+        if there == data:
+            return
+        try:
+            json.loads(there)
+        except ValueError:
+            pass
+        else:
+            msg = "an end record of the round is there with other contents; a person must look"
+            raise BaselineError(msg, refused_because="records_differ", record=path.name)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _write_whole(path, data)
+
+
+@contextlib.contextmanager
+def _work_root_held(store: Path, role: Role) -> Iterator[None]:
+    """The role's work root held, as a trial's place holds it, while a start settles what it left.
+
+    A runner of the round that still lives holds it for the whole of its trial, so a start
+    beside it is refused before it touches a session it may still be running.
+
+    Raises:
+        BaselineError: the work root is held (``session_lives``).
+    """
+    make_role_root(role_root(store, role))
+    fd = os.open(work_root(store, role), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            msg = (
+                "the role's work root is held by another runner (a trial's or a blind check's): "
+                "no start settles what a round left while it may still run"
+            )
+            raise BaselineError(msg, refused_because="session_lives") from None
+        yield
+    finally:
+        os.close(fd)
+
+
+#: How long a left session has to end on SIGTERM before SIGKILL, and how long it is waited for.
+LEFT_GRACE_S = 5.0
+LEFT_REAP_S = 5.0
+
+
+def stop_own_left_sessions(store: Path, role: Role, own: frozenset[Path]) -> list[str]:
+    """Stop a session the round left running when its runner was killed outright; credential first.
+
+    Only the round's own places are looked at, each by the process facts its arm wrote when it
+    spawned the session (the session leads a process group of its own). Its credential's files
+    are removed first, then its group is stopped (SIGTERM, then SIGKILL) where the facts' process
+    is still the session's own (its start time, or its id on its command line), and the files are
+    removed once more, since a session may write its own while it runs. A session whose facts
+    cannot be read never left the hold it is spawned in, and ran nothing. Returns the places
+    stopped, by name; one still alive after the wait is left, and refuses the round as it does.
+    """
+    from physgate.evaluation.tiers.store import _facts, _session_runs
+
+    stopped: list[str] = []
+    works = work_root(store, role)
+    for place in sorted(p for p in own if p.parent == works):
+        facts = _facts(works, (place.name, PLACE))
+        if isinstance(facts, str):
+            continue
+        pid, started, sid = facts["pid"], facts["started"], facts["session_id"]
+        if not _session_runs(pid, started, sid):
+            continue
+        sdir = place / PLACE / "session"
+        with contextlib.suppress(Exception):
+            remove_secrets(sdir / "state", sdir / "config")
+        for sig, wait in ((signal.SIGTERM, LEFT_GRACE_S), (signal.SIGKILL, LEFT_REAP_S)):
+            with contextlib.suppress(OSError):
+                os.killpg(pid, sig)
+            deadline = time.monotonic() + wait
+            while _session_runs(pid, started, sid) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if not _session_runs(pid, started, sid):
+                break
+        with contextlib.suppress(Exception):
+            remove_secrets(sdir / "state", sdir / "config")
+        stopped.append(place.name)
+    return stopped
+
+
+def _no_figure(planned: Sequence[Planned]) -> dict[SourceTier, dict[str, int]] | None:
+    """Per tier, the entries that gave no figure of their own, of how many; ``None`` if none did."""
+    found: dict[SourceTier, dict[str, int]] = {}
+    for trial in planned:
+        tier = found.setdefault(trial.tier, {"entries": 0, "no_figure": 0})
+        tier["entries"] += 1
+        tier["no_figure"] += trial.no_figure
+    said = {tier: counts for tier, counts in found.items() if counts["no_figure"]}
+    return said or None
+
+
+def in_order(planned: Sequence[Planned]) -> list[Planned]:
+    """The order a round runs its entries in: the run set's, every entry with no figure last.
+
+    An entry whose harness trial gave no figure is capped from its cell's other trials
+    (:mod:`.caps`), so it runs after them, once their totals are there to be read. An
+    entry keeps its place in the run set as its index whatever its turn.
+    """
+    return [t for t in planned if not t.no_figure] + [t for t in planned if t.no_figure]
+
+
+def _stopped_on_an_error(ledger: Ledger, index: int, exc: Exception) -> bool:
+    """Name on the ledger a stop on an error after the entry's session started; whether it had.
+
+    An error before the ``started`` line (a setup refused, an arm that refuses before it makes
+    anything) is a refusal before start, and no line is written.
+    """
+    last = ledger.last(index, skipping=PASSING)
+    if last is None or last["kind"] != "started":
+        return False
+    ledger.add(
+        {
+            "kind": "stopped",
+            "index": index,
+            "session": last["session"],
+            "because": "error",
+            "error": type(exc).__name__,
+        }
+    )
+    return True
+
+
+def own_places(store: Path, role: Role, round_id: str) -> frozenset[Path]:
+    """What the round ``round_id`` left in the role's work root and role root itself.
+
+    Its trials' places in the work root, by the round's id in their names, and every record of
+    work in the role's root that names one of them. The round settles them itself
+    (:func:`_one_trial`); every other entry there still refuses it as work left.
+    """
+    works, root = work_root(store, role), role_root(store, role)
+    prefix = f"{BASELINE_DIR}-{round_id}-"
+    found: set[Path] = set()
+    with contextlib.suppress(FileNotFoundError):
+        found |= {works / name for name in os.listdir(works) if name.startswith(prefix)}
+    with contextlib.suppress(FileNotFoundError):
+        for name in os.listdir(root):
+            if not (name.startswith(f"{BASELINE_DIR}-") and name.endswith(WORKING)):
+                continue
+            try:
+                named = json.loads(read_beneath(root, (name,), limit=4096)).get("work")
+            except (OSError, FileRefused, ValueError, AttributeError):
+                continue
+            if (
+                isinstance(named, str)
+                and Path(named).parent == works
+                and Path(named).name.startswith(prefix)
+            ):
+                found.add(root / name)
+    return frozenset(found)
+
+
+#: The lines a step passes over when it asks where an entry stands: a never-started place
+#: cleared away is no step of the entry's.
+PASSING = frozenset({"cleared", "signalled"})
 
 
 def _how_it_goes_on(
@@ -1195,19 +1776,13 @@ def _how_it_goes_on(
     """How the entry's next session may start, as the ledger leaves it; or the round stays put.
 
     ``None`` for a fresh start; ``waited`` or ``operator`` past a usage limit (the core's rule,
-    the person's word used once). An entry whose last session started and has no step after it
-    is refused (:func:`stopped_entry_refusal`).
+    the person's word used once). Asked once the entry's last session is settled.
 
     Raises:
         RoundWaits: the entry stands at a usage limit the core would still wait for.
-        BaselineError: the entry was stopped on for a cause that is not a wait.
     """
-    last = ledger.last(index)
-    if last is None:
-        return None
-    if last["kind"] == "started":
-        stopped_entry_refusal(index)
-    if last["kind"] != "limit":
+    last = ledger.last(index, skipping=PASSING)
+    if last is None or last["kind"] != "limit":
         return None
     if _waiting_for_limit(last, now, word=False) is None:
         return "waited"
@@ -1374,36 +1949,65 @@ def trial_line(
     )
 
 
-def _one_trial(
-    trial: Planned,
-    *,
-    out: Path,
-    withheld_out: str,
-    round_id: str,
-    store: Path,
-    role: Role,
-    protected_root: Path | None,
-    setup_for: SetupFor,
-    score: Scorer,
-    prices: DatedSheet,
-    arm: Arm,
-    sleep: Callable[[float], None],
-    development: bool,
-    ledger: Ledger,
-    limit_reset: str | None,
-    now: Callable[[], datetime],
-) -> tuple[dict[str, Any], TrialRecord | ExcludedTrial, int] | RoundWaits:
+@dataclass
+class _Round:
+    """A round as one trial's steps need it: where it lies, what it writes with, what it holds."""
+
+    store: Path
+    role: Role
+    out: Path
+    withheld_out: str
+    round_id: str
+    protected_root: Path
+    ledger: Ledger
+    score: Scorer
+    prices: DatedSheet
+    arm: Arm
+    sleep: Callable[[float], None]
+    development: bool
+    now: Callable[[], datetime]
+    by_index: dict[int, Planned]
+    #: The pin set of the round's first recorded trial; ``None`` until one is recorded.
+    pins: dict[str, Any] | None
+
+    def place(self, index: int, session: int) -> Path:
+        """Where a session of the entry is made: its trial's directory in the work root."""
+        return (
+            work_root(self.store, self.role)
+            / f"{BASELINE_DIR}-{self.round_id}-{index:04d}-{session}"
+        )
+
+    def working(self, index: int, session: int) -> Path:
+        """The record in the role's root that names that place while it lies there."""
+        name = f"{BASELINE_DIR}-{index:04d}-{session}{WORKING}"
+        return role_root(self.store, self.role) / name
+
+    def kept(self, trial: Planned, session: int) -> Path:
+        """Where the session's directory lies once moved out: a finished trial's place."""
+        return _trial_files(trial, session, self.out, self.protected_root)[0]
+
+    def protected_root_of(self, trial: Planned) -> Path | None:
+        return self.protected_root if trial.tier in PROTECTED_TIERS else None
+
+
+#: What a trial's steps give back: its session's record and number once the trial is recorded,
+#: a wait, or ``again`` where the machine's first end is given its one more go.
+Ended = tuple[dict[str, Any], int] | RoundWaits
+
+
+def _one_trial(trial: Planned, held: _Round, setup_for: SetupFor, *, word: bool) -> Ended:
     """One harness trial's raw trial, until it is recorded or the round waits.
 
     Each session is named by its number among the entry's (``<index>-<n>``) and is started only
     once the ledger says so. What follows each is :func:`next_step`'s: a wait, the one more go
-    after the run's own first infrastructure delay, or the record of the trial.
+    after the run's own first infrastructure delay, or the record of the trial. Before any
+    session, the entry's last session is settled from the round's own files
+    (:func:`_settled`): a session a kill left is finished, or named and run again.
     """
-    task, run_dir, index = trial.task, Path(trial.entry.run_dir), trial.index
-    delays = trial.config.bounds.infra_retry_delays_s
+    index, ledger = trial.index, held.ledger
     # Before any record of work: a setup refused here (no credential, another binary) leaves
     # nothing behind for the next round to refuse.
-    setup = setup_for(trial.config, role)
+    setup = setup_for(trial.config, held.role)
     try:
         built = measure(setup.binary)
     except InvocationError as exc:
@@ -1422,11 +2026,24 @@ def _one_trial(
             "no raw session runs without the layer"
         )
         raise BaselineError(msg, entry=str(index), refused_because="os_layer_absent")
-    last = ledger.last(index)
-    if last is not None and last["kind"] == "machine":
-        # Stopped between the session the machine ended and its one more go: its delay again.
-        sleep(float(last["delay_s"]))
-    how = limit_reset
+    _require_the_round_s_checkout(ledger, setup, index)
+    stopped = ledger.stopped(index)
+    if stopped is not None:
+        stopped_entry_refusal(index, str(stopped.get("because")))
+    _require_before_started(trial, setup, held)
+    with _work_root_held(held.store, held.role):
+        settled = _settled(trial, held, setup)
+    if settled is not None and settled != "again":
+        return settled
+    if settled is None:
+        last = ledger.last(index, skipping=PASSING)
+        if last is not None and last["kind"] == "machine":
+            # Stopped between the session the machine ended and its one more go: its delay again.
+            held.sleep(float(last["delay_s"]))
+    try:
+        how = _how_it_goes_on(ledger, index, held.round_id, held.now(), word=word)
+    except RoundWaits as waits:
+        return waits
     while True:
         session = ledger.sessions(index) + 1
         name = f"{index:04d}-{session}"
@@ -1436,82 +2053,507 @@ def _one_trial(
         # directories, never one: the session's place, where it may leave anything, and the
         # harness's, beside it, where the copied answer, the record and the score are written.
         # The work root is held until the trial is out (:func:`trial_place`).
-        with trial_place(store, role, round_id, name) as (trial_dir, working):
+        with trial_place(held.store, held.role, held.round_id, name) as (trial_dir, working):
             started: dict[str, Any] = {"kind": "started", "index": index, "session": session}
             if how is not None:
                 started["limit_reset"] = how
+            # The checkout this session runs from, and the credential it is given, by its
+            # fingerprint: a later start is held to the first, and a session a kill left is
+            # cleared knowing whether the credential it held is the one in hand.
+            started["harness"] = _checkout(setup)
+            started["credential"] = fingerprint(setup.credential)
             ledger.add(started)
             how = None
             given = replace(
                 setup,
                 held_out_carved=str(trial_dir / PLACE),
-                held_out_also=(withheld_out,),
+                held_out_also=(held.withheld_out,),
                 # The harness run's own review root, whole: where its reviews left the brief and
                 # the answer, refused to the raw session wherever its run lies.
                 withheld_reads=(*setup.withheld_reads, str(trial.review_root)),
             )
             work, harness = trial_dir / PLACE, trial_dir / HARNESS
             harness.mkdir(mode=0o700)
-            record = arm(task, given, work, cap=trial.cap, harness=harness)
-            stream = work / "session" / "stdout.jsonl"
-            end, limit = machine_end(record, stream, task)
-            step = next_step(end, ledger.once_more_spent(index))
-            spent = {"index": index, "session": session, "tokens": int(record.get("tokens", 0))}
-            if step == "wait_for_limit":
-                at = utc_stamp(now())
-                held = held_at(limit, at)
-                line = {
-                    "kind": "limit",
-                    **spent,
-                    "halted_at": at,
-                    "resume_after": resume_after(at, held),
-                    "limit": None if held is None else held.model_dump(mode="json"),
-                }
-                ledger.add(line)
-                _finish(trial_dir, working, protected_root, out, name)
-                waiting = _waiting_for_limit(line, now(), word=False)
-                if waiting is None:  # its reset is past already: the next start goes on
-                    waiting = {
-                        "index": index,
-                        "why": USAGE_LIMIT,
-                        "resume_after": line["resume_after"],
-                        "word_helps": False,
-                    }
-                return RoundWaits("waiting_for_limit", round_id, waiting)
-            if step == "wait_for_a_person":
-                ledger.add({"kind": "credential", **spent})
-                _finish(trial_dir, working, protected_root, out, name)
-                return RoundWaits(
-                    "waiting_for_a_person", round_id, {"index": index, "why": CREDENTIAL_REFUSED}
-                )
-            if step == "once_more":
-                delay = delays[0] if delays else 0.0
-                ledger.add({"kind": "machine", **spent, "delay_s": delay})
-                _finish(trial_dir, working, protected_root, out, name)
-                # Only a session the machine ended is run again, once its trial is out.
-                sleep(delay)
-                continue
-            answer = harness / "answer" / task.answer.path
-            scored: Mapping[str, Any] | None = None
-            if record.get("answer") == "found":
-                scored = score(task, answer)
-                write_new(harness / SCORE, canonical_json(dict(scored)))
-            found = differences(run_dir, work, role=role, task=task, record_dir=harness)
-            allowed = DEVELOPMENT_DIFFERENCES if development else frozenset()
-            if end == "machine" and not answering_models(read_captured(stream).answered):
-                # No model answered: the machine's end, as it was on the first go; there is no
-                # model to hold to the pin, and the trial is recorded unscored, never a stop.
-                allowed |= {"answered_by"}
-            named = sorted({f.split(":", 1)[0] for f in found} - allowed)
-            if named:
-                _finish(trial_dir, working, protected_root, out, name)
-                msg = "the raw arm differs from the harness run in more than the harness: "
-                raise BaselineError(msg + ", ".join(named), entry=str(index))
-            line_of = trial_line(
-                trial, role, record, stream, prices, scored, unscored=end == "machine"
+            # The cap the session runs under, the step of the rule that gave it and its inputs:
+            # with the trial, where its records lie.
+            write_new(harness / CAP, canonical_json(trial.cap_rule.recorded()))
+            try:
+                record = held.arm(trial.task, given, work, cap=trial.cap, harness=harness)
+            except Stopped as stop:
+                _signalled(trial, held, setup, session, trial_dir, stop)
+                raise
+            ended = _after_session(trial, held, session, record, trial_dir, working, halted_at=None)
+        if ended == "again":
+            continue
+        return ended
+
+
+def _signalled(
+    trial: Planned, held: _Round, setup: RawSetup, session: int, trial_dir: Path, stop: Stopped
+) -> None:
+    """Clear a session a stop signal ended of its credential, and name the stop on the ledger.
+
+    The arm has ended the session and removed its own credential on its way out; the place is
+    cleared once more as a killed session's is (:func:`.arms.raw.clean_left_session`), since a
+    session may write its login file while it runs. The place stays in the work root with its
+    record of work: the next start keeps it as a killed session's and runs the entry again.
+    """
+    work = trial_dir / PLACE
+    cleared: bool | str = True
+    if (work / "session").exists():
+        try:
+            clean_left_session(work, setup.credential.secret)
+        except PerRoleError as exc:
+            cleared = type(exc).__name__
+    stop.entry, stop.session_started = trial.index, True
+    held.ledger.add(
+        {
+            "kind": "signalled",
+            "index": trial.index,
+            "session": session,
+            "signal": signal.Signals(stop.signum).name,
+            "cleared": cleared,
+        }
+    )
+
+
+#: Beside a trial's record in its harness directory: the cap it ran under, and the rule's step.
+CAP = "cap.json"
+
+
+def _checkout(setup: RawSetup) -> dict[str, Any] | None:
+    """The harness checkout a session runs from, as its record holds it: commit, and clean."""
+    if setup.harness is None:
+        return None
+    return {"commit": setup.harness.commit, "clean": setup.harness.clean}
+
+
+def _require_the_round_s_checkout(ledger: Ledger, setup: RawSetup, index: int) -> None:
+    """Refuse a start on another checkout than the round's earlier sessions ran from.
+
+    Every ``started`` line holds the checkout its session ran from; a line written before lines
+    held one holds none, which is no checkout this code can be held to.
+
+    Raises:
+        BaselineError: ``harness_differs``, before anything of the entry is touched.
+    """
+    now = _checkout(setup)
+    for line in ledger.lines:
+        if line.get("kind") == "started" and line.get("harness", "unrecorded") != now:
+            msg = (
+                "the round is started again from another checkout of the harness than its "
+                "sessions ran from; a round continued on other code is two rounds under one name"
             )
-            _finish(trial_dir, working, protected_root, out, name)
-            return record, line_of, session
+            raise BaselineError(msg, entry=str(index), refused_because="harness_differs")
+
+
+def _require_before_started(trial: Planned, setup: RawSetup, held: _Round) -> None:
+    """Hold the checkout, the interpreter and the tools to the harness run's, before any line.
+
+    The pair check holds both after the session too (:func:`.arms.compare.differences`); here a
+    drift is a refusal before start, which spends nothing and leaves nothing, never a session.
+
+    Raises:
+        BaselineError: ``harness_differs`` (not in a development round, which forgives the
+            harness's own state), ``interpreter_differs`` or ``tool_environment_differs``.
+    """
+    index = trial.index
+    recorded_checkout = {"commit": trial.config.harness.commit, "clean": trial.config.harness.clean}
+    if not held.development and _checkout(setup) != recorded_checkout:
+        # Held after the session too, by the pair check; here a launch from another commit than
+        # the harness run's spends no session and no re-run.
+        msg = "the harness checkout here is not the one the harness run ran from"
+        raise BaselineError(msg, entry=str(index), refused_because="harness_differs")
+    here = None if setup.role_python is None else setup.role_python.model_dump(mode="json")
+    recorded = trial.config.role_python
+    if here != (None if recorded is None else recorded.model_dump(mode="json")):
+        msg = "the role's interpreter here is not the one the harness run recorded"
+        raise BaselineError(msg, entry=str(index), refused_because="interpreter_differs")
+    try:
+        hold_tools(setup, held.place(index, held.ledger.sessions(index) + 1) / PLACE)
+    except RawArmError as exc:
+        msg = f"the tool environment here is not the one the harness run recorded: {exc}"
+        raise BaselineError(
+            msg, entry=str(index), refused_because="tool_environment_differs"
+        ) from None
+
+
+def _settled(trial: Planned, held: _Round, setup: RawSetup) -> Ended | Literal["again"] | None:
+    """Settle the entry's last session from the round's own files; what it then stands at.
+
+    ``None`` where the entry goes on to its next session; ``again`` where that session follows a
+    machine end whose delay was slept here; a record or a wait where the last session gives one.
+
+    - last line ``started`` (the session's own line, nothing after it): its place holds the raw
+      arm's record, so the session ended and is finished from its files, never run again; or it
+      holds none, so it was killed before it ended (:func:`_killed`);
+    - last line ``moving``: the trial was scored and held equal; its move is finished and its
+      line recorded (:func:`_record_line`);
+    - a wait's or a machine end's line, or ``killed``: a move a kill cut short is finished.
+
+    A place for the entry's next session that a kill left before its ``started`` line holds
+    nothing of a session, and is cleared away (a ``cleared`` line).
+    """
+    index, ledger = trial.index, held.ledger
+    last = ledger.last(index, skipping=PASSING)
+    session = ledger.sessions(index)
+    outcome: Ended | Literal["again"] | None = None
+    if last is not None and last["kind"] == "started":
+        place = held.place(index, session)
+        record_file = place / HARNESS / "raw.json"
+        if os.path.lexists(record_file):
+            record = read_record(place / HARNESS)
+            halted = utc_stamp(datetime.fromtimestamp(os.lstat(record_file).st_mtime, UTC))
+            outcome = _after_session(
+                trial, held, session, record, place, held.working(index, session), halted_at=halted
+            )
+        else:
+            _killed(trial, held, setup, session, last)
+    elif last is not None and last["kind"] == "moving":
+        _move_if_left(trial, held, session)
+        return _finish_recorded(trial, held, session)
+    elif last is not None and last["kind"] in ("limit", "credential", "machine", "killed"):
+        _move_if_left(trial, held, session)
+    _clear_unstarted(trial, held, ledger.sessions(index) + 1)
+    return outcome
+
+
+def _killed(
+    trial: Planned, held: _Round, setup: RawSetup, session: int, started: Mapping[str, Any]
+) -> None:
+    """Name and keep a session a kill left before it ended; the entry then runs again.
+
+    The session left no record of the raw arm's, so it was never scored and no score of it can
+    have been read: it is no trial and spends nothing. Its process ended (a session that still
+    runs refuses the round first); a session whose runner was killed before its process facts
+    were written never left the hold it is spawned in, so it ran nothing. What its place holds is
+    cleared as a finished session's is (:func:`.arms.raw.clean_left_session`: the credential
+    files, the sentinel's record of the protected paths, the secret in its streams), its streams
+    scanned for the run's held-out canaries, and the place kept where a finished trial lies. Its
+    streams are removed instead where the credential in hand is not the one the session was
+    given, since that one could not be scrubbed from them. A canary in them stops the round.
+
+    Raises:
+        BaselineError: the place could not be cleared or moved (``left_session_not_cleared``,
+            ``move``), or its stream showed a held-out canary (``held_out_seen``).
+    """
+    index, ledger = trial.index, held.ledger
+    place = held.place(index, session)
+    work = place / PLACE
+    stream = work / "session" / "stdout.jsonl"
+    left: dict[str, Any] = {
+        "place": os.path.lexists(place),
+        "session": os.path.lexists(work / "session"),
+        "process": os.path.lexists(work / "session" / "process.json"),
+        "stream": os.path.lexists(stream),
+    }
+    seen: bool | None = False
+    if left["process"]:
+        # It left its process facts, so it left the hold and ran: it must be known to have ended.
+        living = living_session(held.store, held.role)
+        if living is not None:
+            msg = f"{living}: a session a kill left is not known to have ended"
+            raise BaselineError(msg, entry=str(index), refused_because="session_lives")
+    if left["session"]:
+        try:
+            clean_left_session(work, setup.credential.secret)
+        except PerRoleError as exc:
+            msg = (
+                "a session a kill left could not be cleared of its credential; it is left where it "
+                "ran for a person to look at"
+            )
+            raise BaselineError(
+                msg, entry=str(index), refused_because="left_session_not_cleared", error=str(exc)
+            ) from None
+        if left["stream"]:
+            seen = held_out_seen(stream, tuple(trial.config.held_out_canaries))
+        if started.get("credential") != fingerprint(setup.credential):
+            for name in ("stdout.jsonl", "stderr.txt"):
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(work / "session" / name)
+            left["streams_removed"] = True
+    ledger.add(
+        {"kind": "killed", "index": index, "session": session, "left": left, "held_out_seen": seen}
+    )
+    if seen:
+        ledger.add(
+            {"kind": "stopped", "index": index, "session": session, "because": "held_out_seen"}
+        )
+    if left["place"]:
+        _move_or_stop(trial, held, session, place, held.working(index, session))
+    else:
+        held.working(index, session).unlink(missing_ok=True)
+    if seen:
+        msg = (
+            "a session a kill left showed a held-out canary in its stream; the round stops, as "
+            "every exposure stops it"
+        )
+        raise BaselineError(
+            msg, entry=str(index), refused_because="held_out_seen", session_started="true"
+        )
+
+
+def _move_if_left(trial: Planned, held: _Round, session: int) -> None:
+    """Finish the move of the entry's session a kill cut short; clear its record of work.
+
+    The ledger named the step before the move began. Where the place still lies in the work
+    root the move had not ended: what a copy across filesystems made at the destination is
+    removed (the place is whole until the copy is), and the move is made again.
+    """
+    index = trial.index
+    place, working = held.place(index, session), held.working(index, session)
+    if os.path.lexists(place):
+        kept = held.kept(trial, session)
+        if held.protected_root_of(trial) is None and os.path.lexists(kept):
+            shutil.rmtree(kept)
+        _move_or_stop(trial, held, session, place, working)
+    else:
+        working.unlink(missing_ok=True)
+
+
+def _clear_unstarted(trial: Planned, held: _Round, session: int) -> None:
+    """Clear away the place of a session a kill left before its ``started`` line.
+
+    The line is written before anything of the session is made in the place, so such a place is
+    empty: it is removed with its record of work and named on a ``cleared`` line. One that holds
+    anything is no place this round left so, and refuses.
+
+    Raises:
+        BaselineError: the place holds something (``unstarted_place_holds``).
+    """
+    index = trial.index
+    place, working = held.place(index, session), held.working(index, session)
+    there = os.path.lexists(place)
+    if not there and not os.path.lexists(working):
+        return
+    if there:
+        if not place.is_dir() or place.is_symlink() or any(os.scandir(place)):
+            msg = (
+                "a place in the work root that no session of the round started in holds "
+                "something; a person must look"
+            )
+            raise BaselineError(msg, entry=str(index), refused_because="unstarted_place_holds")
+        os.rmdir(place)
+    working.unlink(missing_ok=True)
+    held.ledger.add({"kind": "cleared", "index": index, "session": session})
+
+
+def _move_or_stop(
+    trial: Planned, held: _Round, session: int, trial_dir: Path, working: Path
+) -> None:
+    """Move a session's directory out of the work root, or name the failed move as a stop.
+
+    Raises:
+        BaselineError: the move failed (``move``); the ledger names it as the entry's stop.
+    """
+    try:
+        _finish(
+            trial_dir,
+            working,
+            held.protected_root_of(trial),
+            held.out,
+            f"{trial.index:04d}-{session}",
+        )
+    except BaselineError as exc:
+        if held.ledger.stopped(trial.index) is None:
+            held.ledger.add(
+                {"kind": "stopped", "index": trial.index, "session": session, "because": "move"}
+            )
+        exc.context.setdefault("entry", str(trial.index))
+        exc.context["session_started"] = "true"
+        raise
+
+
+def _after_session(
+    trial: Planned,
+    held: _Round,
+    session: int,
+    record: dict[str, Any],
+    trial_dir: Path,
+    working: Path,
+    *,
+    halted_at: str | None,
+) -> Ended | Literal["again"]:
+    """What follows a session that ended with ``record``, its directory still in the work root.
+
+    ``halted_at``: when a session finished from its files ended (its record's time), where a
+    limit's reset given only as wall-clock text is read from; ``None`` for now.
+    """
+    task, index, ledger = trial.task, trial.index, held.ledger
+    run_dir = Path(trial.entry.run_dir)
+    work, harness = trial_dir / PLACE, trial_dir / HARNESS
+    stream = work / "session" / "stdout.jsonl"
+    end, limit = machine_end(record, stream, task)
+    step = next_step(end, ledger.once_more_spent(index))
+    spent = {"index": index, "session": session, "tokens": int(record.get("tokens", 0))}
+    if step == "wait_for_limit":
+        at = halted_at if halted_at is not None else utc_stamp(held.now())
+        limited = held_at(limit, at)
+        line = {
+            "kind": "limit",
+            **spent,
+            "halted_at": at,
+            "resume_after": resume_after(at, limited),
+            "limit": None if limited is None else limited.model_dump(mode="json"),
+        }
+        ledger.add(line)
+        _move_or_stop(trial, held, session, trial_dir, working)
+        waiting = _waiting_for_limit(line, held.now(), word=False)
+        if waiting is None:  # its reset is past already: the next start goes on
+            waiting = {
+                "index": index,
+                "why": USAGE_LIMIT,
+                "resume_after": line["resume_after"],
+                "word_helps": False,
+            }
+        return RoundWaits("waiting_for_limit", held.round_id, waiting)
+    if step == "wait_for_a_person":
+        ledger.add({"kind": "credential", **spent})
+        _move_or_stop(trial, held, session, trial_dir, working)
+        return RoundWaits(
+            "waiting_for_a_person", held.round_id, {"index": index, "why": CREDENTIAL_REFUSED}
+        )
+    if step == "once_more":
+        delays = trial.config.bounds.infra_retry_delays_s
+        delay = delays[0] if delays else 0.0
+        ledger.add({"kind": "machine", **spent, "delay_s": delay})
+        _move_or_stop(trial, held, session, trial_dir, working)
+        # Only a session the machine ended is run again, once its trial is out.
+        held.sleep(delay)
+        return "again"
+    scored = _scored(trial, held, record, harness)
+    found = differences(
+        run_dir,
+        work,
+        role=held.role,
+        task=task,
+        record_dir=harness,
+        # The pair's own total is read again from its run; a cap the rule took is held as taken.
+        cap=trial.cap if trial.no_figure else None,
+    )
+    allowed = DEVELOPMENT_DIFFERENCES if held.development else frozenset()
+    if end == "machine" and not answering_models(read_captured(stream).answered):
+        # No model answered: the machine's end, as it was on the first go; there is no
+        # model to hold to the pin, and the trial is recorded unscored, never a stop.
+        allowed |= {"answered_by"}
+    named = sorted({f.split(":", 1)[0] for f in found} - allowed)
+    if named:
+        ledger.add(
+            {
+                "kind": "stopped",
+                "index": index,
+                "session": session,
+                "because": "pair",
+                "fields": named,
+            }
+        )
+        _move_or_stop(trial, held, session, trial_dir, working)
+        msg = "the raw arm differs from the harness run in more than the harness: "
+        raise BaselineError(
+            msg + ", ".join(named),
+            entry=str(index),
+            refused_because="pair_differs",
+            session_started="true",
+        )
+    these = pin_set(record["pins"])
+    if held.pins is not None and these != held.pins:
+        ledger.add({"kind": "stopped", "index": index, "session": session, "because": "pins"})
+        _move_or_stop(trial, held, session, trial_dir, working)
+        msg = "the round's trials ran under different pins; no one baseline holds them"
+        raise BaselineError(
+            msg, entry=str(index), refused_because="pins_differ", session_started="true"
+        )
+    line_of = trial_line(
+        trial, held.role, record, stream, held.prices, scored, unscored=end == "machine"
+    )
+    ledger.add({"kind": "moving", "index": index, "session": session})
+    _move_or_stop(trial, held, session, trial_dir, working)
+    _record_line(trial, held, line_of, session)
+    if held.pins is None:
+        held.pins = these
+    return record, session
+
+
+def _scored(
+    trial: Planned, held: _Round, record: Mapping[str, Any], harness: Path
+) -> Mapping[str, Any] | None:
+    """The session's score: the one its harness directory holds, or scored now and written."""
+    if record.get("answer") != "found":
+        return None
+    kept = harness / SCORE
+    if os.path.lexists(kept):
+        found: Mapping[str, Any] = json.loads(
+            read_beneath(harness, (SCORE,), limit=MAX_SESSION_FILE_BYTES)
+        )
+        return found
+    scored = held.score(trial.task, harness / "answer" / trial.task.answer.path)
+    write_new(kept, canonical_json(dict(scored)))
+    return scored
+
+
+def _finish_recorded(trial: Planned, held: _Round, session: int) -> Ended:
+    """Record a trial whose ``moving`` line was written, from the files it was moved with."""
+    kept = held.kept(trial, session)
+    record = read_record(kept / HARNESS)
+    stream = kept / PLACE / "session" / "stdout.jsonl"
+    end, _ = machine_end(record, stream, trial.task)
+    scored = _scored(trial, held, record, kept / HARNESS)
+    line = trial_line(
+        trial, held.role, record, stream, held.prices, scored, unscored=end == "machine"
+    )
+    _record_line(trial, held, line, session)
+    if held.pins is None:
+        held.pins = pin_set(record["pins"])
+    return record, session
+
+
+def _record_line(
+    trial: Planned, held: _Round, line: TrialRecord | ExcludedTrial, session: int
+) -> None:
+    """Append the trial's line to its tier's records, then its ``recorded`` ledger line.
+
+    Each place's records hold one line per entry the ledger records there, in that order. A
+    line the ledger does not name yet is this entry's, written before a kill: it is kept where
+    it is the line the files give, a line a kill cut is dropped (a ``cut`` line), and any other
+    line refuses.
+
+    Raises:
+        BaselineError: the records hold lines the ledger does not account for
+            (``records_differ``).
+    """
+    protected = trial.tier in PROTECTED_TIERS
+    path = (held.protected_root if protected else held.out) / TRIALS
+    here = sum(
+        1
+        for done in held.ledger.recorded()
+        if (held.by_index[int(done["index"])].tier in PROTECTED_TIERS) == protected
+    )
+    written: list[Any] = []
+    if path.exists():
+        cut = _drop_a_cut_line(path)
+        if cut:
+            held.ledger.add(
+                {
+                    "kind": "cut",
+                    "file": "protected" if protected else "visible",
+                    "bytes": len(cut),
+                    "sha256": hashlib.sha256(cut).hexdigest(),
+                }
+            )
+        written = [json.loads(text) for text in path.read_text(encoding="utf-8").splitlines()]
+    if len(written) == here + 1 and written[-1] == line.model_dump(mode="json"):
+        pass  # written before a kill, and the line the files give: kept
+    elif len(written) == here:
+        _append(path, line)
+    else:
+        msg = (
+            "the round's trial records hold a line its ledger does not account for; a person "
+            "must look"
+        )
+        raise BaselineError(
+            msg, entry=str(trial.index), refused_because="records_differ", session_started="true"
+        )
+    held.ledger.add({"kind": "recorded", "index": trial.index, "session": session})
 
 
 def _finish(
@@ -1528,7 +2570,7 @@ def _finish(
         _secure(trial_dir, protected_root / name)
     else:
         _move_out(trial_dir, out / WORK, name)
-    working.unlink()
+    working.unlink(missing_ok=True)
 
 
 def _move_out(trial_dir: Path, work: Path, name: str) -> None:

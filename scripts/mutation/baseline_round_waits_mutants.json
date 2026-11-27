@@ -34,8 +34,8 @@
   {
     "name": "the_raw_limit_is_held_unread",
     "file": "src/physgate/evaluation/baseline/runner.py",
-    "old": "held = held_at(limit, at)",
-    "new": "held = limit",
+    "old": "limited = held_at(limit, at)",
+    "new": "limited = limit",
     "tests": [
       "tests/unit/evaluation/baseline/test_the_usage_limit_and_a_refused_credential_stop_the_round_and_spend_nothing.py"
     ],
@@ -138,10 +138,11 @@
   {
     "name": "a_stopped_entry_is_run_again",
     "file": "src/physgate/evaluation/baseline/runner.py",
-    "old": "    if last[\"kind\"] == \"started\":\n        stopped_entry_refusal(index)\n",
+    "old": "    if stopped is not None:\n        stopped_entry_refusal(index, str(stopped.get(\"because\")))\n",
     "new": "",
     "tests": [
-      "tests/unit/evaluation/baseline/test_the_usage_limit_and_a_refused_credential_stop_the_round_and_spend_nothing.py"
+      "tests/unit/evaluation/baseline/test_the_usage_limit_and_a_refused_credential_stop_the_round_and_spend_nothing.py",
+      "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -251,8 +252,8 @@
   {
     "name": "a_session_no_model_answered_stops_the_round",
     "file": "src/physgate/evaluation/baseline/runner.py",
-    "old": "            if end == \"machine\" and not answering_models(read_captured(stream).answered):\n",
-    "new": "            if False:\n",
+    "old": "    if end == \"machine\" and not answering_models(read_captured(stream).answered):\n",
+    "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py"
     ],
@@ -267,8 +268,8 @@
   {
     "name": "another_model_in_a_machine_end_is_spared_the_pair_check",
     "file": "src/physgate/evaluation/baseline/runner.py",
-    "old": "            if end == \"machine\" and not answering_models(read_captured(stream).answered):\n",
-    "new": "            if end == \"machine\":\n",
+    "old": "    if end == \"machine\" and not answering_models(read_captured(stream).answered):\n",
+    "new": "    if end == \"machine\":\n",
     "tests": [
       "tests/unit/evaluation/baseline/test_a_raw_session_s_own_error_message_stops_no_round.py"
     ],

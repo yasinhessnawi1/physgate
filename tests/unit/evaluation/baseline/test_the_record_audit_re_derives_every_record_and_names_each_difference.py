@@ -212,6 +212,28 @@ def _answered_by_another(out: Path, _store: StandInStore) -> None:
     raw.write_text(json.dumps({**record, "answered_by": ["claude-other"]}))
 
 
+def _cap_changed(out: Path, _store: StandInStore) -> None:
+    raw = out / WORK / "0000-1" / "harness" / "raw.json"
+    raw.write_text(json.dumps({**json.loads(raw.read_text()), "cap": 1}))
+
+
+def _kept_session_removed(out: Path, _store: StandInStore) -> None:
+    shutil.rmtree(out / WORK / "0001-1")
+
+
+def _recorded_line_removed(out: Path, _store: StandInStore) -> None:
+    lines = _lines(out / LEDGER)
+    _rewrite(out / LEDGER, [x for x in lines if not (x["kind"] == "recorded" and x["index"] == 0)])
+
+
+def _another_session_recorded(out: Path, _store: StandInStore) -> None:
+    lines = _lines(out / LEDGER)
+    for line in lines:
+        if line["kind"] == "recorded" and line["index"] == 1:
+            line["session"] = 1
+    _rewrite(out / LEDGER, lines)
+
+
 #: Each doctoring, the kind it is caught by, the tier and the trial's place it is said at.
 DOCTORED: dict[str, tuple[Callable[[Path, StandInStore], None], str, str, int | None]] = {
     "a record deleted": (_drop_line, "missing", "visible", 0),
@@ -231,6 +253,10 @@ DOCTORED: dict[str, tuple[Callable[[Path, StandInStore], None], str, str, int | 
         "visible",
         0,
     ),
+    "a session's cap changed": (_cap_changed, "cap", "visible", 0),
+    "a kept session removed by hand": (_kept_session_removed, "ledger", "visible", 1),
+    "a recorded line removed from the ledger": (_recorded_line_removed, "ledger", "visible", 0),
+    "another session named as recorded": (_another_session_recorded, "ledger", "visible", 1),
 }
 
 
@@ -249,6 +275,34 @@ def test_an_earlier_record_that_lists_the_client_s_notices_beside_the_pin_shows_
         raw.write_text(
             json.dumps({**record, "answered_by": ["<synthetic>", *record["answered_by"]]})
         )
+    assert _audit(store, runs, out) == []
+
+
+def test_a_round_whose_record_is_missing_names_a_count_difference_in_every_tier(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    runs, out = _cell(tmp_path, store)
+    (out / BASELINE_RECORD).unlink()
+    counts = [(d.tier, d.field) for d in _audit(store, runs, out) if d.kind == "count"]
+    assert counts == [(t, "record") for t in ("visible", "validation", "held_out")]
+
+
+def test_a_round_written_before_its_ledger_named_each_step_audits_clean(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """No ``moving`` line, no checkout or credential on its ``started`` lines, no cap record."""
+    runs, out = _cell(tmp_path, store)
+    earlier = []
+    for line in _lines(out / LEDGER):
+        if line["kind"] == "moving":
+            continue
+        earlier.append({k: v for k, v in line.items() if k not in ("harness", "credential")})
+    _rewrite(out / LEDGER, earlier)
+    for cap in [
+        *out.glob("work/*/harness/cap.json"),
+        *withheld_root(store.store, "control").glob("baseline/*/*/harness/cap.json"),
+    ]:
+        cap.unlink()
     assert _audit(store, runs, out) == []
 
 

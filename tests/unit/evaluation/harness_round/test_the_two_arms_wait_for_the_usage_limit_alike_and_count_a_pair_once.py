@@ -170,4 +170,4 @@ def test_the_raw_arm_waits_for_the_limit_as_the_driver_does_and_the_pair_is_coun
     (assembled,) = [x for x in ledger if x["kind"] == "assembled"]
     assert assembled["unscored"] is False and assembled["outcome"] == "pass"
     raw_kinds = [json.loads(x)["kind"] for x in (out / RAW_LEDGER).read_text().splitlines()]
-    assert raw_kinds == ["round", "started", "limit", "started", "recorded"]
+    assert raw_kinds == ["round", "started", "limit", "started", "moving", "recorded"]

@@ -55,6 +55,7 @@ from physgate.evaluation.baseline.record import (
 )
 from physgate.evaluation.baseline.runner import (
     BASELINE_DIR,
+    CAP,
     PLACE,
     TRIALS,
     WORK,
@@ -68,6 +69,7 @@ from physgate.evaluation.baseline.runner import (
     _tasks,
     machine_end,
     next_step,
+    own_places,
     plan,
     read_lines,
     read_record,
@@ -95,7 +97,13 @@ from physgate.orchestrator.run_config import load_run_config
 #:   than its stream does, each read as the round reads who answered (the client's own notices
 #:   are no model's, so an earlier record that lists them beside the pin is no difference);
 #: - ``unrederivable``: a file the record is derived from cannot be read, or the scorer or the
-#:   assembly refused it (its kind only is kept).
+#:   assembly refused it (its kind only is kept);
+#: - ``cap``: the cap a session ran under (its record's, and the rule's record beside it) is not
+#:   the one the cap rule gives again from the cell (:mod:`.caps`);
+#: - ``ledger``: the round's ledger and its files disagree: a kept session no line names, a line
+#:   naming a session whose directory is gone, a step the ledger took that the rule does not
+#:   give, a recorded session other than the one the rule records, or a tier's records holding
+#:   more or fewer lines than the ledger recorded entries of it (said with ``trials``).
 KINDS = (
     "missing",
     "extra",
@@ -111,6 +119,8 @@ KINDS = (
     "sessions",
     "answered_by",
     "unrederivable",
+    "cap",
+    "ledger",
 )
 #: The kind of a difference in each field of a record.
 FIELD_KINDS = {
@@ -225,6 +235,17 @@ def _sessions(trial: Planned, out: Path, protected_root: Path) -> list[int]:
     )
 
 
+#: What the round's rule does after a session, as the ledger names the step it took.
+_STEP_LINES = {
+    "wait_for_limit": "limit",
+    "wait_for_a_person": "credential",
+    "once_more": "machine",
+    "record": "moving",
+}
+#: The lines a session's step closes it with: after each its directory is moved out.
+_CLOSING = frozenset({"limit", "credential", "machine", "killed", "moving", "stopped"})
+
+
 def _rederive_raw(
     trial: Planned,
     sessions: list[int],
@@ -234,21 +255,52 @@ def _rederive_raw(
     protected_root: Path,
     prices: DatedSheet,
     score: Scorer,
-) -> tuple[tuple[Mapping[str, Any], Line] | None, list[str]]:
-    """The record the round's rule gives of ``trial`` from its kept sessions, and any oddity."""
+    lines: Sequence[Mapping[str, Any]] = (),
+) -> tuple[tuple[Mapping[str, Any], Line, int] | None, list[str]]:
+    """The record the round's rule gives of ``trial`` from its kept sessions, and any oddity.
+
+    ``lines`` are the entry's ledger lines. A session the ledger names ``killed`` left no record
+    and is passed over; one it names ``stopped`` is never read. Every other kept session is read
+    as the round read it, and the step its rule gives is held to the line the ledger closed it
+    with. A round written before its ledger named the step before a move (``moving``) recorded
+    a trial with no such line, and is read so.
+    """
+    closing = {
+        int(line["session"]): str(line["kind"]) for line in lines if line.get("kind") in _CLOSING
+    }
+    started = {int(line["session"]) for line in lines if line.get("kind") == "started"}
+    gone = {
+        int(line["session"])
+        for line in lines
+        if line.get("kind") == "killed" and not dict(line.get("left") or {}).get("place", True)
+    }
     spent = False
-    result: tuple[Mapping[str, Any], Line] | None = None
+    result: tuple[Mapping[str, Any], Line, int] | None = None
     odd: list[str] = []
+    if lines and (started - gone) - set(sessions):
+        odd.append("ledger")  # a session the ledger started whose directory is gone
     for session in sessions:
         name = f"{trial.index:04d}-{session}"
         directory = (protected_root if trial.tier in PROTECTED_TIERS else out / WORK) / name
         harness, stream = directory / "harness", directory / PLACE / "session" / "stdout.jsonl"
+        said_kind = closing.get(session)
+        if lines and session not in started:
+            odd.append("ledger")  # a kept session the ledger never started
+        if said_kind in ("killed", "stopped"):
+            continue
         if result is not None:
             odd.append("sessions")  # a session after the one recorded
             break
         record = read_record(harness)
         end, _ = machine_end(record, stream, trial.task)
         step = next_step(end, spent)
+        if said_kind is not None and _STEP_LINES[step] != said_kind:
+            odd.append("ledger")
+        if record.get("cap") != trial.cap or _cap_record(harness) not in (
+            None,
+            trial.cap_rule.recorded(),
+        ):
+            odd.append("cap")
         if step == "once_more":
             spent = True
             continue
@@ -262,8 +314,24 @@ def _rederive_raw(
         if record.get("answer") == "found":
             scored = score(trial.task, harness / "answer" / trial.task.answer.path)
         line = trial_line(trial, role, record, stream, prices, scored, unscored=end == "machine")
-        result = (record, line)
-    return result, odd
+        result = (record, line, session)
+    return result, sorted(set(odd), key=odd.index)
+
+
+def _cap_record(harness: Path) -> Any:  # noqa: ANN401 - the record as written
+    """The cap rule's record a session's harness directory holds, or ``None`` before there was one.
+
+    Raises:
+        BaselineError: it is there and cannot be read.
+    """
+    path = harness / CAP
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        msg = "a session's cap record cannot be read whole"
+        raise BaselineError(msg, refused_because="record_unread") from None
 
 
 def audit_raw(
@@ -278,25 +346,39 @@ def audit_raw(
     external: Path | None = None,
     base_url: str | None = None,
     development: bool = False,
+    cell: RunSet | None = None,
+    shakedown: bool = False,
 ) -> list[Difference]:
     """Every record of the baseline round in ``out``, re-derived and compared.
 
     Given the round's own inputs; the plan is read again (:func:`.runner.plan`), so each
-    entry's task, tier and cap are found as the round found them.
+    entry's task, tier and cap are found as the round found them. The round's ledger is held to
+    its files: each entry's sessions, the step each was closed with, the session it recorded,
+    and each tier's count of trial lines.
 
     Raises:
         BaselineError: the round's plan, ledger or a record is refused as read.
     """
     ledger = Ledger.read(out)
-    source, planned = plan(
-        store, role, version, runs, base_url=base_url, development=development, external=external
-    )
     round_id = str(ledger.lines[0]["round"])
+    source, planned = plan(
+        store,
+        role,
+        version,
+        runs,
+        base_url=base_url,
+        development=development,
+        external=external,
+        cell=cell,
+        shakedown=shakedown,
+        own_places=own_places(store, role, round_id),
+    )
     protected_root = withheld_root(store, role) / BASELINE_DIR / round_id
     counted = EXTERNAL_TIERS if isinstance(source, ExternalSetRecord) else VERSION_TIERS
     derived: dict[SourceTier, dict[int, Line]] = {tier: {} for tier in counted}
     found: list[Difference] = []
     summed: list[tuple[Planned, Mapping[str, Any], Line]] = []
+    recorded = {int(line["index"]): int(line["session"]) for line in ledger.recorded()}
     for trial in planned:
         sessions = _sessions(trial, out, protected_root)
         try:
@@ -308,11 +390,16 @@ def audit_raw(
                 protected_root=protected_root,
                 prices=prices,
                 score=score,
+                lines=ledger.of(trial.index),
             )
         except Exception:  # noqa: BLE001 - its kind alone is kept; the record is not derived
             found.append(Difference("raw", trial.tier, "unrederivable", trial.index))
             continue
-        found += [Difference("raw", trial.tier, kind, trial.index) for kind in odd]
+        if result is not None and recorded.get(trial.index) != result[2]:
+            odd.append("ledger")  # the ledger records another session, or none
+        if result is None and trial.index in recorded:
+            odd.append("ledger")
+        found += [Difference("raw", trial.tier, kind, trial.index) for kind in dict.fromkeys(odd)]
         if result is not None:
             derived[trial.tier][trial.index] = result[1]
             summed.append((trial, result[0], result[1]))
@@ -324,8 +411,14 @@ def audit_raw(
         ]
         for tier in counted
     }
+    by_index = {trial.index: trial for trial in planned}
     for tier in counted:
         found += compare("raw", tier, derived[tier], written[tier])
+        on_the_ledger = sum(
+            1 for index in recorded if index in by_index and by_index[index].tier == tier
+        )
+        if len(written[tier]) != on_the_ledger:
+            found.append(Difference("raw", tier, "ledger", None, "trials"))
     found += _counts(store, role, source, planned, counted, out, tallied(summed, counted))
     return found
 
