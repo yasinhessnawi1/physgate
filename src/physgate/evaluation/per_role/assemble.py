@@ -53,7 +53,6 @@ ended after the answer was written.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from collections.abc import Iterable, Mapping, Sequence
@@ -80,6 +79,7 @@ from physgate.evaluation.per_role.trials import (
     gate_and_reviews,
     raw_cost,
 )
+from physgate.evaluation.tiers.issued import given_the_brief_alone, issued_sha256
 from physgate.evaluation.tiers.task import Task
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.catches import parse_time
@@ -333,7 +333,11 @@ def _raw_belongs(record: Mapping[str, Any], task: Task) -> None:
     if record.get("task") != task.id or not isinstance(pins, Mapping):
         msg = "the raw record is not of the task it is assembled for"
         raise ReportError(msg, task=task.id, record_task=str(record.get("task")))
-    if pins.get("brief_sha256") != hashlib.sha256(task.brief.encode()).hexdigest():
+    recorded = pins.get("brief_sha256")
+    if isinstance(recorded, str) and given_the_brief_alone(recorded, [task]):
+        msg = "the raw record's session was given the task's brief without its values"
+        raise ReportError(msg, task=task.id, refused_because="given_the_brief_alone")
+    if recorded != issued_sha256(task):
         msg = "the raw record's brief is not the task's"
         raise ReportError(msg, task=task.id)
     if pins.get("answer") != task.answer.model_dump(mode="json"):
