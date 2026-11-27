@@ -112,6 +112,7 @@ def test_each_kind_of_session_s_real_hook_refuses_the_register_its_roots_and_its
     for writer in (
         "tiers scan-exposures",
         "tiers mark-exposed",
+        "tiers settle",
         "tiers add-run-root",
         "gaps vector",
     ):

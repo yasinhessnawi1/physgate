@@ -11,7 +11,10 @@ or ``refused`` (the version is not what its manifest says, and why). Beside each
 counts and digests, the model, the seed and the date, and its blind check (``check``): the
 record's counts (tasks, all three answers yes, flagged) and whether the check wrote it or it
 was imported; ``null`` where the version has none, and so is not scored on its held-out tier;
-or why the record is refused. Never a flagged task's digest. And for the store, what only a split in
+or why the record is refused. Never a flagged task's digest. Under ``settles``, each directory a
+person settled (below), for a role that holds a version: its key, who, why and when, and its path
+as given and as resolved then (``null`` on a line written before the paths were recorded), for a
+person to find it by. And for the store, what only a split in
 progress holds (pools, versions being written) and records of a session's work out of a role's
 root, counted. Never a task id, a brief or a canary. It exits 1 if a version is refused or the
 store holds a split's leftovers or work left; and if the store cannot be read, it prints one
@@ -35,7 +38,7 @@ An exposure, read from the role's register as freshly scanned, marks a version's
 stale as well (``because``: ``exposed``); a register that cannot be read prints one refusal line
 (``register_unreadable``) and exits 1.
 
-Three commands write the register and the run roots, each only appending, and none takes a
+Four commands write the register and the run roots, each only appending, and none takes a
 line away: nothing unmarks a version. Each is given the role's withheld root itself
 (``--withheld <store>/<role>/withheld``), where both logs lie. That is what holds a session
 off: every run on the role withholds that root, so its hooks refuse a command naming it and
@@ -50,17 +53,33 @@ inside a harness session's environment, as defence in depth only.
 - ``physgate tiers mark-exposed --withheld W --version V --by NAME --reason TEXT`` marks a
   version exposed by hand, for a read no hook sees: a person's. As a second measure for that
   person, it asks for a terminal (``not_at_a_terminal``) and a name; neither is what stops a
-  session, which can make a terminal of its own. With ``--settles DIR``, the mark also settles
-  a directory beneath the run roots that the register refuses because a record or a stream of
-  it cannot be read: the person has looked at it, and what of it cannot be read is passed over
-  from then on, for as long as it is the directory that was looked at (the register keeps only
-  a digest of the directory's identity and of its parameters record, never its path; another
-  directory made at the same path is not settled).
+  session, which can make a terminal of its own. It settles no directory: ``--settles`` is
+  refused (``settles_is_its_own_command``), naming the command below.
+- ``physgate tiers settle --withheld W --directory DIR --by NAME --reason TEXT`` settles a
+  directory beneath the run roots that the register refuses because a record or a stream of it
+  cannot be read: the person has looked at it, and what of it cannot be read is passed over
+  from then on, for as long as it is the directory that was looked at. It marks no version (a
+  version the person judges it may have shown is marked with ``mark-exposed``) and writes one
+  line of its own: the directory's identity (a digest of its device and inode and of its
+  parameters record, never its path; another directory made at the same path is not settled),
+  who, why and when, and beside them, for a person, the directory's path as typed and as it
+  resolved then (``tiers status`` lists them; nothing is matched by a path). It asks for a
+  terminal as ``mark-exposed`` does, and is refused for a directory that lies outside every run
+  root of the role (``settle_outside_the_run_roots``) and for one the register refuses nothing
+  in, or nothing a settle passes over (``settle_refuses_nothing``).
 - ``physgate tiers add-run-root --withheld W --path DIR`` adds a directory beneath which the
   role's runs are made; a measured run made anywhere else is refused. A directory the scan
   could not read whole, with the roots there already, is refused and nothing is appended.
 
 Each prints one JSON line, and a refusal as ``refused_because`` with exit 1.
+
+``physgate tiers check-target --path DIR`` is the check a launch calls on a round's prepared
+target before the round starts: a trial prepared with the target's clone and not yet opened by
+its decomposition's first record is walked whole by the register, so the target holds no
+directory nested deeper than five beneath it (``target_too_deep``: the register would refuse
+every reader, the trial's own ``decompose`` among them) and no file named ``run.json``,
+``raw.json`` or ``params_source.json`` (``target_holds_a_record``: it would be read as a
+record). It reads nothing else and writes nothing; exit 0 when the target passes.
 
 ``physgate tiers practice --store S --implementer-model M [--seed N]`` builds, at the new
 directory ``S``, a store holding one version of practice tasks written for a shakedown
@@ -103,6 +122,7 @@ def add_parser(subparsers: Any) -> None:
     writers = {
         "scan-exposures": "record the exposures the role's run roots hold",
         "mark-exposed": "mark a version exposed by hand, at a terminal",
+        "settle": "settle by hand, at a terminal, a directory the register refuses",
         "add-run-root": "add a directory beneath which the role's runs are made",
     }
     for name, text in writers.items():
@@ -112,13 +132,24 @@ def add_parser(subparsers: Any) -> None:
             sub.add_argument("--version", required=True)
             sub.add_argument("--by", required=True)
             sub.add_argument("--reason", required=True)
-            # A directory beneath the run roots the register refuses, looked at by the person.
-            sub.add_argument("--settles", type=Path)
+            # No longer this command's: refused, naming the command that settles a directory.
+            sub.add_argument("--settles", type=Path, help=argparse.SUPPRESS)
+        elif name == "settle":
+            # A directory beneath the run roots the register refuses, looked at by the person:
+            # kept as typed, since the settle line says it so for a person.
+            sub.add_argument("--directory", required=True)
+            sub.add_argument("--by", required=True)
+            sub.add_argument("--reason", required=True)
         elif name == "add-run-root":
             sub.add_argument("--path", type=Path, required=True)
         else:
             sub.add_argument("--roots", type=Path, nargs="+")
         sub.set_defaults(func=_write)
+    target = commands.add_parser(
+        "check-target", help="whether a round's prepared target lets the register read it whole"
+    )
+    target.add_argument("--path", type=Path, required=True)
+    target.set_defaults(func=_check_target)
     probe = commands.add_parser(
         "probe", help="count what answers built for one requirement alone score on the held out"
     )
@@ -174,13 +205,14 @@ def status(store: Path) -> dict[str, Any]:
     """
     from physgate.evaluation.tiers.authoring import TIERS
     from physgate.evaluation.tiers.checks import CheckError, counts, read_check
-    from physgate.evaluation.tiers.exposure import ExposureError, exposure_sources
+    from physgate.evaluation.tiers.exposure import ExposureError, exposure_sources, register_lines
     from physgate.evaluation.tiers.manifest import VERSION_NAME, TierSetError, read_version
     from physgate.evaluation.tiers.manifest import staleness as stale
     from physgate.evaluation.tiers.store import leftovers, role_root
     from physgate.evaluation.tiers.task import Role
 
     versions: list[dict[str, Any]] = []
+    settles: list[dict[str, Any]] = []
     for role in get_args(Role):
         root = role_root(store, role)
         names = (
@@ -192,6 +224,14 @@ def status(store: Path) -> dict[str, Any]:
         exposed: dict[str, frozenset[str]] = {}
         try:
             exposed = exposure_sources(store, role) if names else {}
+            if names:
+                # Each directory a person settled, with its path as they gave it and as it
+                # resolved then: words for a person, never what settles (the key does).
+                settles += [
+                    {"role": role, **line.model_dump(mode="json", exclude={"n", "prev"})}
+                    for line in register_lines(store, role)
+                    if line.kind == "settle"
+                ]
         except ExposureError as exc:
             # Whether any version of the role was seen cannot be told: none reads as fresh.
             unread = exc.context.get("refused_because", "register_unreadable")
@@ -233,7 +273,7 @@ def status(store: Path) -> dict[str, Any]:
                     "check": check,
                 }
             )
-    return {"versions": versions, "left": leftovers(store)}
+    return {"versions": versions, "settles": settles, "left": leftovers(store)}
 
 
 #: The one refusal ``--publish`` exits 0 on: the role holds no fresh version, which is a state of
@@ -280,7 +320,7 @@ def _status(args: argparse.Namespace) -> int:
 
 
 def _write(args: argparse.Namespace) -> int:
-    """One of the three writers of the role's register and run roots; one JSON line."""
+    """One of the four writers of the role's register and run roots; one JSON line."""
     import sys
 
     from physgate.evaluation.tiers import exposure
@@ -314,23 +354,66 @@ def _write(args: argparse.Namespace) -> int:
                 )
                 print(json.dumps(said, sort_keys=True))
                 return 1
-        elif args.tiers_command == "mark-exposed":
+        elif args.tiers_command in ("mark-exposed", "settle"):
+            if args.tiers_command == "mark-exposed" and args.settles is not None:
+                said = {
+                    "refused_because": "settles_is_its_own_command",
+                    "error": (
+                        "a hand mark settles no directory, and a settle marks no version: "
+                        f"{exposure.SETTLE_COMMAND}; then mark-exposed, without --settles, for "
+                        "each version the directory may have shown"
+                    ),
+                }
+                print(json.dumps(said, sort_keys=True))
+                return 1
             # A second measure for a person, never what stops a session (which can make a
             # terminal of its own): the place does, beneath a root every run withholds.
             if not (sys.stdin.isatty() and sys.stdout.isatty()):
                 said = {"refused_because": "not_at_a_terminal"}
                 print(json.dumps(said, sort_keys=True))
                 return 1
-            exposure.mark_exposed(
-                store, args.role, args.version, by=args.by, reason=args.reason, settles=args.settles
-            )
-            said = {"marked": args.version}
+            if args.tiers_command == "settle":
+                directory = Path(args.directory).absolute()
+                exposure.settle_directory(
+                    store,
+                    args.role,
+                    directory,
+                    by=args.by,
+                    reason=args.reason,
+                    given=args.directory,
+                )
+                said = {"settled": str(directory)}
+            else:
+                exposure.mark_exposed(
+                    store, args.role, args.version, by=args.by, reason=args.reason
+                )
+                said = {"marked": args.version}
         else:
             said = {"added": exposure.add_run_root(store, args.role, args.path)}
     except exposure.ExposureError as exc:
         reason = exc.context.get("refused_because", "refused")
         print(json.dumps({"refused_because": reason, "error": str(exc)}, sort_keys=True))
         return 1
+    print(json.dumps(said, sort_keys=True))
+    return 0
+
+
+def _check_target(args: argparse.Namespace) -> int:
+    """Whether a round's prepared target lets the register read the trial whole; one JSON line."""
+    from physgate.evaluation.tiers.exposure import PREPARED_TARGET_DEPTH, prepared_target_refusal
+
+    path = args.path.absolute()
+    if path.is_symlink() or not path.is_dir():
+        said = {"refused_because": "target_not_a_directory", "error": f"{path} is no directory"}
+        print(json.dumps(said, sort_keys=True))
+        return 1
+    refused = prepared_target_refusal(path)
+    if refused is not None:
+        reason, words = refused
+        print(json.dumps({"refused_because": reason, "error": words}, sort_keys=True))
+        return 1
+    checked: dict[str, Any] = {"checked": str(path), "deepest_allowed": PREPARED_TARGET_DEPTH}
+    said = checked
     print(json.dumps(said, sort_keys=True))
     return 0
 

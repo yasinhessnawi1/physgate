@@ -167,3 +167,58 @@ def test_a_recorded_run_on_an_exposed_version_is_refused_before_any_session(
     assert "(version_exposed)" in str(error.get("requirements")), error
     assert (tmp_path / "run" / "events.jsonl").read_bytes() == events
     assert not (tmp_path / "run" / "sessions").exists()
+
+
+def _prepared_trial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, made: StandInStore
+) -> tuple[list[str], Path]:
+    """A measured decompose into a trial the round driver prepared: its target's clone inside."""
+    (tmp_path / "runs").mkdir()
+    api(f"{EXPOSURE}.add_run_root")(made.store, "control", tmp_path / "runs")
+    monkeypatch.setattr(cli, "harness_state", lambda _root: CLEAN_HARNESS)
+    monkeypatch.setattr(cli, "judge_here", lambda **_: PRESENT)
+    held = {name: list(value) for name, value in _held(made).items()}
+    params = {**PARAMS, "reportable": True, "os_layer_absent": "refuse", **held}
+    args = _decompose(tmp_path, monkeypatch, params)
+    (tmp_path / "brief.md").write_text(made.tasks["visible"][0].brief)
+    trial = tmp_path / "runs" / "round-a" / "0000-1"
+    trial.mkdir(parents=True)
+    given = args[args.index("--target") + 1]
+    subprocess.run(
+        ["git", "clone", "--quiet", "--no-hardlinks", "--", given, str(trial / "target")],
+        check=True,
+    )
+    (trial / "review").mkdir()
+    args[args.index("--target") + 1] = str(trial / "target")
+    args[args.index("--run-dir") + 1] = str(trial)
+    return args, trial / "target"
+
+
+@pytest.mark.parametrize(
+    "how", ["as a round prepares it", "nested deeper than the check allows", "holding run.json"]
+)
+def test_a_measured_decompose_meets_its_own_prepared_trial_as_the_target_check_says(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    how: str,
+) -> None:
+    made = stand_in_store(tmp_path / "s")
+    args, target = _prepared_trial(tmp_path, monkeypatch, made)
+    if how == "nested deeper than the check allows":
+        (target / ".git" / "a" / "b" / "c" / "d" / "e" / "f").mkdir(parents=True)
+    elif how == "holding run.json":
+        (target / ".git" / "old").mkdir()
+        (target / ".git" / "old" / "run.json").write_text("{}")
+    checked = api(f"{EXPOSURE}.prepared_target_refusal")(target)
+    main(args)
+    lines = capsys.readouterr().err.strip().splitlines()
+    told = str(json.loads(lines[-1]).get("requirements")) if lines else ""
+    # The version refusal reads the register before the decomposition's first record, so it
+    # walks the trial, clone and all: the check a launch calls says beforehand what it meets.
+    if how == "as a round prepares it":
+        assert checked is None
+        assert "(register_unreadable)" not in told and "tier version" not in told, told
+    else:
+        assert checked is not None
+        assert "(register_unreadable)" in told, told
