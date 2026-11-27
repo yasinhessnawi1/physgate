@@ -458,3 +458,30 @@ def test_a_round_where_more_than_a_third_gave_no_figure_says_so_loudly(
     captured = capsys.readouterr()
     assert "1 of the 2 visible entries gave no token total of their own" in captured.err
     assert json.loads(captured.out)["no_figure"] == {"visible": {"entries": 2, "no_figure": 1}}
+
+
+def test_a_cell_is_held_to_the_combined_set_its_harness_round_wrote(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    task = store.tasks["visible"][0]
+    stuck = harness_run(tmp_path / "runs", task, store, ended=False)
+    ended = harness_run_spending(tmp_path / "runs", task, store, 1800)
+    place = harness_round_of(store, [RoundPlace(stuck, 0, task), RoundPlace(ended, 1, task)])
+    written = json.loads((place / "all.runs.json").read_text())
+    written["trials"] = written["trials"][:1]
+    (place / "all.runs.json").write_text(json.dumps(written))
+    refused = _round(store, run_set((stuck, 0)), tmp_path / "round", StandInArm())
+    assert isinstance(refused, BaselineError)
+    assert refused.context["refused_because"] == "cell_not_the_round_s"
+
+
+def test_a_run_two_harness_rounds_place_is_no_round_s_and_refuses(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    task = store.tasks["visible"][0]
+    run = harness_run_spending(tmp_path / "runs", task, store, 1800)
+    harness_round_of(store, [RoundPlace(run, 0, task)])
+    harness_round_of(store, [RoundPlace(run, 0, task)], round_id="0f1e2d3c4b5a6978")
+    refused = _round(store, run_set((run, 0)), tmp_path / "round", StandInArm())
+    assert isinstance(refused, BaselineError)
+    assert refused.context["refused_because"] == "run_in_two_rounds"

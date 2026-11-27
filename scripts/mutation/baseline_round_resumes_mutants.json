@@ -389,8 +389,8 @@
   {
     "name": "a_harness_run_of_another_tier_is_derived_under_the_cell_s",
     "file": "src/physgate/evaluation/baseline/audit.py",
-    "old": "    if tier != cell.tier:\n",
-    "new": "    if False:\n",
+    "old": "        if found is not None and found[0] != cell.tier:\n",
+    "new": "        if False:\n",
     "tests": [
       "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py"
     ],

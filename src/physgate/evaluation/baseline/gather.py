@@ -179,12 +179,10 @@ def gather(
         named = " and ".join(sorted(str(c) for c in commits))
         msg = f"the cell's trials ran from different harness commits ({named}); a cell has one"
         raise _refuse("harness_commit_differs", msg, commits=named)
-    (commit,) = commits
-    assert commit is not None
     return Gathered(
         tier=tier,
         harness_round=first.held.round_id,
-        harness_commit=commit,
+        harness_commit=str(next(iter(commits))),
         raw_rounds=tuple(sorted(set(raw_rounds))),
         harness=tuple(harness),
         raw=tuple(raw),
