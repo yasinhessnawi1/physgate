@@ -308,7 +308,8 @@ def test_the_baseline_and_the_counting_rule_refuse_every_set_of_the_arm(tmp_path
             out / f"ablation.{ARM}.runs.json",
             out / f"ablation.{ARM}.trials.jsonl",
         )
-    assert uncounted.value.context["refused_because"] == "run_not_measured"
+    # Its records say what they are before its runs are read.
+    assert uncounted.value.context["refused_because"] == "ablation_record"
 
 
 def test_the_raw_arm_s_cap_rule_never_takes_an_arm_s_trial_into_its_cell(tmp_path: Path) -> None:
