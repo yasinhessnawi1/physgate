@@ -148,33 +148,51 @@ def _the_harness_checkout_is_measured_once(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr("physgate.evaluation.observe.rerun.harness_state", measured)
 
 
-@pytest.fixture(autouse=True)
-def _pytest_s_own_temporary_directory_is_no_shared_one_to_a_unit_row(
-    request: pytest.FixtureRequest,
-    monkeypatch: pytest.MonkeyPatch,
+#: Whether the row running now takes the machine's own shared temporary directories whole.
+_MACHINE_TEMPS = [True]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _the_machine_s_shared_list_leaves_out_pytest_s_own_for_unit_rows(
     tmp_path_factory: pytest.TempPathFactory,
-) -> None:
+) -> Iterator[None]:
     """A unit row's sessions do not take pytest's own temporary directory for a shared one.
 
     Every session is refused the machine's shared temporary directories, but for its own places
     there; a unit row lays every place of a stand-in run in pytest's directory, which lies in one,
-    so each stand-in place beside the session's own would read as the shared directory's. The
-    directory holding pytest's is left out of the machine's list here; the rows of the shared
-    directories themselves (``machine_temps``), and every integration row, keep the machine's own.
+    so each stand-in place beside the session's own would read as the shared directory's. While a
+    unit row runs the directory holding pytest's is left out of the machine's list; the rows of
+    the shared directories themselves (``machine_temps``), and every integration row, keep the
+    machine's own. Assigned for the session, not patched per row, so a row that undoes its own
+    patches keeps it.
     """
-    if request.node.get_closest_marker("integration") or request.node.get_closest_marker(
-        "machine_temps"
-    ):
-        return
+    from physgate.hooks import settings
     from physgate.oslayer.probe import shared_temp_dirs as real
 
     base = os.path.realpath(tmp_path_factory.getbasetemp())
 
-    def others() -> tuple[str, ...]:
-        return tuple(d for d in real() if not Path(base).is_relative_to(os.path.realpath(d)))
+    def listed() -> tuple[str, ...]:
+        found = real()
+        if _MACHINE_TEMPS[0]:
+            return found
+        return tuple(d for d in found if not Path(base).is_relative_to(os.path.realpath(d)))
 
     # The name the installer's request reads the machine's list by.
-    monkeypatch.setattr("physgate.hooks.settings.shared_temp_dirs", others)
+    name = "shared_temp_dirs"
+    setattr(settings, name, listed)
+    yield
+    setattr(settings, name, real)
+
+
+@pytest.fixture(autouse=True)
+def _a_unit_row_s_shared_list(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Which list the row running now is given (see the session's fixture above)."""
+    marked = request.node.get_closest_marker("integration") or request.node.get_closest_marker(
+        "machine_temps"
+    )
+    _MACHINE_TEMPS[0] = bool(marked)
+    yield
+    _MACHINE_TEMPS[0] = True
 
 
 def outside_writable_root() -> Path:
