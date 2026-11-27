@@ -82,6 +82,7 @@ from physgate.orchestrator.events import (
     ContractRuled,
     ContractTested,
     ContractValue,
+    CredentialReplaced,
     DecisionsSealed,
     DecisionTaken,
     Decomposed,
@@ -679,6 +680,7 @@ class Loop:
         confirm: Sequence[str] = (),
         confirmed_by: str | None = None,
         limit_reset_by: str | None = None,
+        credential_replaced: CredentialReplaced | None = None,
     ) -> Step:
         """Take over a run a previous process left, then drive it.
 
@@ -693,8 +695,10 @@ class Loop:
         decision is taken before every stream a previous process left has been read. ``confirm``
         names items whose decision is held because it was written while a session ran without
         the OS layer; ``confirmed_by`` is the operator who confirms them on the command line
-        (ARCH-133). Only then does such a decision act. ``limit_reset_by`` is the operator who
-        says on the command line that the account's usage limit has reset, where its reset could
+        (ARCH-133). Only then does such a decision act. ``credential_replaced`` is a person's
+        word that a run halted on a refused credential goes on on another secret: recorded on the
+        ``Resumed`` that follows, and refused for any other run. ``limit_reset_by`` is the operator
+        who says on the command line that the account's usage limit has reset, where its reset could
         not be read. It is recorded on the ``Resumed`` that follows; a resume that stops early
         for another reason resumes nothing, so nothing is recorded, and the word is given again
         on the resume that goes on.
@@ -708,6 +712,16 @@ class Loop:
                 allow the layer's absence.
         """
         limit_word = self._limit_reset(limit_reset_by)
+        if credential_replaced is not None:
+            halted_now = self.state.halted
+            if halted_now is None or halted_now.reason != "credential_refused":
+                msg = "a credential is replaced only for a run halted on a refused credential"
+                raise RunStateError(msg, run_dir=str(self.run_dir))
+            if self.state.interrupted() is None:
+                # The word is recorded on the attempt's resume: with none to name, nothing would
+                # say from where on the run drew on the new secret.
+                msg = "the run halted on a refused credential names no attempt to resume"
+                raise RunStateError(msg, run_dir=str(self.run_dir))
         self._require_os_layer()
         if self._took_an_owed_halt():
             return self._drive()
@@ -744,6 +758,7 @@ class Loop:
                     attempt=now.number,
                     point=self.state.resume_point(now),
                     limit_reset_by=limit_word,
+                    credential_replaced=credential_replaced,
                 )
             )
         elif (merge := self.state.halted_at_a_sign_off_line()) is not None:
@@ -3235,10 +3250,18 @@ class Loop:
         return IssuedSpec(commit=commit, path=spec_path, sha256=session.issued_spec_sha256)
 
     def _review(self, reviewer: Reviewer, artefact: Artefact) -> ReviewResult | None:
-        """The review's verdict, or ``None`` when there is none and the attempt escalates.
+        """The review's verdict, or ``None``: the attempt escalates, or the run halts.
 
-        An infrastructure failure is retried once; any other cause, or a second
-        failure, is final. What every try spent is attributed to the reviewer.
+        A review with no verdict for the reviewer's own reasons (no verdict, an invalid one, a
+        refusal) is final, and the attempt goes to a person. A review the machine ended is never
+        that, and the run halts with the review still owed (:meth:`_review_halts`): a refused
+        credential halts it ``credential_refused`` at once (never retried, nothing spent) and an OS
+        layer that would not start ``os_layer_unavailable``, as a role session's end does; any
+        other machine end is retried at once, then once after each
+        delay of the run's ``infra_retry_delays_s``, and then halts it
+        ``infrastructure_exhausted``. That is one try more than a role session gets: a review's
+        first retry is immediate, as it always was, and only then is the ladder taken. A resume
+        goes on at the attempt's checkpoint. What every try spent is attributed to the reviewer.
         """
         subtask_id, attempt = artefact.subtask_id, artefact.attempt
         retried = False
@@ -3290,7 +3313,11 @@ class Loop:
                     who = f"review session {exc.session_id or 'none'}"
                     self._wait_for_limit(subtask_id, attempt, exc.usage_limit, who, review=True)
                     return None
-                retry = exc.cause == "infrastructure" and not retried
+                if exc.cause == "infrastructure" and self._review_halts(
+                    subtask_id, attempt, exc, retried=retried
+                ):
+                    return None
+                retry = exc.cause == "infrastructure"
                 self._emit(
                     ReviewUnavailable(
                         **self._env(),
@@ -3308,11 +3335,60 @@ class Loop:
                 )
                 if not retry:
                     return None
+                if retried:
+                    # The ladder's next try, after its delay; the first retry was at once.
+                    now = self.state.subtasks[subtask_id].attempts[-1]
+                    tries = sum(1 for u in now.unavailable if u.retry)
+                    delay = infra_retry_delay(self.config.bounds.infra_retry_delays_s, tries - 2)
+                    if delay is not None:
+                        self._sleep(delay)
                 retried = True
                 continue
             if self._review_held(subtask_id, review.session_id, review.managed, review):
                 return None
             return review
+
+    def _review_halts(
+        self, subtask_id: str, attempt: int, exc: ReviewUnavailableError, *, retried: bool
+    ) -> bool:
+        """Halt the run for a review the machine ended, where its cause or its ladder says so.
+
+        Returns whether it halted: a refused credential or an OS layer that would not start at
+        once, as a role session's end; any other machine end (a full disk the review's binary
+        named among them, which no volume measured) once the review's one immediate retry and the
+        run's ladder after it are spent. The review stays owed.
+        """
+        who = f"review session {exc.session_id or 'none'}"
+        where = f"subtask {subtask_id} attempt {attempt}"
+        cause = exc.session_cause
+        if cause == "credential_refused":
+            variable = SECRET_VARIABLE[self.config.auth]
+            detail = (
+                f"{where}: the API refused the {self.config.auth} credential of {who}; replace "
+                f"{variable} and resume (its review is still owed)"
+            )
+            self._emit(Halted(**self._env(), reason="credential_refused", detail=detail))
+            return True
+        if cause == "sandbox_unavailable":
+            detail = (
+                f"{where}: the OS layer of {who} would not start, so the session refused to run "
+                "without it; repair the sandbox's dependencies and resume (its review is still "
+                "owed)"
+            )
+            self._emit(Halted(**self._env(), reason="os_layer_unavailable", detail=detail))
+            return True
+        if not retried:
+            return False  # the one immediate retry a review has always had
+        now = self.state.subtasks[subtask_id].attempts[-1]
+        tries = sum(1 for u in now.unavailable if u.retry)
+        if infra_retry_delay(self.config.bounds.infra_retry_delays_s, tries - 1) is not None:
+            return False
+        detail = (
+            f"{where}: {who} ended with {cause or 'an infrastructure end'} after {tries} "
+            "infrastructure retries of its review; resume (its review is still owed)"
+        )
+        self._emit(Halted(**self._env(), reason="infrastructure_exhausted", detail=detail))
+        return True
 
     def _review_held(
         self,

@@ -14,8 +14,9 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import (
     BaseModel,
@@ -54,6 +55,9 @@ from physgate.orchestrator.git import GitBinary, git
 from physgate.orchestrator.role_python import RolePython
 from physgate.oslayer.probe import Absent, OsLayerState, Present
 from physgate.toolenv.record import ToolEnvironment
+
+if TYPE_CHECKING:
+    from physgate.orchestrator.events import Event
 
 
 class _Frozen(BaseModel):
@@ -751,25 +755,46 @@ def require_harness(config: RunConfig, now: HarnessState) -> None:
         raise RunConfigError(msg, changed=",".join(changed))
 
 
-def require_same_account(config: RunConfig, credential: Credential) -> None:
-    """Refuse to drive a run on a credential other than the one it was configured with.
+def account_in_effect(config: RunConfig, events: Sequence[Event]) -> str | None:
+    """The fingerprint of the secret the run draws on now.
 
-    A run recorded before the account was recorded has nothing to hold it to, and is driven.
+    The last one a person's word put in place of a refused credential (a ``Resumed`` line's
+    ``credential_replaced``), else the one it was configured with; ``None`` for a run recorded
+    before the account was.
+    """
+    if config.account is None:
+        return None
+    from physgate.orchestrator.events import Resumed  # the event log's model, beside its reader
+
+    replaced = [e.credential_replaced for e in events if isinstance(e, Resumed)]
+    words = [r for r in replaced if r is not None]
+    return words[-1].now if words else config.account.token_sha256_prefix
+
+
+def require_same_account(
+    config: RunConfig, credential: Credential, *, in_effect: str | None = None
+) -> None:
+    """Refuse to drive a run on a credential other than the one it draws on.
+
+    That is the one it was configured with, or ``in_effect`` where a person's word replaced a
+    refused one since (:func:`account_in_effect`). A run recorded before the account was
+    recorded has nothing to hold it to, and is driven.
 
     Raises:
-        RunConfigError: the credential's fingerprint differs from the recorded one.
+        RunConfigError: the credential's fingerprint differs from the one in effect.
     """
     if config.account is None:
         return
+    held = in_effect or config.account.token_sha256_prefix
     now = fingerprint(credential)
-    if now != config.account.token_sha256_prefix:
+    if now != held:
         msg = (
-            f"the credential is not the one account {config.account.name!r} was recorded with; "
-            "a run continues on the account it started on"
+            f"the credential is not the one account {config.account.name!r} was recorded with "
+            "(or that a person's word put in place of a refused one); a run continues on the "
+            "account it started on, unless it halted on a refused credential and a person says "
+            "it was replaced (resume --credential-replaced)"
         )
-        raise RunConfigError(
-            msg, account=config.account.name, recorded=config.account.token_sha256_prefix, now=now
-        )
+        raise RunConfigError(msg, account=config.account.name, recorded=held, now=now)
 
 
 def write_run_config(path: Path, config: RunConfig) -> None:
