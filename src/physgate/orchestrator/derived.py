@@ -521,7 +521,11 @@ def _regenerated(  # noqa: PLR0913 - the one call's parts
             reason=f"{source} is over {MAX_SOURCE_BYTES} bytes; its exports are not made again",
             subject=source,
         )
-    work = Path(tempfile.mkdtemp(prefix="physgate-derived-"))
+    # Named where it really is: a program may write a path relative to the place it resolves,
+    # so a folder named through a link (macOS's temporary directory is beneath ``/var``, a link
+    # to ``/private/var``) puts the folder's own path into an export made again, and an honest
+    # set would never match what was committed.
+    work = Path(os.path.realpath(tempfile.mkdtemp(prefix="physgate-derived-")))
     try:
         placed = work / "module"
         target = placed / PurePosixPath(source).relative_to(module)
