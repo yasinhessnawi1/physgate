@@ -110,6 +110,9 @@ EndingClass = PlanClass | ReviewClass
 #: The cause the terminal line names for rounds whose last round ended on the account's usage
 #: limit, its call's or its review's: the rounds are made again after the reset, never counted.
 LIMIT = "usage_limit"
+#: The cause the terminal line names for rounds whose last round's review session met a refused
+#: credential: as a plan call that meets one, no attempt, and nothing goes on until a person acts.
+CREDENTIAL_REFUSED = "credential_refused"
 
 
 class _Line(BaseModel):
@@ -346,9 +349,20 @@ def _on_the_limit(ending: RoundEnding, review: RoundReview | None) -> bool:
 
 
 def _ended_as(line: RoundEnded) -> tuple[str, str]:
-    """The class and cause the terminal line names after ``line``: the limit, where it ended so."""
+    """The class and cause the terminal line names after ``line``.
+
+    The limit, where it ended so; a refused credential, where its review's session ended on one.
+    """
     cls, cause = _what_ended(line.ending)
-    return cls, LIMIT if line.usage_limit is not None else cause
+    if line.usage_limit is not None:
+        return cls, LIMIT
+    return cls, CREDENTIAL_REFUSED if _review_met_a_refused_credential(line.review) else cause
+
+
+def _review_met_a_refused_credential(review: RoundReview | None) -> bool:
+    """Whether a round's review session ended on a refused credential, as its reviewer read it."""
+    unavailable = review.unavailable if review is not None else None
+    return unavailable is not None and unavailable.session_cause == CREDENTIAL_REFUSED
 
 
 def _refused(run_dir: Path, k: int, check: str, cause: str = "record_missing") -> RunStateError:
@@ -546,6 +560,13 @@ def review_round(
             spec_defects=exc.spec_defects,
             # The limit the reviewer read the session's end as, as an attempt's review gives it.
             usage_limit=exc.usage_limit,
+            # A refused credential the session ended on, off the limit: the terminal line names
+            # it, so a mode that holds the plan ends void on it as a wait for a person.
+            session_cause=(
+                CREDENTIAL_REFUSED
+                if exc.session_cause == CREDENTIAL_REFUSED and exc.usage_limit is None
+                else None
+            ),
         )
         ending = {"session_id": exc.session_id, "usage": exc.usage, "unavailable": why}
     except HeldOutExposedError as exc:
@@ -947,6 +968,10 @@ def decompose_in_rounds(
         cls, cause = _what_ended(ending)
         if limit is not None:
             cause = LIMIT  # its call's or its review's: the rounds are made again after the reset
+        elif _review_met_a_refused_credential(review):
+            # The review's session met a refused credential: no attempt, a wait for a person, as
+            # the plan's call that meets one names it.
+            cause = CREDENTIAL_REFUSED
         if (
             follows == "replan"
             and plan is not None
