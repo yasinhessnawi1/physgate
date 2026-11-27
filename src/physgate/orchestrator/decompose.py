@@ -1949,7 +1949,20 @@ DECOMPOSITION_LEFTOVERS = frozenset(
 )
 
 
-def require_only_its_own(run_dir: Path, *, given: Sequence[Path]) -> None:
+#: The files the exposure register reads as a run's, a raw trial's or a decomposition's record
+#: wherever its walk meets them beneath the run roots. Held equal to the register's own names.
+REGISTER_RECORDS = frozenset({"run.json", "raw.json", "params_source.json"})
+#: The most entries a look into a target given inside the run directory takes before it refuses.
+MOST_TARGET_ENTRIES = 200_000
+
+
+def require_only_its_own(
+    run_dir: Path,
+    *,
+    given: Sequence[Path],
+    target: Path | None = None,
+    review_root: Path | None = None,
+) -> None:
     """Refuse a run directory that holds anything but a decomposition's leftovers and its inputs.
 
     The exposure register reads a directory holding a decomposition's parameters record as that
@@ -1960,8 +1973,17 @@ def require_only_its_own(run_dir: Path, *, given: Sequence[Path]) -> None:
     directory itself (``given``: the target, the review root, the parameters file, the brief).
     A directory not there yet holds nothing.
 
+    The register passes over the ``target`` and the ``review_root`` too, where they lie in the
+    run directory, so each is looked into: the review root holds nothing yet (a decomposition's
+    review writes there only after its round journal, which a later decomposition is refused
+    on), and the target holds no file the register reads as a record
+    (:data:`REGISTER_RECORDS`), at any depth, no link followed. One given elsewhere is not the
+    run directory's, and an entry of the run directory that only bears its name is refused as
+    anything else is.
+
     Raises:
-        RunStateError: it holds anything else, or cannot be listed.
+        RunStateError: it holds anything else, cannot be listed, or a target or review root in
+            it holds what the register would no longer read.
     """
     try:
         names = os.listdir(run_dir)
@@ -1984,6 +2006,77 @@ def require_only_its_own(run_dir: Path, *, given: Sequence[Path]) -> None:
             "fresh run directory"
         )
         raise RunStateError(msg, run_dir=str(run_dir))
+    inside = {
+        which: Path(os.path.realpath(p))
+        for which, p in (("review_root", review_root), ("target", target))
+        if p is not None and Path(os.path.realpath(p)).parent == here
+    }
+    if "review_root" in inside:
+        _require_empty_review_root(run_dir, inside["review_root"])
+    if "target" in inside:
+        _require_no_record_in(run_dir, inside["target"])
+
+
+def _require_empty_review_root(run_dir: Path, root: Path) -> None:
+    try:
+        held = os.listdir(root)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        msg = "the review root given inside the run directory cannot be listed"
+        raise RunStateError(msg, run_dir=str(run_dir), why=repr(exc)) from exc
+    if held:
+        msg = (
+            "the review root given inside the run directory already holds something, which the "
+            "exposure register would pass over as this decomposition's: give a fresh review root"
+        )
+        raise RunStateError(msg, run_dir=str(run_dir))
+
+
+def records_in(top: Path, *, most: int = MOST_TARGET_ENTRIES) -> tuple[int, str | None]:
+    """How deep ``top`` goes beneath it, and the first file in it the register reads as a record.
+
+    Walked without following a link. The depth is that of its deepest directory beneath ``top``
+    (``top`` itself is 0); the record, a path beneath ``top``, is one named in
+    :data:`REGISTER_RECORDS`, whatever its kind; ``None`` where there is none.
+
+    Raises:
+        OSError: a directory in it cannot be listed, or it holds more than ``most`` entries.
+    """
+    deepest, seen, found = 0, 0, None
+    stack = [(top, 0)]
+    while stack:
+        here, depth = stack.pop()
+        deepest = max(deepest, depth)
+        with os.scandir(here) as entries:
+            listed = list(entries)
+        seen += len(listed)
+        if seen > most:
+            msg = f"more than {most} entries"
+            raise OSError(msg)
+        for entry in listed:
+            if entry.name in REGISTER_RECORDS and found is None:
+                found = Path(entry.path).relative_to(top).as_posix()
+            if entry.is_dir(follow_symlinks=False):
+                stack.append((Path(entry.path), depth + 1))
+    return deepest, found
+
+
+def _require_no_record_in(run_dir: Path, target: Path) -> None:
+    try:
+        _, found = records_in(target)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        msg = "the target given inside the run directory cannot be looked into whole"
+        raise RunStateError(msg, run_dir=str(run_dir), why=repr(exc)) from exc
+    if found is not None:
+        msg = (
+            "the target given inside the run directory holds a file the exposure register reads "
+            "as a run's, a raw trial's or a decomposition's record, which it would pass over as "
+            "this decomposition's: give a target that holds none"
+        )
+        raise RunStateError(msg, run_dir=str(run_dir), found=found)
 
 
 def open_decomposition(
@@ -1992,19 +2085,23 @@ def open_decomposition(
     """What ``decompose`` refuses and writes first in its run directory, before anything runs.
 
     The directory is refused unless fresh (:func:`require_fresh`) and holding only what is its
-    own (:func:`require_only_its_own`); then the parameters file is recorded with the target, the
-    first thing a decomposition writes. The parameters name the held-out canaries, so every
-    session of the run is installed with that file withheld, wherever it lies; and where the
-    target's clone lies in the run directory, the exposure register knows it as the
-    decomposition's own by this record. ``review_root`` is the root the plan's reviewer runs
-    under, as every reader takes it, where one is named.
+    own (:func:`require_only_its_own`, which looks into a target and a review root given inside
+    it); then the parameters file is recorded with the target, the first thing a decomposition
+    writes. The parameters name the held-out canaries, so every session of the run is installed
+    with that file withheld, wherever it lies; and where the target's clone lies in the run
+    directory, the exposure register knows it as the decomposition's own by this record.
+    ``review_root`` is the root the plan's reviewer runs under, as every reader takes it, where
+    one is named.
 
     Raises:
         RunStateError: the directory is refused, or the record could not be written.
     """
     require_fresh(run_dir)
     require_only_its_own(
-        run_dir, given=[target, params, brief, *([] if review_root is None else [review_root])]
+        run_dir,
+        given=[target, params, brief, *([] if review_root is None else [review_root])],
+        target=target,
+        review_root=review_root,
     )
     record_params(run_dir, params, target=target)
 

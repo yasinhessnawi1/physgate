@@ -4,11 +4,13 @@ The register and the run roots lie beneath the role's withheld root, which every
 role withholds. The first layer refuses a command that names it; these steps build the path at
 run time inside an interpreter fed a program, which the shell parser cannot see, so whatever
 stops them is the OS layer. One step writes the register directly; the others run each of the
-four writers (the register's three and the gaps vector's) with the harness's session markers
+five writers (the register's four and the gaps vector's) with the harness's session markers
 taken out of their environment, as a session can, so the writers' own refusal inside a session
-does not stop them either. The hand mark is
-run on a terminal of the step's own making, for a version the store holds, so its terminal check
-and its version check pass and only the layer is left to stop it.
+does not stop them either. The hand mark and the settle are
+run on a terminal of the step's own making, the hand mark for a version the store holds and the
+settle for a directory beneath the run root the step before registered, whose parameters record
+the step tears first, so their own checks pass and only the layer is left to stop them. The
+target check is no step: it is given no withheld root and writes nothing anywhere.
 
 What the layer does to the withheld place differs by platform, so what each step must show
 does too. On macOS the layer refuses the place: each step shows the operating system's own
@@ -19,8 +21,9 @@ every writer refuses because the register is missing, and a write tried there le
 outside byte-identical.
 
 Without the layer the same probe reaches the logs: the place lists them, the log reads, and the
-steps write there. The sentinel cannot put back a log no session may read, so it refuses every
-call after the first write; each step therefore runs in a session of its own, in both rows.
+steps write there, the settle among them. The sentinel cannot put back a log no session may
+read, so it refuses every call after the first write; each step therefore runs in a session of
+its own, in both rows.
 
 In a job that is meant to have the layer (``PHYSGATE_REQUIRE_OS_LAYER`` set), a machine where
 the layer cannot run fails the row instead of skipping it.
@@ -69,7 +72,9 @@ def _each_in_its_own_session(tmp_path: Path, store: StandInStore, *, layer: bool
     session's end is refused too, and the binary's next request, with that refusal, then
     stands in for the last call's result, not for the step's.
     """
-    (tmp_path / "runs").mkdir(exist_ok=True)
+    # The settle's directory is there before any step, empty, so a scan beneath the run root
+    # reads it whole; the settle's own step tears its record (where the place lets it).
+    (tmp_path / "runs" / "cut").mkdir(parents=True, exist_ok=True)
     after = tool("Bash", command="true", description="after the step")
     said: list[str] = []
     for n, step in enumerate(_steps(tmp_path, store.version)):
@@ -82,16 +87,19 @@ def _each_in_its_own_session(tmp_path: Path, store: StandInStore, *, layer: bool
 
 
 #: Each writer of the withheld place, by its command and the arguments after ``--withheld``.
-STEPS = ("scan-exposures", "mark-exposed", "add-run-root", "gaps vector", "write")
+STEPS = ("scan-exposures", "mark-exposed", "add-run-root", "gaps vector", "settle", "write")
 
 
-def _writers(version: str) -> tuple[tuple[str, ...], ...]:
+def _writers(root: Path, version: str) -> tuple[tuple[str, ...], ...]:
     return (
         ("tiers", "scan-exposures"),
         ("tiers", "mark-exposed", "--version", version, "--by", "someone", "--reason", "two words"),
         ("tiers", "add-run-root", "--path"),
         # The vector writer reads the run set and the records beneath the same place.
         ("gaps", "vector", "--version", version, "--tier", "held_out"),
+        # After the vector writer, which reads the run root: a torn record there would refuse it.
+        ("tiers", "settle", "--directory", str(root / "runs" / "cut"), "--by", "someone")
+        + ("--reason", "two words"),
     )
 
 
@@ -131,8 +139,15 @@ def _steps(root: Path, version: str) -> list[dict[str, object]]:
         "done = subprocess.run(argv, env=env, capture_output=True, text=True)\n"
         "print('exit', done.returncode, done.stdout[-600:], done.stderr[-600:])\n"
     )
+    # The settle's directory refuses the register as read: its parameters record is torn.
+    torn = (
+        "try:\n"
+        f"    open(os.path.join({str(root / 'runs' / 'cut')!r}, 'params' + '_source.json'), 'w')"
+        ".write('{')\n"
+        "except OSError as e:\n    print('torn:', e.strerror)\n"
+    )
     steps: list[str] = []
-    for writer in _writers(version):
+    for writer in _writers(root, version):
         steps.append(
             joined
             + "RUN = 'import sys; from physgate.cli import main; sys.exit(main(sys.argv[1:]))'\n"
@@ -146,7 +161,8 @@ def _steps(root: Path, version: str) -> list[dict[str, object]]:
                 if writer[0] == "gaps"
                 else ""
             )
-            + (on_a_terminal if writer[1] == "mark-exposed" else piped)
+            + (torn if writer[1] == "settle" else "")
+            + (on_a_terminal if writer[1] in ("mark-exposed", "settle") else piped)
         )
     steps.append(direct)
     return [tool("Bash", command=python(p), description=f"step {n}") for n, p in enumerate(steps)]
@@ -213,8 +229,9 @@ def test_without_the_layer_the_steps_write_there_which_shows_the_probe_works(
 ) -> None:
     # Each step reaches the logs: the place lists them and the log reads. The scan ran to its
     # end, the hand mark passed its terminal check and wrote its line, the vector writer read
-    # that line, and the direct write landed; the sentinel could not put back a log no session
-    # may read, which is why each step had a session of its own.
+    # that line, the settle wrote its line for the directory its step tore, and the direct write
+    # landed; the sentinel could not put back a log no session may read, which is why each step
+    # had a session of its own.
     withheld = _withheld(store)
     before = _contents(withheld)
     told = _each_in_its_own_session(tmp_path, store, layer=False)
@@ -228,5 +245,6 @@ def test_without_the_layer_the_steps_write_there_which_shows_the_probe_works(
     # the version the hand mark (two steps before) marked exposed: it read the register whole.
     # Inside the layer the same read is what refuses it as missing (Linux).
     assert STEPS[3] == "gaps vector" and "version_exposed" in told[3], told
+    assert STEPS[4] == "settle" and "exit 0" in told[4] and "settled" in told[4], told
     assert "wrote" in told[-1], told
     assert _contents(withheld)["register.jsonl"] != before["register.jsonl"], told

@@ -302,6 +302,20 @@ class RecordsSpawns(Protocol):
         ...
 
 
+#: Told a review session's id once the review's own scan of its stream showed a held-out canary,
+#: before the stream is redacted: the redaction may replace the very line the scan counted.
+ShownHook = Callable[[str], None]
+
+
+@runtime_checkable
+class RecordsShown(Protocol):
+    """A reviewer that says a review's scan showed a held-out canary before its redaction."""
+
+    def record_shown(self, hook: ShownHook) -> None:
+        """Tell ``hook`` each session whose scan showed a canary, before its stream is redacted."""
+        ...
+
+
 class Dispatcher(Protocol):
     """Runs one attempt in a fresh session in the subtask's worktree."""
 

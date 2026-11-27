@@ -1700,7 +1700,8 @@ def _what_its_earlier_process_left(place: Path, round_id: str) -> None:
     review of the round still runs and no credential of its sessions stays on disk because of it.
     A directory is the round's own when its own ledger placed it: the (trial, attempt) of each
     ``placed`` line, at ``<run root>/<round>/<iiii>-<n>`` beneath the run root the ledger's first
-    line records (never the run root this start was given), each a directory, never a link. Only
+    line records (never the run root this start was given), each a directory with no part of its
+    path a link (:func:`_no_link_on_the_way`, the one check every step of the driver makes). Only
     those are touched; another round's, and anything else beneath the run root, are not.
 
     Raises:
