@@ -4,8 +4,9 @@ The store is the baseline's stand-in (:func:`baseline_fixtures.stand_in_store`):
 fixture tasks split by the real writer, its check recorded, a run root registered. The target
 is a repository with one commit. The driver stands in for the ``physgate`` command: its
 ``decompose`` does what the command's does with the call's outcome given, not asked of a model
-(the run directory refused unless fresh, the parameters recorded, the run started from a plan of
-one control module, or recorded as a failed decomposition); its ``drive`` is the real loop with
+(its first step the command's own, :func:`open_decomposition`: the run directory refused unless
+fresh and its own, the parameters recorded with the target; the run started from a plan of one
+control module, or recorded as a failed decomposition); its ``drive`` is the real loop with
 the real change checker, merger and store keeper, a stand-in session that writes the answer file
 in its module's directory, and the command's own refusal of a resume before a usage limit's
 reset. A row makes a call fail, end on the machine or be killed, by its number.
@@ -62,12 +63,13 @@ from physgate.orchestrator import design_rounds  # noqa: E402
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper  # noqa: E402
 from physgate.orchestrator.budget import SessionEnd  # noqa: E402
 from physgate.orchestrator.canaries import CanaryCheck  # noqa: E402
+from physgate.orchestrator.credentials import remove_secrets  # noqa: E402
 from physgate.orchestrator.decompose import (  # noqa: E402
     Outcome,
     Plan,
     PlannedModule,
     mint_id,
-    require_fresh,
+    open_decomposition,
     start_run,
 )
 from physgate.orchestrator.design_rounds import (  # noqa: E402
@@ -86,7 +88,6 @@ from physgate.orchestrator.exceptions import (  # noqa: E402
 from physgate.orchestrator.git import head_of  # noqa: E402
 from physgate.orchestrator.loop import Loop  # noqa: E402
 from physgate.orchestrator.merge import GitMerger, RunGit  # noqa: E402
-from physgate.orchestrator.params_record import record_params  # noqa: E402
 from physgate.orchestrator.ports import SessionReport, SessionRequest, SpawnHook  # noqa: E402
 from physgate.orchestrator.processes import started_at  # noqa: E402
 from physgate.orchestrator.protocols import (  # noqa: E402
@@ -304,8 +305,9 @@ class StandInDriver:
     #: Under a parameters' ``design_review: observe``, the plan's call and its review, scripted:
     #: the decompositions killed once the call wrote its stream; killed during the review, the
     #: review's session left running (and its stream holding ``review_shows`` where given); whose
-    #: review errs (``invocation_error`` or ``model_separation``, a void); whose run cannot be
-    #: started (a void after the round's end line).
+    #: review errs (``invocation_error`` or ``model_separation``, a void; an invocation error with
+    #: ``review_shows`` given after its session wrote it and ended); whose run cannot be started (a
+    #: void after the round's end line).
     killed_after_call: set[int] = field(default_factory=set)
     killed_in_review: set[int] = field(default_factory=set)
     review_shows: str | None = None
@@ -369,8 +371,15 @@ class StandInDriver:
         n = len(self.decomposed)
         if n in self.refused:
             return 2
-        require_fresh(call.run_dir)
-        record_params(call.run_dir, call.params)
+        # The command's own first step, called as the command calls it: the directory refused
+        # unless fresh and its own, then the parameters recorded with the target.
+        open_decomposition(
+            call.run_dir,
+            params=call.params,
+            target=call.target,
+            brief=call.brief,
+            review_root=review_root_path(call.review_root),
+        )
         if n in self.killed_in_decompose:
             raise Killed
         # The review root, recorded before the call as a measured run's decomposition records it
@@ -589,6 +598,14 @@ class PlanReview:
             raise Killed
         error = self.driver.review_errs.get(self.n)
         if error == "invocation_error":
+            if self.driver.review_shows is not None:
+                # Its session spawned, recorded and wrote its stream, and ended before the error;
+                # the reviewer removes the session's credential once it ends, as the real one does.
+                ended = self._left_running(session_id)
+                ended.kill()
+                ended.wait()
+                session = self.root / session_id / "session"
+                remove_secrets(session / "state", session / "config")
             msg = "the review was answered by a model other than the pinned one"
             raise InvocationError(msg)
         if error == "model_separation":
@@ -617,7 +634,7 @@ class PlanReview:
             rubric_sha256=hashlib.sha256(b"the design rubric, scripted").hexdigest(),
         )
 
-    def _left_running(self, session_id: str) -> None:
+    def _left_running(self, session_id: str) -> subprocess.Popen[bytes]:
         """A review session spawned and recorded as the reviewer does, then left running."""
         process = subprocess.Popen(  # noqa: S603 - this interpreter, fixed arguments
             [sys.executable, "-c", "import time; time.sleep(300)", "--session-id", session_id],
@@ -643,6 +660,7 @@ class PlanReview:
         )
         assert self.hook is not None
         self.hook(session_id, process.pid, started)
+        return process
 
 
 @dataclass

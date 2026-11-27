@@ -26,18 +26,43 @@ brief, a canary or an outcome. A hand mark carries the person who made it and wh
   run roots; a raw-arm record, under the run roots or beneath the withheld root's baseline
   records, whose ``held_out_seen`` is not false (``null``, nobody looked, on a validation or
   held-out task found by its brief: an exposure of unknown extent, ``raw_record_unchecked``,
-  shown apart); or a mark made by a person at a terminal. Nothing inside a run directory is
+  shown apart); a reviewed decomposition killed before its opening's incident was written, whose
+  plan review showed held-out material (:func:`_decomposition_findings`); or a mark made by a
+  person at a terminal. Nothing inside a run directory is
   entered or parsed (the harness holds no run inside a run); a directory there that looks like
   a run, and a link to a directory anywhere, leave the root reported as not read whole. An
   incident names no root, so the run's held-out digests name the versions it marks: every
   version of the role whose validation or held-out tier the run recorded. A run or record that
   names none marks every version of the role.
+- **a killed decomposition:** a directory beneath a run root (not the root itself) with no run
+  configuration that holds a decomposition's parameters record, read and valid: the first thing
+  a ``decompose`` writes, which names the target it was given. A parameters record that does not
+  read refuses. The walk passes over only what the decomposition put there
+  (:data:`DECOMPOSITION_PLACES`, its target's clone and its review root where they lie in it,
+  named by its records) and walks every other entry, so a run beneath it is found; a raw record
+  in it is read. Its review's exposure is found without a command on it: in the file the next
+  command writes once it has scanned the review's streams; in the review's record no command
+  has scanned yet, whose streams are scanned now by the next command's own scan of their
+  unredacted bytes, read only; or in the round journal's end line of an exposed review, which is
+  all a kill after that line and before the opening's incident leaves (read for a run too, where
+  its log holds no incident). The versions it marks are named by the held-out tiers' digests the
+  decomposition recorded before its review, exactly: none where it recorded that it named no
+  held-out tier, or none of this role's. One that recorded none (made before the record existed)
+  marks every version of the role, and only on evidence that something showed. A review stream
+  that is gone is an exposure where tiers were recorded; a record, a journal or a stream that is
+  there and cannot be read refuses, by its kind and naming no path, as do a stream gone where no
+  tiers were recorded and a process table that cannot say whether the review still runs. A
+  person who has looked at such a directory settles it by hand (:func:`mark_exposed` with
+  ``settles``): from then on what of it cannot be read is passed over.
 - **authoring:** a read of the tiers by their author or their blind check. Never an exposure.
 - **measurement:** one scoring of a protected tier whose result anyone sees.
 
 **Every check reads the register as freshly scanned** (:func:`exposed_versions`): the lines
 recorded, and every incident and record the run roots hold now, recorded or not. A check
-never writes. The three writers (:func:`record_scan`, :func:`mark_exposed`,
+writes no line. It keeps only what its scan of a finished review's stream came to, beneath the
+withheld root beside the register (``scans/``, one small file per stream's bytes, written apart
+and renamed), so that a finished directory's streams are scanned once; a kept result that does
+not read is scanned again. The three writers (:func:`record_scan`, :func:`mark_exposed`,
 :func:`add_run_root`) append, each under a lock.
 
 **A measured run's version** is the one whose tasks hold the run's brief, found by its digest
@@ -90,6 +115,23 @@ BASELINE_RECORDS = "baseline"
 RAW_RECORD = "raw.json"
 RUN_RECORD = "run.json"
 EVENT_LOG = "events.jsonl"
+#: Where a reviewed decomposition keeps its records beneath its run directory.
+DECOMPOSITION = "decomposition"
+#: The parameters record a ``decompose`` writes first in a run directory, before anything runs.
+PARAMS_RECORD = "params_source.json"
+#: The record of the review root a run's reviews run under, in its run directory.
+REVIEW_ROOT_RECORD = "review_root.json"
+#: What a decomposition itself makes in its run directory, by the code that makes each: its own
+#: folder, where its calls run and its rounds and review records lie (``decompose``); and, as its
+#: run is started, the run branch's checkout (``RunGit.integration``, beneath ``worktrees``) and
+#: the run's store (``start_run``). The review root and the target it is given are its own too
+#: where they lie in it, named by its records.
+DECOMPOSITION_PLACES: frozenset[str] = frozenset({DECOMPOSITION, "worktrees", "store"})
+#: Beneath the withheld root: what a read's scan of a finished review's stream came to, kept.
+KEPT_SCANS = "scans"
+#: Whether a read keeps what its scan of a finished review's stream came to. The read-only count
+#: check turns it off in its own process, so that it writes nothing.
+KEEP_SCANS = True
 _ZERO = "0" * 64
 _MISSING = object()
 MOST_LOG_BYTES = 64 * 1024 * 1024
@@ -602,16 +644,25 @@ class _Walk:
     places: list[str] = field(default_factory=list)
     #: Roots that are not there.
     missing: list[Path] = field(default_factory=list)
+    #: Directories with no run configuration that hold a decomposition's records.
+    decompositions: list[Path] = field(default_factory=list)
+    #: The keys of the directories a person settled by hand (:func:`mark_exposed`).
+    settled: frozenset[str] = frozenset()
 
 
 def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
     """Every run directory and raw record beneath ``root``, no link followed, bounded.
 
     Inside a run directory the walk enters only :data:`NESTED_RUN_PLACES` and parses nothing
-    else. A directory there that holds a run's configuration is neither read nor ignored: its
-    root is recorded as not read whole, with its position. A link to a directory is not
-    followed, and its root is recorded so too. A ``required`` root that is not there is
-    recorded as missing, never read as empty.
+    else. A directory with no run configuration, beneath the root and not the root itself, whose
+    parameters record (the first thing a ``decompose`` writes) reads as one is a decomposition's:
+    read by :func:`_decomposition_findings`, and walked but for what it put there (:func:`_own`;
+    a settled one whose record does not read is walked only into an entry holding a run's
+    configuration at its top). A directory inside a run that holds a run's configuration is
+    neither read nor ignored: its root is
+    recorded as not read whole, with its position. A link to a directory is not followed, and
+    its root is recorded so too. A ``required`` root that is not there is recorded as missing,
+    never read as empty.
 
     Raises:
         ExposureError: the walk goes past its bounds, or a directory cannot be listed.
@@ -647,6 +698,12 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
         is_run = run is not None and run.is_file(follow_symlinks=False)
         if is_run:
             walk.runs.append(here)
+        # A decomposition cut before its run's configuration (killed, or its start refused once
+        # the run branch's checkout was made) is known by the record it writes first, read: what
+        # it put there is passed over, and everything else in it is walked.
+        own = None if is_run or here == root or PARAMS_RECORD not in names else _own(here, walk)
+        if own is not None:
+            walk.decompositions.append(here)
         record = names.get(RAW_RECORD)
         if not is_run and record is not None and not record.is_dir(follow_symlinks=False):
             walk.records.append(here / RAW_RECORD)
@@ -663,6 +720,8 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
                 if os.path.lexists(where / RUN_RECORD):
                     places.append(where.relative_to(root).as_posix())
                 continue
+            if own is not None and entry.name in own and not os.path.lexists(where / RUN_RECORD):
+                continue
             if depth + 1 > MOST_DEPTH:
                 msg = (
                     f"the run root {root} holds directories deeper than {MOST_DEPTH}: a person "
@@ -673,6 +732,151 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
     if places:
         walk.unread.append(root)
         walk.places += sorted(places)
+
+
+def _settle_key(directory: Path) -> str:
+    """The key of a hand mark that settles ``directory``: a digest of what it is, never its path.
+
+    A mark holds for the directory a person looked at, never for whatever later lies where it
+    lay. So the key digests the directory's own identity (its device and inode, as it stands,
+    never through a link) and the parameters record a decomposition writes first in it
+    (:func:`_params_print`): a directory moved away and another made at its path, or a later
+    decomposition into it, which writes that record afresh, is not settled, and refuses as before.
+    What changes beside the record (a file added, a run made beneath) leaves the mark standing.
+    """
+    try:
+        here = os.lstat(directory)
+    except OSError:
+        identity = "unreachable"
+    else:
+        identity = f"{here.st_dev}:{here.st_ino}"
+    return _digest(f"settled\0{identity}\0{_params_print(directory)}".encode())
+
+
+def _params_print(directory: Path) -> str:
+    """The parameters record in ``directory`` as it stands, read without following a link.
+
+    Its kind, its file's identity, its size and modification time, and the digest of its bytes
+    where it is a plain file under its bound that can be read. One that cannot be read is told by
+    the rest (a record that does not read is one a person settles); a run made before the record
+    existed holds none (``absent``), and its directory's identity alone is what was settled.
+    """
+    path = directory / PARAMS_RECORD
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return "absent"
+    except OSError:
+        return "unreachable"
+    read = "unread"
+    if stat.S_ISREG(info.st_mode) and info.st_size <= MOST_RECORD_BYTES:
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except OSError:
+            fd = -1
+        if fd >= 0:
+            try:
+                if os.fstat(fd).st_ino == info.st_ino:
+                    with os.fdopen(os.dup(fd), "rb") as handle:
+                        read = _digest(handle.read(MOST_RECORD_BYTES + 1))
+            except OSError:
+                read = "unread"
+            finally:
+                os.close(fd)
+    kind = stat.S_IFMT(info.st_mode)
+    return f"{kind}:{info.st_dev}:{info.st_ino}:{info.st_size}:{info.st_mtime_ns}:{read}"
+
+
+def _unreadable(what: str, *, also: str = "") -> ExposureError:
+    """A refusal of a place beneath the run roots, said by its kind, with what a person does."""
+    msg = (
+        f"{what}, so what it holds cannot be ruled out. A person finds it beneath the run roots, "
+        "looks at it, and marks by hand the versions it may have shown, naming it: "
+        "physgate tiers mark-exposed --withheld <root> --version <version> --by <name> "
+        "--reason <why> --settles <directory>. From then on what of it cannot be read is passed "
+        f"over, and what it shows is still read{also}"
+    )
+    return _refuse("register_unreadable", msg)
+
+
+def _absolute(value: object) -> str | None:
+    return value if isinstance(value, str) and value.startswith("/") else None
+
+
+def _record_at(dir_fd: int, name: str) -> dict[str, Any] | None:
+    """The JSON object in the plain file ``name`` under ``dir_fd``; ``None`` if it is not there.
+
+    Raises:
+        ExposureError: it is a link, not a plain file, too large, or not a JSON object.
+    """
+    data = _read_at(dir_fd, name, MOST_RECORD_BYTES)
+    if data is None:
+        return None
+    try:
+        found = json.loads(data)
+    except (ValueError, RecursionError) as exc:
+        raise _refuse("register_unreadable", f"{name} is no record") from exc
+    if not isinstance(found, dict):
+        raise _refuse("register_unreadable", f"{name} is no record")
+    return found
+
+
+def _own(here: Path, walk: _Walk) -> frozenset[str] | None:
+    """What a decomposition put in ``here``, by the parameters record it wrote first; or ``None``.
+
+    The record is read as the decomposition writes it: a plain file holding the absolute path of
+    the parameters file and, since it was recorded, of the target. The decomposition's own are
+    :data:`DECOMPOSITION_PLACES`, its target where that lies in ``here``, and its review root
+    where its record names one that lies there. A settled directory is walked as any other, but
+    for one whose parameters record does not read: what it put there cannot then be told, and a
+    target's deep clone among it would pass the walk's depth bound, so every entry of it is taken
+    as its own (only an entry holding a run's configuration at its top is walked, as at every
+    decomposition's own place), and its other records are read for what they show.
+
+    Raises:
+        ExposureError: the parameters record is there and does not read as one, and the directory
+            is not settled; or, settled, it cannot be listed again.
+    """
+    fd = _dir_fd(here)
+    if fd is None:
+        return None
+    try:
+        try:
+            params = _record_at(fd, PARAMS_RECORD)
+            if params is not None and _absolute(params.get("params")) is None:
+                raise _refuse("register_unreadable", "the parameters record names no file")
+        except ExposureError as exc:
+            if _settle_key(here) in walk.settled:
+                try:
+                    return frozenset(os.listdir(fd))
+                except OSError as listed:
+                    msg = (
+                        "a settled directory under the run roots cannot be listed again: a person "
+                        "makes it readable to this user again"
+                    )
+                    raise _refuse("register_unreadable", msg) from listed
+            msg = "a decomposition's parameters record under the run roots cannot be read"
+            also = (
+                "; settled, the directory is not walked but for a run at its top, so a run deeper "
+                "in it is moved out of it, within the run roots, before it is settled"
+            )
+            raise _unreadable(msg, also=also) from exc
+        if params is None:
+            return None
+        own = set(DECOMPOSITION_PLACES)
+        target = _absolute(params.get("target"))
+        if target is not None and Path(target).parent == here:
+            own.add(Path(target).name)
+        try:
+            review = _record_at(fd, REVIEW_ROOT_RECORD)
+        except ExposureError:
+            review = None  # not known: the review root is walked as anything else
+        root = _absolute(review.get("review_root")) if review is not None else None
+        if root is not None and Path(root).parent == here:
+            own.add(Path(root).name)
+        return frozenset(own)
+    finally:
+        os.close(fd)
 
 
 def _named_by(digests: Iterable[str], known: Mapping[str, TierSet]) -> frozenset[str]:
@@ -686,7 +890,9 @@ def _named_by(digests: Iterable[str], known: Mapping[str, TierSet]) -> frozenset
     return frozenset(found or known)
 
 
-def _run_findings(run: Path, known: Mapping[str, TierSet]) -> list[Finding]:
+def _run_findings(
+    run: Path, known: Mapping[str, TierSet], settled: frozenset[str]
+) -> list[Finding]:
     try:
         config = load_run_config(run / RUN_RECORD)
         log = run / EVENT_LOG
@@ -695,11 +901,245 @@ def _run_findings(run: Path, known: Mapping[str, TierSet]) -> list[Finding]:
         msg = f"a run under the run roots cannot be read: {type(exc).__name__}"
         raise _refuse("register_unreadable", msg) from exc
     marked = _named_by(config.held_out_sha256, known)
-    return [
+    found = [
         Finding(_digest(f"incident\0{run}\0{event.seq}".encode()), "incident", marked)
         for event in events
         if isinstance(event, Incident) and event.cause == "held_out_read"
     ]
+    if found:
+        return found
+    # Started, and killed before its opening's incident: the journal's end line holds it alone.
+    try:
+        sessions = _journal_exposures(run)
+    except ExposureError:
+        if _settle_key(run) not in settled:
+            raise
+        sessions = ()
+    return [Finding(_review_key(run, session), "incident", marked) for session in sessions]
+
+
+def _review_key(directory: Path, session: str) -> str:
+    """The key of a plan review's exposure: the same whichever record of the review shows it."""
+    return _digest(f"review\0{directory}\0{session}".encode())
+
+
+def _journal_exposures(directory: Path) -> tuple[str, ...]:
+    """The review sessions the round journal in ``directory`` ended as exposed.
+
+    Raises:
+        ExposureError: the journal cannot be read.
+    """
+    from physgate.orchestrator.design_rounds import exposed_reviews
+    from physgate.orchestrator.exceptions import OrchestratorError
+
+    try:
+        return exposed_reviews(directory)
+    except OrchestratorError as exc:
+        what = f"a round journal under the run roots cannot be read ({type(exc).__name__})"
+        raise _unreadable(what) from exc
+
+
+def _named_exactly(digests: Iterable[str], known: Mapping[str, TierSet]) -> frozenset[str]:
+    """The versions whose protected tiers ``digests`` name, and no other."""
+    named = set(digests)
+    return frozenset(
+        version
+        for version, manifest in known.items()
+        if manifest.held_out.sha256 in named or manifest.validation.sha256 in named
+    )
+
+
+def _decomposition_findings(
+    directory: Path, known: Mapping[str, TierSet], settled: frozenset[str], withheld: Path
+) -> list[Finding]:
+    """The exposure a decomposition cut before its run's configuration holds (:func:`_reading`).
+
+    Raises:
+        ExposureError: as :func:`_reading`, or a place in it cannot be searched (said by its
+            kind, never by its path, which the filesystem's own error names).
+    """
+    try:
+        return _reading(directory, known, settled, withheld)
+    except OSError as exc:
+        # Each read step of it catches its own; one left uncaught refuses, settled or not: a
+        # settled directory passes over only what cannot be read, never what was found, and what
+        # this read found is lost with it. So a settle does not clear it; its words say what does.
+        msg = (
+            "a decomposition's directory under the run roots cannot be searched (the filesystem "
+            f"refused a read no step of it expects: {type(exc).__name__}), so what it holds cannot "
+            "be ruled out, settled or not. A person makes it readable to this user again (its "
+            "permissions, its disk) and reads again"
+        )
+        raise _refuse("register_unreadable", msg) from exc
+
+
+def _reading(
+    directory: Path, known: Mapping[str, TierSet], settled: frozenset[str], withheld: Path
+) -> list[Finding]:
+    """The exposure a decomposition cut before its run's configuration holds, found in place.
+
+    Read only, but for what a scan of a finished review's stream came to, kept beside the
+    register (:func:`_scanned`). The exposure is found in what the next command on the directory
+    writes once it has scanned the review's streams; in the record of a review no command has
+    scanned yet, whose streams are scanned now by that command's own scan; and in the round
+    journal's end line of an exposed review.
+
+    Which versions it marks: those its recorded held-out tiers name (none, where it recorded
+    that it named no held-out tier: nothing of it could show one). One that recorded nothing,
+    made before the record existed, marks every version of the role, and only on evidence that
+    something showed. A review stream that is gone is an exposure where tiers were recorded; one
+    that is there and cannot be read refuses, by its kind, as does one gone where nothing says
+    which versions it may have shown, and a process table that cannot say whether the review
+    runs. A directory a person settled by hand is read for what it can show; what of it cannot
+    be read is passed over.
+
+    Raises:
+        ExposureError: a record or a stream of it cannot be read, and it is not settled.
+    """
+    from physgate.orchestrator import decomposition_review as review
+    from physgate.orchestrator.processes import is_session
+
+    settles = _settle_key(directory) in settled
+    try:
+        digests = review.recorded_held_out(directory)
+    except (review.ReviewRecordError, OSError) as exc:
+        if not settles:
+            what = (
+                "a decomposition's record of its held-out tiers under the run roots cannot be read"
+            )
+            raise _unreadable(what) from exc
+        digests = None
+    marked = frozenset(known) if digests is None else _named_exactly(digests, known)
+    if not marked:
+        # It named no held-out tier, or none of this role's versions: it can mark none.
+        return []
+    sessions: set[str] = set()
+    try:
+        sessions |= set(_journal_exposures(directory))
+    except ExposureError:
+        if not settles:
+            raise
+    try:
+        named = review.exposed_review(directory)
+    except OSError as exc:
+        if not settles:
+            what = "a decomposition's exposure file under the run roots cannot be read"
+            raise _unreadable(what) from exc
+        named = None
+    if named is not None:
+        sessions.add(named)
+    try:
+        record = review.review_record(directory)
+    except (review.ReviewRecordError, OSError) as exc:
+        if not settles:
+            what = "a decomposition's review record under the run roots cannot be read"
+            raise _unreadable(what) from exc
+        record = None
+    if record is not None and record.session_id not in sessions:
+        try:
+            running: bool | None = is_session(record.pid, record.started, record.session_id)
+        except OSError as exc:
+            if not settles:
+                what = (
+                    "whether a decomposition's review session still runs cannot be told, as the "
+                    "process table cannot be read (read again once it can)"
+                )
+                raise _unreadable(what) from exc
+            running = None
+        if running is not None:
+            shown, refused = _scanned(record, running=running, withheld=withheld)
+            if shown or (refused == "absent" and digests is not None):
+                # A stream that is gone is never read as one that showed nothing.
+                sessions.add(record.session_id)
+            elif refused is not None and not settles:
+                said = review.STREAM_REFUSALS[refused]
+                if refused == "absent":
+                    said += (
+                        ", and the decomposition recorded no held-out tiers, so which versions it "
+                        "may have shown cannot be told"
+                    )
+                raise _unreadable(f"a decomposition's review stream under the run roots is {said}")
+    return [Finding(_review_key(directory, one), "incident", marked) for one in sorted(sessions)]
+
+
+def _scanned(record: Any, *, running: bool, withheld: Path) -> tuple[bool, str | None]:  # noqa: ANN401
+    """Whether a stream of the review shows a canary; and why the first one not read was not.
+
+    A finished session's stream is scanned once: what its scan came to is kept beside the
+    register (:func:`_keep_scan`), named by a digest of the stream's bytes, its size and the
+    canaries looked for, and read back in place of a scan of the same bytes.
+    """
+    from physgate.orchestrator import decomposition_review as review
+
+    refused: str | None = None
+    for read in review.read_review_streams(record):
+        if read.data is None:
+            refused = refused or read.refused
+            continue
+        key = None if running else _scan_key(read.data, record.canaries)
+        shown = None if key is None else _kept_scan(withheld, key)
+        if shown is None:
+            shown = bool(review.shown_in(read.data, record.canaries, running=running))
+            if key is not None:
+                _keep_scan(withheld, key, shown=shown)
+        if shown:
+            return True, None
+    return False, refused
+
+
+def _scan_key(data: bytes, canaries: Iterable[str]) -> str:
+    looked = "\0".join(sorted(canaries))
+    return _digest(f"scan\0{_digest(data)}\0{len(data)}\0{looked}".encode())
+
+
+_KEPT = {b"shown\n": True, b"clean\n": False}
+
+
+def _kept_scan(withheld: Path, key: str) -> bool | None:
+    """What a kept scan of these bytes came to; ``None`` where none is kept, or it does not read."""
+    try:
+        fd = _dir_fd(withheld / KEPT_SCANS)
+        if fd is None:
+            return None
+        try:
+            return _KEPT.get(_read_at(fd, key, 16) or b"")
+        finally:
+            os.close(fd)
+    except (OSError, ExposureError):
+        return None
+
+
+def _keep_scan(withheld: Path, key: str, *, shown: bool) -> None:
+    """Keep what a scan came to, beside the register, written apart and renamed; never refuses.
+
+    It lies beneath the withheld root, which every run on the role and every raw session
+    withholds whole from its sessions, as it does the register: no session writes it.
+    """
+    if not KEEP_SCANS:
+        return
+    try:
+        fd = _dir_fd(withheld)
+        if fd is None:
+            return
+        try:
+            with contextlib.suppress(FileExistsError):
+                os.mkdir(KEPT_SCANS, 0o700, dir_fd=fd)
+            place = os.open(KEPT_SCANS, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            try:
+                part = f".{key}.{os.getpid()}.{time.monotonic_ns()}"
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                out = os.open(part, flags, 0o600, dir_fd=place)
+                try:
+                    os.write(out, b"shown\n" if shown else b"clean\n")
+                finally:
+                    os.close(out)
+                os.replace(part, key, src_dir_fd=place, dst_dir_fd=place)
+            finally:
+                os.close(place)
+        finally:
+            os.close(fd)
+    except (OSError, ExposureError):
+        return
 
 
 def _protected_briefs(store: Path, role: Role) -> dict[str, frozenset[str]]:
@@ -793,6 +1233,19 @@ class Survey:
     places: tuple[str, ...] = ()
 
 
+def _settled(store: Path, role: Role) -> frozenset[str]:
+    """The keys of the hand marks in the role's register: those that settle a directory among them.
+
+    Raises:
+        ExposureError: the register refuses as read.
+    """
+    return frozenset(
+        line.key
+        for line in register_lines(store, role)
+        if line.kind == "exposure" and line.source == "hand"
+    )
+
+
 def survey(store: Path, role: Role, roots: Sequence[Path]) -> Survey:
     """Every exposure beneath ``roots`` and the role's withheld baseline records, now.
 
@@ -801,10 +1254,12 @@ def survey(store: Path, role: Role, roots: Sequence[Path]) -> Survey:
             its bounds.
     """
     known = versions(store, role)
-    walk = _Walk(runs=[], records=[])
+    settled = _settled(store, role)
+    walk = _Walk(runs=[], records=[], settled=settled)
     for root in roots:
         _walk(root, walk, required=True)
-    _walk(withheld_root(store, role) / BASELINE_RECORDS, walk, required=False)
+    withheld = withheld_root(store, role)
+    _walk(withheld / BASELINE_RECORDS, walk, required=False)
     cache: list[Mapping[str, frozenset[str]]] = []
 
     def briefs() -> Mapping[str, frozenset[str]]:
@@ -814,7 +1269,9 @@ def survey(store: Path, role: Role, roots: Sequence[Path]) -> Survey:
 
     found: list[Finding] = []
     for run in sorted(set(walk.runs)):
-        found += _run_findings(run, known)
+        found += _run_findings(run, known, settled)
+    for directory in sorted(set(walk.decompositions)):
+        found += _decomposition_findings(directory, known, settled, withheld)
     for record in sorted(set(walk.records)):
         finding = _record_finding(record, known, briefs)
         if finding is not None:
@@ -936,12 +1393,22 @@ def _today() -> str:
     return datetime.now(UTC).date().isoformat()
 
 
-def mark_exposed(store: Path, role: Role, version: str, *, by: str, reason: str) -> None:
+def mark_exposed(
+    store: Path, role: Role, version: str, *, by: str, reason: str, settles: Path | None = None
+) -> None:
     """Mark ``version`` exposed by hand: a person opened it, which no hook sees.
 
+    ``settles``: a directory beneath the run roots the register refuses because a record or a
+    stream of it cannot be read, which the person has looked at. The mark's key is then a digest
+    of that directory's identity and of the parameters record in it (:func:`_settle_key`; the
+    line names no path), and from then on, while both hold, what of the directory cannot be read
+    is passed over; what it shows is still read. Another directory at the same path, or a later
+    decomposition into it, is not settled. A person marks each version it may have shown, each
+    with the directory named.
+
     Raises:
-        ExposureError: no person or no reason of more than one word is given, or the version
-            is not one of the role's.
+        ExposureError: no person or no reason of more than one word is given, the version
+            is not one of the role's, or ``settles`` is no directory.
     """
     if not by.strip():
         raise _refuse("hand_mark_names_no_one", "a hand mark names the person who makes it")
@@ -956,6 +1423,11 @@ def mark_exposed(store: Path, role: Role, version: str, *, by: str, reason: str)
         raise _refuse("version_unknown", msg)
     date = _today()
     key = _digest(f"hand\0{version}\0{by}\0{reason}\0{date}".encode())
+    if settles is not None:
+        if settles.is_symlink() or not settles.is_dir():
+            msg = "what a hand mark settles is a directory of its own beneath the run roots"
+            raise _refuse("hand_mark_settles_no_directory", msg)
+        key = _settle_key(settles)
     payload = {
         "kind": "exposure",
         "source": "hand",
@@ -1199,7 +1671,7 @@ def results_refusal(store: Path, role: Role, version: str) -> tuple[str, str] | 
             f"the version {said} is marked exposed as the register reads now: it is no "
             "measurement, and its check is not made after it was seen"
         )
-    walk = _Walk(runs=[], records=[])
+    walk = _Walk(runs=[], records=[], settled=_settled(store, role))
     for root in run_roots(store, role):
         _walk(root, walk, required=True)
     _walk(withheld_root(store, role) / BASELINE_RECORDS, walk, required=False)
@@ -1285,14 +1757,18 @@ def _check_refusal(store: Path, role: Role, version: str) -> tuple[str, str] | N
 
 
 def _inside_a_run(run_dir: Path, roots: Sequence[Path]) -> bool:
-    """Whether a directory between ``run_dir`` and the run root it lies beneath holds a run."""
+    """Whether a directory between ``run_dir`` and the run root it lies beneath holds a run.
+
+    A run's configuration, or a decomposition's parameters record of any kind: the walk passes
+    over what a decomposition put in its directory, so a run is never made inside one.
+    """
     for root in roots:
         if not run_dir.is_relative_to(root):
             continue
         for parent in run_dir.parents:
             if parent == root or not parent.is_relative_to(root):
                 break
-            if (parent / RUN_RECORD).is_file():
+            if (parent / RUN_RECORD).is_file() or os.path.lexists(parent / PARAMS_RECORD):
                 return True
     return False
 

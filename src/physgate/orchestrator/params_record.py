@@ -45,18 +45,27 @@ def recorded_params(run_dir: Path) -> Path | None:
     return Path(named)
 
 
-def record_params(run_dir: Path, params: Path) -> None:
-    """Record ``params``, resolved, as the run's parameters file, synced.
+def record_params(run_dir: Path, params: Path, *, target: Path | None = None) -> None:
+    """Record ``params``, resolved, as the run's parameters file, synced; and ``target``, if given.
+
+    ``target`` is the repository the decomposition was given, resolved. Written in the same
+    record, the first thing a ``decompose`` writes, so the exposure register, which reads a
+    directory with no run configuration as a decomposition's by this record, knows the target's
+    clone where it lies inside the run directory as the decomposition's own, never a place a run
+    lies in. Readers of the parameters file read ``params`` alone.
 
     Raises:
         RunStateError: the record could not be written.
     """
     path = Path(run_dir) / RECORD_NAME
     written = path.with_name(f".{path.name}.part")
+    body = {"params": str(Path(params).resolve())}
+    if target is not None:
+        body["target"] = str(Path(target).resolve())
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with written.open("wb") as handle:
-            handle.write(json.dumps({"params": str(Path(params).resolve())}).encode())
+            handle.write(json.dumps(body).encode())
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(written, path)

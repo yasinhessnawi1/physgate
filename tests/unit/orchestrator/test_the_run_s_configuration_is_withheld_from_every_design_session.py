@@ -295,7 +295,12 @@ def test_decompose_records_the_parameters_file_it_was_started_with(tmp_path: Pat
     assert ran.code == 0, ran.err
     record = ran.run_dir / "params_source.json"
     assert record.is_file(), sorted(p.name for p in ran.run_dir.iterdir())
-    assert json.loads(record.read_text()) == {"params": str((tmp_path / "params.json").resolve())}
+    # With the target it was given: where the target's clone lies in the run directory, the
+    # exposure register knows it by this record as the decomposition's own.
+    assert json.loads(record.read_text()) == {
+        "params": str((tmp_path / "params.json").resolve()),
+        "target": str((tmp_path / "target").resolve()),
+    }
 
 
 def test_every_role_session_is_installed_with_the_run_s_parameters_file_withheld(
