@@ -82,6 +82,7 @@ from physgate.orchestrator.dispatch import (
     Installed,
     compactions_seen,
     harness_protection,
+    mark_shown,
     place_apart,
     read_captured,
     read_in_full,
@@ -944,7 +945,11 @@ class ClaudeReviewer:
         except InvocationError:
             written = None
         showed = written is not None and canary_seen(written, canaries) is not None
-        # What the scan saw is made durable before the redaction can replace the line it counted.
+        # What the scan saw is made durable before the redaction can replace the line it counted:
+        # marked in the session's own directory, which a resume of the run reads for a module's
+        # review it finds left (``mark_shown``), and told to the hook (the plan's review's record).
+        if showed:
+            mark_shown(sdir, held_out=True)
         if showed and self._on_shown is not None:
             self._on_shown(session_id)
         redact(stdout, self._setup.credential.secret)

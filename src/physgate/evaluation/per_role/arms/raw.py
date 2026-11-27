@@ -56,6 +56,7 @@ from physgate.hooks.config import SessionConfig
 from physgate.hooks.settings import session_tool_search
 from physgate.orchestrator.accounting import settle
 from physgate.orchestrator.budget import REPAIR_BUDGET
+from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.credentials import (
     Credential,
     open_in_session,
@@ -67,8 +68,11 @@ from physgate.orchestrator.decompose import read_stream
 from physgate.orchestrator.dispatch import (
     check_after_stop,
     harness_protection,
+    mark_shown,
     read_captured,
     read_session_file,
+    read_shown,
+    read_stream_file,
     redact,
     review_material_seen,
     runtime_git_paths,
@@ -532,6 +536,10 @@ def held_out_seen(stream: Path, canaries: tuple[str, ...]) -> bool | None:
     """
     if not canaries:
         return None
+    # What the scan before the redaction saw, marked in the session's own directory (``_clean``),
+    # is shown whatever the redacted stream reads.
+    if read_shown(stream.parent)[0]:
+        return True
     return review_material_seen(stream, frozenset(canaries)) is not None
 
 
@@ -905,7 +913,7 @@ def _run(
             launches=launches,
         )
     finally:
-        _clean(work, sdir, setup.credential.secret, (stdout, stderr))
+        _clean(work, sdir, setup.credential.secret, (stdout, stderr), setup.held_out_canaries)
     captured = read_captured(stdout)
     end = watch.end or ("wall_clock" if ended.timed_out else "ended")
     tokens, cut_off = spent(captured.result, captured.usage)
@@ -1044,26 +1052,33 @@ def _session(
     return ended, watch, seconds, after
 
 
-def clean_left_session(work: Path, secret: str) -> None:
+def clean_left_session(work: Path, secret: str, canaries: tuple[str, ...] = ()) -> None:
     """Clear a raw session's place a killed runner left, as a finished session's is cleared.
 
     The credential's files and the sentinel's record of the protected paths are removed, and the
-    secret is scrubbed from the streams that are there (:func:`_clean`).
+    secret is scrubbed from the streams that are there once the stream is scanned for
+    ``canaries`` (:func:`_clean`).
 
     Raises:
         RawArmError: any part of it failed; a record of why lies beside the place.
     """
     sdir = work / "session"
     streams = tuple(p for p in (sdir / "stdout.jsonl", sdir / "stderr.txt") if p.is_file())
-    _clean(work, sdir, secret, streams)
+    _clean(work, sdir, secret, streams, canaries)
 
 
-def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> None:
+def _clean(
+    work: Path, sdir: Path, secret: str, streams: tuple[Path, ...], canaries: tuple[str, ...] = ()
+) -> None:
     """Remove the credential and scrub it from the session's streams, or record why not.
 
     The role session's own helpers, which reach every file through descriptors without
     following a link. A cleanup that fails is recorded beside the session and refuses the
-    result: the credential may still be on disk.
+    result: the credential may still be on disk. The session's stream is scanned for
+    ``canaries`` as written, before the scrub (which replaces whole a line it cannot read, a line
+    every scan counts as the canary), and what it shows is marked in the session's own directory
+    first (``mark_shown``): :func:`held_out_seen` reads the mark. A mark that cannot be written
+    leaves the streams unscrubbed, and refuses as any failure here does.
 
     Raises:
         RawArmError: any part of the cleanup failed.
@@ -1081,7 +1096,16 @@ def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> No
         remove_sentinel_records(sdir / "state")
     except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
         errors.append(repr(exc))
-    for stream in streams:
+    marked = True
+    stdout = sdir / "stdout.jsonl"
+    if canaries and stdout in streams:
+        try:
+            if canary_seen(read_stream_file(stdout), frozenset(canaries)) is not None:
+                mark_shown(sdir, held_out=True)
+        except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
+            errors.append(repr(exc))
+            marked = False
+    for stream in streams if marked else ():
         try:
             redact(stream, secret)
         except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below

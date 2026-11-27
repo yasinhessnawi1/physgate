@@ -2108,7 +2108,7 @@ def _signalled(
     cleared: bool | str = True
     if (work / "session").exists():
         try:
-            clean_left_session(work, setup.credential.secret)
+            clean_left_session(work, setup.credential.secret, tuple(trial.config.held_out_canaries))
         except PerRoleError as exc:
             cleared = type(exc).__name__
     stop.entry, stop.session_started = trial.index, True
@@ -2262,7 +2262,8 @@ def _killed(
             raise BaselineError(msg, entry=str(index), refused_because="session_lives")
     if left["session"]:
         try:
-            clean_left_session(work, setup.credential.secret)
+            # Its stream scanned before its scrub: what showed is marked, and read below.
+            clean_left_session(work, setup.credential.secret, tuple(trial.config.held_out_canaries))
         except PerRoleError as exc:
             msg = (
                 "a session a kill left could not be cleared of its credential; it is left where it "
