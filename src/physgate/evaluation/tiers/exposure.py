@@ -154,6 +154,8 @@ MOST_RECORD_BYTES = 1024 * 1024
 #: How deep, and how many entries, a walk of the run roots takes before it refuses.
 MOST_DEPTH = 8
 MOST_ENTRIES = 200_000
+#: How many of the runs a refused settle found it names, the first by path.
+MOST_NAMED_RUNS = 10
 #: What a hand mark's reason must at least hold: more than one bare word.
 FEWEST_REASON_WORDS = 2
 #: The most characters a hand mark's name or reason holds, each.
@@ -1530,6 +1532,64 @@ def _for_a_person(path: str) -> str:
     return path.encode("utf-8", "backslashreplace").decode("utf-8")
 
 
+def _params_torn(directory: Path) -> bool:
+    """Whether ``directory``'s parameters record is there and does not read as one."""
+    fd = _dir_fd(directory)
+    if fd is None:
+        return False
+    try:
+        try:
+            params = _record_at(fd, PARAMS_RECORD)
+        except ExposureError:
+            return True
+        return params is not None and _absolute(params.get("params")) is None
+    finally:
+        os.close(fd)
+
+
+def _require_no_run_beneath(directory: Path) -> None:
+    """Refuse a settle of ``directory`` where a run's or a raw trial's record lies in it, anywhere.
+
+    Walked without following a link, every entry counted against :data:`MOST_ENTRIES`; a folder
+    that cannot be listed, or more entries than that, refuses too: what lies there is not known.
+
+    Raises:
+        ExposureError: ``settle_passes_over_a_run``, naming each record found by its path beneath
+            ``directory``; or ``settle_cannot_look_beneath``.
+    """
+    found: list[str] = []
+    seen = 0
+    stack = [directory]
+    while stack:
+        here = stack.pop()
+        try:
+            with os.scandir(here) as listed:
+                entries = list(listed)
+        except OSError as exc:
+            msg = (
+                f"a folder in the directory cannot be listed ({exc.strerror}), so whether a run "
+                "lies beneath it is not known; a person makes it readable to this user first"
+            )
+            raise _refuse("settle_cannot_look_beneath", msg) from None
+        seen += len(entries)
+        if seen > MOST_ENTRIES:
+            msg = f"the directory holds more than {MOST_ENTRIES} entries; a person looks first"
+            raise _refuse("settle_cannot_look_beneath", msg)
+        for entry in entries:
+            if entry.name in (RUN_RECORD, RAW_RECORD):
+                found.append(Path(entry.path).relative_to(directory).as_posix())
+            if entry.is_dir(follow_symlinks=False):
+                stack.append(Path(entry.path))
+    if found:
+        named = ", ".join(_for_a_person(f) for f in sorted(found)[:MOST_NAMED_RUNS])
+        msg = (
+            f"a run lies in the directory ({named}): settled, it would be read by nobody, since "
+            "a directory whose parameters record does not read is not walked; a person moves it "
+            "out of the directory, within the run roots, and then settles"
+        )
+        raise _refuse("settle_passes_over_a_run", msg)
+
+
 def settle_directory(
     store: Path, role: Role, directory: Path, *, by: str, reason: str, given: str | None = None
 ) -> None:
@@ -1547,7 +1607,9 @@ def settle_directory(
     Refused for a directory that is not one (a link, or not there), one that lies outside every
     run root of the role (or is a run root itself), and one the register refuses nothing for, or
     for nothing a settle passes over (its read is told by its kind, so a settle that would pass
-    over nothing is never recorded).
+    over nothing is never recorded). Where its parameters record does not read, refused too
+    while a run's or a raw trial's record lies anywhere in it (:func:`_require_no_run_beneath`):
+    a settle never passes over a run.
 
     Raises:
         ExposureError: as said; or the register, the run roots or the version cannot be read.
@@ -1581,6 +1643,10 @@ def settle_directory(
     if why is not None:
         msg = f"{why}; a settle is recorded only for a directory it makes readable"
         raise _refuse("settle_refuses_nothing", msg)
+    if not os.path.lexists(real / RUN_RECORD) and _params_torn(real):
+        # Settled, such a directory is not walked but for a run at its top: a run or a raw
+        # trial's record deeper in it would be read by nobody afterwards.
+        _require_no_run_beneath(real)
     payload = {
         "kind": "settle",
         "key": key,
