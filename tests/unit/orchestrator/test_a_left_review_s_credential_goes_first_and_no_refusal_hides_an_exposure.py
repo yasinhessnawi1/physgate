@@ -626,3 +626,39 @@ def test_a_hand_mark_and_a_settle_together_mark_what_the_person_says(tier: OnTie
     _settle(tier, directory)
     _mark(tier, later.version)
     assert _readable(tier) == frozenset({later.version})
+
+
+def test_a_review_s_scan_marks_only_its_own_record_shown(tmp_path: Path) -> None:
+    # The record is the review session's that is running: another session's id leaves it as it is.
+    run_dir = tmp_path / "trial"
+    decomposition_review.review_spawned(run_dir)("a-review", 4242, "never")
+    record = run_dir / decomposition_review.REVIEW_SESSION
+    before = record.read_bytes()
+    decomposition_review.review_showed(run_dir)("another-review")
+    assert record.read_bytes() == before
+    assert json.loads(before).get("shown") is None
+
+
+def test_require_only_its_own_refuses_a_review_root_inside_that_holds_only_a_hidden_name(
+    tmp_path: Path,
+) -> None:
+    from physgate.orchestrator.decompose import require_only_its_own
+
+    run_dir = tmp_path / "trial"
+    (run_dir / "review").mkdir(parents=True)
+    (run_dir / "review" / ".left").write_text("{}\n")
+    with pytest.raises(RunStateError):
+        require_only_its_own(run_dir, given=[run_dir / "review"], review_root=run_dir / "review")
+
+
+def test_the_look_into_a_target_follows_no_link_to_a_folder_holding_a_run(tmp_path: Path) -> None:
+    from physgate.orchestrator.decompose import records_in
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "README.md").write_text("a design\n")
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "deep").mkdir(parents=True)
+    (elsewhere / "deep" / "run.json").write_text("{}\n")
+    (target / "linked").symlink_to(elsewhere)
+    assert records_in(target) == (0, None)

@@ -261,6 +261,22 @@ def test_bytecode_that_reaches_a_commit_by_another_route_is_still_refused(tmp_pa
     ]
 
 
+@pytest.mark.parametrize("name", ["law.cpython-312.pyc", "law.cpython-312.opt-1.tmp", "README"])
+def test_anything_beneath_a_bytecode_folder_inside_the_module_is_out_of_scope(
+    tmp_path: Path, name: str
+) -> None:
+    # Inside the module too: a file beneath ``__pycache__`` is never the module's own work,
+    # whatever its name ends with.
+    run, worktree = _run(tmp_path)
+    _write(worktree, {f"{MODULE}/__pycache__/{name}": "planted\n"})
+    _git(worktree, "add", "-A")
+    _git(worktree, "commit", "-q", "-m", "not the orchestrator's commit")
+    commit = _git(worktree, "rev-parse", "HEAD")
+    found = _scope(run, commit)
+    assert len(found) == 1 and f"{MODULE}/__pycache__/{name}" in found[0], found
+    assert "compiled Python inside the module" in found[0], found
+
+
 # ── nothing is carried, nothing is hidden ────────────────────────────────────
 
 

@@ -914,3 +914,27 @@ def test_a_settle_looks_beneath_whatever_stands_at_the_run_record_s_name_but_a_r
     # Named like a run's record, whatever its type: the thing at the top's name, the run beneath.
     said = str(settling.value)
     assert "run.json" in said and str(nested.relative_to(directory) / "run.json") in said, said
+
+
+def test_a_settle_the_register_would_still_refuse_once_settled_is_never_recorded(
+    tier: OnTier, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Torn, it refuses by a kind a settle passes over; settled, it would still refuse, since a
+    # place in it cannot be searched: no line is written that would settle nothing.
+    from physgate.evaluation.tiers.exposure import register_lines  # noqa: PLC0415
+    from physgate.orchestrator import design_rounds  # noqa: PLC0415
+
+    directory = _by_hand(tier, "old", held_out=_recorded(tier))
+    _unreadable_params(tier, directory)
+
+    def refused(run_dir: Path) -> tuple[str, ...]:
+        msg = "Input/output error"
+        raise OSError(5, msg)
+
+    monkeypatch.setattr(design_rounds, "exposed_reviews", refused)
+    before = len(register_lines(tier.made.store, ROLE))
+    with pytest.raises(ExposureError) as settling:
+        _settle(tier, directory)
+    assert settling.value.context.get("refused_because") == "settle_refuses_nothing"
+    assert "would still refuse" in str(settling.value), str(settling.value)
+    assert len(register_lines(tier.made.store, ROLE)) == before
