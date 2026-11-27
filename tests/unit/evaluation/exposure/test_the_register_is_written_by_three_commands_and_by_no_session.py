@@ -225,6 +225,10 @@ def test_a_settle_of_a_directory_outside_the_run_roots_is_refused_at_the_command
         ("holding run.json", "target_holds_a_record"),
         ("holding raw.json", "target_holds_a_record"),
         ("holding params_source.json", "target_holds_a_record"),
+        ("with a knowledge folder", "target_holds_role_knowledge"),
+        ("with a Knowledge folder", "target_holds_role_knowledge"),
+        ("with a knowledge file", "target_holds_role_knowledge"),
+        ("with knowledge below its top", None),
     ],
 )
 def test_a_round_s_prepared_target_is_checked_by_a_command_of_its_own(
@@ -238,6 +242,14 @@ def test_a_round_s_prepared_target_is_checked_by_a_command_of_its_own(
     elif how.startswith("holding"):
         (target / "docs").mkdir()
         (target / "docs" / how.split()[-1]).write_text("{}")
+    elif how.endswith("folder"):
+        # Where a decomposition copies the planned roles' knowledge: another role's, brought.
+        (target / how.split()[2] / "electrical").mkdir(parents=True)
+        (target / how.split()[2] / "electrical" / "standards.md").write_text("a library")
+    elif how == "with a knowledge file":
+        (target / "knowledge").write_text("a file where the library goes")
+    elif how == "with knowledge below its top":
+        (target / "docs" / "knowledge").mkdir(parents=True)
     code, said = _tiers(capsys, "check-target", "--path", str(target))
     if reason is None:
         assert code == 0 and said.get("checked") == str(target), said

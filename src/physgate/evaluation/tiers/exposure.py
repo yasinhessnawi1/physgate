@@ -1729,11 +1729,30 @@ def prepared_target_refusal(target: Path) -> tuple[str, str] | None:
     decomposition's parameters record, is walked whole, clone and all: a directory nested deeper
     than :data:`PREPARED_TARGET_DEPTH` beneath the target then refuses every reader of the
     register, a measured trial's own ``decompose`` among them; and a file named as a run's, a
-    raw trial's or a decomposition's record anywhere in it is read as that record. A launch calls
-    this on the round's target before the round starts. ``None`` where neither holds; the reason
-    and its words otherwise (the record's place beneath the target is said, never its content).
+    raw trial's or a decomposition's record anywhere in it is read as that record. Nor may the
+    target hold, at its top, the place a decomposition copies the planned roles' knowledge into
+    (``knowledge``, in any case: :data:`physgate.knowledge.loader.DEFAULT_ROOT`): a library
+    folder the target brought would stand in a run's worktree beside the roles' own, and a
+    reviewer reads another role's library folder there as the sign of a system to be built
+    (``target_holds_role_knowledge``). A launch calls this on the round's target before the round
+    starts. ``None`` where none holds; the reason and its words otherwise (the record's place
+    beneath the target is said, never its content).
     """
+    from physgate.knowledge.loader import DEFAULT_ROOT
     from physgate.orchestrator.decompose import records_in
+
+    library = DEFAULT_ROOT.parts[0]
+    try:
+        top = [entry.name for entry in target.iterdir()]
+    except OSError as exc:
+        return "target_unreadable", f"the target cannot be looked into whole: {exc}"
+    brought = sorted(name for name in top if name.casefold() == library.casefold())
+    if brought:
+        return "target_holds_role_knowledge", (
+            f"the target holds {brought[0]!r} at its top, where a decomposition copies the planned "
+            "roles' knowledge: what the target brought there would stand in every run's worktree "
+            "beside the roles' own, and be read as another role's library"
+        )
 
     try:
         deepest, found = records_in(target)

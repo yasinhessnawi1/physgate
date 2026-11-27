@@ -79,7 +79,11 @@ its decomposition's first record is walked whole by the register, so the target 
 directory nested deeper than five beneath it (``target_too_deep``: the register would refuse
 every reader, the trial's own ``decompose`` among them) and no file named ``run.json``,
 ``raw.json`` or ``params_source.json`` (``target_holds_a_record``: it would be read as a
-record). It reads nothing else and writes nothing; exit 0 when the target passes.
+record); and it holds nothing named ``knowledge``, in any case, at its top, where a
+decomposition copies the planned roles' knowledge (``target_holds_role_knowledge``: a library
+folder the target brought would be read in every run's worktree as another role's). It reads
+nothing else and writes nothing; exit 0 when the target passes. The round driver does not call
+it: the launch does, on the target the round clones from, before the round starts.
 
 ``physgate tiers practice --store S --implementer-model M [--seed N]`` builds, at the new
 directory ``S``, a store holding one version of practice tasks written for a shakedown

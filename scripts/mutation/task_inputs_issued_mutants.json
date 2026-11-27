@@ -222,5 +222,21 @@
     "data": [
       "tests/unit/evaluation/per_role/task_fixtures.py"
     ]
+  },
+  {
+    "name": "a_target_bringing_role_knowledge_passes_the_launch_check",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "    if brought:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_the_register_is_written_by_three_commands_and_by_no_session.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/hooks/test_install_writes_the_sessions_settings_file.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
   }
 ]
