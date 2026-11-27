@@ -35,6 +35,7 @@ if str(BASELINE_TESTS) not in sys.path:
     sys.path.insert(0, str(BASELINE_TESTS))
 
 from baseline_fixtures import (  # noqa: E402
+    CHECKOUT,
     PRICES,
     SCORED,
     harness_run,
@@ -214,6 +215,7 @@ def _round(root: Path, install_bin: Path) -> Attempts:
                 os_layer=layer,
                 role_python=None,
                 base_url=url,
+                harness=CHECKOUT,
             )
 
         # The rows read what the trials left, whether the round was refused or not.

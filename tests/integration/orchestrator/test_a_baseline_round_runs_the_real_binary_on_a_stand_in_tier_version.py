@@ -35,6 +35,7 @@ if str(BASELINE_TESTS) not in sys.path:
     sys.path.insert(0, str(BASELINE_TESTS))
 
 from baseline_fixtures import (  # noqa: E402
+    CHECKOUT,
     PRICES,
     SCORED,
     StandInStore,
@@ -188,6 +189,7 @@ def _round(root: Path, install_bin: Path) -> Round:
                 os_layer=layer,
                 role_python=None,
                 base_url=url,
+                harness=CHECKOUT,
             )
 
         before = _files(root)
