@@ -24,18 +24,63 @@
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
       "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/exposure/test_the_register_is_written_by_three_commands_and_by_no_session.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/harness_round/test_a_complete_round_says_how_many_of_its_trials_the_baseline_cannot_cap.py",
+      "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py",
+      "tests/unit/evaluation/harness_round/test_a_harness_round_writes_run_sets_the_counting_rule_and_the_baseline_take.py",
+      "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py",
+      "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py",
+      "tests/unit/evaluation/harness_round/test_a_round_goes_on_only_on_the_code_and_client_it_began_with.py",
+      "tests/unit/evaluation/harness_round/test_a_round_waiting_for_the_usage_limit_says_when_to_come_back.py",
+      "tests/unit/evaluation/harness_round/test_a_run_begun_and_never_finished_is_a_decomposition_that_spent_its_call.py",
+      "tests/unit/evaluation/harness_round/test_a_trial_s_answer_is_read_from_the_module_directory_its_plan_names.py",
+      "tests/unit/evaluation/harness_round/test_a_usage_limit_never_spends_an_attempt_and_never_makes_a_trial_unscored.py",
+      "tests/unit/evaluation/harness_round/test_nothing_outside_the_withheld_root_tells_a_protected_trial_s_outcome.py",
+      "tests/unit/evaluation/harness_round/test_one_driver_drives_a_round_at_a_time.py",
+      "tests/unit/evaluation/harness_round/test_the_command_driver_relays_nothing_a_trial_s_command_prints.py",
+      "tests/unit/evaluation/harness_round/test_the_command_exits_75_and_77_while_the_round_waits.py",
+      "tests/unit/evaluation/harness_round/test_the_round_s_ledger_is_synced_line_by_line.py",
+      "tests/unit/evaluation/harness_round/test_the_run_and_review_directories_a_round_names_pass_the_core_s_rule.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+      "tests/unit/evaluation/per_role/test_the_raw_arm_s_credential_is_handled_as_a_role_session_s.py",
+      "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
       "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/hooks/test_install_writes_the_sessions_settings_file.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/left_session.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
       "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
       "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
       "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
       "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
       "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
-      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+      "tests/unit/oslayer/test_the_deny_list_is_the_registry.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_packet_lists_the_simulation_records_the_attempt_sealed.py",
+      "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
+      "tests/unit/series/review_listing_golden.md",
+      "tests/unit/series/series_fixture.py",
+      "tests/unit/series/test_a_session_s_records_are_collected_sealed_or_set_aside.py",
+      "tests/unit/series/test_the_shared_summary_keeps_the_review_listing_s_bytes.py",
+      "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py",
+      "tests/unit/series/writer_rig.py"
     ]
   },
   {
@@ -117,18 +162,30 @@
       "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
     ],
     "data": [
-      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
-      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
-      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
-      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
-      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
-      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/left_session.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/orchestrator/left_session.py",
-      "tests/unit/evaluation/exposure/exposure_fixtures.py",
-      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
+      "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
     ]
   },
   {
@@ -140,18 +197,30 @@
       "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
     ],
     "data": [
-      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
-      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
-      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
-      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
-      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
-      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/left_session.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/orchestrator/left_session.py",
-      "tests/unit/evaluation/exposure/exposure_fixtures.py",
-      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
+      "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
     ]
   },
   {
@@ -163,18 +232,30 @@
       "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
     ],
     "data": [
-      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
-      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
-      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
-      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
-      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
-      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/left_session.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/orchestrator/left_session.py",
-      "tests/unit/evaluation/exposure/exposure_fixtures.py",
-      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
+      "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
     ]
   },
   {
@@ -185,7 +266,32 @@
     "tests": [
       "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py",
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py"
+    ]
   },
   {
     "name": "the_raw_arm_scans_after_its_scrub",
@@ -195,7 +301,10 @@
     "tests": [
       "tests/unit/evaluation/per_role/test_the_raw_arm_says_it_saw_no_canary_only_when_it_looked_for_one.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/per_role/test_the_raw_arm_s_credential_is_handled_as_a_role_session_s.py"
+    ]
   },
   {
     "name": "the_source_s_directory_is_not_looked_at",
@@ -255,7 +364,33 @@
     "tests": [
       "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/harness_round/test_a_complete_round_says_how_many_of_its_trials_the_baseline_cannot_cap.py",
+      "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py",
+      "tests/unit/evaluation/harness_round/test_a_harness_round_writes_run_sets_the_counting_rule_and_the_baseline_take.py",
+      "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py",
+      "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py",
+      "tests/unit/evaluation/harness_round/test_a_round_goes_on_only_on_the_code_and_client_it_began_with.py",
+      "tests/unit/evaluation/harness_round/test_a_round_waiting_for_the_usage_limit_says_when_to_come_back.py",
+      "tests/unit/evaluation/harness_round/test_a_run_begun_and_never_finished_is_a_decomposition_that_spent_its_call.py",
+      "tests/unit/evaluation/harness_round/test_a_trial_s_answer_is_read_from_the_module_directory_its_plan_names.py",
+      "tests/unit/evaluation/harness_round/test_a_usage_limit_never_spends_an_attempt_and_never_makes_a_trial_unscored.py",
+      "tests/unit/evaluation/harness_round/test_nothing_outside_the_withheld_root_tells_a_protected_trial_s_outcome.py",
+      "tests/unit/evaluation/harness_round/test_one_driver_drives_a_round_at_a_time.py",
+      "tests/unit/evaluation/harness_round/test_the_command_driver_relays_nothing_a_trial_s_command_prints.py",
+      "tests/unit/evaluation/harness_round/test_the_command_exits_75_and_77_while_the_round_waits.py",
+      "tests/unit/evaluation/harness_round/test_the_round_s_ledger_is_synced_line_by_line.py",
+      "tests/unit/evaluation/harness_round/test_the_run_and_review_directories_a_round_names_pass_the_core_s_rule.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+      "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
   },
   {
     "name": "an_unlistable_folder_is_passed_over",
@@ -356,18 +491,34 @@
       "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
     ],
     "data": [
-      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
-      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
-      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
-      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
-      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
-      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/exposure/test_the_register_is_written_by_three_commands_and_by_no_session.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/hooks/test_install_writes_the_sessions_settings_file.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/left_session.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/orchestrator/left_session.py",
-      "tests/unit/evaluation/exposure/exposure_fixtures.py",
-      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py",
+      "tests/unit/orchestrator/test_a_left_review_s_credential_goes_first_and_no_refusal_hides_an_exposure.py",
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
+      "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
     ]
   },
   {
@@ -379,18 +530,34 @@
       "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
     ],
     "data": [
-      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
-      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
-      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
-      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
-      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
-      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/exposure/test_the_register_is_written_by_three_commands_and_by_no_session.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/hooks/test_install_writes_the_sessions_settings_file.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/left_session.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/orchestrator/left_session.py",
-      "tests/unit/evaluation/exposure/exposure_fixtures.py",
-      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py",
+      "tests/unit/orchestrator/test_a_left_review_s_credential_goes_first_and_no_refusal_hides_an_exposure.py",
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
+      "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
     ]
   },
   {
@@ -402,18 +569,34 @@
       "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
     ],
     "data": [
-      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
-      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
-      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
-      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
-      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
-      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/exposure/test_the_register_is_written_by_three_commands_and_by_no_session.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/hooks/test_install_writes_the_sessions_settings_file.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/left_session.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/orchestrator/left_session.py",
-      "tests/unit/evaluation/exposure/exposure_fixtures.py",
-      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py",
+      "tests/unit/orchestrator/test_a_left_review_s_credential_goes_first_and_no_refusal_hides_an_exposure.py",
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
+      "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
     ]
   },
   {
@@ -425,8 +608,9 @@
       "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
     ],
     "data": [
-      "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
+      "tests/unit/orchestrator/orch_helpers.py"
     ]
   },
   {
@@ -438,8 +622,9 @@
       "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
     ],
     "data": [
-      "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
+      "tests/unit/orchestrator/orch_helpers.py"
     ]
   },
   {
@@ -451,8 +636,9 @@
       "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
     ],
     "data": [
-      "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
+      "tests/unit/orchestrator/orch_helpers.py"
     ]
   },
   {
@@ -464,8 +650,9 @@
       "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
     ],
     "data": [
-      "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
+      "tests/unit/orchestrator/orch_helpers.py"
     ]
   },
   {
@@ -477,8 +664,9 @@
       "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
     ],
     "data": [
-      "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
+      "tests/unit/orchestrator/orch_helpers.py"
     ]
   },
   {
@@ -490,8 +678,9 @@
       "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
     ],
     "data": [
-      "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
+      "tests/unit/orchestrator/orch_helpers.py"
     ]
   },
   {
@@ -502,7 +691,15 @@
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
+      "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py",
+      "tests/unit/series/writer_rig.py"
+    ]
   },
   {
     "name": "the_commit_is_made_wherever_the_path_leads",
@@ -512,7 +709,15 @@
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
+      "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py",
+      "tests/unit/series/writer_rig.py"
+    ]
   },
   {
     "name": "an_unreadable_configuration_holds_the_worktree_to_nothing",
@@ -522,7 +727,15 @@
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
+      "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py",
+      "tests/unit/series/writer_rig.py"
+    ]
   },
   {
     "name": "the_refusal_says_code_there_is_never_a_record",
@@ -533,8 +746,8 @@
       "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
     ],
     "data": [
-      "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/orchestrator/orch_helpers.py"
     ]
   },
   {
@@ -546,8 +759,8 @@
       "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
     ],
     "data": [
-      "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/orchestrator/orch_helpers.py"
     ]
   },
   {
@@ -618,7 +831,12 @@
     "tests": [
       "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/oslayer/test_the_deny_list_is_the_registry.py"
+    ]
   },
   {
     "name": "k19_diff_copies_no_operand",
@@ -639,18 +857,31 @@
       "tests/unit/orchestrator/test_a_left_review_s_credential_goes_first_and_no_refusal_hides_an_exposure.py"
     ],
     "data": [
-      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
-      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
-      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
-      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
-      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
-      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/exposure/test_the_register_is_written_by_three_commands_and_by_no_session.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/hooks/test_install_writes_the_sessions_settings_file.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/left_session.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/orchestrator/left_session.py",
-      "tests/unit/evaluation/exposure/exposure_fixtures.py",
-      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py"
     ]
   },
   {
@@ -662,7 +893,20 @@
       "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
     ],
     "data": [
-      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_packet_lists_the_simulation_records_the_attempt_sealed.py",
+      "tests/unit/series/review_listing_golden.md",
+      "tests/unit/series/series_fixture.py",
+      "tests/unit/series/test_a_session_s_records_are_collected_sealed_or_set_aside.py",
+      "tests/unit/series/test_the_shared_summary_keeps_the_review_listing_s_bytes.py",
+      "tests/unit/series/writer_rig.py"
     ]
   },
   {
@@ -674,7 +918,20 @@
       "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
     ],
     "data": [
-      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_packet_lists_the_simulation_records_the_attempt_sealed.py",
+      "tests/unit/series/review_listing_golden.md",
+      "tests/unit/series/series_fixture.py",
+      "tests/unit/series/test_a_session_s_records_are_collected_sealed_or_set_aside.py",
+      "tests/unit/series/test_the_shared_summary_keeps_the_review_listing_s_bytes.py",
+      "tests/unit/series/writer_rig.py"
     ]
   },
   {
@@ -685,7 +942,15 @@
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
     ],
-    "data": []
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
+      "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py",
+      "tests/unit/series/writer_rig.py"
+    ]
   },
   {
     "name": "k48_a_look_into_a_target_follows_a_link",
@@ -696,18 +961,31 @@
       "tests/unit/orchestrator/test_a_left_review_s_credential_goes_first_and_no_refusal_hides_an_exposure.py"
     ],
     "data": [
-      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
-      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
-      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
-      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
-      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
-      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/exposure/test_the_register_is_written_by_three_commands_and_by_no_session.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/hooks/test_install_writes_the_sessions_settings_file.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/left_session.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/orchestrator/left_session.py",
-      "tests/unit/evaluation/exposure/exposure_fixtures.py",
-      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py"
     ]
   },
   {
@@ -719,18 +997,31 @@
       "tests/unit/orchestrator/test_a_left_review_s_credential_goes_first_and_no_refusal_hides_an_exposure.py"
     ],
     "data": [
-      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
-      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
-      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
-      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
-      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
-      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
-      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/exposure/test_the_register_is_written_by_three_commands_and_by_no_session.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/hooks/test_install_writes_the_sessions_settings_file.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
+      "tests/unit/orchestrator/left_session.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/orchestrator/left_session.py",
-      "tests/unit/evaluation/exposure/exposure_fixtures.py",
-      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py"
     ]
   },
   {
@@ -758,18 +1049,63 @@
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
       "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/exposure/test_the_register_is_written_by_three_commands_and_by_no_session.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/harness_round/test_a_complete_round_says_how_many_of_its_trials_the_baseline_cannot_cap.py",
+      "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py",
+      "tests/unit/evaluation/harness_round/test_a_harness_round_writes_run_sets_the_counting_rule_and_the_baseline_take.py",
+      "tests/unit/evaluation/harness_round/test_a_harness_trial_the_machine_ended_is_given_one_more_go_and_no_more.py",
+      "tests/unit/evaluation/harness_round/test_a_killed_harness_round_resumes_and_repeats_or_skips_no_trial.py",
+      "tests/unit/evaluation/harness_round/test_a_round_goes_on_only_on_the_code_and_client_it_began_with.py",
+      "tests/unit/evaluation/harness_round/test_a_round_waiting_for_the_usage_limit_says_when_to_come_back.py",
+      "tests/unit/evaluation/harness_round/test_a_run_begun_and_never_finished_is_a_decomposition_that_spent_its_call.py",
+      "tests/unit/evaluation/harness_round/test_a_trial_s_answer_is_read_from_the_module_directory_its_plan_names.py",
+      "tests/unit/evaluation/harness_round/test_a_usage_limit_never_spends_an_attempt_and_never_makes_a_trial_unscored.py",
+      "tests/unit/evaluation/harness_round/test_nothing_outside_the_withheld_root_tells_a_protected_trial_s_outcome.py",
+      "tests/unit/evaluation/harness_round/test_one_driver_drives_a_round_at_a_time.py",
+      "tests/unit/evaluation/harness_round/test_the_command_driver_relays_nothing_a_trial_s_command_prints.py",
+      "tests/unit/evaluation/harness_round/test_the_command_exits_75_and_77_while_the_round_waits.py",
+      "tests/unit/evaluation/harness_round/test_the_round_s_ledger_is_synced_line_by_line.py",
+      "tests/unit/evaluation/harness_round/test_the_run_and_review_directories_a_round_names_pass_the_core_s_rule.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+      "tests/unit/evaluation/per_role/test_the_raw_arm_s_credential_is_handled_as_a_role_session_s.py",
+      "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
       "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/hooks/test_install_writes_the_sessions_settings_file.py",
+      "tests/unit/orchestrator/accounted.py",
+      "tests/unit/orchestrator/design_review_rig.py",
+      "tests/unit/orchestrator/journal_helper.py",
       "tests/unit/orchestrator/left_session.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json",
       "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
       "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
       "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
       "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
       "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
       "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
-      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_the_physgate_command_starts_and_decides.py",
+      "tests/unit/oslayer/test_the_deny_list_is_the_registry.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/reviewers/test_a_packet_lists_the_simulation_records_the_attempt_sealed.py",
+      "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
+      "tests/unit/series/review_listing_golden.md",
+      "tests/unit/series/series_fixture.py",
+      "tests/unit/series/test_a_session_s_records_are_collected_sealed_or_set_aside.py",
+      "tests/unit/series/test_the_shared_summary_keeps_the_review_listing_s_bytes.py",
+      "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py",
+      "tests/unit/series/writer_rig.py"
     ]
   }
 ]
