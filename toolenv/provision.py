@@ -4,6 +4,18 @@ Run it outside every session, with the network, once per machine:
 
     python3 toolenv/provision.py --dest /abs/path/new-env [--cache /abs/path/cache]
 
+It builds with the ``uv`` first on the search path, and refuses one older than
+:data:`UV_FLOOR`: an older uv installs from the lock without the build constraints it carries,
+so it builds a package published only as source with whatever build backend is newest. A newer
+uv need not be installed system-wide; the harness's own environment can hold it, and
+``uv run`` puts that environment first on the search path:
+
+    uv sync --frozen && uv pip install uv==0.12.17
+    uv run --frozen python toolenv/provision.py --dest /abs/path/new-env
+
+(0.12.17 is the version the workflow that builds the environment on Linux installs; a later
+``uv sync`` removes it from the harness's environment again.)
+
 Every download is held to a digest recorded before it was fetched: the interpreter by uv's own
 table, each wheel by ``uv.lock``, Node by ``pins.json``, each npm package by the server's or the
 simulator's ``package-lock.json``, and each PlatformIO package by its registry's checksum at the
@@ -63,6 +75,7 @@ import zipfile
 from collections.abc import Mapping, Sequence
 from email.parser import HeaderParser
 from pathlib import Path
+from typing import TypedDict
 
 HERE = Path(__file__).resolve().parent
 #: The repository checkout this script lies in: the environment may never lie inside it.
@@ -103,6 +116,12 @@ DESIGN_LICENCES = {
 MAX_DOWNLOAD_BYTES = 200 << 20
 #: How long one provisioning step may take.
 STEP_TIMEOUT_S = 1800
+#: The oldest uv whose install from a lock holds the build to the build constraints the lock
+#: carries: its changelog names the fix ("Respect build constraints in `uv sync`", 0.6.11), and
+#: a frozen install of two of the circuit library's source-only packages built them with
+#: setuptools 80.9.0, the version held, under 0.6.11 and 0.12.17, and with the newest
+#: setuptools under 0.6.9 and 0.6.10.
+UV_FLOOR = (0, 6, 11)
 #: A proxy nothing listens on: the self-check's downloads all fail, so a build that needed
 #: one fails too.
 DEAD_PROXY = "http://127.0.0.1:9"
@@ -1143,6 +1162,32 @@ ALLOWED_LICENCES = frozenset(
         "License :: Public Domain",
     }
 )  # fmt: skip
+
+
+class _Accepted(TypedDict):
+    """What :data:`LICENCE_ACCEPTED_BY_NAME` accepts of one distribution, and why."""
+
+    statements: list[str]
+    reason: str
+
+
+#: Distributions accepted by name although their statements are off the allowed list: each with
+#: exactly the statements accepted, and why. The rule the list serves is that the environment
+#: holds no GPL distribution; one named here is never let state the GPL, and a statement of it
+#: not named here is refused as any other distribution's would be. Recorded in what provisioning
+#: writes wherever such a distribution is installed.
+LICENCE_ACCEPTED_BY_NAME: dict[str, _Accepted] = {
+    "chardet": {
+        "statements": [
+            "LGPL",
+            "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
+        ],
+        "reason": "LGPL-2.1-or-later, an unmodified library installed from the index as a"
+        " dependency of PlatformIO (Apache-2.0) on macOS on ARM alone, bundled into nothing of"
+        " this repository's, and present in every environment built there before the licence"
+        " check existed",
+    },
+}
 #: What a ``License`` field holds when it says nothing (older metadata's default).
 NO_STATEMENT = frozenset({"UNKNOWN"})
 #: Distributions whose full licence text (a ``License`` field over several lines) mentions the
@@ -1192,12 +1237,42 @@ def _licence_files(info: Path) -> list[str]:
     return [path.read_text(encoding="utf-8", errors="replace") for path in files]
 
 
+def _accepted_statements(name: str) -> list[str]:
+    """The statements :data:`LICENCE_ACCEPTED_BY_NAME` accepts of the distribution ``name``."""
+    entry = LICENCE_ACCEPTED_BY_NAME.get(name)
+    return list(entry["statements"]) if entry is not None else []
+
+
+def licences_accepted(site_packages: Path) -> dict[str, dict[str, object]]:
+    """Each installed distribution a statement of which is accepted by name, with the reason.
+
+    Read after :func:`check_licences` has passed, for the record: the distribution's version,
+    the statements of it accepted, and why they are.
+    """
+    found: dict[str, dict[str, object]] = {}
+    for info in sorted(site_packages.glob("*.dist-info")):
+        metadata = (info / "METADATA").read_text(encoding="utf-8", errors="replace")
+        head = HeaderParser().parsestr(metadata, headersonly=True)
+        name = _canonical(str(head.get("Name", "")))
+        accepted = _accepted_statements(name)
+        statements, _ = licence_statements(metadata)
+        used = [s for s in statements if s in accepted and s not in ALLOWED_LICENCES]
+        if used:
+            found[name] = {
+                "version": str(head.get("Version", "?")),
+                "statements": used,
+                "reason": LICENCE_ACCEPTED_BY_NAME[name]["reason"],
+            }
+    return found
+
+
 def licence_refusals(site_packages: Path) -> list[str]:
     """Each installed distribution whose licence statements are refused, with why.
 
     A distribution is refused if it states no licence, if a statement or a full text of it
     mentions the GPL (a full text only where :data:`LICENCE_TEXT_EXCEPTIONS` does not name
-    it), or if a statement is not one of :data:`ALLOWED_LICENCES`. Every distribution is read
+    it), or if a statement is not one of :data:`ALLOWED_LICENCES` (nor one
+    :data:`LICENCE_ACCEPTED_BY_NAME` accepts of that distribution). Every distribution is read
     and every refusal named.
     """
     refused = []
@@ -1215,10 +1290,13 @@ def licence_refusals(site_packages: Path) -> list[str]:
                 statements = [opening]
         gpl = [s for s in statements if _GPL.search(s)]
         gpl += [t for t in texts if _GPL.search(t) and not excepted]
+        accepted = _accepted_statements(name)
         off = [
             s
             for s in statements
-            if s not in ALLOWED_LICENCES and s not in LICENCE_FROM_FILE.values()
+            if s not in ALLOWED_LICENCES
+            and s not in LICENCE_FROM_FILE.values()
+            and s not in accepted
         ]
         if not statements:
             refused.append(f"{who}: states no licence")
@@ -1420,6 +1498,43 @@ def run(argv: Sequence[str], env: Mapping[str, str], *, cwd: Path | None = None)
         tail = (done.stdout + done.stderr)[-2000:]
         raise ProvisionError(f"{Path(argv[0]).name} {' '.join(argv[1:3])} failed:\n{tail}")
     return done.stdout
+
+
+def require_uv(uv: str) -> str:
+    """The version of the uv at ``uv``, which provisioning is about to build with.
+
+    Raises:
+        ProvisionError: it does not say its version, or the version is older than
+            :data:`UV_FLOOR`; either way naming the version needed and why.
+    """
+    floor = ".".join(str(part) for part in UV_FLOOR)
+    why = (
+        f"provisioning needs uv {floor} or later, the first whose install from a lock holds the"
+        " build to the build constraints the lock carries (an older one builds a package"
+        " published only as source with whatever setuptools is newest, not the one held). One"
+        " can be installed into the harness's own environment instead of system-wide:"
+        " `uv pip install uv==0.12.17`, then `uv run --frozen python toolenv/provision.py ...`"
+    )
+    try:
+        done = subprocess.run(  # noqa: S603
+            [uv, "--version"],
+            env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"},
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ProvisionError(f"the uv at {uv} cannot be asked its version ({exc}); {why}") from None
+    found = re.match(r"uv (\d+)\.(\d+)\.(\d+)(?![\w.])", done.stdout.strip())
+    if done.returncode != 0 or found is None:
+        said = (done.stdout + done.stderr).strip()[:80]
+        raise ProvisionError(f"the uv at {uv} does not say its version ({said!r}); {why}")
+    version = tuple(int(part) for part in found.groups())
+    named = ".".join(found.groups())
+    if version < UV_FLOOR:
+        raise ProvisionError(f"the uv at {uv} is {named}; {why}")
+    return named
 
 
 # ---- what the result must be ------------------------------------------------------------------
@@ -1759,6 +1874,7 @@ def provision(
     uv = shutil.which("uv")
     if uv is None:
         raise ProvisionError("uv is not on PATH")
+    require_uv(uv)
     pins = load_pins() if pins is None else pins
     dest.mkdir(parents=True, exist_ok=True)
     cache.mkdir(parents=True, exist_ok=True)
@@ -1799,6 +1915,7 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
         # Read before anything else is installed: every distribution's licence, and what was
         # built from source, by the digests of its source and of the wheel built from it.
         licences_read = check_licences(site)
+        accepted = licences_accepted(site)
         built = built_from_source(dest / "project", cache, site)
         # The interpreter's own library is compiled as well, so no first import writes a
         # cache file into the environment after it was measured.
@@ -1832,6 +1949,7 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
             "reference_models": reference,
             "licences": DESIGN_LICENCES,
             "licences_read": licences_read,
+            "licences_accepted_by_name": accepted,
             "built_from_source": built,
             "build_constraints": build_constraints(dest / "project"),
             "locks_sha256": {name: sha256_of(HERE / name) for name in built_from()},

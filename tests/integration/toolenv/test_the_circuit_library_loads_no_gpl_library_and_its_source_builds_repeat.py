@@ -129,6 +129,10 @@ def test_provisioning_read_every_licence_and_imported_the_circuit_library_itself
     read = record.get("licences_read")
     assert isinstance(read, int), "the record does not say how many licences were read"
     assert read == len(list(_site(env).glob("*.dist-info")))
+    # A distribution accepted by name (chardet, on macOS on ARM) is recorded with its reason,
+    # and nothing else is.
+    accepted = getattr(_provision(), "licences_accepted", lambda _site: None)
+    assert record.get("licences_accepted_by_name") == accepted(_site(env))
     checks = record.get("self_check")
     assert isinstance(checks, dict)
     assert checks.get("circuit") == {"skidl": "3.0.0", "inspice_modules": []}
