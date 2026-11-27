@@ -166,15 +166,15 @@ def _pytest_s_own_temporary_directory_is_no_shared_one_to_a_unit_row(
         "machine_temps"
     ):
         return
-    from physgate.hooks import settings
+    from physgate.oslayer.probe import shared_temp_dirs as real
 
     base = os.path.realpath(tmp_path_factory.getbasetemp())
-    real = settings.shared_temp_dirs
 
     def others() -> tuple[str, ...]:
         return tuple(d for d in real() if not Path(base).is_relative_to(os.path.realpath(d)))
 
-    monkeypatch.setattr(settings, "shared_temp_dirs", others)
+    # The name the installer's request reads the machine's list by.
+    monkeypatch.setattr("physgate.hooks.settings.shared_temp_dirs", others)
 
 
 def outside_writable_root() -> Path:
