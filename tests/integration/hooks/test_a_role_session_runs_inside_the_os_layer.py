@@ -1038,6 +1038,12 @@ def test_no_command_reads_or_writes_a_shared_temporary_directory_or_the_harness_
         tool("Bash", command=_built_open(str(store / "config"), write=True), description="ws"),
         tool("Bash", command=_built_open(str(store), write=False), description="rs"),
         tool("Bash", command=f"cat {planted[0]}", description="named"),
+        # What the refusal tells the session to do instead: its own directory, by $TMPDIR.
+        tool(
+            "Bash",
+            command='echo kept-in-own > "$TMPDIR/note.txt" && cat "$TMPDIR/note.txt"',
+            description="own",
+        ),
     ]
     try:
         run = run_session(layout, steps, layer=True, fields=RAW_FIELDS if raw else None)
@@ -1052,15 +1058,18 @@ def test_no_command_reads_or_writes_a_shared_temporary_directory_or_the_harness_
     assert isinstance(told, list)
     write_said = told[: len(writes)]
     read_said = told[len(writes) : len(writes) + len(reads)]
-    store_write, store_read, named = told[len(writes) + len(reads) :]
+    store_write, store_read, named, own = told[len(writes) + len(reads) :]
+    assert "kept-in-own" in own, own
     # Nothing a command wrote reached the machine, and nothing another left was read.
     assert not any(os.path.lexists(p) for p in planted), write_said
     assert kept == "[core]\n\tbare = true\n", store_write
     for said in read_said:
         assert LEFT_MARKER not in said and f"pg-left-{tag}" not in said, said
     assert "'config'" not in store_read, store_read
-    if sys.platform == "darwin":
-        for said in (*write_said, *read_said, store_write, store_read):
+    for said in (*write_said, *read_said, store_write, store_read):
+        # Each command ran and was answered: by a refusal, or (Linux) inside its empty layer.
+        assert "denied:" in said or "did" in said, said
+        if sys.platform == "darwin":
             assert "denied:" in said and "\ndid" not in said, said
     # The hook refuses a command that names one, and says where to write instead.
     assert "$TMPDIR" in named and "own temporary directory" in named, named
@@ -1131,6 +1140,8 @@ def test_a_command_cannot_rename_its_worktree_or_leave_a_link_at_its_path(
     told = run["told"]
     assert isinstance(told, list)
     assert "renamed" not in told[0] and "linked" not in told[0], told[0]
+    # The command ran, and the layer answered each attempt: not a step that never started.
+    assert told[0].count("denied:") == 2, told[0]
     assert os.path.isdir(worktree) and not os.path.islink(worktree)
     assert not os.path.lexists(moved)
 

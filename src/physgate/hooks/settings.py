@@ -1437,10 +1437,11 @@ def install(
         spawn_env["CLAUDE_CODE_TMPDIR"] = own_temp
         # And every program the session runs, the binary's own commands and a tool of the
         # environment among them: an interpreter's and a compiler's temporary files are made in
-        # the session's own directory, and the shell hook reads ``$TMPDIR`` in a command's word as
-        # that directory. Inside the OS layer the binary points its sandboxed commands at a
-        # directory beneath it (measured on 2.1.301 and 2.1.322). Where it really is: a tool that
-        # writes a path relative to the place it resolves writes the one its TMPDIR names.
+        # the session's own directory (the hooks' trampoline unsets it for the hook it runs, whose
+        # own files are never kept where the session writes). Inside the OS layer the binary points
+        # its sandboxed commands at a directory beneath it (measured on 2.1.301 and 2.1.322).
+        # Where it really is: a tool that writes a path relative to the place it resolves writes
+        # the one its TMPDIR names.
         spawn_env["TMPDIR"] = os.path.realpath(own_temp)
     if request.profile in OWN_TEMP_PROFILES:
         # No command goes to the background, by any route the binary offers (asked for, past its

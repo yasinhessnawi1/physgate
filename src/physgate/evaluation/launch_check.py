@@ -43,9 +43,8 @@ MATERIAL_NAMES = frozenset(
         "review_root.json",
     }
 )
-#: How deep the walk goes beneath each place, and how many entries it reads in all: past either
-#: the place is not established, which is a finding of its own.
-MAX_DEPTH = 8
+#: How many entries the walk reads in all: past it the places are not established, which is a
+#: finding of its own. A walk goes as deep as a place does.
 MAX_ENTRIES = 2_000_000
 #: Directories a walk does not enter: a package tree or a repository's object store holds no
 #: run's records, and each holds more entries than everything else together.
@@ -73,15 +72,17 @@ def _under(path: str, roots: Iterable[str]) -> bool:
     return any(path == r or path.startswith(r.rstrip("/") + "/") for r in roots)
 
 
-def _walk(top: str, refused: Sequence[str], budget: list[int]) -> Iterator[tuple[str, str | None]]:
-    """Each directory beneath ``top`` holding a material record, with the record's name.
+def _walk(
+    top: str, refused: Sequence[str], budget: list[int]
+) -> Iterator[tuple[str, tuple[str, ...] | None]]:
+    """Each directory beneath ``top`` holding a material record, with every such record's name.
 
-    Yields ``(directory, None)`` once where the walk was cut short (depth or entries). Never
-    follows a link; never enters a refused place.
+    Yields ``(top, None)`` once where the walk was cut short (its entries). Never follows a link;
+    never enters a refused place, nor a directory that holds a record (a run's own tree).
     """
-    stack = [(top, 0)]
+    stack = [top]
     while stack:
-        directory, depth = stack.pop()
+        directory = stack.pop()
         if _under(os.path.realpath(directory), refused):
             continue
         try:
@@ -93,9 +94,9 @@ def _walk(top: str, refused: Sequence[str], budget: list[int]) -> Iterator[tuple
             yield top, None
             return
         names = {e.name for e in entries}
-        held = sorted(names & MATERIAL_NAMES)
+        held = tuple(sorted(names & MATERIAL_NAMES))
         if held:
-            yield directory, held[0]
+            yield directory, held
             continue
         for entry in entries:
             try:
@@ -104,10 +105,7 @@ def _walk(top: str, refused: Sequence[str], budget: list[int]) -> Iterator[tuple
                 continue
             if not stat.S_ISDIR(st.st_mode) or entry.name in NOT_ENTERED:
                 continue
-            if depth + 1 > MAX_DEPTH:
-                yield top, None
-                return
-            stack.append((entry.path, depth + 1))
+            stack.append(entry.path)
 
 
 def material_findings(places: Sequence[Path], refused: Sequence[Path]) -> list[Finding]:
@@ -118,15 +116,14 @@ def material_findings(places: Sequence[Path], refused: Sequence[Path]) -> list[F
     for place in places:
         if not place.is_dir():
             continue
-        for directory, name in _walk(str(place), real_refused, budget):
-            if name is None:
+        for directory, names in _walk(str(place), real_refused, budget):
+            if names is None:
                 found.append(
-                    Finding(
-                        "not_established", str(place), "the walk was cut short, too deep or large"
-                    )
+                    Finding("not_established", str(place), "the walk was cut short, too large")
                 )
             else:
-                found.append(Finding("run_material_readable", directory, f"it holds {name}"))
+                held = ", ".join(names)
+                found.append(Finding("run_material_readable", directory, f"it holds {held}"))
     return found
 
 
@@ -192,11 +189,11 @@ def withholding_findings(run_roots: Sequence[Path], registered: set[str]) -> lis
     for root in run_roots:
         if not root.is_dir():
             continue
-        for directory, name in _walk(str(root), (), budget):
-            if name is None:
+        for directory, names in _walk(str(root), (), budget):
+            if names is None:
                 found.append(Finding("not_established", str(root), "the walk was cut short"))
                 continue
-            if name != "run.json":
+            if "run.json" not in names:
                 continue
             try:
                 config = load_run_config(Path(directory) / "run.json")

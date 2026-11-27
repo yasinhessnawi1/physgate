@@ -160,3 +160,36 @@ def test_every_finding_is_one_line_and_the_last_line_counts_them(s: SimpleNamesp
     findings = [line for line in lines if line.startswith("finding: ")]
     assert code == 1 and len(findings) == 2
     assert lines[-1] == "launch check: 2 finding(s)"
+
+
+def test_a_run_holding_another_record_beside_its_run_json_is_still_judged(
+    s: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.evaluation import launch_check
+
+    run = s.runs / "dev-run"
+    run.mkdir()
+    for name in ("run.json", "params_source.json"):
+        (run / name).write_text("{}\n")
+    monkeypatch.setattr(
+        "physgate.orchestrator.run_config.load_run_config",
+        lambda path: SimpleNamespace(withheld_whole=[]),
+    )
+    found = launch_check.withholding_findings([s.runs], {os.path.realpath(s.runs)})
+    assert [(f.kind, f.place) for f in found] == [("run_not_withholding", str(run))]
+
+
+def test_a_place_deeper_than_any_bound_is_walked_whole(s: SimpleNamespace) -> None:
+    deep = s.home / "deep"
+    for n in range(12):
+        deep = deep / f"d{n}"
+    deep.mkdir(parents=True)
+    (deep / "raw.json").write_text("{}\n")
+    left = s.home / "left-run"
+    left.mkdir()
+    (left / "run.json").write_text("{}\n")
+    found = launch_findings(store=s.store, source=s.source, home=s.home)
+    places = {(f.kind, f.place) for f in found}
+    assert ("run_material_readable", str(deep)) in places
+    assert ("run_material_readable", str(left)) in places
+    assert "not_established" not in {f.kind for f in found}
