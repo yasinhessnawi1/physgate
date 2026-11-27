@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -260,11 +261,20 @@ def _record(mode: RunningGateMode, *, failed: bool) -> CheckRecord:
 
 @dataclass
 class Reviewer:
+    """A passing reviewer whose session's spawn is on the run's log, as the real reviewer's is."""
+
     model: str = "claude-opus-5-5"
     calls: int = 0
+    hook: SpawnHook | None = None
+
+    def record_spawns(self, hook: SpawnHook) -> None:
+        self.hook = hook
 
     def review(self, artefact: Artefact) -> ReviewResult:
         self.calls += 1
+        if self.hook is not None:
+            # As the real reviewer's dispatcher does, while the session's process is held.
+            self.hook(f"rev-{self.calls}", os.getpid(), "stand-in")
         return ReviewResult(
             verdict="pass",
             finding="sound",

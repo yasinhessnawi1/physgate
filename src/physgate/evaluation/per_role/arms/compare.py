@@ -45,6 +45,7 @@ from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.managed import answering_models
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.orchestrator.session_ends import open_sessions
 from physgate.orchestrator.session_files import FileRefused, read_beneath
 from physgate.toolenv.record import ToolEnvironment
 
@@ -300,7 +301,9 @@ def harness_total(run_dir: Path) -> int:
     - a line was cut off at the log's end;
     - a message's usage was read from a session a killed orchestrator left behind, with no
       result to check it against (``partial``), or such a session was read incomplete;
-    - a role session was spawned and never ended or read;
+    - a session was spawned and nothing on the run's records ends it: a role session's end line
+      or a leftover's read, a review's verdict, why it has none, or the halt written with its
+      tokens, or, for the plan's review, its spawn's record removed (``session_ends``);
     - the log is empty, or the run has not ended: its last step, replayed from the log as
       the loop takes it, is not done, unrun, halted or escalated (``unrun`` is a run that ended
       with a module that never ran). A run killed during a review,
@@ -332,11 +335,12 @@ def harness_total(run_dir: Path) -> int:
         if isinstance(event, LeftoverRead) and not event.complete:
             msg = "a session the run read at a resume was incomplete; its tokens are uncounted"
             raise ComparisonError(msg, seq=str(event.seq), session_id=event.session_id)
-    spawned = {e.session_id for e in events if isinstance(e, SessionSpawned)}
-    ended = {e.session_id for e in events if isinstance(e, SessionEnded | LeftoverRead)}
-    if spawned - ended:
+    # A role session by its end line, a module review by what the loop writes once it is back,
+    # the plan's review by its spawn's record beside the decomposition (``session_ends``).
+    left = open_sessions(events, run_dir)
+    if left:
         msg = "a session of the run was spawned and never ended; its tokens are uncounted"
-        raise ComparisonError(msg, sessions=",".join(sorted(spawned - ended)))
+        raise ComparisonError(msg, sessions=",".join(str(s) for s in left))
     try:
         state = replay(events)
     except CorruptEventLogError as exc:
@@ -362,7 +366,7 @@ def _ran_a_role_session(events: Sequence[Event]) -> bool:
     """Whether the log records a role session: spawned, ended, read at a resume, or spending.
 
     A real run's role session is spawned before anything else of it is written; a log made over
-    the loop's stand-in sessions records their ends and their tokens without a spawn.
+    stand-in sessions that report no spawn records their ends and their tokens without one.
     """
     return any(
         isinstance(e, SessionSpawned | SessionEnded | LeftoverRead)

@@ -79,13 +79,9 @@ from physgate.orchestrator.events import (
     Event,
     FindingsRecorded,
     Incident,
-    LeftoverRead,
     OsLayerChecked,
-    ReviewRan,
-    ReviewUnavailable,
     SessionEnded,
     SessionSpawned,
-    TokensUsed,
     read_events,
 )
 from physgate.orchestrator.exceptions import (
@@ -140,6 +136,7 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root, os_layer_refusal
+from physgate.orchestrator.session_ends import session_open
 from physgate.orchestrator.session_files import (
     FileRefused,
     open_beneath,
@@ -1128,33 +1125,25 @@ def records_at_start(sdir: Path, session_id: str) -> tuple[RecordAtStart, ...] |
     return tuple(found)
 
 
-def _unended(session_id: str, events: Sequence[Event], *, review: bool = False) -> bool:
+def _unended(session_id: str, events: Sequence[Event]) -> bool:
     """Whether the session ``session_id`` was spawned, and nothing on the log came after.
 
-    Neither its end line nor a leftover's read names it, and no finding follows its first spawn.
-    A review has no end line of its own: what the loop writes once the review is back names it
-    (its tokens, its verdict or why there is none), and an exposure's incident comes first. A
-    review's repair resume is spawned again under the same id, so one ended on disk and resumed
-    is unended still.
+    Nothing ends it by the rule every reader of the run holds to (:func:`session_open`): neither
+    its end line nor a leftover's read names it, nor, for a review, what the loop writes once it
+    is back (its tokens and its verdict, or why there is none, or the halt written with them). A
+    review's repair resume is spawned again under the same id, so one ended on disk and resumed is
+    unended still. And no finding follows its first spawn: then the record holds what its end
+    showed, an exposure's incident among them, and it is not read twice. That is this reader's
+    alone: a finding says nothing of whether the session's tokens were counted.
     """
     spawn = next(
         (e.seq for e in events if isinstance(e, SessionSpawned) and e.session_id == session_id),
         None,
     )
-    return spawn is not None and not any(
-        (isinstance(e, SessionEnded | LeftoverRead) and e.session_id == session_id)
-        or (isinstance(e, Incident | FindingsRecorded) and e.seq > spawn)
-        or (review and _names_review_end(e, session_id))
-        for e in events
-    )
-
-
-def _names_review_end(event: Event, session_id: str) -> bool:
-    """Whether ``event`` is one the loop writes once the review ``session_id`` is back."""
     return (
-        (isinstance(event, TokensUsed) and event.attribution == f"reviewer:{session_id}")
-        or (isinstance(event, ReviewRan) and event.result.session_id == session_id)
-        or (isinstance(event, ReviewUnavailable) and event.session_id == session_id)
+        spawn is not None
+        and session_open(session_id, events)
+        and not any(isinstance(e, Incident | FindingsRecorded) and e.seq > spawn for e in events)
     )
 
 
@@ -2677,9 +2666,7 @@ class ClaudeDispatcher:
             record_path, ended = sdir / "process.json", sdir / "ended.json"
             review = sdir in reviews
             own = sdir.parent.name if review else sdir.name
-            if not record_path.exists() or (
-                ended.exists() and not _unended(own, events, review=review)
-            ):
+            if not record_path.exists() or (ended.exists() and not _unended(own, events)):
                 continue
             try:
                 record = json.loads(read_session_file(record_path))

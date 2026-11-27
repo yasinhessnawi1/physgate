@@ -82,19 +82,22 @@ from physgate.evaluation.tiers.task import Task
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.catches import parse_time
 from physgate.orchestrator.design_rounds import decomposition_streams
-from physgate.orchestrator.dispatch import read_captured, review_material_seen
+from physgate.orchestrator.dispatch import read_captured, review_material_seen, review_streams
 from physgate.orchestrator.events import (
     Event,
     Halted,
     Incident,
     LeftoverRead,
-    SessionEnded,
     SessionSpawned,
     parse_events,
 )
+from physgate.orchestrator.exceptions import RunStateError
 from physgate.orchestrator.gate_events import gate_events
 from physgate.orchestrator.replay import replay
+from physgate.orchestrator.review_root_record import recorded_review_root
 from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.orchestrator.session_ends import open_sessions, spawn_kind
+from physgate.reviewers.places import SESSION_DIRNAME
 
 #: The run halts that are the machine's, not the design's: the account's usage limit among them.
 INFRASTRUCTURE_HALTS = frozenset(
@@ -198,14 +201,12 @@ def harness_exclusion(
     for event in events:
         if isinstance(event, LeftoverRead) and event.scan != "scanned":
             return f"leftover_read: session {event.session_id}'s stream was never scanned"
-    ended = {e.session_id for e in events if isinstance(e, SessionEnded | LeftoverRead)}
-    for event in events:
-        if not isinstance(event, SessionSpawned):
-            continue
-        if event.session_id not in ended:
-            return f"session: {event.session_id} never ended, so its stream was never scanned"
-        if not (run_dir / "sessions" / event.session_id / STREAM_NAME).is_file():
-            return f"stream: session {event.session_id}'s stream is gone"
+    for left in open_sessions(events, run_dir):
+        return f"session: {left} never ended, so its stream was never scanned"
+    for session_id in dict.fromkeys(e.session_id for e in events if isinstance(e, SessionSpawned)):
+        gone = _stream_gone(session_id, events, run_dir)
+        if gone is not None:
+            return f"stream: {gone}"
     for place in decomposition_streams(events):
         if not (run_dir / place).is_file():
             return f"stream: {place}, which the log names, is gone"
@@ -214,9 +215,38 @@ def harness_exclusion(
             return "canary: the task's own canary showed in a stream of the run"
     # Last, once every stream the run left beneath its directory is held: a reviewer's lies
     # outside it, beneath the review root, and is scanned only as its review ends, or by a
-    # resume. A run killed during a review, and never resumed, has neither, and wrote no line
-    # whose missing end would show it; only the run's own end says every review ended.
+    # resume. A run killed during a review, and never resumed, has neither: its review's spawn
+    # is left open above, and the run's own end says the rest of what it owed ended too.
     return _unended(events)
+
+
+def _stream_gone(session_id: str, events: Sequence[Event], run_dir: Path) -> str | None:
+    """Why a spawned session's streams are not all where its kind keeps them, or ``None``.
+
+    A role session's is beneath the run directory. A module review's are beneath the review root
+    the run recorded, in the review's session directory: its first stream and one per repair
+    resume, each a spawn of its own. A session whose kind the records do not tell has no place to
+    look, and is never taken as held.
+    """
+    kind = spawn_kind(session_id, events)
+    if kind == "role session":
+        if not (run_dir / "sessions" / session_id / STREAM_NAME).is_file():
+            return f"session {session_id}'s stream is gone"
+        return None
+    if kind != "module review":
+        return f"session {session_id} is of no kind the records tell, so its stream is not found"
+    try:
+        root = recorded_review_root(run_dir)
+    except RunStateError:
+        return f"review session {session_id}'s stream: the run's review root record is unreadable"
+    if root is None:
+        return f"review session {session_id}'s stream: the run recorded no review root"
+    spawns = sum(1 for e in events if isinstance(e, SessionSpawned) and e.session_id == session_id)
+    where = root / session_id / SESSION_DIRNAME
+    for name in review_streams(spawns):
+        if not (where / name).is_file():
+            return f"review session {session_id}'s stream {name} is gone"
+    return None
 
 
 def _unended(events: Sequence[Event]) -> str | None:
