@@ -146,9 +146,9 @@ def _summed(tiers: dict[str, Any]) -> dict[str, Any]:
     def add(a: Any, b: Any) -> Any:  # noqa: ANN401
         return {k: add(a[k], b[k]) for k in a} if isinstance(a, dict) else a + b
 
-    total: Any = None
+    total: dict[str, Any] = {}
     for counts in tiers.values():
-        total = counts if total is None else add(total, counts)
+        total = counts if not total else add(total, counts)
     return total
 
 
