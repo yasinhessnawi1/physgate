@@ -563,7 +563,7 @@ def differences(
     if given_the_brief_alone(config.brief_sha256, [task]):
         found.append("brief: the harness run was given this task's brief without its values")
     elif issued_sha256(task) != config.brief_sha256:
-        found.append("brief: the harness run was not given this task")
+        found.append("brief: the harness run was not given this task's brief")
     if record.get("task") != task.id:
         found.append(f"task: the raw arm's record is of {record.get('task')!r}, not {task.id!r}")
     # The model that answered, read from the stream itself: an endpoint that answers as

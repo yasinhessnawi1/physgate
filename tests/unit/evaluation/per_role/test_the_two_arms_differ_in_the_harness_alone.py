@@ -282,6 +282,18 @@ def test_a_harness_run_given_another_brief_is_named(tmp_path: Path) -> None:
     assert found == ["brief: the harness run was not given this task's brief"]
 
 
+def test_a_pair_given_the_task_s_brief_without_its_values_is_named_as_such(
+    tmp_path: Path,
+) -> None:
+    """Both arms recorded the task's brief alone: they were given less than the task."""
+    alone = hashlib.sha256(TASK.brief.encode()).hexdigest()
+    run = _harness_run(tmp_path, config=_config(brief_sha256=alone))
+    found = differences(
+        run, _raw_dir(tmp_path, pins=_pins(brief_sha256=alone)), role="control", task=TASK
+    )
+    assert found == ["brief: the harness run was given this task's brief without its values"]
+
+
 def test_a_pin_the_comparison_does_not_know_is_named(tmp_path: Path) -> None:
     """A pin added to the raw arm without a decision here is a difference, not a pass."""
     assert _found(tmp_path, pins=_pins(reviewers="paired")) == [

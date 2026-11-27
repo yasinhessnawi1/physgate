@@ -168,6 +168,15 @@ def test_a_run_on_another_tier_s_task_is_refused(tmp_path: Path, made: StandInSt
     )
 
 
+@pytest.mark.parametrize("tier", ["validation", "held_out"])
+def test_a_run_given_a_task_s_brief_without_its_values_is_refused_by_its_own_name(
+    tmp_path: Path, made: StandInStore, tier: str
+) -> None:
+    alone = hashlib.sha256(made.tasks[tier][0].brief.encode()).hexdigest()
+    m = measured(made, tier, tmp_path / "a", tasks=1, brief_sha256=alone)
+    assert _refused(made, tier, m) == "given_the_brief_alone"
+
+
 def test_a_run_listed_twice_is_refused(tmp_path: Path, made: StandInStore) -> None:
     m = measured(made, "held_out", tmp_path / "a")
     runs = [(r, i % 2) for i, r in enumerate(m.run_dirs)]

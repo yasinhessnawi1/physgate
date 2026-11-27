@@ -492,6 +492,17 @@ def test_a_raw_record_filed_under_another_task_is_refused(
         raw_ended_by_infrastructure(_raw(**changes), stream, TASK)
 
 
+def test_a_raw_record_of_a_session_given_the_task_s_brief_alone_is_refused_by_its_own_name(
+    tmp_path: Path,
+) -> None:
+    alone = hashlib.sha256(TASK.brief.encode()).hexdigest()
+    stream = _stream(tmp_path / "stdout.jsonl", DONE)
+    record = _raw(pins={**_raw()["pins"], "brief_sha256": alone})
+    with pytest.raises(ReportError, match="without its values") as refused:
+        _raw_trial(stream, record)
+    assert refused.value.context["refused_because"] == "given_the_brief_alone"
+
+
 @pytest.mark.parametrize(("run_id", "manifest_id"), [("other", "e" * 64), ("r", "f" * 64)])
 def test_a_harness_trial_with_another_run_s_cost_line_is_refused(
     tmp_path: Path, run_id: str, manifest_id: str
