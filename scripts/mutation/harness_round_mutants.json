@@ -2396,5 +2396,110 @@
   "paths": [
    "knowledge"
   ]
+ },
+ {
+  "name": "a_restart_holds_only_the_trial_s_leaf_to_a_directory",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        if not _a_directory_all_the_way(Path(root), run_dir):\n",
+  "new": "        if os.path.islink(run_dir) or not os.path.isdir(run_dir):\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_restart_deals_only_with_its_own_directories_and_leaves_no_credential.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_restart_deals_with_a_linked_trial_directory",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        if not _a_directory_all_the_way(Path(root), run_dir):\n",
+  "new": "        if not os.path.isdir(run_dir):\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_restart_deals_only_with_its_own_directories_and_leaves_no_credential.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_restart_deals_by_a_ledger_that_is_not_its_round_s",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if not ours or not isinstance(root, str):\n",
+  "new": "    if not isinstance(root, str):\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_restart_deals_only_with_its_own_directories_and_leaves_no_credential.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_restart_from_a_session_deals_before_it_is_refused",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        _not_from_a_session()\n        round_id, place = _found(out, withheld)\n",
+  "new": "        round_id, place = _found(out, withheld)\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_restart_deals_only_with_its_own_directories_and_leaves_no_credential.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_restart_keeps_a_credential_its_left_review_s_unread_stream_holds",
+  "file": "src/physgate/orchestrator/decomposition_review.py",
+  "old": "    try:\n        remove_secrets(session / \"state\", session / \"config\")\n    except InvocationError as exc:\n",
+  "new": "    try:\n        streams_show(record)\n        remove_secrets(session / \"state\", session / \"config\")\n    except InvocationError as exc:\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_restart_deals_only_with_its_own_directories_and_leaves_no_credential.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
  }
 ]
