@@ -31,7 +31,8 @@ with it (``physgate resume --credential-replaced``), which records both fingerpr
 resume line and prints them; the round's record names them per trial. Without it a run halted on
 a refused credential resumes only on the secret it began on. ``--tasks N`` runs the first ``N``
 tasks of each named tier in the round's order: a shakedown, whose run sets the counting rule
-refuses as not covering their tier.
+refuses as not covering their tier. ``--shakedown`` says the round is a shakedown: a practice
+version (its manifest marked so) is refused without it (``practice_version``).
 
 ``--order-seed S`` runs one cell (one ``--tier``) in the registered order: the cell's (id digest,
 trial) pairs sorted and shuffled once by ``random.Random("S:order:<role>_<tier>")``, trial ``n``
@@ -107,6 +108,11 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
     run.add_argument("--prices", required=True, help="the dated price sheet the runs are priced at")
     run.add_argument("--out", type=Path, required=True)
     run.add_argument("--tasks", type=int, help="the first N tasks of each tier: a shakedown")
+    run.add_argument(
+        "--shakedown",
+        action="store_true",
+        help="the round is a shakedown: the only round that runs on a practice version",
+    )
     run.add_argument(
         "--order-seed",
         dest="order_seed",
@@ -238,6 +244,7 @@ def _run(args: argparse.Namespace) -> int:
             out=args.out.resolve(),
             tasks=args.tasks,
             order_seed=args.order_seed,
+            shakedown=args.shakedown,
             ablation=(
                 None
                 if args.ablation is None

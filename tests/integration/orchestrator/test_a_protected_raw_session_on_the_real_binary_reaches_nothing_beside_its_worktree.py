@@ -52,7 +52,14 @@ BASELINE_TESTS = Path(__file__).resolve().parents[2] / "unit" / "evaluation" / "
 if str(BASELINE_TESTS) not in sys.path:
     sys.path.insert(0, str(BASELINE_TESTS))
 
-from baseline_fixtures import PRICES, SCORED, harness_run, run_set, stand_in_store  # noqa: E402
+from baseline_fixtures import (  # noqa: E402
+    CHECKOUT,
+    PRICES,
+    SCORED,
+    harness_run,
+    run_set,
+    stand_in_store,
+)
 
 from physgate.evaluation.baseline import runner  # noqa: E402
 from physgate.evaluation.baseline.runner import (  # noqa: E402
@@ -609,6 +616,7 @@ def _round(root: Path, install_bin: Path) -> Round:
                 os_layer=layer,
                 role_python=None,
                 base_url=url,
+                harness=CHECKOUT,
             )
 
         def arm(task: Task, given: RawSetup, work: Path, **kw: Any) -> dict[str, Any]:  # noqa: ANN401

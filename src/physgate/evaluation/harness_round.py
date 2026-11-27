@@ -189,7 +189,7 @@ from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.report import TrialRecord
 from physgate.evaluation.tiers.canaries import store_canaries
 from physgate.evaluation.tiers.checks import check_path
-from physgate.evaluation.tiers.manifest import TierSet, read_version
+from physgate.evaluation.tiers.manifest import TierSet, practice_refusal, read_version
 from physgate.evaluation.tiers.store import (
     leftover_refusal,
     protected_tier_refusal,
@@ -671,6 +671,8 @@ class Inputs:
     #: sorted and shuffled once by ``random.Random("<seed>:order:<suite>")``, trial ``n`` of a task
     #: seeded ``seed base + n``; ``None`` for the driver's own order.
     order_seed: int | None = None
+    #: The round is a shakedown: a practice version is run on only when this says so.
+    shakedown: bool = False
     #: The ablation arm the round runs beside its harness trials, in the same order, or ``None``.
     ablation: Ablation | None = None
 
@@ -824,6 +826,10 @@ def _refusals(inputs: Inputs) -> tuple[_Version, frozenset[str], str]:
     if inputs.version in exposed:
         msg = f"the version {inputs.version[:8]} is marked exposed; nothing is measured on it"
         raise _refuse("version_exposed", msg)
+    # A practice version's runs are a shakedown's, never a measurement's.
+    practice = practice_refusal(known[inputs.version], shakedown=inputs.shakedown)
+    if practice is not None:
+        raise _refuse(*practice)
     try:
         record = checked(store, role, known[inputs.version])
     except PerRoleError as exc:
@@ -1170,6 +1176,7 @@ def _inputs_record(inputs: Inputs, target_head: str, check_sha256: str) -> dict[
         "check_sha256": check_sha256,
         # Only where it is given, so a round in the driver's own order is held as it always was.
         **({} if inputs.order_seed is None else {"order_seed": inputs.order_seed}),
+        **({"shakedown": True} if inputs.shakedown else {}),
         # Only where an arm is given, so a round without one is held as it always was.
         **(
             {}

@@ -142,6 +142,8 @@ def add_parser(subparsers: Any) -> None:
     rep.add_argument("--out", type=Path)
     # The tier-set store whose check records a held-out suite naming its version is held to.
     rep.add_argument("--store", type=Path)
+    # A practice version's records are a shakedown's: reported only when said so.
+    rep.add_argument("--shakedown", action="store_true")
     rep.set_defaults(func=_report)
 
 
@@ -183,12 +185,13 @@ def _controleval(args: argparse.Namespace) -> int:
 def _report(args: argparse.Namespace) -> int:
     from physgate.evaluation.per_role.exceptions import PerRoleError
     from physgate.evaluation.per_role.report import (
+        ReportError,
         parse_design,
         parse_trials,
         render,
     )
     from physgate.evaluation.tiers.checks import CheckRecord, read_check
-    from physgate.evaluation.tiers.manifest import read_version
+    from physgate.evaluation.tiers.manifest import practice_refusal, read_version
     from physgate.evaluation.tiers.store import version_dir
 
     try:
@@ -198,9 +201,16 @@ def _report(args: argparse.Namespace) -> int:
         if args.store is not None:
             store = args.store.resolve()
             for suite in design.suites:
-                if suite.tier == "held_out" and suite.version is not None:
+                if suite.version is None:
+                    continue
+                manifest = read_version(version_dir(store, suite.role, suite.version))
+                practice = practice_refusal(manifest, shakedown=args.shakedown)
+                if practice is not None:
+                    raise ReportError(  # noqa: TRY301 - said as every refusal here is
+                        practice[1], suite=suite.name, refused_because=practice[0]
+                    )
+                if suite.tier == "held_out":
                     # Held to the version's manifest: its held-out tier's digest and count.
-                    manifest = read_version(version_dir(store, suite.role, suite.version))
                     found = read_check(store, suite.role, suite.version, manifest=manifest)
                     if found is not None:
                         checks[suite.version] = found

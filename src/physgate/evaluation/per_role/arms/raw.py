@@ -90,6 +90,7 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.role_python import RolePython, session_bin
 from physgate.orchestrator.run_config import (
     Effort,
+    HarnessState,
     Network,
     RunBounds,
     ThinkingDisplay,
@@ -206,6 +207,10 @@ class RawSetup:
     #: is added from the run's held-out roots that hold ``held_out_carved``. Whatever is made in
     #: such a root after the install is withheld as what was there before (``--withheld-whole``).
     withheld_whole: tuple[str, ...] = ()
+    #: The harness checkout the session runs from, as measured where it runs: its commit and
+    #: whether it is clean. Recorded among the pins and held to the harness run's own record.
+    #: ``None`` where none was measured, which no harness run's checkout equals.
+    harness: HarnessState | None = None
 
     def __post_init__(self) -> None:
         """Refuse servers without the environment they start from, as a run's record does."""
@@ -1035,6 +1040,20 @@ def _session(
     return ended, watch, seconds, after
 
 
+def clean_left_session(work: Path, secret: str) -> None:
+    """Clear a raw session's place a killed runner left, as a finished session's is cleared.
+
+    The credential's files and the sentinel's record of the protected paths are removed, and the
+    secret is scrubbed from the streams that are there (:func:`_clean`).
+
+    Raises:
+        RawArmError: any part of it failed; a record of why lies beside the place.
+    """
+    sdir = work / "session"
+    streams = tuple(p for p in (sdir / "stdout.jsonl", sdir / "stderr.txt") if p.is_file())
+    _clean(work, sdir, secret, streams)
+
+
 def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> None:
     """Remove the credential and scrub it from the session's streams, or record why not.
 
@@ -1191,4 +1210,10 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
         "python_bytecode": session_python_bytecode(),
         "brief_sha256": hashlib.sha256(task.brief.encode()).hexdigest(),
         "answer": task.answer.model_dump(),
+        # The harness checkout it ran from: a baseline is held to one commit with its pair.
+        "harness": (
+            None
+            if setup.harness is None
+            else {"commit": setup.harness.commit, "clean": setup.harness.clean}
+        ),
     }

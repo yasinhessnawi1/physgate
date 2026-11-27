@@ -59,7 +59,7 @@ from physgate.evaluation.gaps.vector import (
 from physgate.evaluation.observe.compare import DRIFT, compared_held_out
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.checks import CheckError, CheckRecord, LeftOut, left_out, read_check
-from physgate.evaluation.tiers.manifest import TierSet
+from physgate.evaluation.tiers.manifest import TierSet, practice_refusal
 from physgate.evaluation.tiers.store import WITHHELD, version_dir
 from physgate.evaluation.tiers.task import Role, canonical_json, id_digest, parse_task
 from physgate.orchestrator.exceptions import OrchestratorError
@@ -184,10 +184,13 @@ def census(
     trials: Path,
     *,
     arm: str = "harness",
+    shakedown: bool = False,
 ) -> Census:
     """The tier's runs and records under the counting rule, or the reason they are refused.
 
-    ``arm`` is the arm every record must be of; its callers refuse the raw arm first.
+    ``arm`` is the arm every record must be of; its callers refuse the raw arm first. A practice
+    version is refused (``practice_version``) unless ``shakedown`` says the runs are a
+    shakedown's (:func:`.manifest.practice_refusal`).
 
     Raises:
         GapsError: the rule refuses them; it names a run by its place in the run set only.
@@ -208,6 +211,9 @@ def census(
     }
     if version not in known:
         raise _refuse("version_unknown", f"the role has no version {version[:8]}")
+    practice = practice_refusal(known[version], shakedown=shakedown)
+    if practice is not None:
+        raise _refuse(*practice)
     if version in exposed_versions(store, role):
         msg = (
             f"the version {version[:8]} is marked exposed as the register reads now; nothing "

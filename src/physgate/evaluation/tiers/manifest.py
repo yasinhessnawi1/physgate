@@ -111,6 +111,11 @@ class TierSet(_Frozen):
     generated: Annotated[str, StringConstraints(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")]
     runtime: Annotated[str, StringConstraints(min_length=1, max_length=64)]
     provenance_sha256: Sha256
+    #: Set on a practice version (:mod:`.practice`): its tasks were written for a shakedown,
+    #: never for a measurement. Left out of a manifest that is not one, so a real version keeps
+    #: its bytes and its id. A reader that counts a result refuses such a version unless it is
+    #: told the round is a shakedown (:func:`practice_refusal`).
+    practice: Literal[True] | None = Field(default=None, exclude_if=lambda v: v is None)
 
     @model_validator(mode="after")
     def _holds_its_rules(self) -> TierSet:
@@ -137,6 +142,21 @@ def version_id(fields: Mapping[str, Any]) -> str:
     return hashlib.sha256(
         canonical_json({key: value for key, value in fields.items() if key != "version"})
     ).hexdigest()
+
+
+def practice_refusal(manifest: TierSet, *, shakedown: bool) -> tuple[str, str] | None:
+    """Why a result on ``manifest`` may not be counted: a counted reason and its words; or ``None``.
+
+    A practice version's results are a shakedown's, never a measurement's: a round, a census or
+    a report on one is refused unless it is told it is a shakedown. A version that is not a
+    practice one is never refused here, whatever ``shakedown`` says.
+    """
+    if manifest.practice is None or shakedown:
+        return None
+    return "practice_version", (
+        f"the version {manifest.version[:8]} is a practice version, written for a shakedown; "
+        "nothing on it is counted unless the round is told it is a shakedown"
+    )
 
 
 def make_tierset(**fields: Any) -> TierSet:

@@ -160,6 +160,20 @@ class BaselineRecord(_Frozen):
     development: bool
     harness_runs: Count
     counts: dict[SourceTier, TierCounts]
+    #: Set where the round ran on a practice version, which it did only when told it was a
+    #: shakedown: such a round is no baseline of any measurement. Left out otherwise, so every
+    #: record keeps its bytes.
+    practice: Literal[True] | None = Field(default=None, exclude_if=lambda v: v is None)
+    #: Where the round is the once-more of an earlier round's entry: that round's id and
+    #: directory, the entry's place in its run set, its last session, and why it is run again.
+    #: The earlier record is kept and never counted. Left out otherwise.
+    rerun_of: dict[str, Any] | None = Field(default=None, exclude_if=lambda v: v is None)
+    #: Per tier, how many of the round's entries gave no figure of their own and ran under a
+    #: cap the cell's rule took from other trials (:mod:`.caps`), and of how many entries. Left
+    #: out of a round where every entry had its own figure.
+    no_figure: dict[SourceTier, dict[str, int]] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
     @model_validator(mode="after")
     def _one_source_and_its_tiers(self) -> BaselineRecord:

@@ -45,7 +45,7 @@ from physgate.orchestrator.events import (  # noqa: E402
 )
 from physgate.orchestrator.protocols import Usage  # noqa: E402
 from physgate.orchestrator.review_root_record import record_review_root  # noqa: E402
-from physgate.orchestrator.run_config import RunConfig  # noqa: E402
+from physgate.orchestrator.run_config import HarnessState, RunConfig  # noqa: E402
 from physgate.oslayer.probe import Present  # noqa: E402
 
 EXAMPLES = Path(__file__).parents[4] / "src/physgate/orchestrator/examples"
@@ -58,6 +58,8 @@ PRICES = "2026-10-16"
 #: measures the binary it runs, so the harness runs record the build the raw session is given.
 BINARY = Path(__file__).resolve()
 BUILT = measure(str(BINARY))
+#: The checkout every stand-in harness run recorded, and the round's sessions run from.
+CHECKOUT = HarnessState(commit="c" * 40, clean=True, uncommitted_sha256=None)
 #: The pins a stand-in check record names.
 CHECK_PINS = {
     "model": "claude-sonnet-5",
@@ -106,6 +108,7 @@ def stand_in_store(
     changes: dict[str, Any] | None = None,
     checked: bool = True,
     flagged: Sequence[int] = (),
+    practice: bool = False,
 ) -> StandInStore:
     """Twenty-four fixture tasks, each with its own brief, split into one version.
 
@@ -114,7 +117,8 @@ def stand_in_store(
     task is given in place of its own (a task the schema admits, though its role may not).
     ``checked``: the version's blind check is recorded beside it, as a check that answered
     leaves it, flagging the held-out tasks at the places ``flagged`` gives (none by default);
-    without it the version has no check record.
+    without it the version has no check record. ``practice``: the version is marked a practice
+    one, as the practice store's is.
     """
     store = root.resolve() / "store"
     pool = store / "control" / "withheld" / "pool"
@@ -138,6 +142,7 @@ def stand_in_store(
         provenance=canonical_json({"sessions": [{"session_id": "s-1", "end": "ended"}]}),
         retire=pool,
         generated="2026-11-08",
+        practice=practice,
     )
     directory = store / "control" / manifest.version
     tasks = {
@@ -233,7 +238,7 @@ def config(task: Task, made: StandInStore, **changes: Any) -> RunConfig:  # noqa
         claude_version="2.1.301",
         endpoint="default",
         reportable=True,
-        harness={"commit": "c" * 40, "clean": True, "uncommitted_sha256": None},
+        harness=CHECKOUT.model_dump(mode="json"),
         git_binary=None,
         # As the command records them: the bytes it measured, and the account by its name and
         # the fingerprint of the credential it was given.
@@ -286,6 +291,27 @@ def harness_run(
     return run_dir
 
 
+def harness_run_spending(
+    root: Path, task: Task, made: StandInStore, tokens: int, *, ended: bool = True
+) -> Path:
+    """A harness run on ``task`` that spent ``tokens`` tokens in all, as :func:`harness_run`'s."""
+    run_dir = harness_run(root, task, made, ended=False)
+    log = EventLog(run_dir / "events.jsonl", run_id="r", gate_mode="on")
+    usage = Usage(
+        input_tokens=tokens - 1000,
+        output_tokens=0,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    log.append(
+        TokensUsed(**log.envelope(), attribution="session:role-1", message_id="m2", usage=usage)
+    )
+    if ended:
+        log.append(IntegrationGateSkipped(**log.envelope(), reason="nothing_planned", subtasks=()))
+    log.close()
+    return run_dir
+
+
 def run_set(*runs: tuple[Path, int]) -> RunSet:
     """The run set naming each harness run by its directory and trial number."""
     trials = [{"run_dir": str(r), "trial": t} for r, t in runs]
@@ -303,6 +329,7 @@ def setup_for(config: RunConfig, role: Role) -> RawSetup:
         os_layer=LAYER,
         role_python=None,
         base_url=None,
+        harness=CHECKOUT,
     )
 
 
