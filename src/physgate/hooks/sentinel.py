@@ -964,12 +964,13 @@ ANCHOR_NOT_HELD = (
 )
 
 
-def _held_parent(root: str, anchor: list[Any]) -> int:
+def _held_parent(root: str, anchor: list[Any], *, make: bool) -> int | None:
     """The root's parent, reached from its anchor without following a link, as a descriptor.
 
     The anchor is opened and held to its recorded identity; each part below it is opened with no
-    link followed, and made where it is missing (a session removed it: the put-back puts it
-    back), as a directory of the session's own.
+    link followed. A part that is missing is made, as a directory of the session's own, only
+    where ``make`` (something recorded beneath the root is to be put back); else ``None``: the
+    root is not there, and nothing of it was recorded.
 
     Raises:
         OSError: the anchor is not the recorded directory, or a part is a link or no directory.
@@ -986,6 +987,9 @@ def _held_parent(root: str, anchor: list[Any]) -> int:
             try:
                 nxt = os.open(part, flags, dir_fd=fd)
             except FileNotFoundError:
+                if not make:
+                    os.close(fd)
+                    return None
                 os.mkdir(part, 0o700, dir_fd=fd)
                 nxt = os.open(part, flags, dir_fd=fd)
             os.close(fd)
@@ -1117,10 +1121,13 @@ def _revert_held(
     if inside:
         groups.append((inside, _Here(config.worktree if held is not None else None), held))
     for root in apart:
+        recorded = any(_beneath_any(p, [root]) for p in base["revert"])
         try:
-            parent = _held_parent(root, anchors[root])
+            parent = _held_parent(root, anchors[root], make=recorded)
         except OSError:
             return put_back, failed, root
+        if parent is None:
+            continue  # not there, and nothing of it recorded: nothing to put back
         groups.append(([root], _Here(os.path.dirname(root)), parent))
     if rest:
         groups.append((rest, _Here(None), None))
@@ -1623,9 +1630,10 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         finally:
             os.close(back_to)
         if refused is not None:
-            base["halted"] = ANCHOR_NOT_HELD.format(paths=refused, path=refused)
+            shown = _namer(config, state.apart, base)(refused)
+            base["halted"] = ANCHOR_NOT_HELD.format(path=shown)
             state.save(base)
-            _event(config, hook_input, "anchor not held", [refused])
+            _event(config, hook_input, "anchor not held", [shown])
             return refuse(base["halted"])
         journals_changed, appended = _check_journals(base, state)
         records_changed = _check_records(base)

@@ -284,3 +284,26 @@ def test_the_finder_names_a_raw_trial_s_place_as_the_store_does() -> None:
     from physgate.evaluation.tiers.store import PLACE
 
     assert stop_signals.RAW_PLACE == PLACE
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists a folder of any mode")
+def test_a_decomposition_folder_that_cannot_be_listed_leaves_the_sweep_standing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(credentials, "_held", {})
+    base = Path(os.path.realpath(tmp_path))
+    run_dir = _killed_decomposition(base)
+    (run_dir / "sessions" / "s-1").mkdir(parents=True)
+    write_login(run_dir / "sessions" / "s-1" / "config", DUMMY, place="role_session")
+    top = round_dir(run_dir, 1)
+    top.chmod(0o300)  # searchable, not listable
+    try:
+        cleared = remove_left_credentials(run_dir, run_dir / "review")
+    finally:
+        top.chmod(0o700)
+    # The sweep stands: the role session's credential goes, and once the folder can be read
+    # again the next command takes the planner's.
+    assert "s-1" in cleared
+    assert not (run_dir / "sessions" / "s-1" / "config" / LOGIN_FILE).exists()
+    remove_left_credentials(run_dir, run_dir / "review")
+    assert _logins(run_dir) == []

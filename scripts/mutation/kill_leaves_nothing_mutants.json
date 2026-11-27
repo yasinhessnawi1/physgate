@@ -413,7 +413,7 @@
     "data": []
   },
   {
-    "name": "k21_a_review_root_s_record_is_no_run_material",
+    "name": "a_review_root_s_record_is_no_run_material",
     "file": "src/physgate/evaluation/launch_check.py",
     "old": "        \"baseline.json\",\n        \"review_root.json\",\n",
     "new": "        \"baseline.json\",\n",
@@ -423,7 +423,7 @@
     "data": []
   },
   {
-    "name": "k22_a_linked_worktree_of_the_source_is_no_finding",
+    "name": "a_linked_worktree_of_the_source_is_no_finding",
     "file": "src/physgate/evaluation/launch_check.py",
     "old": "    if linked:\n",
     "new": "    if linked and False:\n",
@@ -433,7 +433,7 @@
     "data": []
   },
   {
-    "name": "k23_a_run_that_withholds_one_root_withholds_them_all",
+    "name": "a_run_that_withholds_one_root_withholds_them_all",
     "file": "src/physgate/evaluation/launch_check.py",
     "old": "            if not registered <= named:\n",
     "new": "            if not (registered & named):\n",
@@ -443,7 +443,7 @@
     "data": []
   },
   {
-    "name": "k24_a_walk_cut_short_is_no_finding",
+    "name": "a_walk_cut_short_is_no_finding",
     "file": "src/physgate/evaluation/launch_check.py",
     "old": "        if budget[0] < 0:\n            yield top, None\n            return\n",
     "new": "        if budget[0] < 0:\n            return\n",
@@ -453,7 +453,7 @@
     "data": []
   },
   {
-    "name": "k25_the_standing_review_root_is_walked_as_any_place",
+    "name": "the_standing_review_root_is_walked_as_any_place",
     "file": "src/physgate/evaluation/launch_check.py",
     "old": "        standing_root(home),\n",
     "new": "",
@@ -463,7 +463,7 @@
     "data": []
   },
   {
-    "name": "k26_the_machine_s_other_places_are_not_walked",
+    "name": "the_machine_s_other_places_are_not_walked",
     "file": "src/physgate/evaluation/launch_check.py",
     "old": "    places = [home, *MACHINE_PLACES, *also]\n",
     "new": "    places = [home, *also]\n",
@@ -473,7 +473,7 @@
     "data": []
   },
   {
-    "name": "k27_a_reference_that_is_no_branch_is_no_finding_unless_a_tag",
+    "name": "a_reference_that_is_no_branch_is_no_finding_unless_a_tag",
     "file": "src/physgate/evaluation/launch_check.py",
     "old": "        if not name.startswith(\"refs/heads/\"):\n            found.append(Finding(\"source_reference\",",
     "new": "        if name.startswith(\"refs/tags/\"):\n            found.append(Finding(\"source_reference\",",
@@ -561,7 +561,7 @@
     ]
   },
   {
-    "name": "k29_a_settle_that_would_still_refuse_is_recorded",
+    "name": "a_settle_that_would_still_refuse_is_recorded",
     "file": "src/physgate/evaluation/tiers/exposure.py",
     "old": "    elif after is not None:\n        why = f\"settled, the register would still refuse it: {after}\"\n",
     "new": "",
@@ -628,7 +628,7 @@
     ]
   },
   {
-    "name": "k11_the_sentinel_holds_whatever_directory_it_opened",
+    "name": "the_sentinel_holds_whatever_directory_it_opened",
     "file": "src/physgate/hooks/sentinel.py",
     "old": "        if (st.st_dev, st.st_ino) != (identity.device, identity.inode):\n            raise OSError(errno.ESTALE, \"the worktree is not the directory recorded\")\n",
     "new": "",
@@ -642,7 +642,7 @@
     ]
   },
   {
-    "name": "k14_the_put_back_goes_by_path_once_the_worktree_is_held",
+    "name": "the_put_back_goes_by_path_once_the_worktree_is_held",
     "file": "src/physgate/hooks/sentinel.py",
     "old": "        groups.append((inside, _Here(config.worktree if held is not None else None), held))\n",
     "new": "        groups.append((inside, _Here(None), held))\n",
@@ -656,7 +656,7 @@
     ]
   },
   {
-    "name": "k09_the_worktree_is_looked_at_through_a_link",
+    "name": "the_worktree_is_looked_at_through_a_link",
     "file": "src/physgate/hooks/runtime.py",
     "old": "        st = os.lstat(config.worktree)\n",
     "new": "        st = os.stat(config.worktree)\n",
@@ -670,7 +670,7 @@
     ]
   },
   {
-    "name": "k51_a_gone_worktree_is_no_moved_worktree",
+    "name": "a_gone_worktree_is_no_moved_worktree",
     "file": "src/physgate/hooks/runtime.py",
     "old": "    except OSError:\n        return True\n",
     "new": "    except OSError:\n        return False\n",
@@ -751,7 +751,7 @@
     ]
   },
   {
-    "name": "k02_a_file_tool_reads_the_harness_s_place",
+    "name": "a_file_tool_reads_the_harness_s_place",
     "file": "src/physgate/hooks/paths.py",
     "old": "                        SHARED_TEMP_REASON,\n                        HARNESS_TEMPS_REASON,\n",
     "new": "                        SHARED_TEMP_REASON,\n",
@@ -764,7 +764,7 @@
     ]
   },
   {
-    "name": "k03_the_change_check_s_store_is_made_in_the_default_temporary_directory",
+    "name": "the_change_check_s_store_is_made_in_the_default_temporary_directory",
     "file": "src/physgate/orchestrator/git.py",
     "old": "store = tempfile.mkdtemp(prefix=\"physgate-git-store-\", dir=harness_temp_dir())",
     "new": "store = tempfile.mkdtemp(prefix=\"physgate-git-store-\")",
@@ -774,7 +774,7 @@
     "data": []
   },
   {
-    "name": "k04_the_review_s_store_is_made_in_the_default_temporary_directory",
+    "name": "the_review_s_store_is_made_in_the_default_temporary_directory",
     "file": "src/physgate/reviewers/packet.py",
     "old": "store = tempfile.mkdtemp(prefix=\"physgate-review-store-\", dir=harness_temp_dir())",
     "new": "store = tempfile.mkdtemp(prefix=\"physgate-review-store-\")",
@@ -784,7 +784,7 @@
     "data": []
   },
   {
-    "name": "k05_a_parent_open_to_others_is_taken",
+    "name": "a_parent_open_to_others_is_taken",
     "file": "src/physgate/oslayer/harness_temp.py",
     "old": "if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:",
     "new": "if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():",
@@ -794,7 +794,7 @@
     "data": []
   },
   {
-    "name": "k06_a_forked_child_uses_its_parent_s_directory",
+    "name": "a_forked_child_uses_its_parent_s_directory",
     "file": "src/physgate/oslayer/harness_temp.py",
     "old": "    key = (os.getpid(), root)\n",
     "new": "    key = (0, root)\n",
@@ -804,7 +804,7 @@
     "data": []
   },
   {
-    "name": "k07_the_regeneration_s_profile_is_made_in_the_default_temporary_directory",
+    "name": "the_regeneration_s_profile_is_made_in_the_default_temporary_directory",
     "file": "src/physgate/oslayer/regeneration.py",
     "old": "                profiles = tempfile.mkdtemp(\n                    prefix=\"physgate-derived-profile-\", dir=harness_temp_dir()\n                )\n",
     "new": "                profiles = tempfile.mkdtemp(prefix=\"physgate-derived-profile-\")\n",
@@ -814,7 +814,7 @@
     "data": []
   },
   {
-    "name": "k08_the_tier_scan_s_scratch_is_made_in_the_default_temporary_directory",
+    "name": "the_tier_scan_s_scratch_is_made_in_the_default_temporary_directory",
     "file": "src/physgate/evaluation/tiers/exposure.py",
     "old": "with tempfile.TemporaryDirectory(prefix=\"pg-tier-scan-\", dir=harness_temp_dir()) as scratch:",
     "new": "with tempfile.TemporaryDirectory(prefix=\"pg-tier-scan-\") as scratch:",
@@ -824,7 +824,7 @@
     "data": []
   },
   {
-    "name": "k17_every_own_place_is_written_in_a_shared_directory",
+    "name": "every_own_place_is_written_in_a_shared_directory",
     "file": "src/physgate/hooks/settings.py",
     "old": "            carved = tuple(sorted({p for p in _own_writes(request) if _inside(p, path)}))\n",
     "new": "            carved = tuple(sorted({p for p in _own_places(request) if _inside(p, path)}))\n",
@@ -839,7 +839,7 @@
     ]
   },
   {
-    "name": "k19_diff_copies_no_operand",
+    "name": "diff_copies_no_operand",
     "file": "src/physgate/oslayer/reaper_install.py",
     "old": "     {{ [ \"$arg\" != \"-\" ] && [ -e \"$arg\" ] && [ ! -f \"$arg\" ] && [ ! -d \"$arg\" ]; }}; then",
     "new": "     false; then",
@@ -849,7 +849,7 @@
     "data": []
   },
   {
-    "name": "k35_another_session_s_record_is_marked_shown",
+    "name": "another_session_s_record_is_marked_shown",
     "file": "src/physgate/orchestrator/decomposition_review.py",
     "old": "        if record.get(\"session_id\") == session_id:\n            _synced(path, json.dumps({**record, \"shown\": True}).encode())\n",
     "new": "        _synced(path, json.dumps({**record, \"shown\": True}).encode())\n",
@@ -885,7 +885,7 @@
     ]
   },
   {
-    "name": "k39_the_look_s_bound_is_never_reached",
+    "name": "the_look_s_bound_is_never_reached",
     "file": "src/physgate/orchestrator/left_out.py",
     "old": "                        if looked > MAX_LOOKED:\n",
     "new": "                        if False and looked > MAX_LOOKED:\n",
@@ -910,7 +910,7 @@
     ]
   },
   {
-    "name": "k43_the_record_s_mark_is_read_from_the_first_session",
+    "name": "the_record_s_mark_is_read_from_the_first_session",
     "file": "src/physgate/series/seal.py",
     "old": "            if held.session_id == session_id:\n                beside",
     "new": "            if True:\n                beside",
@@ -935,7 +935,7 @@
     ]
   },
   {
-    "name": "k46_a_pycache_directory_inside_the_module_is_in_scope",
+    "name": "a_pycache_directory_inside_the_module_is_in_scope",
     "file": "src/physgate/orchestrator/merge.py",
     "old": "                if path.name.casefold().endswith(\".pyc\") or any(\n                    part.casefold() == \"__pycache__\" for part in path.parts[len(module.parts) :]\n                ):\n",
     "new": "                if path.name.casefold().endswith(\".pyc\"):\n",
@@ -953,7 +953,7 @@
     ]
   },
   {
-    "name": "k48_a_look_into_a_target_follows_a_link",
+    "name": "a_look_into_a_target_follows_a_link",
     "file": "src/physgate/orchestrator/decompose.py",
     "old": "            if entry.is_dir(follow_symlinks=False):\n                stack.append((Path(entry.path), depth + 1))\n",
     "new": "            if entry.is_dir():\n                stack.append((Path(entry.path), depth + 1))\n",
@@ -989,7 +989,7 @@
     ]
   },
   {
-    "name": "k49_a_review_root_given_inside_may_hold_hidden_names",
+    "name": "a_review_root_given_inside_may_hold_hidden_names",
     "file": "src/physgate/orchestrator/decompose.py",
     "old": "    if held:\n        msg = (\n            \"the review root given inside the run directory already holds something",
     "new": "    if [h for h in held if not h.startswith(\".\")]:\n        msg = (\n            \"the review root given inside the run directory already holds something",

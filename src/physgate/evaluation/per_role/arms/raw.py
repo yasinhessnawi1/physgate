@@ -1086,7 +1086,11 @@ def _clean(
     errors: list[str] = []
     # Found as every clean-up after a kill finds a credential's place (``credential_places``):
     # the trial's place, whose own directory ``sdir`` is.
-    sites = [site for site in credential_places(work.parent) if site.config.parent == sdir]
+    try:
+        sites = [site for site in credential_places(work.parent) if site.config.parent == sdir]
+    except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
+        errors.append(repr(exc))
+        sites = []
     for site in sites or [CredentialSite.of("raw_session", sdir)]:
         try:
             remove_secrets(site.state, site.config)

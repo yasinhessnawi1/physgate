@@ -352,3 +352,25 @@ def test_a_swap_between_the_hold_and_the_put_back_puts_back_in_the_held_director
     _sentinel_call(s)
     assert (worktree / inside / "planted.txt").read_text() == "another directory's own file\n"
     assert not (moved / inside / "planted.txt").exists(), "nothing was put back where it was held"
+
+
+def test_an_ordinary_call_makes_no_directory_above_a_protected_path_that_is_not_there(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    s = installed("role-hooks-only", outside_tmp, monkeypatch)
+    nested = [
+        Path(r.path)
+        for r in s.hooks.config.protected_roots
+        if r.watch == "revert" and r.path.endswith("/.config/git")
+    ]
+    assert nested
+    parent = nested[0].parent
+    if parent.exists():
+        shutil.rmtree(parent)
+    code, said, _ = s.hooks.call(
+        "PreToolUse", tool_name="Read", tool_input={"file_path": str(s.worktree / "x.txt")}
+    )
+    assert code == 0, said
+    assert not parent.exists(), "the sentinel made a directory nothing was to be put back in"

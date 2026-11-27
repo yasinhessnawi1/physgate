@@ -310,6 +310,8 @@ def _working_files(source: Path, head: str) -> list[Finding]:
     said = [
         _counted(untracked, "the branch does not hold") if untracked else "",
         _counted(changed, "the branch holds, changed or gone") if changed else "",
+        # Its own repository, with its own configuration: never read here, so said.
+        f"{len(gitlinks)} submodule(s), whose directories are not looked at" if gitlinks else "",
     ]
     if not any(said):
         return []

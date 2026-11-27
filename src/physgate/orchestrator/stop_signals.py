@@ -361,7 +361,11 @@ def _plan_calls(root: Path, _review_root: Path | None) -> list[CredentialSite]:
     if top.is_symlink() or not top.is_dir():
         return []
     rounds = [1]
-    for entry in sorted(os.listdir(top)):
+    try:
+        listed = sorted(os.listdir(top))
+    except OSError:
+        listed = []  # round one's and its retry's are still visited, by their names
+    for entry in listed:
         name, _, number = entry.partition("-")
         if name == "round" and number.isdigit() and int(number) > 1:
             rounds.append(int(number))

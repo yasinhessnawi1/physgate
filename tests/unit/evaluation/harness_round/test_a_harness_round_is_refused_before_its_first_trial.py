@@ -493,3 +493,42 @@ def test_a_round_whose_output_directory_lies_in_its_run_root_target_or_store_is_
     where = {"run root": rig.run_root, "target": rig.target, "store": rig.made.store}[inside]
     assert _refused(rig, out=where / "round-out") == "out_misplaced"
     assert not (where / "round-out").exists()
+
+
+def test_a_trial_s_clone_of_its_target_runs_nothing_the_target_names(tmp_path: Path) -> None:
+    # The clone is made by git's own local copy into a new repository: the target's configuration
+    # (a file-system monitor, a filter's programs), its hooks and a filter its committed
+    # attributes select are not the clone's, so none of them runs as the trial is prepared.
+    from types import SimpleNamespace
+
+    from physgate.evaluation import harness_round
+
+    marker = tmp_path / "it-ran"
+    script = tmp_path / "program.sh"
+    script.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat\n")
+    script.chmod(0o700)
+    source = tmp_path / "source"
+    source.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(source), *args], check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    git("init", "-q", "-b", "main")
+    (source / ".gitattributes").write_text("* filter=x\n")
+    (source / "a.txt").write_text("a\n")
+    git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "add", "-A")
+    git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "x")
+    for key in ("core.fsmonitor", "filter.x.clean", "filter.x.smudge", "filter.x.process"):
+        git("config", key, str(script))
+    for name in ("post-checkout", "reference-transaction", "post-index-change"):
+        (source / ".git" / "hooks" / name).write_text(f"#!/bin/sh\ntouch '{marker}'\n")
+        (source / ".git" / "hooks" / name).chmod(0o700)
+    head = git("rev-parse", "HEAD")
+    ctx = SimpleNamespace(
+        inputs=SimpleNamespace(target_from=source), lines=[{"inputs": {"target_head": head}}]
+    )
+    harness_round._prepare(ctx, tmp_path / "trial")  # type: ignore[arg-type]
+    assert (tmp_path / "trial" / "target" / "a.txt").read_text() == "a\n"
+    assert not marker.exists(), "a program the target names ran as its clone was made"
