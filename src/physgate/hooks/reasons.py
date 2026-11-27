@@ -122,6 +122,23 @@ SESSION_TEMPS_REASON = (
     "writes; this session's own temporary directory is the one child there open to it"
 )
 
+#: Given for a role, baseline or reviewer session's read or write of a temporary directory every
+#: session on the machine shares (``/tmp``, and on macOS the per-user directory): what one trial
+#: leaves there another could read or change. It says where to write instead: the session's own
+#: temporary directory, which ``$TMPDIR`` names in its commands, and where plain ``mktemp`` and
+#: an interpreter's temporary files are made.
+SHARED_TEMP_REASON = (
+    "it is a temporary directory every session on the machine shares, which no session reads or "
+    "writes; write temporary files in this session's own temporary directory, which $TMPDIR names "
+    "(plain mktemp makes them there)"
+)
+
+#: Given for any session's read or write of the place the harness keeps its own temporary files
+#: (the stores it reads a change check and a review's packet through), every process's alike.
+HARNESS_TEMPS_REASON = (
+    "it is where the harness keeps its own temporary files, which no session reads or writes"
+)
+
 #: Given to a reviewer for a read outside its allowance. Neutral on purpose: a
 #: reviewer is shown nothing that says what is being measured.
 OUTSIDE_REVIEW_REASON = "it is outside the files this review is given"

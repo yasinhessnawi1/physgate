@@ -179,6 +179,7 @@ from physgate.oslayer.containment import (
     contained_servers,
     wrappers,
 )
+from physgate.oslayer.harness_temp import harness_temps_root
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, claude_temp_dirs, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
@@ -2159,8 +2160,9 @@ class ClaudeDispatcher:
         lie in is named whole: the run's directory (every session's own directory and state, the
         run's records, the place apart, the worktrees with their answer keys and reviewer trees),
         the harness checkout, the hooks' installation, the target repository, the review root, the
-        held-out roots, the run's parameters file, the sessions' temporary directories and the
-        temporary directory every Claude Code session of the user shares. And, as the sessions of
+        held-out roots, the run's parameters file, the sessions' temporary directories, the
+        temporary directories every session on the machine shares and Claude Code's own among
+        them, and the harness's own temporary place. And, as the sessions of
         a run naming a held-out tier are installed, the standing review root as review material
         (:func:`~physgate.reviewers.places.standing_review_material`) and every root the run
         withholds whole (:func:`withheld_whole_roots`): from the same definitions a session's
@@ -2183,20 +2185,18 @@ class ClaudeDispatcher:
         places += [str(self._review_root), *self._config.held_out, *claude_temp_dirs()]
         places += standing_review_material(self._config.held_out)
         places += withheld_whole_roots(self._config.withheld_whole)
+        # And the harness's own temporary place, every process's, as every role session is.
+        places.append(os.path.realpath(harness_temps_root()))
         return tuple(sorted(set(places)))
 
     def _forbidden_by_session(self) -> list[str]:
-        """The places of :meth:`_forbidden` a session is withheld, the shared temporaries left out.
+        """The places of :meth:`_forbidden` a session is withheld: every one, now.
 
-        A temporary directory every session writes is none a session is withheld, and the
-        command's own folder is made in one.
+        The shared temporary directories are withheld from every role session both ways, so they
+        are withheld from the command too. Its own folder may lie in a place it is withheld: the
+        wrapper was run so on both platforms' layers, and the command runs and writes its folder.
         """
-        writable = {os.path.realpath(place) for place in machine_writable()}
-        return [
-            str(place)
-            for place in self._forbidden().values()
-            if os.path.realpath(place) not in writable
-        ]
+        return [str(place) for place in self._forbidden().values()]
 
     def _contained_servers(
         self, installed: Installed, sdir: Path, own_temp: Path, env: dict[str, str]

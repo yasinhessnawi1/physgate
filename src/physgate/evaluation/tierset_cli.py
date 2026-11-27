@@ -133,6 +133,21 @@ def add_parser(subparsers: Any) -> None:
     practice.add_argument("--implementer-model", dest="implementer_model", required=True)
     practice.add_argument("--seed", type=int)
     practice.set_defaults(func=_practice)
+    launch = commands.add_parser(
+        "launch-check",
+        help="the machine's state a measured round may be launched on: each finding by name",
+    )
+    launch.add_argument("--store", type=Path, required=True)
+    launch.add_argument(
+        "--source", type=Path, required=True, help="the repository the trials are cloned from"
+    )
+    launch.add_argument(
+        "--home", type=Path, help="the operator's home (the user's own if not given)"
+    )
+    launch.add_argument(
+        "--also", type=Path, action="append", default=[], help="a further place a session reads"
+    )
+    launch.set_defaults(func=_launch_check)
 
 
 #: What ``--publish`` takes, said where the flag is listed. Kept here, beside the parser, so the
@@ -318,6 +333,19 @@ def _write(args: argparse.Namespace) -> int:
         return 1
     print(json.dumps(said, sort_keys=True))
     return 0
+
+
+def _launch_check(args: argparse.Namespace) -> int:
+    """Each finding of the launch check on its own line; non-zero where there is any."""
+    from physgate.evaluation.launch_check import launch_findings
+
+    found = launch_findings(
+        store=args.store, source=args.source, home=args.home or Path.home(), also=args.also
+    )
+    for finding in found:
+        print(finding.line())
+    print(f"launch check: {len(found)} finding(s)" if found else "launch check: nothing found")
+    return 1 if found else 0
 
 
 def _probe(args: argparse.Namespace) -> int:

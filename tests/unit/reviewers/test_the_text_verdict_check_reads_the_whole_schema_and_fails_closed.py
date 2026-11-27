@@ -217,3 +217,30 @@ def test_reading_a_text_never_raises_whatever_it_holds(literal: str) -> None:
     told = last_text_verdict(_stream(text, FORM_REFUSAL), OPEN)
     assert told is not None and told.answer is None
     assert told.refused is not None and told.refused.startswith("the verdict was sent as text")
+
+
+REASON_SCHEMA = {
+    "type": "object",
+    "properties": {"reason": {"type": "string", "pattern": "\\S"}},
+    "required": ["reason"],
+}
+
+
+@pytest.mark.parametrize(
+    ("reason", "taken"),
+    [
+        ("\ufeff", False),  # a byte-order mark alone: ECMAScript's \s holds it, Python's not
+        ("\u00a0\u3000", False),
+        (" \t\n", False),
+        ("\x1c", True),  # Python's \s holds it, ECMAScript's not
+        ("a", True),
+    ],
+)
+def test_a_pattern_is_read_as_the_client_s_ecmascript_reads_it(reason: str, taken: bool) -> None:
+    errors = schema_errors({"reason": reason}, REASON_SCHEMA)
+    assert (not errors) is taken, errors
+
+
+def test_a_pattern_this_check_cannot_compile_refuses_and_never_raises() -> None:
+    schema = {"type": "string", "pattern": "("}
+    assert schema_errors("anything", schema)

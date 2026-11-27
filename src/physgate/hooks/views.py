@@ -37,6 +37,16 @@ class RootView(Protocol):
     def shell_writes(self) -> str: ...  # noqa: D102
 
 
+class IdentityView(Protocol):
+    """A directory's device and inode."""
+
+    @property
+    def device(self) -> int: ...  # noqa: D102
+
+    @property
+    def inode(self) -> int: ...  # noqa: D102
+
+
 class ExperimentView(Protocol):
     """The frozen-experiment rule."""
 
@@ -131,6 +141,9 @@ class ConfigView(Protocol):
 
     @property
     def os_layer(self) -> bool: ...  # noqa: D102
+
+    @property
+    def worktree_identity(self) -> IdentityView | None: ...  # noqa: D102
 
     @property
     def after_compaction(self) -> Sequence[str]: ...  # noqa: D102

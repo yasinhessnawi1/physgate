@@ -1,0 +1,174 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/hooks/runtime.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py",
+      "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "the_worktree_s_identity_is_not_asked",
+    "file": "src/physgate/hooks/runtime.py",
+    "old": "        if worktree_moved(config):\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "a_link_at_the_worktree_s_path_is_its_worktree",
+    "file": "src/physgate/hooks/runtime.py",
+    "old": "    try:\n        st = os.lstat(config.worktree)\n    except OSError:\n        return True\n",
+    "new": "    try:\n        st = os.stat(config.worktree)\n    except OSError:\n        return True\n",
+    "tests": [
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "the_sentinel_holds_no_worktree",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "    identity = config.worktree_identity\n    if identity is None:\n        return None\n    fd = os.open(",
+    "new": "    identity = config.worktree_identity\n    if identity is None or True:\n        return None\n    fd = os.open(",
+    "tests": [
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "the_install_records_no_identity",
+    "file": "src/physgate/hooks/settings.py",
+    "old": "    if identity is not None:\n        config = config.model_copy(update={\"worktree_identity\": identity})\n",
+    "new": "",
+    "tests": [
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "a_shared_temporary_directory_is_left_open_around_the_session",
+    "file": "src/physgate/hooks/settings.py",
+    "old": "        for path in request.shared_temps:\n            protected[path] = (SHARED_TEMP_REASON, \"none\")\n",
+    "new": "        for path in request.shared_temps:\n            if any(_inside(p, path) for p in _own_places(request)):\n                continue\n            protected[path] = (SHARED_TEMP_REASON, \"none\")\n",
+    "tests": [
+      "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
+      "tests/unit/oslayer/test_the_deny_list_is_the_registry.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_harness_s_temporary_place_is_not_refused",
+    "file": "src/physgate/hooks/settings.py",
+    "old": "        protected[harness] = (HARNESS_TEMPS_REASON, \"none\")\n        reads[harness] = \"denied\"\n",
+    "new": "",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "tmpdir_is_not_given",
+    "file": "src/physgate/hooks/settings.py",
+    "old": "        spawn_env[\"TMPDIR\"] = os.path.realpath(own_temp)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/hooks/test_install_writes_the_sessions_settings_file.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "tmpdir_is_given_as_spelt",
+    "file": "src/physgate/hooks/settings.py",
+    "old": "        spawn_env[\"TMPDIR\"] = os.path.realpath(own_temp)\n",
+    "new": "        spawn_env[\"TMPDIR\"] = own_temp\n",
+    "tests": [
+      "tests/unit/hooks/test_install_writes_the_sessions_settings_file.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_shared_temporary_directories_are_writable",
+    "file": "src/physgate/oslayer/policy.py",
+    "old": "    writable = (config.worktree, temp_dir, home)\n",
+    "new": "    writable = (config.worktree, temp_dir, home, *[r.path for r in config.protected_roots if r.reason.startswith(\"it is a temporary directory every session\")])\n",
+    "tests": [
+      "tests/unit/oslayer/test_the_deny_list_is_the_registry.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_trampoline_keeps_its_files_in_tmpdir",
+    "file": "src/physgate/hooks/trampoline.sh",
+    "old": "unset TMPDIR\n",
+    "new": "",
+    "tests": [
+      "tests/unit/hooks/test_the_trampoline_keeps_nothing_where_the_session_writes.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_regeneration_is_not_withheld_the_harness_s_place",
+    "file": "src/physgate/orchestrator/dispatch.py",
+    "old": "        places.append(os.path.realpath(harness_temps_root()))\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_the_command_that_makes_exports_again_is_withheld_every_place_a_role_session_is.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py",
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  },
+  {
+    "name": "the_regeneration_s_folder_is_made_in_the_shared_temporary_directory",
+    "file": "src/physgate/orchestrator/derived.py",
+    "old": "tempfile.mkdtemp(prefix=\"physgate-derived-\", dir=harness_temp_dir())",
+    "new": "tempfile.mkdtemp(prefix=\"physgate-derived-\")",
+    "tests": [
+      "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/hooks/hook_helpers.py"
+    ]
+  }
+]

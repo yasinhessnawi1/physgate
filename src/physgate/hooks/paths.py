@@ -89,6 +89,7 @@ from physgate.hooks.reasons import (
     ANSWER_KEY_REASON,
     CLAUDE_TEMP_REASON,
     HARNESS_REASON,
+    HARNESS_TEMPS_REASON,
     HELD_OUT_REASON,
     HOME_CLAUDE_REASON,
     HOOK_STATE_REASON,
@@ -97,6 +98,7 @@ from physgate.hooks.reasons import (
     SENTINEL_APART_REASON,
     SESSION_TEMPS_REASON,
     SESSIONS_REASON,
+    SHARED_TEMP_REASON,
     WITHHELD_REASON,
     WITHHELD_WHOLE_REASON,
 )
@@ -105,7 +107,7 @@ from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from physgate.hooks.views import ConfigView, InputView
+    from physgate.hooks.views import ConfigView, InputView, RootView
 
 FROZEN_RESULT = (
     "it belongs to an experiment with a published result, which is frozen; an amendment "
@@ -426,23 +428,48 @@ def _own_writing(path: str, place: str) -> bool:
     places = [p.rstrip("/") for p in _spellings(place)]
     spelt = [p for p in places if _under(path, p)]
     resolved = os.path.realpath(path)
+    # Normalised too: a walk of the spelling as written stops at the first part that does not
+    # exist, so ``missing/../link/x`` would never ask whether ``link`` is a link.
+    normal = os.path.normpath(path)
     if not spelt or not any(_under(resolved, p) for p in places):
         return False
-    for held in spelt:
-        current = held
-        for part in path[len(held) :].split("/"):
-            if not part:
-                continue
-            current = os.path.join(current, part)
-            try:
-                st = os.lstat(current)
-            except FileNotFoundError:
-                break
-            except OSError:
-                return False
-            if stat.S_ISLNK(st.st_mode):
+    if not any(_under(normal, p) for p in places):
+        return False
+    for spelling in dict.fromkeys((path, normal)):
+        for held in (p for p in places if _under(spelling, p)):
+            if not _no_link_beneath(held, spelling):
                 return False
     return True
+
+
+def _no_link_beneath(held: str, spelling: str) -> bool:
+    """Whether no existing part of ``spelling`` beneath ``held`` is a link, or cannot be looked at.
+
+    The walk ends at the first part that does not exist: nothing beneath it exists either.
+    """
+    current = held
+    for part in spelling[len(held) :].split("/"):
+        if not part:
+            continue
+        current = os.path.join(current, part)
+        try:
+            st = os.lstat(current)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        if stat.S_ISLNK(st.st_mode):
+            return False
+    return True
+
+
+def _asked_last(root: RootView) -> bool:
+    """Whether ``root`` is asked after every other: a wide root other roots are nested in.
+
+    The harness checkout and a temporary directory every session shares: a root nested in one
+    (a withheld record, Claude Code's own temporary directory) answers first, with its own reason.
+    """
+    return root.reason in (HARNESS_REASON, SHARED_TEMP_REASON)
 
 
 def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = False) -> str | None:
@@ -484,7 +511,8 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
         # directories, which hold every session's login and stream, but for what the session
         # reads of its own there, nor the temporary directory every Claude Code session of the
         # user shares, which holds the other sessions' task outputs, nor another session's own
-        # temporary directory, but for the session's own.
+        # temporary directory, but for the session's own, nor a temporary directory every session
+        # on the machine shares, nor the place the harness keeps its own temporary files.
         # Nor the run's place apart, where the sentinel keeps what names the protected entries.
         # Nor a root withheld whole but for the session's worktree there, whatever was made in
         # it after the install, the rest of its own place included: only its worktree (and the
@@ -503,7 +531,7 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
         # The checkout is asked last: a root of its own nested in it (a withheld record, the
         # sentinel's place apart) answers with its own reason, which says the sentinel keeps
         # no byte of it, and is never read as the checkout's, whose bytes the sentinel keeps.
-        for root in sorted(config.protected_roots, key=lambda r: r.reason == HARNESS_REASON):
+        for root in sorted(config.protected_roots, key=_asked_last):
             if (
                 root.reads == "denied"
                 and (
@@ -516,6 +544,8 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
                         WITHHELD_WHOLE_REASON,
                         CLAUDE_TEMP_REASON,
                         SESSION_TEMPS_REASON,
+                        SHARED_TEMP_REASON,
+                        HARNESS_TEMPS_REASON,
                         HOME_CLAUDE_REASON,
                     )
                     or (root.reason == HARNESS_REASON and not (shell and config.os_layer))
@@ -535,7 +565,7 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
             ):
                 return root.reason
         return None
-    for root in config.protected_roots:
+    for root in sorted(config.protected_roots, key=_asked_last):
         reached = _reaches(absolute, root.path, chain) or (
             root.reason == SESSION_TEMPS_REASON and _passes_through(absolute, root.path)
         )

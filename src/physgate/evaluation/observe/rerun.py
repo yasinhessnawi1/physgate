@@ -57,6 +57,7 @@ from physgate.orchestrator.run_config import (
     require_endpoint,
     require_harness,
 )
+from physgate.oslayer.harness_temp import harness_temp_dir
 
 #: The configuration fields ``decompose`` measures or is given on its command line;
 #: every other field is a parameter, passed as the recorded run had it.
@@ -219,7 +220,7 @@ def through_the_command(registrations: Registrations | None = None) -> Driver:
         if now != plan.recorded.claude_version:
             msg = "the binary is not the version the recorded run used"
             raise RerunError(msg, recorded=plan.recorded.claude_version, now=now)
-        with tempfile.TemporaryDirectory() as scratch:
+        with tempfile.TemporaryDirectory(dir=harness_temp_dir()) as scratch:
             params = Path(scratch) / "params.json"
             params.write_text(json.dumps(plan.params()))
             steps = (
