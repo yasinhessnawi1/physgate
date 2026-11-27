@@ -2040,6 +2040,13 @@ def _superseded_without_a_run(
     i = planned.index
     _left_behind(ctx, planned, attempt, run_dir)
     cause, tokens = _what_it_spent(run_dir)
+    if cause == CREDENTIAL_REFUSED:
+        # Its call met a refused credential and its rounds ended void on it (a review mode that
+        # holds the plan): no attempt, as a run's record halted on a decomposition the credential
+        # stopped is none. Named with its spend; a person replaces it, then the trial afresh.
+        line = {"kind": "credential", "index": i, "attempt": attempt}
+        ctx.add({**line, "run_id": ctx.run_id(i, attempt), "tokens": tokens})
+        return None
     if ctx.of(i, "superseded") and ctx.set_aside_for != i:
         return _wait_for_a_person(
             ctx,

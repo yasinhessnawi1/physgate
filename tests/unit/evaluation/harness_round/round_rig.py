@@ -50,6 +50,7 @@ from knowledge_fixture import build_fixture_library  # noqa: E402
 from observe_rig import FakeSession, Gate, Reviewer, node  # noqa: E402
 from task_fixtures import controller  # noqa: E402
 
+import physgate.orchestrator.cli as orchestrator_cli  # noqa: E402
 from physgate.evaluation.harness_round import Decompose, Drive, Inputs  # noqa: E402
 from physgate.evaluation.observe.cost import load_price_sheet  # noqa: E402
 from physgate.evaluation.tiers.canaries import store_canaries  # noqa: E402
@@ -63,7 +64,6 @@ from physgate.orchestrator import design_rounds  # noqa: E402
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper  # noqa: E402
 from physgate.orchestrator.budget import SessionEnd  # noqa: E402
 from physgate.orchestrator.canaries import CanaryCheck  # noqa: E402
-import physgate.orchestrator.cli as orchestrator_cli  # noqa: E402
 from physgate.orchestrator.credentials import Credential, remove_secrets  # noqa: E402
 from physgate.orchestrator.decompose import (  # noqa: E402
     Outcome,
@@ -420,7 +420,7 @@ class StandInDriver:
             # reading gives it: here with no reset read, so the round waits the core's stated wait.
             usage_limit=UsageLimit(resets=None) if cause == "usage_limit" else None,
         )
-        if config.design_review == "observe":
+        if config.design_review != "off":
             try:
                 self._in_rounds(n, call, config, outcome)
             except (OrchestratorError, ReviewError):
