@@ -41,9 +41,9 @@ when it is refused or stopped. 75 and 77 are states, not waits: the command retu
 its line's ``waiting`` names the trial and why, and for the limit ``resume_after`` (the instant
 after which it goes on with no word: never an instant already past, where the reset passed before
 it was read the floor from now, marked ``floor``) and ``word_helps``. A wrapper sleeps until
-``resume_after`` between turns, and never puts ``--limit-reset`` in a loop: each word given before the reset makes
-one more call, clone and directory. A person's word given to a round that waits for none is
-refused.
+``resume_after`` between turns, and never puts ``--limit-reset`` in a loop: each word given
+before the reset makes one more call, clone and directory. A person's word given to a round that
+waits for none is refused.
 
 The round's machinery and the scorer's numerical libraries are imported only when it runs.
 """
