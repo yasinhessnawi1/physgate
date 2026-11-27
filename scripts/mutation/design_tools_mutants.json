@@ -10,7 +10,14 @@
    "tests/unit/toolenv/test_kicad_is_provisioned_by_digest_in_a_root_of_its_own_copied_so_the_measure_accepts_it.py",
    "tests/unit/toolenv/test_the_circuit_helper_reports_kicad_s_rules_check_and_exports_and_never_judges.py",
    "tests/unit/toolenv/test_the_circuit_library_is_pinned_without_its_gpl_simulator_and_its_source_builds_are_held.py",
-   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py",
+   "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
+  ],
+  "data": [
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json",
+   "tests/integration/hooks/claude-code-2.1.322/package.json",
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code/package.json"
   ],
   "paths": [
    "toolenv"
@@ -464,6 +471,96 @@
   ]
  },
  {
+  "name": "provision_accepted_any_statement_of_the_name",
+  "file": "toolenv/provision.py",
+  "old": "            and s not in accepted\n",
+  "new": "            and not accepted\n",
+  "tests": [
+   "tests/unit/toolenv/test_the_circuit_library_is_pinned_without_its_gpl_simulator_and_its_source_builds_are_held.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "provision_accepted_any_name",
+  "file": "toolenv/provision.py",
+  "old": "        accepted = _accepted_statements(name)\n        off = [",
+  "new": "        accepted = _accepted_statements(\"chardet\")\n        off = [",
+  "tests": [
+   "tests/unit/toolenv/test_the_circuit_library_is_pinned_without_its_gpl_simulator_and_its_source_builds_are_held.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "provision_accepted_not_reported",
+  "file": "toolenv/provision.py",
+  "old": "        if used:\n            found[name] = {",
+  "new": "        if used and False:\n            found[name] = {",
+  "tests": [
+   "tests/unit/toolenv/test_the_circuit_library_is_pinned_without_its_gpl_simulator_and_its_source_builds_are_held.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "provision_uv_floor_lowered",
+  "file": "toolenv/provision.py",
+  "old": "UV_FLOOR = (0, 6, 11)",
+  "new": "UV_FLOOR = (0, 6, 9)",
+  "tests": [
+   "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
+  ],
+  "data": [
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json",
+   "tests/integration/hooks/claude-code-2.1.322/package.json",
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code/package.json"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "provision_uv_unchecked",
+  "file": "toolenv/provision.py",
+  "old": "    require_uv(uv)\n    pins = load_pins() if pins is None else pins\n",
+  "new": "    pins = load_pins() if pins is None else pins\n",
+  "tests": [
+   "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
+  ],
+  "data": [
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json",
+   "tests/integration/hooks/claude-code-2.1.322/package.json",
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code/package.json"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
+  "name": "provision_uv_failing_version_taken",
+  "file": "toolenv/provision.py",
+  "old": "    if done.returncode != 0 or found is None:",
+  "new": "    if found is None:",
+  "tests": [
+   "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
+  ],
+  "data": [
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json",
+   "tests/integration/hooks/claude-code-2.1.322/package.json",
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code/package.json"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
   "name": "baseline_last",
   "file": "toolenv/helpers/result_file.py",
   "old": "",
@@ -474,7 +571,14 @@
    "tests/unit/toolenv/test_kicad_is_provisioned_by_digest_in_a_root_of_its_own_copied_so_the_measure_accepts_it.py",
    "tests/unit/toolenv/test_the_circuit_helper_reports_kicad_s_rules_check_and_exports_and_never_judges.py",
    "tests/unit/toolenv/test_the_circuit_library_is_pinned_without_its_gpl_simulator_and_its_source_builds_are_held.py",
-   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py"
+   "tests/unit/toolenv/test_the_design_helpers_answer_numbers_with_units_and_never_a_verdict.py",
+   "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
+  ],
+  "data": [
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json",
+   "tests/integration/hooks/claude-code-2.1.322/package.json",
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code/package.json"
   ],
   "paths": [
    "toolenv"
