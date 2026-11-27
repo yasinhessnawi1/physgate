@@ -22,9 +22,15 @@ same round is started again once its cause is removed.
 ``--rerun-of OUT`` runs once more, as a new round of its one entry, an entry the earlier round
 ``OUT`` stopped on for a cause, recorded excluded for a reason its records give for not trusting
 the answer, or ran under a harness run that was itself run once more (named by the sheet beside
-the run set, ``<n>.trial.json``); it is refused otherwise, and for an earlier round that was
-itself such a once-more. ``--cell RUNS`` names the run set of every harness trial of the cell
-the entries' caps are taken from, where the round's own run set is not the whole cell;
+the run set, ``<n>.trial.json``); it is refused otherwise, for an earlier round that was itself
+such a once-more, and for one whose entry another once-more runs already: the earlier round's
+ledger names the round that runs it in its place. A round is refused before its first session
+for a harness trial another round holds (``pair_recorded``, ``pair_stopped``, ``pair_started``,
+``pair_claimed``, ``pair_unread``), the line naming that round as ``earlier_round``: the pair
+register beneath the withheld root names every round of each harness trial. An entry whose
+harness trial gives no figure is capped from its harness round's own set of its tier, found from
+the entry, and refused (``cell_not_ended``) while that round has places left; ``--cell RUNS``,
+where given, must be that set (``cell_not_the_round_s``), and is never what a cap is taken from.
 ``--shakedown`` lets the round run on a practice version. The round records the checkout it runs
 from with every session and holds the harness runs' to it.
 
@@ -39,6 +45,15 @@ where the client's stream gave no reset; a round that waits for no limit refuses
 sleeps until ``resume_after`` between starts and never puts the word in a loop.
 ``--external DIR`` in place of ``--version`` runs the round on an external task set (one
 benchmark's published tasks, each ``DIR/<id>/task.json``), kept apart from the store's tiers.
+
+``physgate baseline gather --store S --role control --version V --runs SET --out FILE`` brings a
+cell's records into one file for ``physgate per-role report``
+(:mod:`physgate.evaluation.baseline.gather`): ``SET`` is a harness round's run set of one tier,
+held to be that round's own; each harness trial's one counted raw record is found by the pair
+register, and a pair with none or with two refuses the cell, as do an excluded record and two
+harness commits. It prints one JSON line of counts and digests and exits 0, or prints
+``refused_because`` and ``place`` and exits 1. A protected tier's file is written beneath the
+withheld root or not at all.
 
 ``physgate baseline audit --store S --role control --version V --runs R --out O --prices DATE
 [--harness TIER RUNS TRIALS ...]`` is the record audit of a cell
@@ -128,6 +143,18 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
         help="a tier of the harness arm's cell: its run set and its trial records",
     )
     audit.set_defaults(func=_audit)
+    gather = commands.add_parser(
+        "gather", help="a cell's harness records and each pair's one raw record, for the report"
+    )
+    gather.add_argument("--store", type=Path, required=True)
+    gather.add_argument("--role", choices=("control",), required=True)
+    gather.add_argument("--version", required=True)
+    gather.add_argument(
+        "--runs", type=Path, required=True, help="the harness round's run set of the cell's tier"
+    )
+    gather.add_argument("--out", type=Path, required=True, help="the new file the records go in")
+    gather.add_argument("--shakedown", action="store_true")
+    gather.set_defaults(func=_gather)
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -321,16 +348,45 @@ def refused_line(context: dict[str, str]) -> str:
     ``session_started`` whether a session of it had started in the round.
     """
     entry = context.get("entry")
-    return json.dumps(
-        {
+    said: dict[str, Any] = {
+        "format": 1,
+        "status": "refused",
+        "refused_because": context.get("refused_because", "refused"),
+        "entry": int(entry) if entry is not None and entry.isdigit() else None,
+        "session_started": context.get("session_started") == "true",
+    }
+    if context.get("earlier_round") is not None:
+        # The round that holds the pair, or runs the entry once more already: by its id.
+        said["earlier_round"] = context["earlier_round"]
+    return json.dumps(said, sort_keys=True)
+
+
+def _gather(args: argparse.Namespace) -> int:
+    from physgate.evaluation.baseline.gather import gather, write_gathered
+    from physgate.evaluation.baseline.runner import BaselineError, RunSet
+    from physgate.evaluation.per_role.exceptions import PerRoleError
+
+    store = args.store.resolve()
+    try:
+        runs = RunSet.model_validate_json(args.runs.read_bytes())
+        gathered = gather(store, args.role, args.version, runs, shakedown=args.shakedown)
+        digest = write_gathered(store, args.role, gathered, args.out.resolve())
+    except (BaselineError, PerRoleError, OSError, ValueError) as exc:
+        context = getattr(exc, "context", {})
+        place = str(context.get("place", ""))
+        said = {
             "format": 1,
             "status": "refused",
-            "refused_because": context.get("refused_because", "refused"),
-            "entry": int(entry) if entry is not None and entry.isdigit() else None,
-            "session_started": context.get("session_started") == "true",
-        },
-        sort_keys=True,
-    )
+            "refused_because": str(context.get("refused_because", type(exc).__name__)),
+            "place": int(place) if place.isdigit() else None,
+        }
+        if context.get("earlier_round") is not None:
+            said["earlier_round"] = str(context["earlier_round"])
+        print(f"physgate baseline gather: {exc}", file=sys.stderr)
+        print(json.dumps(said, sort_keys=True))
+        return 1
+    print(json.dumps(gathered.printed(digest), sort_keys=True))
+    return 0
 
 
 def _setup_for(install_bin: Path, base_url: str | None, harness: Any) -> Any:  # noqa: ANN401

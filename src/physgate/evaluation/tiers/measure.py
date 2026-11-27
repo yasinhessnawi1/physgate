@@ -11,6 +11,7 @@ from before any of them is counted:
   them (the protected tiers' digests, not the store's withheld and work roots', and whether
   those two roots were named); of those two, a task's
   runs share one target commit, while tasks may start from different ones;
+- every run was made from one harness commit (``harness_commit_differs`` names both);
 - the records are the runs, one each, by task and trial, all of the harness arm, none
   excluded; every task of the tier that is not left out has runs (``tier_not_covered``: a
   figure of a tier is of all of it, never of a part chosen by which runs were made); and every
@@ -290,6 +291,12 @@ def census(
     if any(count > 1 for count in pairs.values()):
         msg = "a task's trial is numbered twice in the run set: each trial of a task is run once"
         raise _refuse("trial_repeated", msg)
+    if len(commits) > 1:
+        # One commit for every counted trial: a change of the harness between trials, however
+        # small, is a condition the two sides of a count did not share.
+        named = " and ".join(sorted(commits))
+        msg = f"the runs were made from different harness commits ({named}); a count holds one"
+        raise _refuse("harness_commit_differs", msg)
     numbered: dict[str, set[int]] = {}
     for task, trial in pairs:
         numbered.setdefault(task, set()).add(trial)

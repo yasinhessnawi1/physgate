@@ -4,9 +4,12 @@ The raw arm's cap is the paired harness run's token total. Where the harness tri
 figure (unscored, stuck, a leftover session read without a result), its raw trial's cap is the
 largest total among the same task's other harness trials of the cell; where none of them gives
 one, the median of every total of the cell (for an even count, the mean of the two middle ones,
-rounded down to a whole token). A cell is one tier's trials: a held-out trial's cap is never a
-visible trial's total. Such a raw trial runs after every other entry of its round, and the rule's
-step and inputs are recorded with it, beside its record, where the audit derives them again.
+rounded down to a whole token). A cell is one tier's trials of the entry's own harness round,
+found from the entry and never from a file a person names: a held-out trial's cap is never a
+visible trial's total, and a draw the round excluded, an ablation arm's trial and a trial of
+another round are never in it. It is whole once the round has ended, and not before. Such a raw
+trial runs after every other entry of its round, and the rule's step, its inputs and the cell's
+origin are recorded with it, beside its record, where the audit derives them again.
 """
 
 from __future__ import annotations
@@ -20,9 +23,11 @@ import pytest
 from baseline_fixtures import (
     PRICES,
     SCORED,
+    RoundPlace,
     StandInArm,
     StandInStore,
     copied,
+    harness_round_of,
     harness_run,
     harness_run_spending,
     run_set,
@@ -117,6 +122,17 @@ def _cap_record(out: Path, name: str) -> Any:  # noqa: ANN401
     return json.loads((out / WORK / name / "harness" / "cap.json").read_text())
 
 
+def _origin(place: Path, *runs: tuple[Path, int], tier: str = "visible") -> dict[str, str]:
+    """The cell's origin a cap record names: the round, the tier, and its set's digest."""
+    import hashlib
+    import os
+
+    entries = [{"run_dir": os.path.realpath(r), "trial": t} for r, t in runs]
+    tier_set = RunSet.model_validate_json(json.dumps({"format": 1, "trials": entries}))
+    digest = hashlib.sha256(tier_set.model_dump_json().encode()).hexdigest()
+    return {"round": place.name, "tier": tier, "runs_sha256": digest}
+
+
 def test_a_trial_with_no_figure_runs_last_capped_at_its_task_s_largest(
     tmp_path: Path, store: StandInStore
 ) -> None:
@@ -124,6 +140,7 @@ def test_a_trial_with_no_figure_runs_last_capped_at_its_task_s_largest(
     stuck = harness_run(tmp_path / "runs", task, store, ended=False)
     ended = harness_run_spending(tmp_path / "runs", task, store, 1800)
     assert harness_figure(stuck) is None and harness_figure(ended) == 1800
+    place = harness_round_of(store, [RoundPlace(stuck, 0, task), RoundPlace(ended, 1, task)])
     arm = StandInArm()
     out = tmp_path / "round"
     record = _round(store, run_set((stuck, 0), (ended, 1)), out, arm)
@@ -135,6 +152,7 @@ def test_a_trial_with_no_figure_runs_last_capped_at_its_task_s_largest(
         "rule": "task_largest",
         "cap": 1800,
         "inputs": [{"place": 1, "total": 1800}],
+        "cell": _origin(place, (stuck, 0), (ended, 1)),
     }
     assert _cap_record(out, "0001-1") == {
         "rule": "pair",
@@ -186,7 +204,7 @@ def test_a_reviewed_trial_s_raw_pair_is_capped_at_its_own_total(
     }
 
 
-def test_a_round_of_the_no_figure_entry_alone_takes_its_cap_from_the_cell_it_is_given(
+def test_a_round_of_the_no_figure_entry_alone_takes_its_cap_from_its_harness_round_s_cell(
     tmp_path: Path, store: StandInStore
 ) -> None:
     visible = store.tasks["visible"]
@@ -195,30 +213,141 @@ def test_a_round_of_the_no_figure_entry_alone_takes_its_cap_from_the_cell_it_is_
         harness_run_spending(tmp_path / "runs", visible[i], store, tokens)
         for i, tokens in ((1, 1200), (2, 3000), (3, 2000))
     ]
-    cell = run_set((stuck, 0), *((run, 0) for run in others))
+    place = harness_round_of(
+        store,
+        [RoundPlace(stuck, 0, visible[0])]
+        + [RoundPlace(run, 0, visible[i]) for i, run in enumerate(others, 1)],
+    )
     arm = StandInArm()
     out = tmp_path / "round"
-    record = _round(store, run_set((stuck, 0)), out, arm, cell=cell)
+    # No cell is named: the entry's own harness round gives it.
+    record = _round(store, run_set((stuck, 0)), out, arm)
     assert isinstance(record, BaselineRecord), record
     assert [cap for _, cap, _ in arm.calls] == [2000]
-    assert _cap_record(out, "0000-1")["rule"] == "cell_median"
-    # Outside the cell it was given, an entry has no cell to be capped from.
-    refused = _round(
-        store,
-        run_set((stuck, 0)),
-        tmp_path / "r2",
-        StandInArm(),
-        cell=run_set(*((r, 0) for r in others)),
-    )
-    assert isinstance(refused, BaselineError)
-    assert refused.context["refused_because"] == "not_in_the_cell"
+    assert _cap_record(out, "0000-1") == {
+        "rule": "cell_median",
+        "cap": 2000,
+        "inputs": [
+            {"place": 1, "total": 1200},
+            {"place": 2, "total": 3000},
+            {"place": 3, "total": 2000},
+        ],
+        "cell": _origin(place, (stuck, 0), *((r, 0) for r in others)),
+    }
 
+
+def test_a_cell_named_by_a_person_is_held_to_the_round_s_own_and_never_changes_a_cap(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    visible = store.tasks["visible"]
+    stuck = harness_run(tmp_path / "runs", visible[0], store, ended=False)
+    cheap = harness_run_spending(tmp_path / "runs", visible[1], store, 1200)
+    dear = harness_run_spending(tmp_path / "runs", visible[2], store, 3000)
+    harness_round_of(
+        store,
+        [
+            RoundPlace(stuck, 0, visible[0]),
+            RoundPlace(cheap, 0, visible[1]),
+            RoundPlace(dear, 0, visible[2]),
+        ],
+    )
+    # The trial and one other task's dearest: a cell that would cap it at 3000.
+    for name, given in (
+        ("dearest", run_set((stuck, 0), (dear, 0))),
+        ("cheapest", run_set((stuck, 0), (cheap, 0))),
+        ("reordered", run_set((dear, 0), (cheap, 0), (stuck, 0))),
+    ):
+        arm = StandInArm()
+        refused = _round(store, run_set((stuck, 0)), tmp_path / name, arm, cell=given)
+        assert isinstance(refused, BaselineError), name
+        assert refused.context["refused_because"] == "cell_not_the_round_s"
+        assert arm.calls == [] and not (tmp_path / name).exists()
+    arm = StandInArm()
+    own = run_set((stuck, 0), (cheap, 0), (dear, 0))
+    record = _round(store, run_set((stuck, 0)), tmp_path / "own", arm, cell=own)
+    assert isinstance(record, BaselineRecord), record
+    assert [cap for _, cap, _ in arm.calls] == [(1200 + 3000) // 2]
+
+
+def test_a_trial_with_no_figure_waits_for_its_harness_round_s_last_place(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    visible = store.tasks["visible"]
+    stuck = harness_run(tmp_path / "runs", visible[0], store, ended=False)
+    done = harness_run_spending(tmp_path / "runs", visible[1], store, 1200)
+    later = harness_run_spending(tmp_path / "runs", visible[2], store, 3000)
+    harness_round_of(
+        store,
+        [
+            RoundPlace(stuck, 0, visible[0]),
+            RoundPlace(done, 0, visible[1]),
+            RoundPlace(later, 0, visible[2], left=True),
+        ],
+    )
+    arm = StandInArm()
+    refused = _round(store, run_set((stuck, 0)), tmp_path / "round", arm)
+    assert isinstance(refused, BaselineError)
+    assert refused.context["refused_because"] == "cell_not_ended"
+    assert refused.context["places_left"] == "2"
+    assert arm.calls == [] and not (tmp_path / "round").exists()
+    # A trial with a figure of its own is not held to the cell: its raw pair runs now.
+    record = _round(store, run_set((done, 0)), tmp_path / "now", StandInArm())
+    assert isinstance(record, BaselineRecord), record
+
+
+def test_no_excluded_draw_ablation_trial_or_other_round_s_trial_is_in_a_cell_s_figures(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    visible = store.tasks["visible"]
+    runs = tmp_path / "runs"
+    stuck = harness_run(runs, visible[0], store, ended=False)
+    superseded = harness_run_spending(runs, visible[1], store, 9000)
+    kept = harness_run_spending(runs, visible[1], store, 1000)
+    excluded = harness_run_spending(runs, visible[2], store, 8000)
+    arm_run = harness_run_spending(runs, visible[3], store, 7000)
+    other = harness_run_spending(runs, visible[3], store, 6000)
+    harness_round_of(
+        store,
+        [
+            RoundPlace(stuck, 0, visible[0]),
+            RoundPlace(kept, 0, visible[1], earlier=(superseded,)),
+            RoundPlace(excluded, 0, visible[2], excluded=True),
+            RoundPlace(arm_run, 0, visible[3], arm="reviewers_off"),
+        ],
+    )
+    harness_round_of(store, [RoundPlace(other, 0, visible[3])], round_id="0f1e2d3c4b5a6978")
+    arm = StandInArm()
+    out = tmp_path / "round"
+    record = _round(store, run_set((stuck, 0)), out, arm)
+    assert isinstance(record, BaselineRecord), record
+    # The kept draw alone gives a figure: the median of one total is that total.
+    assert [cap for _, cap, _ in arm.calls] == [1000]
+    assert _cap_record(out, "0000-1")["inputs"] == [{"place": 1, "total": 1000}]
+    # A draw the round did not keep, with no figure of its own, is never capped from the cell.
+    dropped = harness_run(runs, visible[0], store, ended=False)
+    again = harness_run(runs, visible[0], store, ended=False)
+    given = harness_run_spending(runs, visible[1], store, 1000)
+    harness_round_of(
+        store,
+        [RoundPlace(given, 0, visible[1]), RoundPlace(again, 0, visible[0], earlier=(dropped,))],
+        round_id="1f2e3d4c5b6a7980",
+    )
+    refused = _round(store, run_set((dropped, 0)), tmp_path / "draw", StandInArm())
+    assert isinstance(refused, BaselineError)
+    assert refused.context["refused_because"] == "not_the_final_draw"
 
 def test_a_held_out_trial_s_cap_is_never_a_visible_trial_s_total(
     tmp_path: Path, store: StandInStore
 ) -> None:
     stuck = harness_run(tmp_path / "runs", store.tasks["held_out"][0], store, ended=False)
     visible = harness_run_spending(tmp_path / "runs", store.tasks["visible"][0], store, 5000)
+    harness_round_of(
+        store,
+        [
+            RoundPlace(visible, 0, store.tasks["visible"][0]),
+            RoundPlace(stuck, 0, store.tasks["held_out"][0], tier="held_out"),
+        ],
+    )
     arm = StandInArm()
     refused = _round(store, run_set((visible, 0), (stuck, 0)), tmp_path / "round", arm)
     assert isinstance(refused, BaselineError)
@@ -226,14 +355,60 @@ def test_a_held_out_trial_s_cap_is_never_a_visible_trial_s_total(
     assert refused.context["entry"] == "1" and arm.calls == []
 
 
-def test_the_audit_holds_a_session_s_cap_to_the_rule(tmp_path: Path, store: StandInStore) -> None:
+def test_a_trial_with_no_figure_and_no_harness_round_is_capped_only_in_a_development_round(
+    tmp_path: Path, store: StandInStore
+) -> None:
     task = store.tasks["visible"][0]
     stuck = harness_run(tmp_path / "runs", task, store, ended=False)
     ended = harness_run_spending(tmp_path / "runs", task, store, 1800)
     runs = run_set((stuck, 0), (ended, 1))
+    refused = _round(store, runs, tmp_path / "counted", StandInArm())
+    assert isinstance(refused, BaselineError)
+    assert refused.context["refused_because"] == "no_harness_round"
+    arm = StandInArm()
+    record = _round(store, runs, tmp_path / "development", arm, development=True)
+    assert isinstance(record, BaselineRecord), record
+    assert [cap for _, cap, _ in arm.calls] == [1800, 1800]
+
+
+def test_the_audit_holds_a_session_s_cap_to_the_rule(tmp_path: Path, store: StandInStore) -> None:
+    task = store.tasks["visible"][0]
+    stuck = harness_run(tmp_path / "runs", task, store, ended=False)
+    ended = harness_run_spending(tmp_path / "runs", task, store, 1800)
+    harness_round_of(store, [RoundPlace(stuck, 0, task), RoundPlace(ended, 1, task)])
+    runs = run_set((stuck, 0), (ended, 1))
     out = tmp_path / "round"
     assert isinstance(_round(store, runs, out, StandInArm()), BaselineRecord)
     kept = out / WORK / "0000-1" / "harness" / "cap.json"
+    written = json.loads(kept.read_text())
+    # A record written before the cell's origin was held names none, and audits clean.
+    kept.write_text(json.dumps({k: v for k, v in written.items() if k != "cell"}))
+    assert (
+        audit_raw(
+            store=store.store,
+            role="control",
+            version=store.version,
+            runs=runs,
+            out=out,
+            prices=load_price_sheet(PRICES),
+            score=lambda _t, _a: dict(SCORED),
+        )
+        == []
+    )
+    # Another cell's origin differs.
+    kept.write_text(json.dumps({**written, "cell": {**written["cell"], "round": "0" * 16}}))
+    assert [
+        (d.kind, d.index)
+        for d in audit_raw(
+            store=store.store,
+            role="control",
+            version=store.version,
+            runs=runs,
+            out=out,
+            prices=load_price_sheet(PRICES),
+            score=lambda _t, _a: dict(SCORED),
+        )
+    ] == [("cap", 0)]
     kept.write_text(json.dumps({"rule": "cell_median", "cap": 1800, "inputs": []}))
     found = audit_raw(
         store=store.store,
@@ -263,6 +438,7 @@ def test_a_round_where_more_than_a_third_gave_no_figure_says_so_loudly(
     task = store.tasks["visible"][0]
     stuck = harness_run(tmp_path / "runs", task, store, ended=False)
     ended = harness_run_spending(tmp_path / "runs", task, store, 1800)
+    harness_round_of(store, [RoundPlace(stuck, 0, task), RoundPlace(ended, 1, task)])
     runs = run_set((stuck, 0), (ended, 1))
     (tmp_path / "runs.json").write_text(runs.model_dump_json())
     real = runner.run_baseline

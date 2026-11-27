@@ -45,6 +45,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from physgate.evaluation.baseline.pairs import claims, standing, standing_in
 from physgate.evaluation.baseline.record import (
     BASELINE_RECORD,
     EXTERNAL_TIERS,
@@ -300,10 +301,7 @@ def _rederive_raw(
         step = next_step(end, spent)
         if said_kind is not None and _STEP_LINES[step] != said_kind:
             odd.append("ledger")
-        if record.get("cap") != trial.cap or _cap_record(harness) not in (
-            None,
-            trial.cap_rule.recorded(),
-        ):
+        if record.get("cap") != trial.cap or not _same_cap(_cap_record(harness), trial):
             odd.append("cap")
         if step == "once_more":
             spent = True
@@ -320,6 +318,19 @@ def _rederive_raw(
         line = trial_line(trial, role, record, stream, prices, scored, unscored=end == "machine")
         result = (record, line, session)
     return result, sorted(set(odd), key=odd.index)
+
+
+def _same_cap(written: Any, trial: Planned) -> bool:  # noqa: ANN401 - the record as written
+    """Whether a session's cap record is the one the rule gives again; none before there was one.
+
+    A record written before the cell's origin was held names none, and is held to the rest.
+    """
+    if written is None:
+        return True
+    again = trial.cap_rule.recorded()
+    if isinstance(written, dict) and "cell" not in written:
+        again.pop("cell", None)
+    return bool(written == again)
 
 
 def _cap_record(harness: Path) -> Any:  # noqa: ANN401 - the record as written
@@ -377,6 +388,7 @@ def audit_raw(
         shakedown=shakedown,
         own_places=own_places(store, role, round_id),
     )
+    _one_record_a_pair(store, role, planned, ledger)
     protected_root = withheld_root(store, role) / BASELINE_DIR / round_id
     counted = EXTERNAL_TIERS if isinstance(source, ExternalSetRecord) else VERSION_TIERS
     derived: dict[SourceTier, dict[int, Line]] = {tier: {} for tier in counted}
@@ -425,6 +437,33 @@ def audit_raw(
             found.append(Difference("raw", tier, "ledger", None, "trials"))
     found += _counts(store, role, source, planned, counted, out, tallied(summed, counted))
     return found
+
+
+def _one_record_a_pair(store: Path, role: Role, planned: Sequence[Planned], ledger: Ledger) -> None:
+    """Refuse the audit of a round whose pair has a counted raw record in another round as well.
+
+    A record is counted where its round recorded it and no once-more runs its entry in its
+    place (:func:`.pairs.standing`); a pair has one, in one round.
+
+    Raises:
+        AuditError: ``pair_counted_twice``, naming the entry and the other round.
+    """
+    for trial in planned:
+        if standing_in(ledger.lines, trial.index) != "recorded":
+            continue
+        own = str(ledger.lines[0]["round"])
+        for line in claims(store, role, trial.pair):
+            if line["round"] != own and standing(line) == "recorded":
+                msg = (
+                    f"the pair has a counted raw record in the round {line['round']} as well; a "
+                    "harness trial has one raw record"
+                )
+                raise AuditError(
+                    msg,
+                    refused_because="pair_counted_twice",
+                    entry=str(trial.index),
+                    earlier_round=str(line["round"]),
+                )
 
 
 def _counts(
@@ -528,6 +567,7 @@ def audit_harness(
     found: list[Difference] = []
     try:
         for cell in cells:
+            _a_harness_cell(cell, tasks)
             derived: dict[int, Line] = {}
             for index, entry in enumerate(cell.runs.trials):
                 here = scratch / secrets.token_hex(8)
@@ -552,6 +592,34 @@ def audit_harness(
     return found
 
 
+def _a_harness_cell(cell: HarnessCell, tasks: Mapping[str, tuple[SourceTier, Task]]) -> None:
+    """Refuse, before anything is derived, a cell that is not one tier of the harness as measured.
+
+    By each record's and each run's own mark: an ablation arm's trial is a harness with a part
+    taken away, and its set and records are never a harness cell's, however they are named. A
+    run whose task is of another tier than the cell's is no trial of the cell.
+
+    Raises:
+        AuditError: ``ablation_record``, or ``tier`` naming the entry by its place.
+    """
+    for number, line in enumerate(read_lines(cell.trials)):
+        if line.ablation is not None:
+            msg = f"record {number} of the cell is an ablation trial's; no harness cell holds one"
+            raise AuditError(msg, refused_because="ablation_record")
+    for index, entry in enumerate(cell.runs.trials):
+        try:
+            config = load_run_config(Path(entry.run_dir) / "run.json")
+        except Exception:  # noqa: BLE001, S112 - unrederivable, said at its place when derived
+            continue
+        if config.ablation:
+            msg = "a run of the cell is an ablation run; no harness cell holds one"
+            raise AuditError(msg, refused_because="ablation_record", index=str(index))
+        found = tasks.get(config.brief_sha256)
+        if found is not None and found[0] != cell.tier:
+            msg = "a run of the cell was given a task of another tier than the cell's"
+            raise AuditError(msg, refused_because="tier", index=str(index))
+
+
 def _harness_entry(
     run_dir: Path,
     trial: int,
@@ -565,10 +633,7 @@ def _harness_entry(
 ) -> Line:
     """One harness trial's record, derived again into ``here``."""
     config = load_run_config(run_dir / "run.json")
-    tier, task = tasks[config.brief_sha256]
-    if tier != cell.tier:
-        msg = "the run's task is of another tier than the cell's"
-        raise AuditError(msg, refused_because="tier")
+    _, task = tasks[config.brief_sha256]
     here.mkdir(mode=0o700, parents=True)
     return rederive_harness_trial(
         run_dir,
