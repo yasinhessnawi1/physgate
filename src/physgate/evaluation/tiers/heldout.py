@@ -48,6 +48,7 @@ from physgate.evaluation.tiers.task import Canary, fold_id, load_task, task_from
 from physgate.hooks.paths import reaches
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 from physgate.oslayer.policy import sandbox_policy
+from physgate.oslayer.session_temp import session_temps_root
 
 PROFILES = ("role", "reviewer", "baseline")
 #: What a protected root holds, as the run records it: the held-out tier or the validation
@@ -298,13 +299,20 @@ def _session_problems(root: Path, scratch: Path) -> list[str]:
             token_ceiling=1,
             held_out=(str(root),),
             read_roots=(str(work / "worktree"),) if profile == "reviewer" else (),
+            # A session only as the check asks of it, in the scan's own scratch: no machine's
+            # place is named around it (the scratch lies in the harness's own temporary place).
+            shared_temps=(),
+            harness_temps=str(work / "harness-temps"),
         )
         config = build_config(request, current_installation())
         if str(root) not in config.held_out:
             problems.append(f"a {profile} session would not be configured with the root")
         if profile == "reviewer":
             continue  # a reviewer has no shell, so no OS layer
-        policy = sandbox_policy(config, home=str(work / "home"), temp_dir="/tmp/pg-scan")
+        # A session's own temporary directory as one is named, never made: the shared ones are
+        # refused to every session.
+        temp = os.path.join(session_temps_root(), "0123456789")
+        policy = sandbox_policy(config, home=str(work / "home"), temp_dir=temp)
         filesystem = policy.settings["sandbox"]["filesystem"]
         for direction in ("denyRead", "denyWrite"):
             if str(root) not in filesystem[direction]:

@@ -207,15 +207,16 @@ def _real(literal: str) -> float:
 
 
 def _depth(value: object) -> int:
-    """How deep ``value``'s arrays and objects nest, counted without recursion."""
+    """How deep ``value``'s arrays and objects nest, counted without recursion.
+
+    An empty array or object is a level too: ``[[]]`` nests two deep, as ``[[1]]`` does.
+    """
     deepest, stack = 0, [(value, 1)]
     while stack:
         item, level = stack.pop()
-        children = (
-            item.values() if isinstance(item, dict) else item if isinstance(item, list) else ()
-        )
-        if children:
+        if isinstance(item, dict | list):
             deepest = max(deepest, level)
+            children = item.values() if isinstance(item, dict) else item
             stack.extend((child, level + 1) for child in children)
     return deepest
 
@@ -231,7 +232,9 @@ def parse_verdict_text(text: str) -> dict[str, Any] | str:
     """
     if len(text) > MAX_TEXT_CHARACTERS:
         return f"that text is longer than the {MAX_TEXT_CHARACTERS} characters read"
-    stripped = text.strip()
+    # JSON's own white space alone: Python's strip takes a no-break space, a line separator or a
+    # vertical tab too, which no JSON reader would.
+    stripped = text.strip(JSON_WHITE_SPACE)
     decoder = json.JSONDecoder(
         parse_constant=_no_constant,
         parse_int=_integer,
@@ -248,12 +251,71 @@ def parse_verdict_text(text: str) -> dict[str, Any] | str:
         return "that text is not one JSON object: it nests too deep to read"
     if not isinstance(value, dict):
         return "that text holds no JSON object"
-    rest = stripped[end:].strip()
+    rest = stripped[end:].strip(JSON_WHITE_SPACE)
     if rest not in ("", "}"):
         return "that text holds more than one JSON object, or more after it"
     if _depth(value) > MAX_DEPTH:
         return f"that text nests deeper than {MAX_DEPTH} levels"
     return value
+
+
+#: JSON's insignificant white space: space, tab, line feed, carriage return (RFC 8259).
+JSON_WHITE_SPACE = " \t\n\r"
+#: What ECMAScript's ``\s`` matches (its WhiteSpace and LineTerminator), which a schema's
+#: ``pattern`` means: the client checks a verdict with that language's regular expressions. Python's
+#: own ``\s`` leaves out U+FEFF and takes U+001C to U+001F and U+0085, which ECMAScript does not.
+ECMASCRIPT_SPACE = "\t\n\x0b\x0c\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+
+
+def ecmascript_pattern(pattern: str) -> str:
+    r"""``pattern`` with ``\s`` and ``\S`` spelt as ECMAScript reads them, for Python's ``re``.
+
+    Inside a character class ``\s`` becomes its characters (``\S`` there is refused: a class of
+    every character but those has no spelling inside another class); outside one, ``[...]`` and
+    ``[^...]``. Every other escape is kept as written, and the pattern is compiled ASCII, as
+    ECMAScript reads ``\d``, ``\w`` and ``\b`` without its ``u`` flag.
+
+    Raises:
+        ValueError: ``\S`` stands inside a character class.
+    """
+    out: list[str] = []
+    in_class = False
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\" and index + 1 < len(pattern):
+            escaped = pattern[index + 1]
+            if escaped == "s":
+                out.append(ECMASCRIPT_SPACE if in_class else f"[{ECMASCRIPT_SPACE}]")
+            elif escaped == "S":
+                if in_class:
+                    msg = "the pattern holds \\S inside a character class"
+                    raise ValueError(msg)
+                out.append(f"[^{ECMASCRIPT_SPACE}]")
+            else:
+                out.append(char + escaped)
+            index += 2
+            continue
+        if char == "[" and not in_class:
+            in_class = True
+        elif char == "]" and in_class:
+            in_class = False
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+def _pattern_errors(value: str, pattern: object, at: str) -> list[str]:
+    """How ``value`` breaks ``pattern`` as ECMAScript reads it; a pattern not read is an error."""
+    if not isinstance(pattern, str):
+        return [f"{at}: the schema's pattern is not a string, a form this check does not know"]
+    try:
+        compiled = re.compile(ecmascript_pattern(pattern), re.ASCII)
+    except (re.error, ValueError):
+        return [f"{at}: the schema's pattern is in a form this check does not know"]
+    if compiled.search(value) is None:
+        return [f'{at}: must match pattern "{pattern}"']
+    return []
 
 
 def _is(value: object, kind: str) -> bool:
@@ -356,8 +418,8 @@ def schema_errors(value: object, schema: object, where: str = "") -> list[str]: 
     if isinstance(value, str):
         if len(value) < schema.get("minLength", 0):
             found.append(f"{at}: must NOT have fewer than {schema['minLength']} characters")
-        if "pattern" in schema and re.search(schema["pattern"], value) is None:
-            found.append(f'{at}: must match pattern "{schema["pattern"]}"')
+        if "pattern" in schema:
+            found += _pattern_errors(value, schema["pattern"], at)
     if _is(value, "number") and "minimum" in schema and value < schema["minimum"]:
         found.append(f"{at}: must be >= {schema['minimum']}")
     if isinstance(value, dict):

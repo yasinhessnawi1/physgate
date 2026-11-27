@@ -1,13 +1,15 @@
-"""The series writer stands behind no compiled code in the worktree.
+"""The series writer writes no record while compiled code lies beside a module it loaded.
 
 The interpreter runs a module's compiled file in place of its source whenever the file's header
 names the source's time and size, and it reads such a file even where it is told to write none.
-A record names the source's bytes as the code that ran, so a compiled file beside a source the
-session controls would let other code stand behind a curve, and the cleanup at the session's end
-would then remove the proof. So the writer refuses to write a record while any module loaded
-from the worktree has a compiled file where the interpreter would read one for it, or was loaded
-by any loader but the source loader. The check is the writer's, at the moment it writes: a
-record written and sealed before is read and collected exactly as it was.
+A record names the source's bytes, so a compiled file beside a source would make the record name
+code other than what ran. So the writer, in the session's own process, refuses to write a record
+while any module loaded from the worktree has a compiled file where the interpreter would read
+one for it, or was loaded by any loader but the source loader. That catches such a file left in
+place by accident; it proves nothing of what ran, since the process is the session's, and the
+orchestrator's own look at the session's end is what marks a record beside one. The check is the
+writer's, at the moment it writes: a record written and sealed before is read and collected
+exactly as it was.
 """
 
 from __future__ import annotations

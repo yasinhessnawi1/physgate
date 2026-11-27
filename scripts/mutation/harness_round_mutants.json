@@ -2400,7 +2400,7 @@
  {
   "name": "a_restart_holds_only_the_trial_s_leaf_to_a_directory",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "        if not _a_directory_all_the_way(Path(root), run_dir):\n",
+  "old": "        if not _no_link_on_the_way(run_dir) or not os.path.isdir(run_dir):\n",
   "new": "        if os.path.islink(run_dir) or not os.path.isdir(run_dir):\n",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_restart_deals_only_with_its_own_directories_and_leaves_no_credential.py"
@@ -2421,7 +2421,7 @@
  {
   "name": "a_restart_deals_with_a_linked_trial_directory",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "        if not _a_directory_all_the_way(Path(root), run_dir):\n",
+  "old": "        if not _no_link_on_the_way(run_dir) or not os.path.isdir(run_dir):\n",
   "new": "        if not os.path.isdir(run_dir):\n",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_restart_deals_only_with_its_own_directories_and_leaves_no_credential.py"

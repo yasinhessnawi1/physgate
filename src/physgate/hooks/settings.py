@@ -46,6 +46,7 @@ from physgate.hooks.config import (
     Reads,
     SessionConfig,
     Watch,
+    WorktreeIdentity,
     digest,
 )
 from physgate.hooks.graph import COMPLETION_DIR, DISPUTES_DIR, PROPOSALS_DIR
@@ -54,6 +55,7 @@ from physgate.hooks.reasons import CLAUDE_TEMP_REASON as CLAUDE_TEMP_REASON
 from physgate.hooks.reasons import GATE_REASON as GATE_REASON
 from physgate.hooks.reasons import GIT_USER_CONFIG_REASON as GIT_USER_CONFIG_REASON
 from physgate.hooks.reasons import HARNESS_REASON as HARNESS_REASON
+from physgate.hooks.reasons import HARNESS_TEMPS_REASON as HARNESS_TEMPS_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
 from physgate.hooks.reasons import HOME_CLAUDE_REASON as HOME_CLAUDE_REASON
 from physgate.hooks.reasons import HOOK_STATE_REASON as HOOK_STATE_REASON
@@ -62,6 +64,7 @@ from physgate.hooks.reasons import SENTINEL_APART_REASON as SENTINEL_APART_REASO
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import SESSION_TEMPS_REASON as SESSION_TEMPS_REASON
 from physgate.hooks.reasons import SESSIONS_REASON as SESSIONS_REASON
+from physgate.hooks.reasons import SHARED_TEMP_REASON as SHARED_TEMP_REASON
 from physgate.hooks.reasons import SHELL_STARTUP_REASON as SHELL_STARTUP_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.reasons import TOOL_ENVIRONMENT_REASON as TOOL_ENVIRONMENT_REASON
@@ -70,6 +73,7 @@ from physgate.hooks.reasons import WITHHELD_WHOLE_REASON as WITHHELD_WHOLE_REASO
 from physgate.hooks.reasons import series_outbox_reason
 from physgate.hooks.runtime import EVENTS, HookSpec
 from physgate.oslayer import reaper_install
+from physgate.oslayer.harness_temp import harness_temps_root
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.policy import NETWORK_UNENFORCED, sandbox_policy
 from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
@@ -260,6 +264,17 @@ class InstallRequest(BaseModel):
     #: own child there, matched exactly. Every session runs as the same user, so a directory's
     #: mode keeps no session from another's. Taken from the machine, never from the spawner.
     session_temps: AbsolutePath = Field(default_factory=lambda: session_temps_root())
+    #: The machine's temporary directories every session shares (``/tmp``, and on macOS the
+    #: per-user directory plain ``mktemp`` writes in): refused to every read and write of a role,
+    #: baseline or reviewer session, on every layer, where none of the session's own places lies
+    #: in one. Its own temporary directory is where it writes instead. Taken from the machine,
+    #: never from the spawner.
+    shared_temps: tuple[AbsolutePath, ...] = Field(default_factory=lambda: shared_temp_dirs())
+    #: The one parent every harness process keeps its own temporary files beneath (the stores
+    #: it reads a change check and a review's packet through): refused to every read and write of
+    #: a role, baseline or reviewer session, on every layer. Taken from the machine, never from
+    #: the spawner.
+    harness_temps: AbsolutePath = Field(default_factory=lambda: harness_temps_root())
     #: Further places of the session's own that its shell commands read, where they sit
     #: inside a root the OS layer keeps from them (the run's ``sessions/``): the
     #: directory holding the run's named interpreter for this session.
@@ -877,6 +892,26 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         reads[temps] = "denied"
         own_temp = request.os_layer_temp_dir or request.temp_dir
         read_exceptions[temps] = (own_temp,) if own_temp is not None else ()
+        # The harness's own temporary files, every process's: no session's place lies there.
+        harness = os.path.realpath(request.harness_temps)
+        protected[harness] = (HARNESS_TEMPS_REASON, "none")
+        reads[harness] = "denied"
+        # The temporary directories every session on the machine shares, both ways: what one
+        # trial leaves there another reads or changes, and the harness keeps nothing there.
+        # Always named whole. A place of the session's own that lies in one (a test's tree in
+        # pytest's temporary directory, a session without the OS layer: the installer refuses a
+        # sandboxed one a worktree there) is opened again there alone, exactly as the session's
+        # own temporary directory is: read where it is one of the session's places, written where
+        # the session writes it (its worktree, its home, its own temporary directory).
+        for path in request.shared_temps:
+            protected[path] = (SHARED_TEMP_REASON, "none")
+            reads[path] = "denied"
+            read_exceptions[path] = tuple(
+                sorted({p for p in _own_places(request) if _inside(p, path)})
+            )
+            carved = tuple(sorted({p for p in _own_writes(request) if _inside(p, path)}))
+            if carved:
+                root_exceptions[path] = carved
     for path in request.withheld:
         # Assigned, not defaulted: a withheld record named as an ordinary protected root too
         # is withheld all the same, put back and refused to every read on every layer.
@@ -986,7 +1021,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
 #: The configuration's fields left out of its written bytes when empty: only a reviewer whose
 #: run allows compaction has the first two, and only a session inside the OS layer the third,
 #: so every other session's configuration keeps its bytes.
-_LEFT_OUT_WHEN_EMPTY = ("after_compaction", "compaction_note", "os_layer")
+_LEFT_OUT_WHEN_EMPTY = ("after_compaction", "compaction_note", "os_layer", "worktree_identity")
 
 
 def config_bytes(config: SessionConfig) -> bytes:
@@ -1230,6 +1265,50 @@ def _make_zdotdir(target: Path, home: str) -> str:
     return str(where)
 
 
+def worktree_identity(worktree: str) -> WorktreeIdentity | None:
+    """The worktree's device and inode as it stands, or ``None`` where it does not exist yet.
+
+    Raises:
+        ValueError: the worktree's path is itself a link: a hook could not tell the directory the
+            session was given from wherever the link points later.
+    """
+    try:
+        st = os.lstat(worktree)
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(st.st_mode):
+        msg = f"the worktree {worktree} is a link; a session is installed in a directory"
+        raise ValueError(msg)
+    if not stat.S_ISDIR(st.st_mode):
+        msg = f"the worktree {worktree} is not a directory"
+        raise ValueError(msg)
+    return WorktreeIdentity(device=st.st_dev, inode=st.st_ino)
+
+
+def _own_writes(request: InstallRequest) -> tuple[str, ...]:
+    """The places the session's own tools write: its worktree, its home, its temporary directory."""
+    places = [request.worktree, request.user_home]
+    places += [p for p in (request.os_layer_temp_dir, request.temp_dir) if p is not None]
+    return tuple(places)
+
+
+def _own_places(request: InstallRequest) -> tuple[str, ...]:
+    """Every place the request names as the session's own, to write or to read."""
+    places = [
+        request.worktree,
+        request.user_home,
+        request.state_dir,
+        request.target_dir,
+        request.claude_config_dir,
+        *request.required_reading,
+        *request.always_loaded,
+        *request.read_roots,
+        *request.os_layer_readable,
+    ]
+    places += [p for p in (request.os_layer_temp_dir, request.temp_dir) if p is not None]
+    return tuple(places)
+
+
 def _own_temp(request: InstallRequest) -> str | None:
     """The session's own temporary directory, refused where it is missing or unusable.
 
@@ -1324,6 +1403,9 @@ def install(
             raise ValueError(misplaced)
     installation = installation or current_installation()
     config = build_config(request, installation)
+    identity = worktree_identity(request.worktree)
+    if identity is not None:
+        config = config.model_copy(update={"worktree_identity": identity})
     target = Path(request.target_dir)
     target.mkdir(parents=True, exist_ok=True)
     config_path = target / CONFIG_NAME
@@ -1353,6 +1435,14 @@ def install(
         # among them, and not in the directory every session of the user shares (``TMPDIR`` was
         # measured to move nothing).
         spawn_env["CLAUDE_CODE_TMPDIR"] = own_temp
+        # And every program the session runs, the binary's own commands and a tool of the
+        # environment among them: an interpreter's and a compiler's temporary files are made in
+        # the session's own directory (the hooks' trampoline unsets it for the hook it runs, whose
+        # own files are never kept where the session writes). Inside the OS layer the binary points
+        # its sandboxed commands at a directory beneath it (measured on 2.1.301 and 2.1.322).
+        # Where it really is: a tool that writes a path relative to the place it resolves writes
+        # the one its TMPDIR names.
+        spawn_env["TMPDIR"] = os.path.realpath(own_temp)
     if request.profile in OWN_TEMP_PROFILES:
         # No command goes to the background, by any route the binary offers (asked for, past its
         # timeout, or on its own): its output would be left in the session's own temporary
@@ -1385,7 +1475,6 @@ def install(
             home=request.user_home,
             temp_dir=temp,
             readable=readable,
-            shared_temp=shared_temp_dirs(),
             claude_temp=request.shared_claude_temp,
             network=request.os_layer_network,
         )

@@ -118,6 +118,7 @@ from physgate.evaluation.tiers.store import (
 from physgate.evaluation.tiers.task import Role, Sha256, canonical_json, parse_task
 from physgate.orchestrator.events import Incident, read_events
 from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.oslayer.harness_temp import harness_temp_dir
 
 REGISTER = "register"
 RUN_ROOTS = "run-roots"
@@ -1807,7 +1808,7 @@ def _scan_refusal(
             return "canary_not_looked_for", (
                 f"the run does not look for every canary of its version's {tier} tier"
             )
-        with tempfile.TemporaryDirectory(prefix="pg-tier-scan-") as scratch:
+        with tempfile.TemporaryDirectory(prefix="pg-tier-scan-", dir=harness_temp_dir()) as scratch:
             problems = scan(
                 Path(entry),
                 run_held_out=tuple(config.held_out),

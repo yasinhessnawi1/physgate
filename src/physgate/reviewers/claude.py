@@ -516,6 +516,20 @@ def unavailable_end(
     return "infrastructure", f"the session ended with {end.cause}"
 
 
+def _session_cause(
+    stream: str, result: dict[str, Any] | None, exit_code: int | None, timed_out: bool
+) -> str:
+    """The cause an ``infrastructure`` review end is classified as, as a role session's would be.
+
+    A session that ended as a finished one and said a full disk lost its own records is
+    ``disk_full``, as :func:`unavailable_end` names that end.
+    """
+    end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
+    if end.outcome == "completed" and writes_lost(stream) is not None:
+        return "disk_full"
+    return end.cause or "unknown"
+
+
 #: What a reviewer whose run allows compaction is told when its session starts again after one,
 #: in place of its required reading (the reading hook's note, ARCH-060, ARCH-020). Held to this
 #: text byte for byte, its line breaks included, as what a reviewer reads is part of what a run
@@ -598,6 +612,8 @@ class _Ended(Exception):  # noqa: N818 - a session's end, carried to the loop th
         self.spec_defects, self.refusals = spec_defects, refusals
         #: The account's usage limit the session ended on, if its stream named one.
         self.usage_limit: UsageLimit | None = None
+        #: For an ``infrastructure`` end, the session's end as every session's is classified.
+        self.session_cause: str | None = None
         #: Each compaction the review's session showed so far, its invocations before this one
         #: included, as the context size before it (``None`` where its boundary named none).
         self.compacted: tuple[int | None, ...] = ()
@@ -866,6 +882,7 @@ class ClaudeReviewer:
                     spec_defects=outcome.spec_defects,
                     usage_limit=outcome.usage_limit,
                     managed=tuple(self._seen),
+                    session_cause=outcome.session_cause,
                 )
             # The same session, resumed once with the check's own reason in plain words,
             # so the reviewer can answer what it has already read. It is the same review.
@@ -1012,8 +1029,11 @@ class ClaudeReviewer:
         if cut is not None and told is None:
             stop = ended(*cut)
             if cut[0] == "infrastructure":
-                # No verdict, as any infrastructure end; the loop is told the limit beside it.
+                # No verdict, as any infrastructure end; the loop is told the limit beside it, and
+                # the session's end as a role session's is classified, so a refused credential or
+                # an OS layer that would not start halts the run for its own cause.
                 stop.usage_limit = usage_limit_of(text, result)
+                stop.session_cause = _session_cause(text, result, exit_code, timed_out)
             return stop
         if captured.tampered is not None:
             return ended(

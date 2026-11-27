@@ -929,13 +929,93 @@ def _depth(path: str) -> int:
     return path.count("/")
 
 
-def _restore_entry(path: str, entry: Entry, state: _State, sealed: frozenset[str]) -> None:
+class _Here:
+    """How the put-back names a path: beneath the worktree, relative to the directory it holds.
+
+    Where the configuration records the worktree's identity, the put-back opens the worktree once
+    (no link followed), holds it to that identity and makes it the process's working directory;
+    each path beneath the worktree is then named relative to it. So a write the sentinel makes
+    lands in the directory the session was installed in, whatever the worktree's path is renamed
+    to or replaced by meanwhile. Every other path is named as it is.
+    """
+
+    def __init__(self, worktree: str | None) -> None:
+        """``worktree`` is the path named relative to the held directory, or ``None``."""
+        self.worktree = worktree.rstrip("/") if worktree is not None else None
+
+    def __call__(self, path: str) -> str:
+        """``path`` as the put-back opens it."""
+        top = self.worktree
+        if top is None:
+            return path
+        if path == top:
+            return "."
+        if path.startswith(top + "/"):
+            return "." + path[len(top) :]
+        return path
+
+    def back(self, named: str) -> str:
+        """The recorded path a name :meth:`__call__` gave stands for."""
+        if self.worktree is None or not (named == "." or named.startswith("./")):
+            return named
+        return self.worktree + named[1:]
+
+    def signatures(self, roots: list[str], exclude: list[str]) -> dict[str, Any]:
+        """:func:`take_signatures` of ``roots``, named here, keyed by the recorded paths."""
+        taken = take_signatures([self(r) for r in roots], [self(e) for e in exclude])
+        return {self.back(p): sig for p, sig in taken.items()}
+
+
+#: The answer where the worktree, opened for the put-back, is not the directory recorded.
+WORKTREE_NOT_HELD = (
+    "The session's worktree is no longer the directory it was installed in, so nothing was put "
+    "back and every call is refused."
+)
+
+
+def _cwd() -> int:
+    """The process's working directory, held open to go back to; the root where it is gone."""
+    try:
+        return os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        return os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+
+
+def _hold_worktree(config: ConfigView) -> int | None:
+    """The worktree, opened with no link followed and held to its identity, as working directory.
+
+    ``None`` where the configuration records no identity.
+
+    Raises:
+        OSError: it cannot be opened so, or it is not the recorded directory.
+    """
+    identity = config.worktree_identity
+    if identity is None:
+        return None
+    fd = os.open(
+        config.worktree, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    )
+    try:
+        st = os.fstat(fd)
+        if (st.st_dev, st.st_ino) != (identity.device, identity.inode):
+            raise OSError(errno.ESTALE, "the worktree is not the directory recorded")
+        os.fchdir(fd)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _restore_entry(
+    path: str, entry: Entry, state: _State, sealed: frozenset[str], recorded: str | None = None
+) -> None:
+    """Make ``path`` what ``entry`` was; ``recorded`` is its recorded path, where it is named so."""
     kind = entry.signature[0]
     mode = entry.signature[1]
     if kind == "dir":
         os.makedirs(path, exist_ok=True)
         os.chmod(path, mode)
-    elif kind == "file" and entry.digest is not None and path not in sealed:
+    elif kind == "file" and entry.digest is not None and (recorded or path) not in sealed:
         # A sealed file has no bytes kept: it stays as it is, and the check after the
         # put-back reports it as not put back.
         state.blobs.restore(path, entry.digest, mode)
@@ -943,10 +1023,16 @@ def _restore_entry(path: str, entry: Entry, state: _State, sealed: frozenset[str
         os.symlink(entry.link, path)
 
 
-def _revert(base: dict[str, Any], state: _State) -> tuple[list[str], list[str]]:
-    """Put the revert roots back. Returns (paths put back, paths that could not be)."""
+def _revert(
+    base: dict[str, Any], state: _State, here: _Here | None = None
+) -> tuple[list[str], list[str]]:
+    """Put the revert roots back. Returns (paths put back, paths that could not be).
+
+    Every path is opened as ``here`` names it (:class:`_Here`), and recorded by its own.
+    """
+    here = here or _Here(None)
     exclude = base.get("revert_exceptions", [])
-    current = take_signatures(base["revert_roots"], exclude)
+    current = here.signatures(base["revert_roots"], exclude)
     if current == {p: tuple(raw[0]) for p, raw in base["revert"].items()}:
         # Every path is where it was, with the signature it had: nothing moved,
         # so there is nothing to put back and nothing to verify. That is every
@@ -960,7 +1046,7 @@ def _revert(base: dict[str, Any], state: _State) -> tuple[list[str], list[str]]:
     for path in sorted(set(current) - set(recorded), key=_depth):
         if any(path.startswith(m.rstrip("/") + "/") for m in moved):
             continue
-        quarantine(path, state.quarantine)
+        quarantine(here(path), state.quarantine)
         moved.append(path)
         touched.append(path)
     for path in sorted(set(current) & set(recorded), key=_depth):
@@ -970,41 +1056,41 @@ def _revert(base: dict[str, Any], state: _State) -> tuple[list[str], list[str]]:
         if was.signature == now:
             continue
         if was.signature[0] != now[0]:
-            quarantine(path, state.quarantine)
+            quarantine(here(path), state.quarantine)
             moved.append(path)
-            _restore_entry(path, was, state, sealed)
+            _restore_entry(here(path), was, state, sealed, path)
             touched.append(path)
         elif now[0] == "file":
-            if path in sealed and file_digest(path) == was.digest:
+            if path in sealed and file_digest(here(path)) == was.digest:
                 # Its bytes are what they were; only its mode can have moved.
                 if now[1] != was.signature[1]:
-                    os.chmod(path, was.signature[1])
+                    os.chmod(here(path), was.signature[1])
                     touched.append(path)
-            elif now[1] != was.signature[1] or file_digest(path) != was.digest:
-                _restore_entry(path, was, state, sealed)
+            elif now[1] != was.signature[1] or file_digest(here(path)) != was.digest:
+                _restore_entry(here(path), was, state, sealed, path)
                 touched.append(path)
         elif now[0] == "dir" and now[1] != was.signature[1]:
-            os.chmod(path, was.signature[1])
+            os.chmod(here(path), was.signature[1])
             touched.append(path)
-        elif now[0] == "link" and os.readlink(path) != was.link:
-            quarantine(path, state.quarantine)
-            _restore_entry(path, was, state, sealed)
+        elif now[0] == "link" and os.readlink(here(path)) != was.link:
+            quarantine(here(path), state.quarantine)
+            _restore_entry(here(path), was, state, sealed, path)
             touched.append(path)
     for path in sorted(
-        set(recorded) - set(take_signatures(base["revert_roots"], exclude)), key=_depth
+        set(recorded) - set(here.signatures(base["revert_roots"], exclude)), key=_depth
     ):
-        _restore_entry(path, recorded[path], state, sealed)
+        _restore_entry(here(path), recorded[path], state, sealed, path)
         touched.append(path)
     # Verify, and take the restored files' new signatures as the baseline: a
     # replaced file has a new inode, with the content it had before.
-    after = take_signatures(base["revert_roots"], exclude)
+    after = here.signatures(base["revert_roots"], exclude)
     failed = sorted(set(after) ^ set(recorded))
     for path, entry in recorded.items():
         if (
             path in after
             and entry.signature[0] == "file"
             and after[path] != entry.signature
-            and file_digest(path) != entry.digest
+            and file_digest(here(path)) != entry.digest
         ):
             failed.append(path)
         if path in after:
@@ -1396,7 +1482,24 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
             state.save(base)
             _event(config, hook_input, "halt", halted)
             return _keyed(refuse(base["halted"]), named)
-        put_back, failed = _revert(base, state)
+        back_to = _cwd()
+        try:
+            try:
+                held = _hold_worktree(config)
+            except OSError:
+                base["halted"] = WORKTREE_NOT_HELD
+                state.save(base)
+                _event(config, hook_input, "worktree not held", [])
+                return refuse(WORKTREE_NOT_HELD)
+            try:
+                here = _Here(config.worktree if held is not None else None)
+                put_back, failed = _revert(base, state, here)
+            finally:
+                if held is not None:
+                    os.fchdir(back_to)
+                    os.close(held)
+        finally:
+            os.close(back_to)
         journals_changed, appended = _check_journals(base, state)
         records_changed = _check_records(base)
         node_findings = _check_nodes(base)

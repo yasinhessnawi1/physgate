@@ -1054,7 +1054,8 @@ def read_spec_at(worktree: Path) -> dict[str, Any]:
 
 
 #: bubblewrap's own line, as a sibling session's removed placeholder made it print.
-BWRAP_ABORT = "bwrap: Can't find source path /tmp/pytest-of-u/pytest-1/.mcp.json: No such file"
+#: Its path moved out of the shared temporary directory, which a session's command may not name.
+BWRAP_ABORT = "bwrap: Can't find source path /home/u/pg-tests/t-1/.mcp.json: No such file"
 
 
 @pytest.mark.parametrize("sandboxed", [True, False])

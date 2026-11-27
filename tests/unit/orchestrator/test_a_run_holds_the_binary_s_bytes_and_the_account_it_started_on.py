@@ -377,6 +377,7 @@ def _drive(
     recorded: ClaudeBinary,
     account: RunAccount,
     secret: str,
+    extra: tuple[str, ...] = (),
 ) -> dict[str, str]:
     harness = _checkout(tmp_path / "harness")
     run_dir = tmp_path / "run"
@@ -394,7 +395,14 @@ def _drive(
     )
     args = [command, "--run-dir", str(run_dir), "--target", str(tmp_path / "t")]
     code = main(
-        [*args, "--install", str(tmp_path / "install"), "--review-root", str(tmp_path / "rs")],
+        [
+            *args,
+            "--install",
+            str(tmp_path / "install"),
+            "--review-root",
+            str(tmp_path / "rs"),
+            *extra,
+        ],
         registrations,
     )
     assert code == 2
@@ -448,6 +456,35 @@ def test_run_and_resume_refuse_another_account_s_credential(
         secret=OTHER,
     )
     assert "account 'seat-2' was recorded with" in error["error"]
+
+
+@pytest.mark.parametrize("secret", [DUMMY, OTHER])
+def test_the_word_that_a_credential_was_replaced_is_refused_for_a_run_not_halted_on_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    secret: str,
+) -> None:
+    # The command's own flag, through its parser: a run never started stands halted on nothing,
+    # so the word is refused whichever secret is given, before anything is built.
+    binary = _binary(tmp_path)
+    recorded = _here(hashlib.sha256(binary.read_bytes()).hexdigest())
+    account = RunAccount(
+        name="seat-2", token_sha256_prefix=fingerprint(Credential(mode="api_key", secret=DUMMY))
+    )
+    error = _drive(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        "resume",
+        recorded=recorded,
+        account=account,
+        secret=secret,
+        extra=("--credential-replaced",),
+    )
+    assert error["error"] == (
+        "a credential is replaced only for a run halted on a refused credential"
+    )
 
 
 def test_a_rerun_names_the_recorded_account_and_never_its_fingerprint_or_binary(

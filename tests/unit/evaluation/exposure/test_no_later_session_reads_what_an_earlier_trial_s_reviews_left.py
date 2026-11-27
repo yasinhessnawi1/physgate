@@ -233,7 +233,7 @@ def _let_through(config: SessionConfig, target: Path, home: Path) -> list[str]:
         let.append("the file tool")
     if not shell_paths.check(parse(f"cat {target}")[0], wt, config):
         let.append("the shell's hooks")
-    policy = sandbox_policy(config, home=str(home), temp_dir="/tmp/pg-review-root")
+    policy = sandbox_policy(config, home=str(home), temp_dir="/var/tmp/pgs/0123456789")
     deny = policy.settings["sandbox"]["filesystem"]["denyRead"]
     allow = policy.settings["sandbox"]["filesystem"]["allowRead"]
 

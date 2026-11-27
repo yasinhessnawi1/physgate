@@ -53,7 +53,7 @@ def _round(rig: Rig, driver: StandInDriver) -> tuple[str, dict[str, Any]]:
 def _visible(rig: Rig) -> dict[str, Any]:
     """The output directory, file by file, and the round's summary in it, less the rig's own."""
     out = rig.root / "out"
-    files = {p.name: p.read_bytes() for p in sorted(out.iterdir())}
+    files = {str(p.relative_to(out)): p.read_bytes() for p in sorted(out.rglob("*")) if p.is_file()}
     summary = json.loads(files.pop(ROUND_RECORD))
     return {"files": files, "summary": {k: v for k, v in summary.items() if k not in PER_RIG}}
 
@@ -76,9 +76,42 @@ def test_the_output_directory_and_the_summary_are_the_same_however_a_protected_t
     _, second = _round(other, other.driver(**ended))
     seen = _visible(other)
     # The visible tier's own records differ by their rig's paths only; the rest is the same.
-    seen["files"] = {k: v for k, v in seen["files"].items() if not k.startswith("visible.")}
+    # So do its trials' one-entry sets and sheets, which name only the visible tier's places.
     shown = _visible(passed)
-    shown["files"] = {k: v for k, v in shown["files"].items() if not k.startswith("visible.")}
+    assert sorted(seen["files"]) == sorted(shown["files"])
+    own = ("visible.", "trials/")
+    seen["files"] = {k: v for k, v in seen["files"].items() if not k.startswith(own)}
+    shown["files"] = {k: v for k, v in shown["files"].items() if not k.startswith(own)}
+    assert seen == shown
+    assert _printed(second) == _printed(first)
+
+
+@pytest.mark.parametrize("ended", [{"fails": {1: "invalid_plan"}}, {"silent": {1}}])
+def test_one_protected_place_taken_on_alone_tells_nothing_of_how_it_ended(
+    tmp_path: Path, ended: dict[str, Any]
+) -> None:
+    # One place of a held-out cell's registered order: whether it gives a figure (so whether its
+    # raw pair runs now) is said only beneath the withheld root, never in what is printed, in the
+    # output directory or by the exit of the call.
+    def one(rig: Rig, driver: StandInDriver) -> tuple[str, dict[str, Any]]:
+        status, summary = run_round(
+            rig.inputs(tiers=("held_out",), trials=1, tasks=2, seed_base=1, order_seed=1124),
+            driver=driver,
+            scorer=_score,
+            sleep=lambda _: None,
+            only=0,
+        )
+        return status, summary
+
+    passed = make_rig(tmp_path / "passed")
+    status, first = one(passed, passed.driver())
+    other = make_rig(tmp_path / "other")
+    again, second = one(other, other.driver(**ended))
+    assert status == again == "trial_assembled"
+    shown, seen = _visible(passed), _visible(other)
+    for said in (first, second, shown["summary"], seen["summary"]):
+        said["trial"] = {k: v for k, v in said["trial"].items() if k != "runs"}
+        assert said["trial"] == {"index": 0}
     assert seen == shown
     assert _printed(second) == _printed(first)
 

@@ -36,6 +36,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from physgate.orchestrator.exceptions import GitError
+from physgate.oslayer.harness_temp import harness_temp_dir
 
 AUTHOR = ("physgate orchestrator", "orchestrator@physgate.invalid")
 
@@ -457,7 +458,7 @@ def _object_store(object_dirs: tuple[str, ...], object_format: str) -> str:
     ``object_format`` the store is created with, so a SHA-256 repository is read as readily as
     a SHA-1 one.
     """
-    store = tempfile.mkdtemp(prefix="physgate-git-store-")
+    store = tempfile.mkdtemp(prefix="physgate-git-store-", dir=harness_temp_dir())
     _STORES.append(store)
     _init_store(store, object_dirs, object_format)
     return store
@@ -522,7 +523,7 @@ def unreachable_from(cwd: Path, tips: list[str]) -> list[tuple[str, str]]:
     """
     where = _git_dir(cwd)
     object_format = _object_format(cwd, where)
-    store = tempfile.mkdtemp(prefix="physgate-git-tips-")
+    store = tempfile.mkdtemp(prefix="physgate-git-tips-", dir=harness_temp_dir())
     try:
         _init_store(store, _object_dirs(cwd, where), object_format)
         names = "".join(f"create refs/tips/{i} {tip}\n" for i, tip in enumerate(tips))

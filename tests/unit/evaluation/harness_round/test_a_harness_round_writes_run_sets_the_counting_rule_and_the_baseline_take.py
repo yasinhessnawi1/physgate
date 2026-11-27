@@ -197,4 +197,7 @@ def test_nothing_of_a_protected_task_reaches_the_output_directory_or_what_is_pri
             texts[path.name] = path.read_text()
     leaked = sorted(f"{name}: {w[:12]}" for name, text in texts.items() for w in words if w in text)
     assert leaked == []
-    assert sorted(texts) == ["printed", "round.json", "visible.runs.json", "visible.trials.jsonl"]
+    sheets = sorted(f"{n:04d}.{kind}" for n in range(8) for kind in ("runs.json", "trial.json"))
+    own = ["printed", "round.json", "visible.runs.json", "visible.trials.jsonl"]
+    # The visible tier's trials are its first eight places: their sets alone lie outside.
+    assert sorted(texts) == sorted(own + sheets)

@@ -2,8 +2,9 @@
 
 An invalid or missing verdict, unfinished reading, a compacted or overflowing
 session: each escalates at once. (A blocked review is a verdict, not one of these;
-it goes to a person the same way, as a review.) An infrastructure failure is retried once, and
-escalates if the retry fails too. In every case catch accounting records no
+it goes to a person the same way, as a review.) An infrastructure failure is retried at once; one
+that the machine ends again is no verdict of the reviewer's and goes to no person: it halts the run
+for the machine's cause (its own file holds it). In every case catch accounting records no
 reviewer verdict for the attempt. A reject that also carries a blocking defect is
 an ordinary reject, whose repair instruction names the defect.
 """
@@ -124,19 +125,6 @@ def test_infrastructure_is_retried_once_then_the_verdict_stands(tmp_path: Path) 
     assert any(isinstance(e, Merged) for e in events)
 
 
-def test_infrastructure_twice_escalates(tmp_path: Path) -> None:
-    reviewer = FakeReviewer(
-        unavailable={1: _unavailable("infrastructure"), 2: _unavailable("infrastructure")}
-    )
-    events = _run(tmp_path, reviewer)
-    assert [(e.cause, e.retry) for e in events if isinstance(e, ReviewUnavailable)] == [
-        ("infrastructure", True),
-        ("infrastructure", False),
-    ]
-    assert [e for e in events if isinstance(e, Escalated)]
-    assert not [e for e in events if isinstance(e, Merged | AttemptRejected)]
-
-
 def test_catch_accounting_records_no_reviewer_verdict_for_it(tmp_path: Path) -> None:
     reviewer = FakeReviewer(unavailable={1: _unavailable("invalid_verdict")})
     rig = Rig(tmp_path, reviewer=reviewer, gate_mode="observe")
@@ -177,8 +165,9 @@ def test_a_reject_beside_a_blocking_defect_is_an_ordinary_reject(tmp_path: Path)
 
 
 def test_the_record_refuses_a_verdict_or_another_try_after_no_verdict(tmp_path: Path) -> None:
+    # A machine end retried, then the reviewer's own no verdict: final, for a person.
     reviewer = FakeReviewer(
-        unavailable={1: _unavailable("infrastructure"), 2: _unavailable("infrastructure")}
+        unavailable={1: _unavailable("infrastructure"), 2: _unavailable("no_verdict")}
     )
     events = _run(tmp_path, reviewer)
     final = max(i for i, e in enumerate(events) if isinstance(e, ReviewUnavailable))

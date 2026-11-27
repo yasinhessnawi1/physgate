@@ -9,8 +9,9 @@ real run lost an attempt to. Each lost attempt counts against the harness arm.
 Now one folder, ``.physgate/scratch``, is never part of an attempt, nor is bytecode anywhere:
 the commit leaves both out, and both are removed from the worktree, so neither reaches the
 change check, the review, the merged work or the next attempt. What a session changes anywhere
-else is judged exactly as before, and a curve computed by code in the folder is refused as code
-from outside the module always was. Every row runs real git on a real run's worktree.
+else is judged exactly as before, and a record that names code in the folder is refused as one
+naming code from outside the module always was. Every row runs real git on a real run's
+worktree.
 """
 
 from __future__ import annotations
@@ -635,4 +636,7 @@ def test_a_role_session_is_told_where_a_throwaway_helper_goes() -> None:
     told = role_prompt(request)
     assert f"A throwaway helper script or note goes in {SCRATCH}/" in told
     assert "never part of your attempt" in told
-    assert "nothing it computes is accepted as a record" in told
+    # What holds, and no more: the folder's files are recorded, a record naming one is refused.
+    assert "each file recorded by name and digest for your review" in told
+    assert "a record that names code in it is refused" in told
+    assert "nothing it computes is accepted as a record" not in told

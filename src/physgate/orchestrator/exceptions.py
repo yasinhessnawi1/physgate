@@ -189,6 +189,7 @@ class ReviewUnavailableError(OrchestratorError):
         usage_limit: UsageLimit | None = None,
         managed: tuple[SessionManaged, ...] = (),
         compactions: int | None = None,
+        session_cause: str | None = None,
         **context: str,
     ) -> None:
         """Store the cause and what the review spent beside the message."""
@@ -207,6 +208,11 @@ class ReviewUnavailableError(OrchestratorError):
         #: How many times the review's session compacted before it ended (ARCH-060); ``None``
         #: where it never did.
         self.compactions = compactions
+        #: For an ``infrastructure`` end, the session's end as every session's is classified
+        #: (``credential_refused``, ``sandbox_unavailable``, ``disk_full``, ``api_error``, ...), so
+        #: the loop halts the run for the machine's cause as it does for a role session; ``None``
+        #: for every other cause, or where no session ended.
+        self.session_cause = session_cause
 
 
 class HeldOutExposedError(OrchestratorError):

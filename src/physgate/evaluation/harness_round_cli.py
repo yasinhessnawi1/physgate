@@ -2,7 +2,8 @@
 
 ``physgate harness-round --store S --role control --version V --tier visible [--tier
 validation --tier held_out] --trials K --seed-base B --params P --run-root R --target-from T
---install I --prices DATE --out O [--tasks N] [--resume] [--limit-reset] [--set-aside I]`` runs
+--install I --prices DATE --out O [--tasks N] [--resume] [--limit-reset] [--set-aside I]
+[--credential-replaced] [--order-seed S] [--only PLACE]`` runs
 one harness trial per task and trial of the named tiers, in a fixed order, each a run decomposed
 and driven by this process on a fresh clone of ``T`` inside its own run directory beneath the
 registered run root ``R`` (:mod:`physgate.evaluation.harness_round`). It writes the visible
@@ -22,20 +23,41 @@ halt, or the word, used once and named on the line of the directory it makes. ``
 is the person's word on trial ``I``'s directory, where the round stands stopped for a person: a
 decomposition that spent its call and left no run after the trial's one more go, or a second
 directory with nothing but its parameters. It is set aside, recorded as the person's act, and the
-trial decomposed again. ``--tasks N`` runs the first ``N`` tasks of each named tier in the round's
-order: a shakedown, whose run sets the counting rule refuses as not covering their tier.
+trial decomposed again; a run halted on a refused credential, set aside so, is decomposed afresh
+and spends nothing. ``--credential-replaced`` is the person's word that the refused credential
+the round stands stopped at was replaced with another secret: the trial's halted run is resumed
+with it (``physgate resume --credential-replaced``), which records both fingerprints on the run's
+resume line and prints them; the round's record names them per trial. Without it a run halted on
+a refused credential resumes only on the secret it began on. ``--tasks N`` runs the first ``N``
+tasks of each named tier in the round's order: a shakedown, whose run sets the counting rule
+refuses as not covering their tier.
+
+``--order-seed S`` runs one cell (one ``--tier``) in the registered order: the cell's (id digest,
+trial) pairs sorted and shuffled once by ``random.Random("S:order:<role>_<tier>")``, trial ``n``
+of a task seeded ``B + n``. ``--only PLACE`` takes on that one place of the round's order (the first
+not yet assembled; one already assembled is only said again), stops once it is assembled, and
+writes its one-entry run set ``trials/<PLACE>.runs.json`` and its sheet ``<PLACE>.trial.json``
+(in ``O`` for the visible tier, beneath the withheld root for a protected one), as every trial's
+are written once it is assembled. Its line's ``trial`` names the set and, for a visible trial,
+``raw_pair``: ``now`` (exit 0) or ``at_cell_end`` (exit 3: the trial gives no figure, and its raw
+pair runs once the cell's last harness trial is assembled). A protected trial's ``raw_pair`` is
+never said outside the withheld root, and its call exits 0: its sheet beneath the root says it.
+Status ``trial_assembled`` while later places remain; the call that assembles the last place ends
+the round as a whole call does.
 
 It prints one JSON line of counts and digests, never a task, and writes the same into ``O``. Exit
-0 once every trial is assembled; 3 once every trial is assembled but some give the baseline no cap
-(its plan refuses the combined set until a cap rule for such a trial exists); 75 while the round
-waits for the account's usage limit; 77 while it waits for a person (a refused credential to
+0 once every trial is assembled, a trial that gives no figure stated as ``no_figure`` (the cap
+rule gives its pair the largest figure among the task's other trials, else the cell's middle one);
+3 once every trial is assembled but a tier with such a trial has no figure at all; 75 while the
+round waits for the account's usage limit; 77 while it waits for a person (a refused credential to
 replace, or a trial's directory to set aside); 1 with ``refused_because`` and the reason in words
 when it is refused or stopped. 75 and 77 are states, not waits: the command returns at once, and
 its line's ``waiting`` names the trial and why, and for the limit ``resume_after`` (the instant
-after which it goes on with no word) and ``word_helps``. A wrapper sleeps until ``resume_after``
-between turns, and never puts ``--limit-reset`` in a loop: each word given before the reset makes
-one more call, clone and directory. A person's word given to a round that waits for none is
-refused.
+after which it goes on with no word: never an instant already past, where the reset passed before
+it was read the floor from now, marked ``floor``) and ``word_helps``. A wrapper sleeps until
+``resume_after`` between turns, and never puts ``--limit-reset`` in a loop: each word given
+before the reset makes one more call, clone and directory. A person's word given to a round that
+waits for none is refused.
 
 The round's machinery and the scorer's numerical libraries are imported only when it runs.
 """
@@ -68,6 +90,24 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
     run.add_argument("--prices", required=True, help="the dated price sheet the runs are priced at")
     run.add_argument("--out", type=Path, required=True)
     run.add_argument("--tasks", type=int, help="the first N tasks of each tier: a shakedown")
+    run.add_argument(
+        "--order-seed",
+        dest="order_seed",
+        type=int,
+        help=(
+            "run one cell (one tier) in the registered order: its (id digest, trial) pairs "
+            "shuffled once by this seed, trial n of a task seeded SEED_BASE + n"
+        ),
+    )
+    run.add_argument(
+        "--only",
+        type=int,
+        metavar="PLACE",
+        help=(
+            "take on only this place of the round's order (the first not yet assembled), stop "
+            "once it is assembled, and write its one-entry run set"
+        ),
+    )
     run.add_argument("--resume", action="store_true", help="go on with the round OUT names")
     run.add_argument(
         "--limit-reset",
@@ -77,6 +117,15 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
             "say that the account's usage limit has reset, for the wait the round stands at; "
             "exit 75 is not a wait: sleep until the printed resume_after between starts, and "
             "never loop this word"
+        ),
+    )
+    run.add_argument(
+        "--credential-replaced",
+        dest="credential_replaced",
+        action="store_true",
+        help=(
+            "say that the refused credential the round stands stopped at was replaced with "
+            "another secret: the trial's halted run is resumed on it, both fingerprints recorded"
         ),
     )
     run.add_argument(
@@ -118,6 +167,8 @@ def _run(args: argparse.Namespace) -> int:
     from physgate.evaluation.per_role.exceptions import PerRoleError
     from physgate.orchestrator.waiting import EXIT_WAITING_FOR_LIMIT
 
+    if args.only is not None and args.only < 0:
+        return _refused("counts", "a place of the order is counted from 0")
     if args.trials < 1 or (args.tasks is not None and args.tasks < 1):
         return _refused("counts", "a round runs at least one trial of at least one task")
     if len(set(args.tiers)) != len(args.tiers):
@@ -138,6 +189,7 @@ def _run(args: argparse.Namespace) -> int:
             prices=load_price_sheet(args.prices),
             out=args.out.resolve(),
             tasks=args.tasks,
+            order_seed=args.order_seed,
         )
         status, summary = run_round(
             inputs,
@@ -146,6 +198,8 @@ def _run(args: argparse.Namespace) -> int:
             resume=args.resume,
             limit_reset=args.limit_reset,
             set_aside=args.set_aside,
+            credential_replaced=args.credential_replaced,
+            only=args.only,
         )
     except RoundError as exc:
         return _refused(exc.context.get("refused_because", "refused"), str(exc))
@@ -157,4 +211,8 @@ def _run(args: argparse.Namespace) -> int:
         return EXIT_WAITING_FOR_A_PERSON
     if status == "done_without_caps":
         return EXIT_DONE_WITHOUT_CAPS
+    if status == "trial_assembled":
+        # The named trial gives its raw pair no figure: the pair runs at the cell's end.
+        no_figure = summary.get("trial", {}).get("raw_pair") == "at_cell_end"
+        return EXIT_DONE_WITHOUT_CAPS if no_figure else 0
     return EXIT_WAITING_FOR_LIMIT if status == "waiting_for_limit" else 0

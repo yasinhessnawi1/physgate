@@ -345,7 +345,9 @@ def test_a_role_session_of_a_run_on_the_store_cannot_read_or_write_the_register_
     base = tmp_path.resolve() / "session"
     config = _role_config(base, made)
     wt = str(base / "wt")
-    policy = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/tmp/pg-reg")
+    policy = sandbox_policy(
+        config, home=str(base / "outside" / "home"), temp_dir="/var/tmp/pgs/0123456789"
+    )
     filesystem = policy.settings["sandbox"]["filesystem"]
     withheld = withheld_root(made.store, "control")
     files = sorted(p for p in withheld.iterdir() if p.name.startswith(("register", "run-roots")))

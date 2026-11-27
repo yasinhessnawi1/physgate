@@ -26,7 +26,7 @@ import os
 import re
 import sys
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -65,11 +65,13 @@ from physgate.orchestrator.design_wait import held_builders
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
     LIMIT_CAUSE,
+    CredentialReplaced,
     Envelope,
     EnvironmentRecorded,
     Event,
     InstallChecked,
     OsLayerChecked,
+    Resumed,
     RunStarted,
     SubtaskPlanned,
     read_events,
@@ -113,7 +115,7 @@ from physgate.orchestrator.queue import (
 )
 from physgate.orchestrator.queue_words import with_what_each_decision_does
 from physgate.orchestrator.record import ReviewInstall
-from physgate.orchestrator.replay import recorded_ledger
+from physgate.orchestrator.replay import recorded_ledger, replay
 from physgate.orchestrator.requirements import RunFacts, refusals
 from physgate.orchestrator.review_root_record import (
     record_review_root,
@@ -124,6 +126,7 @@ from physgate.orchestrator.role_python import measure as measure_role_python
 from physgate.orchestrator.run_config import (
     Network,
     RunConfig,
+    account_in_effect,
     endpoint_of,
     harness_root,
     harness_state,
@@ -279,6 +282,16 @@ def add_parsers(
                     "say that the account's usage limit has reset, for a run waiting on a limit "
                     "whose reset time could not be read; recorded with your OS user, and no "
                     "use before a reset time that was read"
+                ),
+            )
+            command.add_argument(
+                "--credential-replaced",
+                dest="credential_replaced",
+                action="store_true",
+                help=(
+                    "say that the credential a run halted on was refused and has been replaced "
+                    "with another secret; recorded with both fingerprints and your OS user, and "
+                    "refused for a run halted on anything else"
                 ),
             )
         command.set_defaults(
@@ -1022,6 +1035,7 @@ def _drive_run(
     args: argparse.Namespace, *, resume: bool, registrations: Registrations | None
 ) -> int:
     limit_reset = bool(getattr(args, "limit_reset", False))
+    replaced_word = bool(getattr(args, "credential_replaced", False))
     if resume:
         # A run waiting for the account's usage limit, resumed before it may go on: refused before
         # anything is built, stopped, written or started, with the instant to try again after.
@@ -1073,10 +1087,17 @@ def _drive_run(
         # build or on another account's limits is not the run that was recorded.
         if config.binary is not None:
             binaries.require_same(config.binary, binaries.measure(claude_binary()))
-        require_same_account(config, credential)
         if not (run_dir / "events.jsonl").exists():
+            if replaced_word:
+                msg = "a credential is replaced only for a run halted on a refused credential"
+                raise RunStateError(msg, run_dir=str(run_dir))
+            require_same_account(config, credential)
             msg = "the run was never started; decompose it first"
             raise RunStateError(msg, run_dir=str(run_dir))
+        replaced = _credential_replaced(run_dir, config, credential, word=replaced_word)
+        if replaced is None:
+            in_effect = account_in_effect(config, read_events(run_dir / "events.jsonl"))
+            require_same_account(config, credential, in_effect=in_effect)
         install_bin, action, checked_in = _install_bin(install, run_dir)
         run = RunGit(repo=args.target.resolve(), run_dir=run_dir, run_id=config.run_id)
         store_root = run_dir / "store"
@@ -1151,7 +1172,12 @@ def _drive_run(
         confirm, confirmed_by = _confirm_request(args)
         word = getpass.getuser() if limit_reset else None
         step = (
-            loop.resume(confirm=confirm, confirmed_by=confirmed_by, limit_reset_by=word)
+            loop.resume(
+                confirm=confirm,
+                confirmed_by=confirmed_by,
+                limit_reset_by=word,
+                credential_replaced=replaced,
+            )
             if resume
             else loop.run()
         )
@@ -1182,9 +1208,51 @@ def _drive_run(
             **held_builders(loop.state),
             "open_queue_items": [item.item_id for item in loop.queue.open_items()],
             "tokens": {k: v.total() for k, v in account.by_kind().items()},
+            # Both fingerprints, where a person's word replaced a refused credential: left out
+            # otherwise, so every other run prints as it always has.
+            **_replacement_said(loop.log.events, replaced),
         }
     )
     return status
+
+
+def _credential_replaced(
+    run_dir: Path, config: RunConfig, credential: Credential, *, word: bool
+) -> CredentialReplaced | None:
+    """The replacement a person's word makes, or ``None`` where no word is given or needed.
+
+    Only for a run that stands halted on a refused credential, read from its own log; with the
+    word, the run goes on on the secret given now, both fingerprints recorded. The same secret
+    as before needs no word, and none is recorded.
+
+    Raises:
+        RunStateError: the word given for a run that does not stand halted on a refused
+            credential.
+    """
+    if not word:
+        return None
+    events = read_events(run_dir / "events.jsonl")
+    halted = replay(events).halted
+    if halted is None or halted.reason != "credential_refused":
+        msg = "a credential is replaced only for a run halted on a refused credential"
+        raise RunStateError(msg, run_dir=str(run_dir))
+    was = account_in_effect(config, events)
+    now = fingerprint(credential)
+    if was is None or was == now:
+        return None
+    return CredentialReplaced(was=was, now=now, by=getpass.getuser())
+
+
+def _replacement_said(
+    events: Sequence[Event], replaced: CredentialReplaced | None
+) -> dict[str, object]:
+    """What the resume prints of a replaced credential: both fingerprints, once recorded."""
+    if replaced is None:
+        return {}
+    recorded = any(isinstance(e, Resumed) and e.credential_replaced == replaced for e in events)
+    if not recorded:
+        return {}
+    return {"credential_replaced": replaced.model_dump(mode="json")}
 
 
 def _incident_resolve(args: argparse.Namespace) -> int:

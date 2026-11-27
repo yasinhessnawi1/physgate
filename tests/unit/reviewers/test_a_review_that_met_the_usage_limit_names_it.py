@@ -57,7 +57,12 @@ def _setup(tmp_path: Path) -> ReviewerSetup:
 
 
 def _review(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str, status: str, error: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    text: str,
+    status: str,
+    error: str,
+    http: int | None = None,
 ) -> ReviewUnavailableError:
     read = tmp_path / "rs" / "review" / "read"
     read.mkdir(parents=True)
@@ -67,7 +72,7 @@ def _review(
         "subtype": "success",
         "is_error": True,
         "terminal_reason": "api_error",
-        "api_error_status": 429 if status == "rejected" else 503,
+        "api_error_status": http or (429 if status == "rejected" else 503),
         "result": text,
     }
     said = {
@@ -145,3 +150,19 @@ def test_a_review_s_503_names_no_limit(tmp_path: Path, monkeypatch: pytest.Monke
     raised = _review(tmp_path, monkeypatch, OUTAGE, "allowed", "server_error")
     assert raised.cause == "infrastructure"
     assert raised.usage_limit is None
+
+
+def test_a_review_s_503_is_the_machine_s_api_error_and_its_refused_credential_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The loop halts the run for a refused credential at once and takes the retry ladder for any
+    # other machine end: the session's end is classified as a role session's is, beside the cause.
+    raised = _review(tmp_path, monkeypatch, OUTAGE, "allowed", "server_error")
+    assert raised.session_cause == "api_error"
+    refused = tmp_path / "refused"
+    refused.mkdir()
+    said = "Invalid API key · Please run /login"
+    raised = _review(refused, monkeypatch, said, "allowed", "authentication_failed", http=401)
+    assert raised.cause == "infrastructure"
+    assert raised.usage_limit is None
+    assert raised.session_cause == "credential_refused"

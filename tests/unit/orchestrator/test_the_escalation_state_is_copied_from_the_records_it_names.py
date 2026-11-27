@@ -280,10 +280,11 @@ def test_a_blocked_review_s_state(tmp_path: Path) -> None:
 
 
 def test_a_review_with_no_verdict_after_its_retry(tmp_path: Path) -> None:
+    # A machine end retried, then the reviewer's own no verdict: a machine end is never final.
     rig = Rig(
         tmp_path,
         reviewer=FakeReviewer(
-            unavailable={1: unavailable("infrastructure"), 2: unavailable("infrastructure")}
+            unavailable={1: unavailable("infrastructure"), 2: unavailable("no_verdict")}
         ),
     )
     events = run(tmp_path, rig)

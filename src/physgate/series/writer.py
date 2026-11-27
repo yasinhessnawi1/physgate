@@ -18,9 +18,13 @@ own installation, each with the digest of its bytes now. The interpreter's own s
 of that installation and is not named. Paths inside the worktree are written relative to it;
 anything else is written as it is, absolute, and the orchestrator refuses a record whose
 code ran from anywhere but the module and the interpreter's own installation. Write the
-record after the simulation, from the script that ran it. A record is refused here when a
-compiled file lies where the interpreter would have run it in place of a worktree module's
-source: the record names the source, so the source must be what ran.
+record after the simulation, from the script that ran it.
+
+**What it claims.** The record names what this process reports of itself, and this process is
+the session's: what it names is not shown to be what ran, and the harness does not run the
+script again. No record is written here while a compiled file lies where the interpreter reads
+one in place of a worktree module's source, which catches such a file left there by accident (a
+script run with ``-E``); a process that runs other code can also leave this check out.
 
 **On a run's tool environment.** Where the session's environment names the run's recorded
 tool environment (``PHYSGATE_SERIES_ENVIRONMENT``: its roots and its digest), every file of
@@ -461,7 +465,7 @@ def told_environment() -> dict[str, object] | None:
         raise _environment_refused("does not name its digest as 64 hexadecimal digits")
     if getattr(sys, "pycache_prefix", None):
         msg = (
-            "cannot stand behind this process: its bytecode cache is kept elsewhere "
+            "is not named from this process: its bytecode cache is kept elsewhere "
             f"({sys.pycache_prefix}), and a cached file there runs in place of the "
             "environment's source"
         )
@@ -470,17 +474,20 @@ def told_environment() -> dict[str, object] | None:
 
 
 def _compiled_in_place(base: str) -> str | None:
-    """Why the process cannot stand behind the code it loaded from the worktree, or ``None``.
+    """Why no record is written from this process for the code it loaded from the worktree.
 
-    The interpreter runs a module's compiled file in place of its source whenever the file's
-    header names the source's time and size, and it reads such a file even where it is told to
-    write none; so the source's bytes, which the record names, would not be the code that ran.
+    ``None`` where nothing here says so. The interpreter runs a module's compiled file in place
+    of its source whenever the file's header names the source's time and size, and it reads such
+    a file even where it is told to write none; so the source's bytes, which the record names,
+    may not be the code that ran.
     Every module loaded from the worktree by a loader must have been loaded by the source loader
     (one with no loader is an object the script made itself, and the script is named), and no
     compiled file may lie where the interpreter reads one for it: its cache
     (``importlib.util.cache_from_source``, which follows a cache prefix where one is set) or a
     ``.pyc`` beside the source. This file itself is left out: it cannot judge its own compiled
-    form, and its directory is the harness's, which no session writes.
+    form, and a cache of it is one of the files the orchestrator looks for when the session
+    ends. The check is made now, in this process, and says nothing of a compiled file that was
+    there at import and is gone.
     """
     own = os.path.realpath(__file__)
     for module in list(sys.modules.values()):
@@ -555,7 +562,7 @@ def producer(base: str) -> dict[str, object]:
         loaded.add(path)
     compiled = _compiled_in_place(base)
     if compiled is not None:
-        raise SeriesWriterError(f"a record cannot stand behind this process: {compiled}")
+        raise SeriesWriterError(f"no record is written from this process: {compiled}")
     script_digest = _digest(script)
     if script_digest is None:
         msg = f"the script {script} is not a regular file now, so its code cannot be named"

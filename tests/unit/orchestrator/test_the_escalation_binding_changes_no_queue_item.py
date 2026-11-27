@@ -279,7 +279,29 @@ def differences(golden: dict[str, list[Any]], now: dict[str, list[Any]]) -> list
     return found
 
 
-STAND_IN_NAMES = [n for n in scenario_names() if not n.startswith("real_gate")]
+#: The paths whose runs no longer reproduce the golden file, on purpose, each with why. The file
+#: itself is never rewritten: it stays the record of what the loop did before.
+CHANGED_ON_PURPOSE: dict[str, str] = {
+    "review_unavailable_after_its_retry": (
+        "a review the machine ended is no longer sent to a person after one immediate retry: "
+        "it is retried along the run's retry ladder after that, and then the run halts for the "
+        "machine's cause, the review still owed"
+    ),
+}
+
+STAND_IN_NAMES = [
+    n
+    for n in scenario_names()
+    if not n.startswith("real_gate") and n.split("/")[0] not in CHANGED_ON_PURPOSE
+]
+
+
+def test_only_the_one_path_changed_on_purpose_is_set_aside() -> None:
+    # Held by name, so the list cannot grow unseen: every other path, the review retried once and
+    # then passing among them, is still compared with the golden file exactly.
+    assert set(CHANGED_ON_PURPOSE) == {"review_unavailable_after_its_retry"}
+    assert "review_retried_then_passes/on" in STAND_IN_NAMES
+    assert all(CHANGED_ON_PURPOSE.values())
 
 
 def test_the_golden_file_covers_every_scenario_every_mode_and_every_source() -> None:

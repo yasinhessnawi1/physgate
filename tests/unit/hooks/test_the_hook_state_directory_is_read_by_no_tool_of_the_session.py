@@ -128,7 +128,7 @@ def test_the_os_layer_denies_every_read_of_the_state_directory(root: Path, profi
     config = _started(root, profile)
     (pack, *_) = _packs(config)
     home = str(root / "run" / "sessions" / SESSION / "home")
-    policy = sandbox_policy(config, home=home, temp_dir="/tmp/pg-state")
+    policy = sandbox_policy(config, home=home, temp_dir="/var/tmp/pgs/0123456789")
     deny = policy.settings["sandbox"]["filesystem"]["denyRead"]
     allow = policy.settings["sandbox"]["filesystem"]["allowRead"]
 

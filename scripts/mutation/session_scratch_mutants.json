@@ -7,7 +7,7 @@
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
       "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
-      "tests/unit/series/test_the_writer_stands_behind_no_compiled_code_in_the_worktree.py"
+      "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py"
     ],
     "data": [
       "tests/unit/orchestrator/left_session.py",
@@ -50,8 +50,8 @@
   {
     "name": "the_scratch_folder_s_link_is_followed",
     "file": "src/physgate/orchestrator/left_out.py",
-    "old": "    found = os.stat(name, dir_fd=parent, follow_symlinks=False)\n    if not stat.S_ISDIR(found.st_mode):\n        os.unlink(name, dir_fd=parent)\n",
-    "new": "    found = os.stat(name, dir_fd=parent, follow_symlinks=True)\n    if not stat.S_ISDIR(found.st_mode):\n        os.unlink(name, dir_fd=parent)\n",
+    "old": "    found = os.stat(name, dir_fd=parent, follow_symlinks=False)\n    shown = path if path is not None else name\n",
+    "new": "    found = os.stat(name, dir_fd=parent, follow_symlinks=True)\n    shown = path if path is not None else name\n",
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
     ],
@@ -186,8 +186,8 @@
   {
     "name": "a_folder_s_mode_is_changed_by_its_name",
     "file": "src/physgate/orchestrator/left_out.py",
-    "old": "    fd = _held_dir(parent, name)\n    try:\n        for entry in os.listdir(fd):\n            _remove_tree(fd, entry)\n",
-    "new": "    os.chmod(name, 0o700, dir_fd=parent)\n    fd = os.open(name, _DIRECTORY, dir_fd=parent)\n    try:\n        for entry in os.listdir(fd):\n            _remove_tree(fd, entry)\n",
+    "old": "    fd = _held_dir(parent, name)\n    try:\n        for entry in sorted(os.listdir(fd)):\n",
+    "new": "    os.chmod(name, 0o700, dir_fd=parent)\n    fd = os.open(name, _DIRECTORY, dir_fd=parent)\n    try:\n        for entry in sorted(os.listdir(fd)):\n",
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
     ],
@@ -219,7 +219,7 @@
     "old": "    compiled = _compiled_in_place(base)\n    if compiled is not None:\n",
     "new": "    compiled = None\n    if compiled is not None:\n",
     "tests": [
-      "tests/unit/series/test_the_writer_stands_behind_no_compiled_code_in_the_worktree.py"
+      "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py"
     ],
     "data": [
       "tests/unit/series/writer_rig.py"
@@ -231,7 +231,7 @@
     "old": "        places = [stem + \".pyc\"]\n",
     "new": "        places = []\n",
     "tests": [
-      "tests/unit/series/test_the_writer_stands_behind_no_compiled_code_in_the_worktree.py"
+      "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py"
     ],
     "data": [
       "tests/unit/series/writer_rig.py"
@@ -243,7 +243,7 @@
     "old": "        if loader is not None and not isinstance(loader, importlib.machinery.SourceFileLoader):\n",
     "new": "        if False:\n",
     "tests": [
-      "tests/unit/series/test_the_writer_stands_behind_no_compiled_code_in_the_worktree.py"
+      "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py"
     ],
     "data": [
       "tests/unit/series/writer_rig.py"
@@ -292,7 +292,7 @@
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
       "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
-      "tests/unit/series/test_the_writer_stands_behind_no_compiled_code_in_the_worktree.py"
+      "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py"
     ],
     "data": [
       "tests/unit/orchestrator/left_session.py",

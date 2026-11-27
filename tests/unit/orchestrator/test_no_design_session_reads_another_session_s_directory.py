@@ -165,9 +165,9 @@ def test_the_os_layer_denies_every_read_of_a_sibling_session_s_directory(
     config = _installed(base, monkeypatch, profile)
     login, _ = _sibling(base)
     home = base / "run" / "sessions" / SID / "home"
-    fs = sandbox_policy(config, home=str(home), temp_dir="/tmp/pg-sib").settings["sandbox"][
-        "filesystem"
-    ]
+    fs = sandbox_policy(config, home=str(home), temp_dir="/var/tmp/pgs/0123456789").settings[
+        "sandbox"
+    ]["filesystem"]
 
     def covered(path: str, listed: list[str]) -> bool:
         return any(path == d or path.startswith(d.rstrip("/") + "/") for d in listed)

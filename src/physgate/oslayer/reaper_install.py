@@ -16,6 +16,15 @@ that directory is opened to the sandbox for reads (``os_layer_readable``): the h
 checkout, where the package lives, is read-denied to a session's shell. The reaper runs
 under the base interpreter, which the session's shell can read.
 
+Beside them, a directory of programs the front puts first on a sandboxed command's search path
+(:data:`BIN_DIRNAME`): ``mktemp`` and ``diff``. On macOS a plain ``mktemp`` makes its file in the
+per-user temporary directory whatever ``TMPDIR`` says, and ``diff`` copies a pipe it is given
+into ``/tmp`` (both measured on macOS 27); the OS layer denies both directories to every
+command. The session's ``mktemp`` makes its file in the session's own temporary directory, which
+``TMPDIR`` names there, its ``diff`` copies such an operand there first, and each hands every
+other form to the system's own unchanged. A hook
+command, outside the sandbox, keeps its search path as it was.
+
 The canary is the session's Claude Code: whoever spawns it sets ``PHYSGATE_REAPER_CANARY``
 to its pid, with a shell that exports its own pid and then replaces itself with the binary
 (:data:`CANARY_EXPORT`).
@@ -39,6 +48,75 @@ DIRNAME = "reaper"
 FRONT = "reaper"
 #: The reaper's file name beside it.
 PROGRAM = "reaper.py"
+#: The directory beside them a sandboxed command finds its first programs in.
+BIN_DIRNAME = "bin"
+#: The system's own ``mktemp``, which the session's hands every form to.
+SYSTEM_MKTEMP = "/usr/bin/mktemp"
+#: The system's own ``diff``, which the session's hands every call to.
+SYSTEM_DIFF = "/usr/bin/diff"
+
+#: The session's ``diff``. macOS's own copies an operand that is no regular file (a process
+#: substitution's ``/dev/fd/N``, a pipe, its standard input as ``-``) into ``/tmp``, whatever
+#: ``TMPDIR`` says (measured on macOS 27), and no command of the session writes there: this one
+#: copies each such operand into a folder of the session's own first, hands the call to the
+#: system's ``diff`` with the copies in their places, empties and removes the folder, and exits as
+#: the system's did. Every other operand, and a call with no ``TMPDIR``, is passed as written.
+_DIFF_TEXT = """\
+#!/bin/sh
+# Written by physgate (oslayer/reaper_install.py) for one session. The system's diff copies a
+# pipe it is given into /tmp, which no command of the session writes: each such operand is copied
+# into the session's own temporary directory first.
+if [ -z "${{TMPDIR:-}}" ]; then exec {diff} "$@"; fi
+held=""
+n=$#
+for arg in "$@"; do
+  if {{ [ "$arg" = "-" ] && [ ! -f /dev/stdin ]; }} || \\
+     {{ [ "$arg" != "-" ] && [ -e "$arg" ] && [ ! -f "$arg" ] && [ ! -d "$arg" ]; }}; then
+    if [ -z "$held" ]; then held=$({mktemp} -d -p "$TMPDIR" diff.XXXXXXXX) || exit 2; fi
+    copy="$held/operand-$#"
+    if [ "$arg" = "-" ]; then /bin/cat > "$copy" || exit 2
+    else /bin/cat -- "$arg" > "$copy" || exit 2; fi
+    set -- "$@" "$copy"
+  else
+    set -- "$@" "$arg"
+  fi
+done
+shift "$n"
+{diff} "$@"
+status=$?
+if [ -n "$held" ]; then
+  for copy in "$held"/operand-*; do /bin/unlink "$copy"; done
+  /bin/rmdir "$held"
+fi
+exit "$status"
+"""
+
+#: The session's ``mktemp``: a call that names no template and no directory of its own (plain
+#: ``mktemp``, ``-d``, ``-t prefix``, ``-u``, ``-q``) is given ``-p "$TMPDIR"``; any other call,
+#: or one with no ``TMPDIR``, is the system's own, as written.
+_MKTEMP_TEXT = """\
+#!/bin/sh
+# Written by physgate (oslayer/reaper_install.py) for one session. A plain mktemp here makes its
+# file in the per-user temporary directory whatever TMPDIR says, and no command of the session
+# writes there: one that names no template and no directory is given the session's own, TMPDIR.
+plain=1
+skip=0
+for arg in "$@"; do
+  if [ "$skip" = 1 ]; then skip=0; continue; fi
+  case "$arg" in
+    --tmpdir*) plain=0 ;;
+    --*) ;;
+    -p*|-*p) plain=0 ;;
+    -*t) skip=1 ;;
+    -*) ;;
+    *) plain=0 ;;
+  esac
+done
+if [ "$plain" = 1 ] && [ -n "${{TMPDIR:-}}" ]; then
+  exec {mktemp} -p "$TMPDIR" "$@"
+fi
+exec {mktemp} "$@"
+"""
 
 #: Shell text that exports the shell's own pid as the canary. A spawner puts it before an
 #: ``exec`` of the binary, so the pid is the session's Claude Code.
@@ -54,6 +132,8 @@ _FRONT_TEXT = """\
 if [ "$#" -eq 1 ] && kill -0 "${{{canary}:-none}}" 2>/dev/null && [ -r {settings} ]; then
   exec {hook_shell} -c "$1"
 fi
+PATH={bin}:"$PATH"
+export PATH
 exec {python} -I -S {program} "$@"
 """
 
@@ -109,6 +189,14 @@ def place(target_dir: Path, base_prefix: str, settings: Path) -> Path:
     source = Path(__file__).with_name("reaper.py").read_bytes()
     program.write_bytes(source)
     program.chmod(0o644)
+    programs = directory / BIN_DIRNAME
+    programs.mkdir(mode=0o755, exist_ok=True)
+    mktemp = programs / "mktemp"
+    mktemp.write_text(_MKTEMP_TEXT.format(mktemp=SYSTEM_MKTEMP))
+    mktemp.chmod(0o755)
+    diff = programs / "diff"
+    diff.write_text(_DIFF_TEXT.format(diff=SYSTEM_DIFF, mktemp=SYSTEM_MKTEMP))
+    diff.chmod(0o755)
     front.write_text(
         _FRONT_TEXT.format(
             canary=CANARY_ENV,
@@ -116,6 +204,7 @@ def place(target_dir: Path, base_prefix: str, settings: Path) -> Path:
             settings=_quoted(settings),
             python=_quoted(python),
             program=_quoted(program),
+            bin=_quoted(programs),
         )
     )
     front.chmod(0o755)
