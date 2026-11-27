@@ -6,12 +6,17 @@ So what lies in those places is a launch condition, checked here and printed by 
 
 - **no other run's material is readable** where a measured session may read: a directory that
   holds a run's, a raw trial's, a decomposition's, a round's or a review's own record, beneath
-  the operator's home or the machine's other places a session reads, and not beneath a place
-  every measured session is refused (the store, its registered run roots, the standing review
-  root, the harness's and the sessions' temporary directories, the shared temporary ones);
+  the operator's home, the store outside its roles' roots or the machine's other places a session
+  reads, and not beneath a place every measured session is refused (each role's root in the
+  store, its registered run roots, the standing review root, the harness's and the sessions'
+  temporary directories, the shared temporary ones); a folder the walk cannot list is named as
+  not established;
 - **the repository the trials are cloned from holds only what a trial may see**: one branch,
   no other reference (no tag, remote branch, stash or note), no linked worktree, and no object
-  that branch does not reach, where an earlier run's work could lie;
+  that branch does not reach, where an earlier run's work could lie; and, since every session
+  reads the source's own directory too, not only what a clone of it holds, no file there that git
+  does not track or ignores, and no tracked file changed from what the branch holds (counted by
+  kind, never named);
 - **no run that does not withhold the run roots is left beneath them**: a run's own sessions
   read whatever its run withholds not, and a run beneath the roots that withholds them not
   reads every measured run's material there.
@@ -77,8 +82,9 @@ def _walk(
 ) -> Iterator[tuple[str, tuple[str, ...] | None]]:
     """Each directory beneath ``top`` holding a material record, with every such record's name.
 
-    Yields ``(top, None)`` once where the walk was cut short (its entries). Never follows a link;
-    never enters a refused place, nor a directory that holds a record (a run's own tree).
+    Yields ``(top, None)`` once where the walk was cut short (its entries), and ``(directory,
+    ())`` for each directory it cannot list: what lies there is not established. Never follows a
+    link; never enters a refused place, nor a directory that holds a record (a run's own tree).
     """
     stack = [top]
     while stack:
@@ -88,6 +94,7 @@ def _walk(
         try:
             entries = list(os.scandir(directory))
         except OSError:
+            yield directory, ()
             continue
         budget[0] -= len(entries)
         if budget[0] < 0:
@@ -120,6 +127,10 @@ def material_findings(places: Sequence[Path], refused: Sequence[Path]) -> list[F
             if names is None:
                 found.append(
                     Finding("not_established", str(place), "the walk was cut short, too large")
+                )
+            elif not names:
+                found.append(
+                    Finding("not_established", directory, "it cannot be listed by this user")
                 )
             else:
                 held = ", ".join(names)
@@ -161,6 +172,7 @@ def source_findings(source: Path) -> list[Finding]:
     linked = [ln for ln in worktrees.stdout.splitlines() if ln.startswith("worktree ")][1:]
     if linked:
         found.append(Finding("source_worktrees", str(source), f"{len(linked)} linked worktrees"))
+    found += _working_files(source)
     if branches:
         try:
             loose = unreachable_from(source, [oid for _, oid in pairs])
@@ -179,6 +191,54 @@ def source_findings(source: Path) -> list[Finding]:
     return found
 
 
+def _counted(n: int, what: str) -> str:
+    return f"{n} {'file' if n == 1 else 'files'} {what}"
+
+
+def _working_files(source: Path) -> list[Finding]:
+    """The source's own directory beside what its branch holds: counted by kind, never named.
+
+    Asked of git without its optional locks, so the check writes nothing in the source: files it
+    does not track, files it ignores (each one, inside an ignored folder too), tracked files
+    changed from the branch.
+    """
+    listed = _git(
+        source,
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignored=traditional",
+    )
+    if listed.returncode != 0:
+        return [Finding("source_unreadable", str(source), "git cannot list its own directory")]
+    entries = [e for e in listed.stdout.split("\0") if e]
+    kinds = {"untracked": 0, "ignored": 0, "changed": 0}
+    skip = False
+    for entry in entries:
+        if skip:  # the old name of a renamed entry
+            skip = False
+            continue
+        code = entry[:2]
+        if code == "??":
+            kinds["untracked"] += 1
+        elif code == "!!":
+            kinds["ignored"] += 1
+        else:
+            kinds["changed"] += 1
+            skip = "R" in code or "C" in code
+    said = [
+        _counted(kinds["untracked"], "git does not track") if kinds["untracked"] else "",
+        _counted(kinds["ignored"], "git ignores") if kinds["ignored"] else "",
+        _counted(kinds["changed"], "the branch tracks, changed") if kinds["changed"] else "",
+    ]
+    if not any(said):
+        return []
+    detail = ", ".join(w for w in said if w) + " (a session reads the source's directory itself)"
+    return [Finding("source_files", str(source), detail)]
+
+
 def withholding_findings(run_roots: Sequence[Path], registered: set[str]) -> list[Finding]:
     """Each run beneath the run roots whose configuration does not withhold every one of them."""
     from physgate.orchestrator.exceptions import OrchestratorError
@@ -192,6 +252,9 @@ def withholding_findings(run_roots: Sequence[Path], registered: set[str]) -> lis
         for directory, names in _walk(str(root), (), budget):
             if names is None:
                 found.append(Finding("not_established", str(root), "the walk was cut short"))
+                continue
+            if not names:
+                found.append(Finding("not_established", directory, "it cannot be listed"))
                 continue
             if "run.json" not in names:
                 continue
@@ -217,6 +280,7 @@ def launch_findings(
 ) -> list[Finding]:
     """Every finding of the launch check, in the order the module's docstring names them."""
     from physgate.evaluation.tiers.exposure import ExposureError, run_roots
+    from physgate.evaluation.tiers.store import role_root
     from physgate.evaluation.tiers.task import Role
     from physgate.oslayer.harness_temp import harness_temps_root
     from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
@@ -230,8 +294,10 @@ def launch_findings(
             roots += run_roots(store, role)
         except ExposureError as exc:
             found.append(Finding("run_roots_unreadable", str(store), f"{role}: {exc}"))
+    # The store is walked but for its roles' roots: a measured session is refused those, not the
+    # store, so a folder at the store's top that no role's root holds is read like any other.
     refused = [
-        store,
+        *(role_root(store, role) for role in get_args(Role)),
         *roots,
         standing_root(home),
         Path(harness_temps_root()),
@@ -240,6 +306,8 @@ def launch_findings(
         *map(Path, claude_temp_dirs()),
     ]
     places = [home, *MACHINE_PLACES, *also]
+    if not _under(os.path.realpath(store), [os.path.realpath(p) for p in places]):
+        places.append(store)
     found += material_findings(places, refused)
     found += source_findings(source)
     found += withholding_findings(roots, {os.path.realpath(r) for r in roots})

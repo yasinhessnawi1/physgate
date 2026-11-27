@@ -221,3 +221,140 @@ def test_files_git_does_not_track_or_ignores_in_the_source_s_own_directory_are_c
     # By kind and count alone: no file's name, nor anything it holds.
     for word in ("left.py", "a.txt", "scratch.txt", "earlier run", "leftover"):
         assert word not in "\n".join(lines), lines
+
+
+def test_a_tracked_file_changed_in_the_source_is_counted_and_the_check_writes_nothing_there(
+    s: SimpleNamespace,
+) -> None:
+    (s.source / "README.md").write_text("an earlier run's change\n")
+    index = s.source / ".git" / "index"
+    before = (index.read_bytes(), index.stat().st_mtime_ns)
+    code, lines = _check(s)
+    assert code == 1
+    assert any(
+        line.startswith("finding: source_files:") and "1 file the branch tracks, changed" in line
+        for line in lines
+    ), lines
+    assert (index.read_bytes(), index.stat().st_mtime_ns) == before, "the check wrote the index"
+
+
+def test_a_review_root_s_record_left_where_a_session_reads_is_named(s: SimpleNamespace) -> None:
+    left = s.home / "old-reviews"
+    left.mkdir()
+    (left / "review_root.json").write_text("{}\n")
+    code, lines = _check(s)
+    assert code == 1
+    assert f"finding: run_material_readable: {left}: it holds review_root.json" in lines
+
+
+def test_a_linked_worktree_of_the_source_is_named(s: SimpleNamespace, outside_tmp: Path) -> None:
+    # Detached: no second branch, so the worktree is the one finding.
+    _git(s.source, "worktree", "add", "-q", "--detach", str(Path(outside_tmp) / "linked"))
+    assert _kinds(s) == {"source_worktrees"}
+
+
+@pytest.mark.parametrize("ref", ["a stash", "a note", "a remote branch"])
+def test_a_reference_that_is_neither_a_branch_nor_a_tag_is_named(
+    s: SimpleNamespace, ref: str
+) -> None:
+    if ref == "a stash":
+        (s.source / "README.md").write_text("changed, then stashed\n")
+        _git(s.source, "stash", "-q")
+        named = "refs/stash"
+    elif ref == "a note":
+        _git(s.source, "notes", "add", "-m", "an earlier run's note")
+        named = "refs/notes/commits"
+    else:
+        _git(s.source, "update-ref", "refs/remotes/origin/main", "HEAD")
+        named = "refs/remotes/origin/main"
+    code, lines = _check(s)
+    assert code == 1
+    assert any(line.endswith(f"it holds {named}") for line in lines), lines
+
+
+def test_a_run_that_withholds_one_of_two_run_roots_is_named(
+    s: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.evaluation import launch_check
+
+    other = s.home / "more-runs"
+    other.mkdir()
+    run = s.runs / "half-run"
+    run.mkdir()
+    (run / "run.json").write_text("{}\n")
+    both = s.runs / "whole-run"
+    both.mkdir()
+    (both / "run.json").write_text("{}\n")
+    named = {str(run): [str(s.runs)], str(both): [str(s.runs), str(other)]}
+    monkeypatch.setattr(
+        "physgate.orchestrator.run_config.load_run_config",
+        lambda path: SimpleNamespace(withheld_whole=named[str(path.parent)]),
+    )
+    registered = {os.path.realpath(s.runs), os.path.realpath(other)}
+    found = launch_check.withholding_findings([s.runs, other], registered)
+    assert [(f.kind, f.place) for f in found] == [("run_not_withholding", str(run))]
+
+
+def test_a_walk_past_its_bound_says_what_it_found_is_not_established(
+    s: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for n in range(20):
+        (s.home / "many" / f"d{n}").mkdir(parents=True)
+    monkeypatch.setattr("physgate.evaluation.launch_check.MAX_ENTRIES", 10)
+    code, lines = _check(s)
+    assert code == 1
+    assert any(line.startswith("finding: not_established:") for line in lines), lines
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists a folder of any mode")
+def test_a_folder_the_walk_cannot_list_is_named_as_not_established(s: SimpleNamespace) -> None:
+    locked = s.home / "locked"
+    (locked / "run-8").mkdir(parents=True)
+    (locked / "run-8" / "run.json").write_text("{}\n")
+    locked.chmod(0)
+    try:
+        code, lines = _check(s)
+    finally:
+        locked.chmod(0o700)
+    assert code == 1
+    assert f"finding: not_established: {locked}: it cannot be listed by this user" in lines, lines
+
+
+def test_material_beneath_the_standing_review_root_is_no_finding(s: SimpleNamespace) -> None:
+    from physgate.reviewers.places import standing_root
+
+    left = standing_root(s.home) / "r0123456789ab"
+    left.mkdir(parents=True)
+    (left / "review_root.json").write_text("{}\n")
+    assert "run_material_readable" not in _kinds(s)
+
+
+def test_run_material_in_the_machine_s_other_place_is_named(
+    s: SimpleNamespace, outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    machine = Path(os.path.realpath(outside_tmp)) / "var-tmp"
+    (machine / "left-run").mkdir(parents=True)
+    (machine / "left-run" / "run.json").write_text("{}\n")
+    monkeypatch.setattr("physgate.evaluation.launch_check.MACHINE_PLACES", (machine,))
+    code, lines = _check(s)
+    assert code == 1
+    assert f"finding: run_material_readable: {machine / 'left-run'}: it holds run.json" in lines
+
+
+def test_a_folder_at_the_store_s_top_outside_every_role_s_root_is_walked(
+    s: SimpleNamespace, outside_tmp: Path
+) -> None:
+    # A measured session is refused its roles' roots in the store, not the store: a stray folder
+    # at its top is read like any other place.
+    stray = s.store / "notes" / "run-6"
+    stray.mkdir(parents=True)
+    (stray / "run.json").write_text("{}\n")
+    code, lines = _check(s)
+    assert code == 1
+    assert f"finding: run_material_readable: {stray}: it holds run.json" in lines, lines
+    # The same, with the store outside the home: walked as a place of its own.
+    away = Path(os.path.realpath(outside_tmp)) / "store-away"
+    s.store.rename(away)
+    s.store = away
+    code, lines = _check(s)
+    assert f"finding: run_material_readable: {away / 'notes' / 'run-6'}: it holds run.json" in lines
