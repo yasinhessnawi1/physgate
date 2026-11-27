@@ -1,0 +1,226 @@
+[
+  {
+    "name": "a_control_task_is_issued_as_its_brief_alone",
+    "file": "src/physgate/evaluation/tiers/issued.py",
+    "old": "        values = _control_values(task)\n",
+    "new": "        values = []\n",
+    "tests": [
+      "tests/unit/evaluation/per_role/test_a_session_is_given_the_task_s_values_as_its_scorer_reads_them.py",
+      "tests/unit/evaluation/harness_round/test_a_trial_is_given_what_a_session_is_given_for_its_task.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "a_default_the_scorer_takes_is_not_said",
+    "file": "src/physgate/evaluation/tiers/issued.py",
+    "old": "            _line(name, DEFAULTS[name], taken=True) if given is None else _line(name, given)\n",
+    "new": "            _line(name, DEFAULTS[name]) if given is None else _line(name, given)\n",
+    "tests": [
+      "tests/unit/evaluation/per_role/test_a_session_is_given_the_task_s_values_as_its_scorer_reads_them.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "the_reference_step_is_said_where_the_scorer_never_reads_it",
+    "file": "src/physgate/evaluation/tiers/issued.py",
+    "old": "    if bounds_actuator_peak(task) and all(m.name != REFERENCE_STEP for m in task.inputs):\n",
+    "new": "    if all(m.name != REFERENCE_STEP for m in task.inputs):\n",
+    "tests": [
+      "tests/unit/evaluation/per_role/test_a_session_is_given_the_task_s_values_as_its_scorer_reads_them.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "a_peak_bound_with_no_actuator_limit_is_issued",
+    "file": "src/physgate/evaluation/tiers/issued.py",
+    "old": "        actuator_limit(task)\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/evaluation/per_role/test_a_session_is_given_the_task_s_values_as_its_scorer_reads_them.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "the_answer_contract_is_left_out",
+    "file": "src/physgate/evaluation/tiers/issued.py",
+    "old": "    parts += [\n        ANSWER_HEADING,\n",
+    "new": "    parts += [] and [\n        ANSWER_HEADING,\n",
+    "tests": [
+      "tests/unit/evaluation/per_role/test_a_session_is_given_the_task_s_values_as_its_scorer_reads_them.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "the_raw_session_is_prompted_with_the_brief_alone",
+    "file": "src/physgate/evaluation/per_role/arms/raw.py",
+    "old": "    record = run_session(issued_text(task), setup, work, cap=cap, identity=made)\n",
+    "new": "    record = run_session(task.brief, setup, work, cap=cap, identity=made)\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_protected_task_reaches_its_session_as_what_it_gives_alone_and_rests_inside_the_store.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "the_raw_pin_records_the_brief_alone",
+    "file": "src/physgate/evaluation/per_role/arms/raw.py",
+    "old": "        \"brief_sha256\": issued_sha256(task),\n",
+    "new": "        \"brief_sha256\": hashlib.sha256(task.brief.encode()).hexdigest(),\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_baseline_runs_the_raw_arm_on_every_harness_trial_of_a_tier_version.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_harness_trial_s_brief_file_is_the_brief_alone",
+    "file": "src/physgate/evaluation/harness_round.py",
+    "old": "        data = issued_bytes(self.tasks[planned.brief_sha256])\n",
+    "new": "        data = self.tasks[planned.brief_sha256].brief.encode()\n",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_a_trial_is_given_what_a_session_is_given_for_its_task.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "a_trial_s_run_given_the_brief_alone_is_refused_as_another_s",
+    "file": "src/physgate/evaluation/harness_round.py",
+    "old": "    if given_the_brief_alone(config.brief_sha256, [task]):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_a_trial_is_given_what_a_session_is_given_for_its_task.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "a_measured_run_given_the_brief_alone_is_said_to_be_in_no_version",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "    if not on and any(\n",
+    "new": "    if False and any(\n",
+    "tests": [
+      "tests/unit/evaluation/exposure/test_a_measured_run_on_an_exposed_or_unknown_version_is_refused.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "a_counted_run_given_the_brief_alone_is_said_to_be_of_no_task",
+    "file": "src/physgate/evaluation/tiers/measure.py",
+    "old": "        if task is None and config.brief_sha256 in bare:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/gaps/test_the_vector_writer_counts_one_look_and_writes_no_id.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/gaps/gap_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "a_raw_record_given_the_brief_alone_is_said_to_be_another_s",
+    "file": "src/physgate/evaluation/per_role/assemble.py",
+    "old": "    if isinstance(recorded, str) and given_the_brief_alone(recorded, [task]):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_pair_given_the_brief_alone_is_said_to_be_given_another_brief",
+    "file": "src/physgate/evaluation/per_role/arms/compare.py",
+    "old": "    if given_the_brief_alone(config.brief_sha256, [task]):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "a_baseline_run_given_the_brief_alone_is_said_to_be_of_no_task",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        if found is None and given_the_brief_alone(config.brief_sha256, _of(tasks)):\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_baseline_runs_the_raw_arm_on_every_harness_trial_of_a_tier_version.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "a_baseline_run_is_found_by_its_brief_alone",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            found[_issued(task, tier)] = (tier, task)\n",
+    "new": "            found[brief_sha256(task)] = (tier, task)\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_baseline_runs_the_raw_arm_on_every_harness_trial_of_a_tier_version.py",
+      "tests/unit/evaluation/baseline/test_a_protected_task_reaches_its_session_as_what_it_gives_alone_and_rests_inside_the_store.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "the_values_check_counts_the_issued_text_as_the_brief",
+    "file": "src/physgate/evaluation/tiers/issued_check.py",
+    "old": "        for text, key in ((task.brief, \"brief\"), (issued, \"issued\")):\n",
+    "new": "        for text, key in ((task.brief, \"brief\"), (task.brief, \"issued\")):\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_values_check_counts_what_a_version_s_tasks_leave_a_session_without.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  }
+]
