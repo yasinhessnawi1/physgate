@@ -27,6 +27,7 @@ from physgate.evaluation.per_role.arms.compare import (
     differences,
     harness_total,
 )
+from physgate.evaluation.tiers.issued import issued_sha256
 from physgate.evaluation.tiers.task import parse_task
 from physgate.hooks.settings import CONFIG_NAME, PROFILE_TOOLS
 from physgate.orchestrator.budget import REPAIR_BUDGET
@@ -81,7 +82,7 @@ def _config(**changes: Any) -> RunConfig:
     params.update(
         run_id="r",
         seed=1,
-        brief_sha256=hashlib.sha256(TASK.brief.encode()).hexdigest(),
+        brief_sha256=issued_sha256(TASK),
         target_head="b" * 40,
         claude_version="2.1.301",
         endpoint="default",
@@ -177,7 +178,7 @@ def _pins(**changes: Any) -> dict[str, Any]:
         "answer": TASK.answer.model_dump(mode="json"),
         "auth": "subscription",
         "bounds": _bounds(),
-        "brief_sha256": hashlib.sha256(TASK.brief.encode()).hexdigest(),
+        "brief_sha256": issued_sha256(TASK),
         "claude_version": "2.1.301",
         "effort": config.effort,
         "endpoint": "default",

@@ -28,6 +28,7 @@ from gap_fixtures import (
 )
 
 from physgate.evaluation.observe.compare import DRIFT
+from physgate.evaluation.tiers.issued import issued_sha256
 from physgate.evaluation.tiers.store import withheld_root
 
 WRITE = "physgate.evaluation.tiers.measure.write_vector"
@@ -86,6 +87,7 @@ def test_a_vector_is_written_beneath_the_withheld_root_as_counts_alone(
     for task in made.tasks["held_out"]:
         assert task.id not in text, "the vector names a task"
         assert hashlib.sha256(task.brief.encode()).hexdigest() not in text, "a brief's digest"
+        assert issued_sha256(task) not in text, "the digest of what a session is given"
     for run_dir in m.run_dirs:
         assert str(run_dir) not in text and run_dir.name not in text, "the vector names a run"
     for word in ("seed", "wall_clock", "usd", "tokens", "suite"):

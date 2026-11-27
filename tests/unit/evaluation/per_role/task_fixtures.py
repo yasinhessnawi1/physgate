@@ -16,7 +16,13 @@ def own_task(**changes: Any) -> dict[str, Any]:
         "tier": "visible",
         "source": {"kind": "own"},
         "brief": "Stabilise the plant. Write the controller to answer.json.",
-        "inputs": [{"name": "plant_gain", "value": 2.0, "unit": "1"}],
+        # A whole plant, as the scorer reads one: a session is given these values.
+        "inputs": [
+            {"name": "plant_num_0", "value": 1.0, "unit": "1"},
+            {"name": "plant_den_0", "value": 1.0, "unit": "s"},
+            {"name": "plant_den_1", "value": -1.0, "unit": "1"},
+            {"name": "plant_gain", "value": 2.0, "unit": "1"},
+        ],
         "answer": {"path": "answer.json", "form": "lti_tf"},
         "specs": [
             {

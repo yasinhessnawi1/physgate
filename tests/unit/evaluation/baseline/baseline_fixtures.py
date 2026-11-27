@@ -28,6 +28,7 @@ from task_fixtures import controller, own_task, write_task_dir  # noqa: E402
 from physgate.evaluation.baseline.runner import RunSet, setup_from_run  # noqa: E402
 from physgate.evaluation.per_role.arms.raw import RawSetup, held_out_seen, pins  # noqa: E402
 from physgate.evaluation.tiers.heldout import tier_digest  # noqa: E402
+from physgate.evaluation.tiers.issued import issued_sha256  # noqa: E402
 from physgate.evaluation.tiers.store import (  # noqa: E402
     withheld_root,
     work_root,
@@ -233,7 +234,7 @@ def config(task: Task, made: StandInStore, **changes: Any) -> RunConfig:  # noqa
     params.update(
         run_id="r",
         seed=1,
-        brief_sha256=hashlib.sha256(task.brief.encode()).hexdigest(),
+        brief_sha256=issued_sha256(task),
         target_head="b" * 40,
         claude_version="2.1.301",
         endpoint="default",

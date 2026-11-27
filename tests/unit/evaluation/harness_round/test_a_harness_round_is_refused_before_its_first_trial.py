@@ -32,6 +32,7 @@ from physgate.cli import main
 from physgate.evaluation.harness_round import RoundError, run_round
 from physgate.evaluation.tiers import exposure
 from physgate.evaluation.tiers.exposure import add_run_root, mark_exposed, run_roots
+from physgate.evaluation.tiers.issued import issued_bytes
 from physgate.evaluation.tiers.store import (
     BASELINE_DIR,
     PLACE,
@@ -284,7 +285,7 @@ def test_a_held_out_task_the_check_flagged_is_never_run(tmp_path: Path) -> None:
     )
     assert status == "done" and summary["tiers"]["held_out"]["trials"] == 7
     given = {c.brief.read_bytes() for c in driver.decomposed}
-    assert len(given) == 7 and flagged.brief.encode() not in given
+    assert len(given) == 7 and issued_bytes(flagged) not in given
 
 
 def _command(rig: Rig, run_root: Path) -> list[str]:

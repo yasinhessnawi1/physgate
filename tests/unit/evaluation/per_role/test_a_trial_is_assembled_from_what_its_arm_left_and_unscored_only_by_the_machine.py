@@ -22,6 +22,7 @@ from physgate.evaluation.per_role.assemble import (
     raw_trial,
 )
 from physgate.evaluation.per_role.report import ReportError, TrialRecord
+from physgate.evaluation.tiers.issued import issued_sha256
 from physgate.evaluation.tiers.task import parse_task
 from physgate.orchestrator.design_rounds import decomposition_streams
 from physgate.orchestrator.events import (
@@ -54,7 +55,7 @@ def _config(**changes: Any) -> RunConfig:
     params.update(
         run_id="r",
         seed=1,
-        brief_sha256=hashlib.sha256(TASK.brief.encode()).hexdigest(),
+        brief_sha256=issued_sha256(TASK),
         target_head="b" * 40,
         claude_version="2.1.301",
         endpoint="default",
@@ -201,7 +202,7 @@ def _raw(of: Any = None, **changes: Any) -> dict[str, Any]:
         "pins": {
             "model": "claude-opus-5-5",
             "auth": "subscription",
-            "brief_sha256": hashlib.sha256(task.brief.encode()).hexdigest(),
+            "brief_sha256": issued_sha256(task),
             "answer": task.answer.model_dump(mode="json"),
         },
     }
