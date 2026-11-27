@@ -63,6 +63,7 @@ from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.firmware.guard import MAX_OUTPUT_BYTES, GuardedRun, guarded
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 from physgate.orchestrator.invocation import claude_binary, session_search_path
+from physgate.oslayer.harness_temp import harness_temp_dir
 from physgate.oslayer.policy import sandbox_policy
 from physgate.oslayer.probe import Absent, judge_here
 
@@ -461,7 +462,7 @@ def sandboxed(
         raise FirmwareTierRefusedError(msg)
     pin = runtime_pin(srt)
     wrapper, cap, memory_cap = _process_cap(limits)
-    check_dir = Path(tempfile.mkdtemp(prefix="physgate-sandbox-check-"))
+    check_dir = Path(tempfile.mkdtemp(prefix="physgate-sandbox-check-", dir=harness_temp_dir()))
     try:
         _check(wrapper, srt, held_out, check_dir / "work")
     finally:

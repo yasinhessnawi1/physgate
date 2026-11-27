@@ -107,6 +107,12 @@ BUILD_DIRECTORY = (
 )
 #: The most built files named one by one; past it the rest are counted.
 MAX_ARTEFACTS_NAMED = 20
+#: What an attempt is told about compiled Python inside its module, which the orchestrator's
+#: commit never stages and only a session staging or committing it itself could put there.
+BYTECODE_IN_MODULE = (
+    "compiled Python inside the module, which the interpreter runs in place of its source: "
+    "never stage or commit it, and remove this"
+)
 #: What an attempt is told about a misplaced or malformed export (``exports``).
 EXPORT_OUTSIDE = (
     f"an export outside the module's {EXPORTS_DIR} folder: the design helper writes each export "
@@ -279,7 +285,11 @@ def write_scope_violations(
     outside the module. ``git_dir`` is the repository's verified git directory, if the
     caller has one.
 
-    Out of scope inside the module too: what a build left there. The commit holds everything
+    Out of scope inside the module too: compiled Python, a ``.pyc`` file or anything beneath a
+    ``__pycache__`` directory, in any case (:data:`BYTECODE_IN_MODULE`): the orchestrator's
+    commit leaves bytecode out, so only a session that staged or committed it itself puts it in
+    a commit, and the interpreter would run it in place of the source the review reads. And what
+    a build left there. The commit holds everything
     a session left in its worktree, so a build that wrote into the module would put its tree
     into the attempt, the review's diff and the run branch. A file the commit adds or changes
     beneath a build directory (:data:`BUILD_DIRECTORIES`) is named by that directory, once,
@@ -319,7 +329,11 @@ def write_scope_violations(
         if path.is_relative_to(module):
             if change.new_mode != _ABSENT:
                 tree = _build_directory(path, len(module.parts))
-                if tree is not None:
+                if path.name.casefold().endswith(".pyc") or any(
+                    part.casefold() == "__pycache__" for part in path.parts[len(module.parts) :]
+                ):
+                    found.append(f"{change.path} ({BYTECODE_IN_MODULE})")
+                elif tree is not None:
                     trees[tree] = trees.get(tree, 0) + 1
                 elif path.name.casefold().endswith(BUILD_SUFFIXES):
                     built.append(change.path)

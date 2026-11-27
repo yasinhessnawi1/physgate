@@ -89,7 +89,9 @@ def test_a_run_s_session_is_refused_what_sessions_wrote_on_every_route(
     for tier in held[:2]:
         tier.mkdir(parents=True, exist_ok=True)
     config = _config(base, profile, held)
-    policy = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/tmp/pg-wh")
+    policy = sandbox_policy(
+        config, home=str(base / "outside" / "home"), temp_dir="/var/tmp/pgs/0123456789"
+    )
     deny_read = policy.settings["sandbox"]["filesystem"]["denyRead"]
     wt = str(base / "wt")
     for place in written:
@@ -143,7 +145,9 @@ def test_a_run_s_session_is_refused_the_blind_check_s_work_on_every_route(
             _api("physgate.evaluation.tiers.store.work_root")(store, "control"),
         )
     config = _config(base, profile, held)
-    policy = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/tmp/pg-wk")
+    policy = sandbox_policy(
+        config, home=str(base / "outside" / "home"), temp_dir="/var/tmp/pgs/0123456789"
+    )
     deny_read = policy.settings["sandbox"]["filesystem"]["denyRead"]
     wt = str(base / "wt")
     target = str(copy)
@@ -180,7 +184,9 @@ def test_a_check_s_session_is_refused_all_of_the_role_s_root_but_its_own_work(
     except TypeError as exc:
         pytest.fail(f"the check's roots are not given its own work: {exc}")
     config = _config(base, profile, held)
-    policy = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/tmp/pg-ck")
+    policy = sandbox_policy(
+        config, home=str(base / "outside" / "home"), temp_dir="/var/tmp/pgs/0123456789"
+    )
     deny_read = policy.settings["sandbox"]["filesystem"]["denyRead"]
     wt = str(base / "wt")
     for place in (version / "tierset.json", version / "visible", sibling):
@@ -212,7 +218,9 @@ def test_a_check_s_session_is_refused_every_other_role_s_root(tmp_path: Path, pr
     (own / "worktree").mkdir(parents=True)
     held = tuple(_api("physgate.evaluation.tiers.store.check_roots")(store, "control", own))
     config = _config(base, profile, held)
-    policy = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/tmp/pg-ot")
+    policy = sandbox_policy(
+        config, home=str(base / "outside" / "home"), temp_dir="/var/tmp/pgs/0123456789"
+    )
     deny_read = policy.settings["sandbox"]["filesystem"]["denyRead"]
     wt = str(base / "wt")
     for place in (

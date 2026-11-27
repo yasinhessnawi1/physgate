@@ -102,7 +102,14 @@ from physgate.orchestrator.invocation import (
     role_argv,
     session_search_path,
 )
-from physgate.orchestrator.left_out import SCRATCH_DIR, LeftOut, clear_left_out
+from physgate.orchestrator.left_out import (
+    SCRATCH_DIR,
+    Beside,
+    Concerns,
+    LeftOut,
+    clear_left_out,
+    end_series,
+)
 from physgate.orchestrator.managed import (
     ObservedTraffic,
     answering_models,
@@ -169,6 +176,7 @@ from physgate.oslayer.containment import (
     contained_servers,
     wrappers,
 )
+from physgate.oslayer.harness_temp import harness_temps_root
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, claude_temp_dirs, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
@@ -742,8 +750,9 @@ def role_prompt(request: SessionRequest, state: Path | None = None) -> str:
         f"You implement subtask {request.subtask_id} in the {request.assigned_role} role.\n\n"
         f"Your specification is {request.spec_path}; read it in full first. Change files only "
         f"under {request.module_dir}/. A throwaway helper script or note goes in {SCRATCH_DIR}/, "
-        "which is never part of your attempt and is emptied when your session ends; nothing it "
-        "computes is accepted as a record. To propose a node of the design graph, write it whole "
+        "which is never part of your attempt and is emptied when your session ends, each file "
+        "recorded by name and digest for your review; a record that names code in it is refused. "
+        "To propose a node of the design graph, write it whole "
         "as JSON to .physgate/proposals/<node id>.json with the Write tool (no command or script "
         "can write there); never write the graph store itself. To "
         f"record a simulation's output, run a script under {request.module_dir}/ that writes "
@@ -2140,8 +2149,9 @@ class ClaudeDispatcher:
         lie in is named whole: the run's directory (every session's own directory and state, the
         run's records, the place apart, the worktrees with their answer keys and reviewer trees),
         the harness checkout, the hooks' installation, the target repository, the review root, the
-        held-out roots, the run's parameters file, the sessions' temporary directories and the
-        temporary directory every Claude Code session of the user shares. And, as the sessions of
+        held-out roots, the run's parameters file, the sessions' temporary directories, the
+        temporary directories every session on the machine shares and Claude Code's own among
+        them, and the harness's own temporary place. And, as the sessions of
         a run naming a held-out tier are installed, the standing review root as review material
         (:func:`~physgate.reviewers.places.standing_review_material`) and every root the run
         withholds whole (:func:`withheld_whole_roots`): from the same definitions a session's
@@ -2164,20 +2174,18 @@ class ClaudeDispatcher:
         places += [str(self._review_root), *self._config.held_out, *claude_temp_dirs()]
         places += standing_review_material(self._config.held_out)
         places += withheld_whole_roots(self._config.withheld_whole)
+        # And the harness's own temporary place, every process's, as every role session is.
+        places.append(os.path.realpath(harness_temps_root()))
         return tuple(sorted(set(places)))
 
     def _forbidden_by_session(self) -> list[str]:
-        """The places of :meth:`_forbidden` a session is withheld, the shared temporaries left out.
+        """The places of :meth:`_forbidden` a session is withheld: every one, now.
 
-        A temporary directory every session writes is none a session is withheld, and the
-        command's own folder is made in one.
+        The shared temporary directories are withheld from every role session both ways, so they
+        are withheld from the command too. Its own folder may lie in a place it is withheld: the
+        wrapper was run so on both platforms' layers, and the command runs and writes its folder.
         """
-        writable = {os.path.realpath(place) for place in machine_writable()}
-        return [
-            str(place)
-            for place in self._forbidden().values()
-            if os.path.realpath(place) not in writable
-        ]
+        return [str(place) for place in self._forbidden().values()]
 
     def _contained_servers(
         self, installed: Installed, sdir: Path, own_temp: Path, env: dict[str, str]
@@ -2542,16 +2550,13 @@ class ClaudeDispatcher:
         # removed after every session, ended for whatever cause, and recorded; the commit leaves
         # out whatever a removal could not take. Bytecode is evidence of what may have run in
         # place of a source: each file goes on the session's end line with its digest, which the
-        # attempt's review is shown.
-        cleared = self._clear_left_out(worktree, sdir, LEFT_OUT_NAME)
-        if cleared.bytecode_found or not cleared.complete:
-            series = series.model_copy(
-                update={
-                    "bytecode": cleared.bytecode,
-                    "bytecode_found": cleared.bytecode_found,
-                    "left_out_incomplete": not cleared.complete,
-                }
-            )
+        # attempt's review is shown, and a file beside the code a sealed record names (as the
+        # sealed record lists it), or a cache of the writer, here or beneath a cache prefix in
+        # the session's own home or temporary directory, marks that record not vouched for. The
+        # attempt is not refused for it.
+        beside = Beside(series.records)
+        cleared = self._clear_left_out(worktree, sdir, LEFT_OUT_NAME, concerns=beside)
+        series = end_series(series, cleared, beside, own=(sdir / "home", own_temp))
         commit = (
             commit_attempt(
                 worktree,
@@ -2617,9 +2622,11 @@ class ClaudeDispatcher:
             account_windows=account_windows(streamed),
         )
 
-    def _clear_left_out(self, worktree: Path, sdir: Path, name: str) -> LeftOut:
+    def _clear_left_out(
+        self, worktree: Path, sdir: Path, name: str, concerns: Concerns | None = None
+    ) -> LeftOut:
         """Clear the worktree of what is never part of an attempt; record it in ``sdir``."""
-        cleared = clear_left_out(worktree, repo=self._run.repo)
+        cleared = clear_left_out(worktree, repo=self._run.repo, concerns=concerns)
         (sdir / name).write_text(cleared.model_dump_json())
         return cleared
 

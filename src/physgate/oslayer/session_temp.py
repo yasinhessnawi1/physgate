@@ -32,6 +32,10 @@ def session_temps_root() -> str:
 def make_session_temp(parent: str | None = None) -> Path:
     """Make a new session's own temporary directory, directly beneath the parent of them all.
 
+    Given where it really is (``/private/var/tmp/pgs/<10>`` on macOS, where ``/var`` is a link):
+    the session's ``TMPDIR`` names it so, and a tool that writes a path relative to the place it
+    resolves (KiCad's netlist does) writes the same path whether it is told the name or finds it.
+
     Raises:
         OSError: the parent cannot be made, or it is a link, not a directory, not this user's,
             or open to another user; or the child cannot be made.
@@ -45,4 +49,4 @@ def make_session_temp(parent: str | None = None) -> Path:
         raise OSError(msg)
     child = root / secrets.token_hex(5)
     child.mkdir(mode=0o700)
-    return child
+    return Path(os.path.realpath(child))

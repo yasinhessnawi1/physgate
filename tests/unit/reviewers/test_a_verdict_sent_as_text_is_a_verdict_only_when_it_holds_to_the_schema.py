@@ -358,6 +358,15 @@ BROKEN: dict[str, tuple[Callable[[], str], str]] = {
     ),
     "a-nest-20000-deep": (lambda: _put("subject", "[" * 20000 + "]" * 20000), "nests too deep"),
     "a-nest-past-the-bound": (lambda: _put("subject", "[" * 40 + "]" * 40), "nests deeper than"),
+    # One level past the bound, its innermost container empty: an empty array is a level too.
+    "a-nest-past-the-bound-empty-innermost": (
+        lambda: _put("subject", "[" * 32 + "]" * 32),
+        "nests deeper than",
+    ),
+    # White space JSON does not have, around the object: Python's strip would take each.
+    "a-no-break-space-before": (lambda: "\u00a0" + json.dumps(accept()) + "}", "is not one JSON"),
+    "a-line-separator-after": (lambda: json.dumps(accept()) + "}\u2028", "more than one JSON"),
+    "a-vertical-tab-before": (lambda: "\x0b" + json.dumps(accept()) + "}", "is not one JSON"),
     "an-oversize-text": (
         lambda: json.dumps({**accept(), "finding": "the rail holds " * 30000}) + "}",
         "longer than the",
@@ -535,3 +544,30 @@ def test_the_scripted_tries_are_the_ones_the_binary_refused_as_measured() -> Non
     for text in (as_sent(accept()), as_sent(accept(), indent=None)):
         with pytest.raises(json.JSONDecodeError):
             json.loads(text)
+
+
+def test_a_last_try_with_a_key_beside_the_review_is_not_read_as_a_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Only a try whose input is the wrapper alone is a text verdict: one with a key beside it is
+    # some other form, and the session's end is read as it always was.
+    steps = tried(1, as_sent(accept()), FORM)
+    steps[0]["message"]["content"][0]["input"]["note"] = "a key beside the review"
+    result, _ = review(tmp_path, monkeypatch, stream(steps))
+    assert isinstance(result, ReviewUnavailableError) and result.cause == "invalid_verdict"
+    assert "the verdict was sent as text" not in str(result)
+
+
+def test_a_good_text_in_a_stream_that_is_not_the_runtime_s_alone_is_no_verdict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A text is held to every check a verdict passes, the stream's own among them: a line after
+    # the runtime's result is no stream the runtime alone wrote.
+    text = (
+        stream(tried(1, as_sent(accept()), FORM))
+        + json.dumps({"type": "assistant", "message": {"role": "assistant", "content": []}})
+        + "\n"
+    )
+    result, _ = review(tmp_path, monkeypatch, text)
+    assert isinstance(result, ReviewUnavailableError), result
+    assert "not the runtime's alone" in str(result)

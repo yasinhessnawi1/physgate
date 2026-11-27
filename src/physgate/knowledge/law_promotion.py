@@ -68,6 +68,7 @@ from physgate.knowledge.promote import (
     require_interactive,
 )
 from physgate.knowledge.staging import STAGING_ROOT
+from physgate.oslayer.harness_temp import harness_temp_dir
 
 if TYPE_CHECKING:
     from physgate.gate.laws import Law
@@ -522,7 +523,7 @@ def _loads(table: bytes, record: bytes, refused: str) -> Any:
     # needs, not every command that reads the knowledge layer.
     from physgate.gate.laws import LawTableError, load_laws
 
-    with tempfile.TemporaryDirectory(prefix="law-promotion-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="law-promotion-", dir=harness_temp_dir()) as scratch:
         table_file = Path(scratch) / TABLE_NAME
         record_file = Path(scratch) / PROMOTIONS_NAME
         table_file.write_bytes(table)

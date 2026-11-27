@@ -14,13 +14,15 @@ outbox is taken out of the worktree:
 
 - its file is named for its id, is a regular file with one name, and fits the session's
   bounds on count and bytes;
-- the script that produced it, and every file of code the producing process loaded, lie in
-  the attempt's module directory (the writer itself excepted), where the attempt commits;
-  code run from anywhere else, a scratch script under ``/tmp`` for instance, is refused;
-- each of those files still has the digest the writer recorded, so the curve was not written
+- the script it names, and every file of code it names as loaded by the producing process,
+  lie in the attempt's module directory (the writer itself excepted), where the attempt
+  commits; a record that names code from anywhere else, a scratch script under ``/tmp`` for
+  instance, is refused;
+- each of those files still has the digest the record gives it, so the record was not written
   by an earlier version of that code; the blob of each is sealed with the record, and the
-  change check holds the attempt commit to every one of them, so the code is code the attempt
-  commits with exactly those bytes (ignored or never-added code refuses the record there).
+  change check holds the attempt commit to every one of them, so the code named is code the
+  attempt commits with exactly those bytes (ignored or never-added code refuses the record
+  there).
 
 A record whose module code changed after it was written, or was deleted or renamed since,
 and that nothing else refuses, is **discarded**, not refused: the session went on working
@@ -29,9 +31,18 @@ the outbox. It is never sealed, so a quantity that names it still refuses the at
 record alone does not. It is listed with the seal of the bytes collected, and its review is
 shown it as no evidence. A changed or missing writer is refused.
 
-What this cannot prove is that the script produced the curve: a script that writes a curve
-it did not compute names itself honestly. Re-running the script is that proof, and it is not
-made here.
+**What a sealed record claims, and no more.** A record names the files the session's own
+process reported: the script it ran and the code it had loaded, as the series writer found them
+in that process. That process is the session's, which can run other code than it names (a module
+object made before the script ran, a compiled file that removes itself once it has run, a source
+that rewrites itself, code from a path entry or a prelude on the command line) and can write a
+record without the writer at all; the writer's own checks run in that process, and a session can
+switch them off. Sealing holds the named files to the bytes the attempt commits; it does not show
+that they are what ran, nor that the script computed the curve. The harness has not re-run the
+script: running the committed script again, in a clean checkout, is that proof, and it is not
+made here. Where the orchestrator's look at the session's end finds compiled code beside a file
+a record names, or a cache of the writer, the review's listing marks that record not vouched
+for (``orchestrator.left_out``); the look finds nothing a session removed before it ended.
 
 **Never through a link.** The outbox is in the role's worktree, so a role could make it, or
 the directory above it, a link to somewhere else, and a collector that moved and deleted
@@ -306,44 +317,6 @@ def empty_outbox(worktree: Path, run_dir: Path, session_id: str) -> tuple[SetAsi
     finally:
         os.close(fd)
     return listing.done()
-
-
-#: The interpreter's bytecode cache of the writer: written beside it whenever a script imports
-#: it, and outside the module, so left in place it would put every recording attempt out of
-#: scope at the change check.
-WRITER_CACHE = re.compile(r"series_writer\.[A-Za-z0-9_.-]+\.pyc")
-
-
-def _clear_writer_cache(base: Path, listing: _Listing) -> None:
-    """Remove the interpreter's cache of the writer, and nothing else, before the commit.
-
-    Only regular files named as that cache, in ``.physgate/lib/__pycache__`` reached without a
-    link; the directory is removed only if that leaves it empty. Anything else there stays,
-    and the change check refuses the attempt that committed it.
-    """
-    lib = WRITER_PATH.parent.parts
-    try:
-        fd = _open_chain(base, (*lib, "__pycache__"))
-    except OSError:
-        return
-    try:
-        for name in sorted(os.listdir(fd)):
-            found = os.stat(name, dir_fd=fd, follow_symlinks=False)
-            if WRITER_CACHE.fullmatch(name) and stat.S_ISREG(found.st_mode):
-                os.unlink(name, dir_fd=fd)
-                listing.add(
-                    f"{WRITER_PATH.parent}/__pycache__/{name}",
-                    "the interpreter's cache of the writer, removed before the commit",
-                )
-        empty = not os.listdir(fd)
-    finally:
-        os.close(fd)
-    if empty:
-        parent = _open_chain(base, lib)
-        try:
-            os.rmdir("__pycache__", dir_fd=parent)
-        finally:
-            os.close(parent)
 
 
 def blob_id(data: bytes, object_format: str) -> str:
@@ -629,8 +602,8 @@ def _provenance(
 
     The script and every file of code the record names in the worktree must be the module's
     (the writer excepted) and unchanged since the record was written. Their blobs are what the
-    change check holds the attempt commit to: code the attempt does not commit with these
-    bytes cannot stand behind the curve. A file outside the worktree is admitted only as the
+    change check holds the attempt commit to: a record may name only code the attempt commits
+    with these bytes. A file outside the worktree is admitted only as the
     interpreter's own (:func:`_environment_code`), and is recorded. Every file is checked for
     a refusal before a changed or gone module file is reported, so a record that is both
     changed and refused is refused.
@@ -778,7 +751,8 @@ def collect(
     refused, discarded = _Listing(), _Listing()
     for earlier in discarded_before:
         discarded.add(earlier.name, earlier.reason)
-    _clear_writer_cache(base, discarded)
+    # A cache of the writer is not removed here: the session's end clearing records it by its
+    # digest, as any other bytecode, and it marks every record of the session not vouched for.
     try:
         fd = _open_outbox(worktree)
     except _RefusedError as exc:

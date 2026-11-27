@@ -239,7 +239,9 @@ def test_known_residual_without_the_layer_a_link_made_unseen_outside_the_worktre
     # files with a second name outside it for reasons of their own.
     with make_layout(tmp_path) as layout:
         source, marker, _ = _sources(layout)["the harness's skill file"]
-        link = _destinations(layout)["the shared temporary directory"]
+        # A place no rule names: beside the run, outside every root and the shared directories.
+        (layout.outside / "elsewhere").mkdir()
+        link = layout.outside / "elsewhere" / "hl.md"
         steps = [_link_unseen(source, {"elsewhere": link}), tool("Read", file_path=str(link))]
         try:
             seen = run_session(layout, steps, layer=False, fields=_fields(layout))
@@ -247,3 +249,20 @@ def test_known_residual_without_the_layer_a_link_made_unseen_outside_the_worktre
         finally:
             link.unlink(missing_ok=True)
     assert marker in told[1], "the residual is closed: move this row to the refused ones"
+
+
+def test_without_the_layer_a_link_made_unseen_in_a_shared_temporary_directory_is_refused(
+    tmp_path: Path,
+) -> None:
+    # Once the residual above: a shared temporary directory is refused to every read of a
+    # session's file tools, whatever was put there and however.
+    with make_layout(tmp_path) as layout:
+        source, marker, _ = _sources(layout)["the harness's skill file"]
+        link = _destinations(layout)["the shared temporary directory"]
+        steps = [_link_unseen(source, {"elsewhere": link}), tool("Read", file_path=str(link))]
+        try:
+            seen = run_session(layout, steps, layer=False, fields=_fields(layout))
+            told = _told(seen)
+        finally:
+            link.unlink(missing_ok=True)
+    assert marker not in told[1] and "own temporary directory" in told[1], told[1]

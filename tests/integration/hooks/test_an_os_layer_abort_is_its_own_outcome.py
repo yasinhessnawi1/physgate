@@ -21,8 +21,9 @@ from physgate.oslayer.abort import OS_LAYER_ABORTED, aborted_tool_uses
 
 pytestmark = pytest.mark.integration
 
-#: What bubblewrap printed when a sibling session removed its placeholder (Oracle VM).
-ABORT = "bwrap: Can't find source path /tmp/pytest-of-u/pytest-1/.mcp.json: No such file"
+#: What bubblewrap printed when a sibling session removed its placeholder (Oracle VM), its path
+#: moved out of the shared temporary directory, which a command of a session may no longer name.
+ABORT = "bwrap: Can't find source path /home/u/pg-tests/t-1/.mcp.json: No such file"
 #: The decisions every count of refusals reads in the hook log.
 REFUSALS = {"refuse", "put back", "halt", "node mismatch"}
 
