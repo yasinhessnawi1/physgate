@@ -148,6 +148,35 @@ def _the_harness_checkout_is_measured_once(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr("physgate.evaluation.observe.rerun.harness_state", measured)
 
 
+@pytest.fixture(autouse=True)
+def _pytest_s_own_temporary_directory_is_no_shared_one_to_a_unit_row(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """A unit row's sessions do not take pytest's own temporary directory for a shared one.
+
+    Every session is refused the machine's shared temporary directories, but for its own places
+    there; a unit row lays every place of a stand-in run in pytest's directory, which lies in one,
+    so each stand-in place beside the session's own would read as the shared directory's. The
+    directory holding pytest's is left out of the machine's list here; the rows of the shared
+    directories themselves (``machine_temps``), and every integration row, keep the machine's own.
+    """
+    if request.node.get_closest_marker("integration") or request.node.get_closest_marker(
+        "machine_temps"
+    ):
+        return
+    from physgate.hooks import settings
+
+    base = os.path.realpath(tmp_path_factory.getbasetemp())
+    real = settings.shared_temp_dirs
+
+    def others() -> tuple[str, ...]:
+        return tuple(d for d in real() if not Path(base).is_relative_to(os.path.realpath(d)))
+
+    monkeypatch.setattr(settings, "shared_temp_dirs", others)
+
+
 def outside_writable_root() -> Path:
     """Where integration tests make their trees: outside every place the OS layer makes writable.
 

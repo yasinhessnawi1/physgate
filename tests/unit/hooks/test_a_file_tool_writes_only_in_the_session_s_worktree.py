@@ -59,6 +59,9 @@ try:
 except ImportError:  # the code before the scratch folder existed: the row fails on its words
     left_out = None  # type: ignore[assignment]
 
+#: The machine's own shared temporary directories: their refusal is one of the rows here.
+pytestmark = pytest.mark.machine_temps
+
 SID = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
 REVIEW_ID = "7d0c5e1a-3b2f-4c6d-8e9f-0a1b2c3d4e5f"
 #: Named to the installer, never made: the session's own temporary directory and another's.

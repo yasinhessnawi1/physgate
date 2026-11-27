@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -711,6 +713,10 @@ OPERATOR_FILES = {
 OUTSIDE_WORDS = "file tools write only in its own worktree"
 
 
+#: What a refused write to a shared temporary directory says: where the session writes instead.
+SHARED_TEMP_WORDS = "write temporary files in this session's own temporary directory"
+
+
 def _outside_writes(layout: Layout) -> tuple[list[dict[str, object]], dict[int, str], str]:
     """The steps, each write outside (by step number) with the file it would change, the control.
 
@@ -813,8 +819,10 @@ def _no_outside_write_lands(layout: Layout, *, layer: bool, raw: bool) -> None:
             == os.path.realpath(given[key])
         ]
         assert [e.get("hook") for e in by] == ["paths"], (n, step, refused)
-        assert OUTSIDE_WORDS in str(by[0].get("reason")), (n, by)
-        assert OUTSIDE_WORDS in str(told[n - 1]), (n, told[n - 1])
+        # A shared temporary directory is a listed rule's, whose refusal says where to write.
+        words = SHARED_TEMP_WORDS if n == 13 else OUTSIDE_WORDS
+        assert words in str(by[0].get("reason")), (n, by)
+        assert words in str(told[n - 1]), (n, told[n - 1])
         assert after[n] == before[n], (n, path, before[n], after[n])
 
 
@@ -977,3 +985,121 @@ def test_an_interpreter_with_no_cache_prefix_writes_no_bytecode_beside_what_it_i
     assert "__pycache__" in str(told[5]), told[5]
     assert _committed(layout) == ["modules/control/law.py", "modules/power/run.py"]
     assert not (worktree / "modules" / "control" / "__pycache__").exists()
+
+
+# ── the temporary directories a session shares with others, and its own, on the real binary ──
+
+
+def _built_open(path: str, *, write: bool) -> str:
+    """A command that opens ``path`` by a spelling it builds as it runs: only the layer sees it."""
+    act = "open(p, 'w').write('planted')" if write else "print(sorted(os.listdir(p))[:3])"
+    return python(
+        f"import os\np = os.path.join(*{['/', *Path(path).relative_to('/').parts]!r})\n"
+        f"try:\n    {act}\n    print('did')\nexcept OSError as e:\n    print('denied:', e.strerror)"
+    )
+
+
+@pytest.mark.usefixtures("layer")
+@pytest.mark.parametrize("raw", [False, True], ids=["role", "raw"])
+def test_no_command_reads_or_writes_a_shared_temporary_directory_or_the_harness_s_own(
+    layout: Layout, *, raw: bool
+) -> None:
+    from physgate.oslayer.harness_temp import harness_temp_dir
+
+    store = Path(tempfile.mkdtemp(prefix="physgate-git-store-", dir=harness_temp_dir()))
+    (store / "config").write_text("[core]\n\tbare = true\n")
+    planted = [f"{d}/pg-planted-{os.getpid()}-{time.monotonic_ns()}" for d in shared_temp_dirs()]
+    steps = [
+        *(tool("Bash", command=_built_open(p, write=True), description="w") for p in planted),
+        *(
+            tool("Bash", command=_built_open(d, write=False), description="r")
+            for d in shared_temp_dirs()
+        ),
+        tool("Bash", command=_built_open(str(store / "config"), write=True), description="ws"),
+        tool("Bash", command=_built_open(str(store), write=False), description="rs"),
+        tool("Bash", command=f"cat {planted[0]}", description="named"),
+    ]
+    try:
+        run = run_session(layout, steps, layer=True, fields=RAW_FIELDS if raw else None)
+    finally:
+        for p in planted:
+            Path(p).unlink(missing_ok=True)
+    kept = (store / "config").read_text()
+    shutil.rmtree(store)
+    told = run["told"]
+    assert isinstance(told, list)
+    for said in told[:-1]:
+        assert "denied:" in said and "did" not in said, told
+    assert kept == "[core]\n\tbare = true\n"
+    assert not any(os.path.lexists(p) for p in planted)
+    # The hook refuses a command that names one, and says where to write instead.
+    assert "$TMPDIR" in told[-1] and "own temporary directory" in told[-1], told[-1]
+    fs = run["settings"]["sandbox"]["filesystem"]  # type: ignore[index]
+    for d in shared_temp_dirs():
+        assert not any(Path(w) == Path(d) or Path(w).is_relative_to(d) for w in fs["allowWrite"])
+        assert os.path.realpath(d) in fs["denyRead"] and os.path.realpath(d) in fs["denyWrite"]
+
+
+@pytest.mark.usefixtures("layer")
+@pytest.mark.parametrize("raw", [False, True], ids=["role", "raw"])
+def test_a_command_s_temporary_files_and_plain_mktemp_are_in_its_own_directory_spelt_resolved(
+    layout: Layout, *, raw: bool
+) -> None:
+    own = os.path.realpath(layout.temp)
+    steps = [
+        tool("Bash", command="mktemp", description="mktemp"),
+        tool("Bash", command="mktemp -d", description="mktemp -d"),
+        tool(
+            "Bash",
+            command=python(
+                "import os, tempfile\nt = os.environ['TMPDIR']\n"
+                "print('TMPDIR', t, 'resolved', os.path.realpath(t) == t.rstrip('/'))\n"
+                "print('made', tempfile.mkstemp()[1])"
+            ),
+            description="python",
+        ),
+    ]
+    run = run_session(layout, steps, layer=True, fields=RAW_FIELDS if raw else None)
+    told = run["told"]
+    assert isinstance(told, list)
+    made = [
+        line.split()[-1]
+        for said in told
+        for line in said.splitlines()
+        if line.startswith((own, "made "))
+    ]
+    assert len(made) >= 3, told
+    for path in made:
+        assert path.startswith(own + "/"), (path, own)
+    assert "resolved True" in told[2], told[2]
+
+
+@pytest.mark.usefixtures("layer")
+@pytest.mark.parametrize("raw", [False, True], ids=["role", "raw"])
+def test_a_command_cannot_rename_its_worktree_or_leave_a_link_at_its_path(
+    layout: Layout, *, raw: bool
+) -> None:
+    # The hooks hold the worktree's identity; this is the layer's own answer, a standing row on
+    # every pin and both platforms' layers: the rename is refused and the link is not made.
+    worktree = os.path.realpath(layout.worktree)
+    moved = worktree + "-moved"
+    program = (
+        "import os\n"
+        f"w = os.path.join(*{['/', *Path(worktree).relative_to('/').parts]!r})\n"
+        "try:\n    os.rename(w, w + '-moved')\n    print('renamed')\n"
+        "except OSError as e:\n    print('denied:', e.strerror)\n"
+        "try:\n    os.symlink('/', w + '-link')\n    os.rename(w + '-link', w)\n"
+        "    print('linked')\n"
+        "except OSError as e:\n    print('denied:', e.strerror)\n"
+    )
+    run = run_session(
+        layout,
+        [tool("Bash", command=python(program), description="rename")],
+        layer=True,
+        fields=RAW_FIELDS if raw else None,
+    )
+    told = run["told"]
+    assert isinstance(told, list)
+    assert "renamed" not in told[0] and "linked" not in told[0], told[0]
+    assert os.path.isdir(worktree) and not os.path.islink(worktree)
+    assert not os.path.lexists(moved)
