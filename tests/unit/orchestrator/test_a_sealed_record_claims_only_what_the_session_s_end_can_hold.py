@@ -571,6 +571,7 @@ def test_the_loop_hands_the_review_what_a_session_s_scratch_folder_held_alone(
     loop.close()
     (reviewed,) = rig.reviewer.seen
     assert reviewed.series is not None
+    assert len(reviewed.series.scratch) == 1, reviewed.series
     (scratch,) = reviewed.series.scratch
     assert (scratch.found, scratch.files, scratch.cut) == (3, (held,), "a bound, in words")
 
