@@ -1,0 +1,426 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
+      "tests/unit/reviewers/test_a_packet_lists_the_simulation_records_the_attempt_sealed.py",
+      "tests/unit/series/test_the_shared_summary_keeps_the_review_listing_s_bytes.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/series/series_fixture.py",
+      "tests/unit/series/review_listing_golden.md",
+      "tests/unit/series/writer_rig.py"
+    ]
+  },
+  {
+    "name": "a_listing_that_fails_leaves_the_clearing_complete",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        found.stays(\".\", f\"the worktree's untracked bytecode could not be listed ({exc})\")\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "an_entry_that_cannot_be_recorded_leaves_the_clearing_complete",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        found.stays(relative, f\"it could not be recorded or removed ({type(exc).__name__})\")\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "a_compiled_file_that_cannot_be_removed_leaves_the_clearing_complete",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        found.stays(relative, f\"it could not be removed ({exc.strerror})\")\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "any_folder_s_mode_is_changed_for_a_file_that_will_not_go",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "            if not above or above[-1].casefold() != BYTECODE_DIR:\n                raise\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "the_end_line_s_incompleteness_is_never_written_down",
+    "file": "src/physgate/series/seal.py",
+    "old": "    left_out_incomplete: bool = Field(default=False, exclude_if=lambda v: not v)",
+    "new": "    left_out_incomplete: bool = Field(default=False, exclude=True)",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "the_loop_carries_no_attempt_with_bytecode_alone",
+    "file": "src/physgate/orchestrator/loop.py",
+    "old": "        if not entries and not checks and not discarded and not bytecode and not scratch:\n",
+    "new": "        if not entries and not checks and not discarded and not scratch:\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "an_attempt_with_bytecode_alone_gets_no_listing",
+    "file": "src/physgate/reviewers/packet.py",
+    "old": "series.records or series.checks or series.discarded or series.bytecode or series.scratch",
+    "new": "series.records or series.checks or series.discarded or series.scratch",
+    "tests": [
+      "tests/unit/reviewers/test_a_packet_lists_the_simulation_records_the_attempt_sealed.py"
+    ],
+    "data": [
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py"
+    ]
+  },
+  {
+    "name": "no_file_lies_beside_a_record",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        folded = path.casefold()\n        if not folded.endswith(\".pyc\"):\n            return ()\n",
+    "new": "        folded = path.casefold()\n        if folded:\n            return ()\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "the_writer_s_cache_marks_no_record",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        if ids:\n            by_file.setdefault(str(WRITER_PATH), set()).update(ids)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "a_cache_prefix_s_layout_is_not_known",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "                at >= 0 and \"/\" not in rest and (rest == \"pyc\" or rest.endswith(\".pyc\"))\n",
+    "new": "                at >= 0 and rest == \"pyc\"\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "the_session_s_own_places_are_not_looked_in",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        elsewhere, stopped = caches_beneath(own, concerns)\n",
+    "new": "        elsewhere, stopped = caches_beneath((), concerns)\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "a_look_that_was_not_whole_marks_nothing",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        if stopped is not None:\n            why.append(stopped)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "a_file_beside_a_record_is_dropped_past_the_first_bound",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        if len(self.bytecode) < MAX_NAMED or (records and len(self.bytecode) < MAX_ENTRIES):\n",
+    "new": "        if len(self.bytecode) < MAX_NAMED:\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "the_mark_is_not_shown_in_the_listing",
+    "file": "src/physgate/series/summary.py",
+    "old": "    if why is None and not beside:\n        return []\n",
+    "new": "    return []\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py",
+      "tests/unit/reviewers/test_a_packet_lists_the_simulation_records_the_attempt_sealed.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py"
+    ]
+  },
+  {
+    "name": "the_listing_says_nothing_of_what_a_record_claims",
+    "file": "src/physgate/series/summary.py",
+    "old": "    if series.records:\n        pieces.append(LIMITS + \"\\n\")\n",
+    "new": "",
+    "tests": [
+      "tests/unit/series/test_the_shared_summary_keeps_the_review_listing_s_bytes.py",
+      "tests/unit/reviewers/test_a_packet_lists_the_simulation_records_the_attempt_sealed.py"
+    ],
+    "data": [
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/series/series_fixture.py",
+      "tests/unit/series/review_listing_golden.md",
+      "tests/unit/series/writer_rig.py"
+    ]
+  },
+  {
+    "name": "the_loop_drops_why_none_is_vouched_for",
+    "file": "src/physgate/orchestrator/loop.py",
+    "old": "                not_vouched=session.series.not_vouched,\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "the_scratch_folder_is_emptied_unrecorded",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        if record is not None:\n            record.scratch_entry(parent, name, shown, found)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "a_scratch_record_cut_at_its_bound_does_not_say_so",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "        return \"; \".join(said) or None\n",
+    "new": "        return None\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "an_unreadable_scratch_file_is_not_read",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "    except PermissionError:\n        try:\n            if os.chmod in os.supports_follow_symlinks",
+    "new": "    except NotImplementedError:\n        try:\n            if os.chmod in os.supports_follow_symlinks",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "the_end_line_drops_the_scratch_record",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "    if cleared.scratch_found:\n        update |= {",
+    "new": "    if False:\n        update |= {",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "bytecode_inside_the_module_is_in_scope",
+    "file": "src/physgate/orchestrator/merge.py",
+    "old": "                    found.append(f\"{change.path} ({BYTECODE_IN_MODULE})\")\n",
+    "new": "                    pass\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "the_dispatcher_marks_nothing",
+    "file": "src/physgate/orchestrator/dispatch.py",
+    "old": "        series = end_series(series, cleared, beside, own=(sdir / \"home\", own_temp))",
+    "new": "        series = end_series(series, cleared, Beside(()), own=(sdir / \"home\", own_temp))",
+    "tests": [
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "the_collector_discards_the_writer_s_cache",
+    "file": "src/physgate/series/collect.py",
+    "old": "    # A cache of the writer is not removed here:",
+    "new": "    import shutil; shutil.rmtree(base / \".physgate/lib/__pycache__\", ignore_errors=True)\n    # A cache of the writer is not removed here:",
+    "tests": [
+      "tests/unit/series/test_a_session_s_records_are_collected_sealed_or_set_aside.py",
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/series/series_fixture.py",
+      "tests/unit/series/review_listing_golden.md",
+      "tests/unit/series/writer_rig.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py",
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
+      "tests/unit/reviewers/test_a_packet_lists_the_simulation_records_the_attempt_sealed.py",
+      "tests/unit/series/test_the_shared_summary_keeps_the_review_listing_s_bytes.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
+      "tests/unit/reviewers/packet_fixture.py",
+      "tests/unit/reviewers/rubric_fixture.py",
+      "tests/unit/series/series_fixture.py",
+      "tests/unit/series/review_listing_golden.md",
+      "tests/unit/series/writer_rig.py"
+    ]
+  }
+]
