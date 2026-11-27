@@ -3264,6 +3264,8 @@ def _arm_counts(ctx: _Round, arm: str) -> dict[str, Any]:
         "trials": len(places),
         "assembled": len(mine),
         "dropped": len(places & ctx.dropped),
+        # Which places, so a launch script that takes the order one place at a time passes them.
+        "dropped_places": sorted(places & ctx.dropped),
     }
     for outcome in OUTCOMES:
         counts[outcome] = sum(1 for x in mine if x["outcome"] == outcome)

@@ -72,6 +72,7 @@ def test_a_drop_closes_the_arm_s_remaining_places_and_the_harness_goes_on_alone(
     assert summary["tiers"]["visible"]["assembled"] == 4
     counts = summary["arms"][ARM]
     assert (counts["assembled"], counts["dropped"]) == (4 - len(remaining), len(remaining))
+    assert counts["dropped_places"] == remaining
     out = rig.root / "out"
     assert [a for *_, a in _set(out / "visible.runs.json")] == [False] * 4
     assert len(_set(out / f"ablation.{ARM}.runs.json")) == 4 - len(remaining)
