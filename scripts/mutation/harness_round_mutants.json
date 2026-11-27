@@ -2501,5 +2501,68 @@
   "paths": [
    "knowledge"
   ]
+ },
+ {
+  "name": "a_round_s_parameters_may_pin_any_roles",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if set(roles) != {inputs.role}:\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_round_s_parameters_may_pin_another_role_beside_its_own",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if set(roles) != {inputs.role}:\n",
+  "new": "    if inputs.role not in roles and roles:\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_round_s_parameters_may_ask_about_parts",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "    if params.get(\"parts_on_hand\") != \"off\":\n",
+  "new": "    if params.get(\"parts_on_hand\") == \"on\":\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
  }
 ]
