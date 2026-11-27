@@ -29,6 +29,7 @@ from physgate.evaluation.harness_round import (
     HARNESS_ROUNDS,
     ROUND_RECORD,
     Ablation,
+    RoundError,
     run_round,
 )
 from physgate.evaluation.per_role.exceptions import PerRoleError
@@ -308,6 +309,55 @@ def test_the_baseline_and_the_counting_rule_refuse_every_set_of_the_arm(tmp_path
             out / f"ablation.{ARM}.trials.jsonl",
         )
     assert uncounted.value.context["refused_because"] == "run_not_measured"
+
+
+def test_the_raw_arm_s_cap_rule_never_takes_an_arm_s_trial_into_its_cell(tmp_path: Path) -> None:
+    # The cap rule reads the cell's harness trials for the task's largest and the cell's median:
+    # a cell's set that holds an ablation run, the arm's own or one mixed in, is refused, and the
+    # harness's own set, which holds none, is taken.
+    rig = make_rig(tmp_path)
+    _whole(rig)
+    out = rig.root / "out"
+    harness = RunSet.model_validate_json((out / "visible.runs.json").read_bytes())
+    arm = RunSet.model_validate_json((out / f"ablation.{ARM}.runs.json").read_bytes())
+    first = sorted((out / "trials").glob("*.runs.json"))[0]
+    one = RunSet.model_validate_json(first.read_bytes())
+    mixed = RunSet.model_validate_json(
+        json.dumps(
+            {
+                "format": 1,
+                "trials": [e.model_dump() for e in harness.trials] + [arm.trials[0].model_dump()],
+            }
+        )
+    )
+    for cell in (mixed, arm):
+        with pytest.raises(BaselineError) as refused:
+            plan(rig.made.store, "control", rig.made.version, one, base_url=None, cell=cell)
+        assert refused.value.context["refused_because"] == "cell_ablation"
+    _source, planned = plan(
+        rig.made.store, "control", rig.made.version, one, base_url=None, cell=harness
+    )
+    assert len(planned) == 1
+
+
+def test_a_shakedown_on_a_practice_version_runs_an_arm_as_it_runs_the_harness(
+    tmp_path: Path,
+) -> None:
+    rig = make_rig(tmp_path, store={"practice": True})
+    with pytest.raises(RoundError) as refused:
+        _call(rig, 0)
+    assert refused.value.context["refused_because"] == "practice_version"
+    status, summary = run_round(
+        _inputs(rig, shakedown=True),
+        driver=rig.driver(),
+        scorer=_score,
+        sleep=lambda _: None,
+        only=None,
+    )
+    assert status == "done"
+    header = _ledger(rig)[0]
+    assert header["inputs"]["shakedown"] is True and header["inputs"]["ablation"]["arm"] == ARM
+    assert summary["arms"][ARM]["assembled"] == summary["tiers"]["visible"]["assembled"] == 4
 
 
 # -- the command --------------------------------------------------------------------------------

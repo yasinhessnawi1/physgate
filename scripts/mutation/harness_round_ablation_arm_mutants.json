@@ -581,6 +581,27 @@
   ]
  },
  {
+  "name": "a_cell_s_set_may_hold_an_ablation_run",
+  "file": "src/physgate/evaluation/baseline/runner.py",
+  "old": "        if config.ablation:\n            # An ablation run is a harness with a part taken away",
+  "new": "        if False:\n            # An ablation run is a harness with a part taken away",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_harness.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
   "name": "the_command_takes_half_an_arm",
   "file": "src/physgate/evaluation/harness_round_cli.py",
   "old": "    if (args.ablation is None) != (args.ablation_params is None):",

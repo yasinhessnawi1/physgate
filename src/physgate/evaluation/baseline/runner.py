@@ -718,8 +718,8 @@ def _cell_trials(
     held-out task the version's check flagged is in no cell.
 
     Raises:
-        BaselineError: a trial of the cell is listed twice, or its run was given no task of
-            the source; it is named by its place in the cell's run set.
+        BaselineError: a trial of the cell is listed twice, is an ablation run, or its run was
+            given no task of the source; it is named by its place in the cell's run set.
     """
     given = runs if cell is None else cell
     trials: list[tuple[TierName, CellTrial]] = []
@@ -730,7 +730,13 @@ def _cell_trials(
             msg = "a harness trial is listed twice in the cell's run set"
             raise BaselineError(msg, cell_entry=str(place))
         run_dir = Path(entry.run_dir)
-        brief = load_run_config(run_dir / "run.json").brief_sha256
+        config = load_run_config(run_dir / "run.json")
+        if config.ablation:
+            # An ablation run is a harness with a part taken away: its figure is never one of the
+            # cell's, so no raw trial's cap is taken from it.
+            msg = "a trial of the cell's run set is an ablation run; no cap is taken from one"
+            raise BaselineError(msg, cell_entry=str(place), refused_because="cell_ablation")
+        brief = config.brief_sha256
         found = tasks.get(brief)
         if found is None:
             msg = "a harness trial of the cell was given no task of the round's source"
