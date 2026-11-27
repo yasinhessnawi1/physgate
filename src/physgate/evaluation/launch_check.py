@@ -27,9 +27,9 @@ but the run configuration's ``withheld_whole`` field, and never follows a link w
 
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
-import subprocess
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -138,82 +138,251 @@ def material_findings(places: Sequence[Path], refused: Sequence[Path]) -> list[F
     return found
 
 
-def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    """One git command on the source, which no repository-defined program can make run anything.
+#: How many entries of the source's own directory the check reads before it stops, said.
+MAX_SOURCE_ENTRIES = 200_000
+_HEX = frozenset("0123456789abcdef")
 
-    The source's configuration and attributes are files a session may have written, so every
-    call of the check goes through here: the harness's own git, its forced flags (hooks, the
-    file-system monitor, signing and the commit graph off) and no transport, the attributes from
-    the empty tree only (so no filter or diff driver a ``.gitattributes`` names is selected), no
-    system or global configuration, submodules never recursed into, and no optional lock taken,
-    so nothing is written in the source either. Only plumbing that runs no driver is asked.
+
+class _UnreadableError(Exception):
+    """The source's git directory holds something the check does not read as git writes it."""
+
+
+def _oid(text: str) -> str | None:
+    word = text.strip()
+    return word if len(word) in (40, 64) and set(word) <= _HEX else None
+
+
+def _refs(git_dir: Path) -> dict[str, str]:
+    """Every reference of the source, by name: its loose ones and its packed ones, read as data.
+
+    Read without git, so nothing of the repository's configuration is ever applied: each loose
+    reference a plain file beneath ``refs`` (no link followed) holding an object id or naming
+    another reference, and ``packed-refs`` line by line. A symbolic reference is resolved to the
+    id it names, or left out where it names none.
+
+    Raises:
+        _UnreadableError: a reference git could write cannot be read as one (a reference table, a
+            link, a file that holds neither an id nor a name).
     """
-    from physgate.orchestrator.git import (
-        FORCED_ENV,
-        FORCED_FLAGS,
-        NO_TRANSPORT,
-        attr_source,
-        harness_git,
-    )
+    if os.path.lexists(git_dir / "reftable"):
+        msg = "its references are kept in a table"
+        raise _UnreadableError(msg)
+    loose: dict[str, str] = {}
+    stack = [git_dir / "refs"]
+    while stack:
+        here = stack.pop()
+        try:
+            entries = list(os.scandir(here))
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise _UnreadableError(str(exc.strerror)) from None
+        for entry in entries:
+            st = entry.stat(follow_symlinks=False)
+            if stat.S_ISDIR(st.st_mode):
+                stack.append(Path(entry.path))
+            elif stat.S_ISREG(st.st_mode):
+                loose[Path(entry.path).relative_to(git_dir).as_posix()] = (
+                    Path(entry.path).read_text(errors="replace").strip()
+                )
+            else:
+                msg = "a reference is a link or no file"
+                raise _UnreadableError(msg)
+    refs: dict[str, str] = {}
+    packed = git_dir / "packed-refs"
+    if packed.is_symlink():
+        msg = "packed-refs is a link"
+        raise _UnreadableError(msg)
+    if packed.is_file():
+        for line in packed.read_text(errors="replace").splitlines():
+            if not line or line.startswith(("#", "^")):
+                continue
+            oid, _, name = line.partition(" ")
+            if _oid(oid) is None or not name:
+                msg = "packed-refs holds a line that is no reference"
+                raise _UnreadableError(msg)
+            refs[name] = oid
+    for name, text in loose.items():
+        if _oid(text) is not None or text.startswith("ref: "):
+            refs[name] = text
+        else:
+            msg = "a reference holds neither an id nor a name"
+            raise _UnreadableError(msg)
+    for name, text in list(refs.items()):
+        if text.startswith("ref: "):
+            target = refs.get(text[5:].strip())
+            if target is None or _oid(target) is None:
+                del refs[name]
+            else:
+                refs[name] = target
+    return refs
 
-    env = {
-        "PATH": "/usr/bin:/bin",
-        "HOME": os.devnull,
-        "LC_ALL": "C",
-        **FORCED_ENV,
-        "GIT_ATTR_SOURCE": attr_source().partition("=")[2],
-        "GIT_OPTIONAL_LOCKS": "0",
-    }
-    return subprocess.run(  # noqa: S603 - the harness's own git, its arguments ours
-        [
-            harness_git().path,
-            attr_source(),
-            *FORCED_FLAGS,
-            *NO_TRANSPORT,
-            "-c",
-            "core.untrackedCache=false",
-            "-c",
-            "submodule.recurse=false",
-            "-c",
-            "diff.ignoreSubmodules=all",
-            "--no-optional-locks",
-            "-C",
-            str(repo),
-            *args,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
-    )
+
+def _head(git_dir: Path, refs: dict[str, str]) -> str | None:
+    """The commit the source's own directory was checked out from, read as data; ``None``."""
+    try:
+        text = (git_dir / "HEAD").read_text(errors="replace").strip()
+    except OSError:
+        return None
+    if text.startswith("ref: "):
+        return refs.get(text[5:].strip())
+    return _oid(text)
+
+
+def _blob_id(data: bytes, width: int) -> str:
+    """The id git gives a blob of ``data``, in the object format whose ids are ``width`` long."""
+    digest = hashlib.sha1 if width == 40 else hashlib.sha256  # noqa: S324 - git's own object id
+    return digest(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def _as_written(path: str, st: os.stat_result) -> tuple[str, bytes] | None:
+    """A working file as git would store it: its mode and its bytes; ``None`` for anything else."""
+    if stat.S_ISLNK(st.st_mode):
+        return "120000", os.fsencode(os.readlink(path))
+    if not stat.S_ISREG(st.st_mode):
+        return None
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as handle:
+        data = handle.read()
+    return ("100755" if st.st_mode & stat.S_IXUSR else "100644"), data
+
+
+def _working_files(source: Path, head: str) -> list[Finding]:
+    """The source's own directory beside what its branch holds: counted by kind, never named.
+
+    No git command runs on the source for it, so nothing the repository names (a file-system
+    monitor, a filter or diff driver its attributes or configuration select, a hook, a
+    submodule's configuration) can run: the branch's tree is listed in a clean store that holds
+    the source's objects and none of its configuration (``objects_only``), and every file of the
+    directory is read and hashed here, as git hashes a blob, its mode compared too. What the
+    tree does not hold, ignored or not, is counted; so is each tracked file changed or gone. A
+    submodule's directory is not entered.
+    """
+    from physgate.orchestrator.exceptions import GitError
+    from physgate.orchestrator.git import git
+
+    try:
+        listed = git(
+            source, "ls-tree", "-r", "-z", "--full-tree", head, objects_only=True,
+            errors="surrogateescape",
+        )  # fmt: skip
+    except GitError:
+        return [Finding("source_unreadable", str(source), "its branch's tree cannot be read")]
+    tracked: dict[str, tuple[str, str]] = {}
+    gitlinks: set[str] = set()
+    for entry in filter(None, listed.split("\0")):
+        meta, _, name = entry.partition("\t")
+        mode, _kind, oid = meta.split(" ")
+        if mode == "160000":
+            gitlinks.add(name)
+        else:
+            tracked[name] = (mode, oid)
+    untracked = changed = seen = 0
+    present: set[str] = set()
+    stack = [""]
+    while stack:
+        rel = stack.pop()
+        here = os.path.join(str(source), rel) if rel else str(source)
+        try:
+            entries = list(os.scandir(here))
+        except OSError:
+            return [Finding("not_established", here, "it cannot be listed by this user")]
+        seen += len(entries)
+        if seen > MAX_SOURCE_ENTRIES:
+            return [Finding("not_established", str(source), "its directory holds too many files")]
+        for entry in entries:
+            name = f"{rel}/{entry.name}" if rel else entry.name
+            if name == ".git" or name in gitlinks:
+                continue
+            st = entry.stat(follow_symlinks=False)
+            if stat.S_ISDIR(st.st_mode):
+                stack.append(name)
+                continue
+            present.add(name)
+            if name not in tracked:
+                untracked += 1
+                continue
+            written = _as_written(entry.path, st)
+            mode, oid = tracked[name]
+            if written is None or written[0] != mode or _blob_id(written[1], len(oid)) != oid:
+                changed += 1
+    changed += len(set(tracked) - present)
+    said = [
+        _counted(untracked, "the branch does not hold") if untracked else "",
+        _counted(changed, "the branch holds, changed or gone") if changed else "",
+    ]
+    if not any(said):
+        return []
+    detail = ", ".join(w for w in said if w) + " (a session reads the source's directory itself)"
+    return [Finding("source_files", str(source), detail)]
+
+
+def source_state(source: Path) -> tuple[str | None, list[Finding]]:
+    """The commit the source is checked out at, and what its own directory holds beside it.
+
+    Read as :func:`source_findings` reads them, with no git command run in the source: the
+    commit from its references as data (``None`` where it has none to read), its directory hashed
+    here (:func:`_working_files`). For a caller that needs the source as one commit, as it is.
+    """
+    git_dir = source / ".git"
+    if git_dir.is_symlink() or not git_dir.is_dir():
+        return None, [Finding("source_unreadable", str(source), "its .git is no directory")]
+    try:
+        head = _head(git_dir, _refs(git_dir))
+    except (_UnreadableError, OSError) as exc:
+        return None, [Finding("source_unreadable", str(source), f"its references: {exc}")]
+    if head is None:
+        return None, [Finding("source_unreadable", str(source), "it is checked out at nothing")]
+    return head, _working_files(source, head)
 
 
 def source_findings(source: Path) -> list[Finding]:
-    """What the repository the trials are cloned from holds beyond one branch's own work."""
+    """What the repository the trials are cloned from holds beyond one branch's own work.
+
+    No git command runs in the source itself: its configuration, attributes and hooks are files a
+    session may have written. Its references and linked worktrees are read as data from its git
+    directory; its objects are walked in a clean store that holds none of its configuration
+    (:func:`~physgate.orchestrator.git.unreachable_from`); its own directory is hashed here
+    (:func:`_working_files`).
+    """
     from physgate.orchestrator.exceptions import GitError
     from physgate.orchestrator.git import unreachable_from
 
-    refs = _git(source, "for-each-ref", "--format=%(refname) %(objectname)")
-    if refs.returncode != 0:
-        return [Finding("source_unreadable", str(source), "git cannot list its references")]
-    pairs = [line.split(" ", 1) for line in refs.stdout.splitlines() if line.strip()]
+    git_dir = source / ".git"
+    if git_dir.is_symlink() or not git_dir.is_dir():
+        return [Finding("source_unreadable", str(source), "its .git is no directory of its own")]
+    try:
+        refs = _refs(git_dir)
+    except (_UnreadableError, OSError) as exc:
+        return [Finding("source_unreadable", str(source), f"its references cannot be read: {exc}")]
     found: list[Finding] = []
-    branches = [(name, oid) for name, oid in pairs if name.startswith("refs/heads/")]
+    branches = [(name, oid) for name, oid in sorted(refs.items()) if name.startswith("refs/heads/")]
     if len(branches) != 1:
         found.append(
             Finding("source_branches", str(source), f"{len(branches)} branches, where one is all")
         )
-    for name, _ in pairs:
+    for name in sorted(refs):
         if not name.startswith("refs/heads/"):
             found.append(Finding("source_reference", str(source), f"it holds {name}"))
-    worktrees = _git(source, "worktree", "list", "--porcelain")
-    linked = [ln for ln in worktrees.stdout.splitlines() if ln.startswith("worktree ")][1:]
+    try:
+        linked = [e for e in os.scandir(git_dir / "worktrees") if e.is_dir(follow_symlinks=False)]
+    except FileNotFoundError:
+        linked = []
+    except OSError:
+        found.append(Finding("source_unreadable", str(source), "its worktrees cannot be listed"))
+        linked = []
     if linked:
         found.append(Finding("source_worktrees", str(source), f"{len(linked)} linked worktrees"))
-    found += _working_files(source)
+    head = _head(git_dir, refs)
+    if head is None:
+        found.append(
+            Finding("source_unreadable", str(source), "what it is checked out at is unread")
+        )
+    else:
+        found += _working_files(source, head)
     if branches:
         try:
-            loose = unreachable_from(source, [oid for _, oid in pairs])
+            loose = unreachable_from(source, [oid for _, oid in sorted(refs.items())])
         except GitError:
             found.append(Finding("source_unreadable", str(source), "its objects cannot be walked"))
         else:
@@ -231,37 +400,6 @@ def source_findings(source: Path) -> list[Finding]:
 
 def _counted(n: int, what: str) -> str:
     return f"{n} {'file' if n == 1 else 'files'} {what}"
-
-
-def _working_files(source: Path) -> list[Finding]:
-    """The source's own directory beside what its branch holds: counted by kind, never named.
-
-    Listed with plumbing alone (:func:`_git`), which runs no program the repository names: files
-    git does not track, files it ignores (each one, inside an ignored folder too), and tracked
-    files changed from the index or the index from the branch's head.
-    """
-    asks = {
-        "untracked": ("ls-files", "-z", "--others", "--exclude-standard"),
-        "ignored": ("ls-files", "-z", "--others", "--ignored", "--exclude-standard"),
-        "changed": ("diff-files", "-z", "--name-only", "--ignore-submodules"),
-        "staged": ("diff-index", "-z", "--cached", "--name-only", "--ignore-submodules", "HEAD"),
-    }
-    kinds: dict[str, set[str]] = {}
-    for kind, argv in asks.items():
-        listed = _git(source, *argv)
-        if listed.returncode != 0:
-            return [Finding("source_unreadable", str(source), "git cannot list its own directory")]
-        kinds[kind] = {e for e in listed.stdout.split("\0") if e}
-    changed = len(kinds["changed"] | kinds["staged"])
-    said = [
-        _counted(len(kinds["untracked"]), "git does not track") if kinds["untracked"] else "",
-        _counted(len(kinds["ignored"]), "git ignores") if kinds["ignored"] else "",
-        _counted(changed, "the branch tracks, changed") if changed else "",
-    ]
-    if not any(said):
-        return []
-    detail = ", ".join(w for w in said if w) + " (a session reads the source's directory itself)"
-    return [Finding("source_files", str(source), detail)]
 
 
 def withholding_findings(run_roots: Sequence[Path], registered: set[str]) -> list[Finding]:

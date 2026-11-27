@@ -740,10 +740,18 @@ def _target_head(target: Path) -> str:
     if (target / "run.json").exists():
         msg = "the target's top holds a run's configuration; a target is a design repository"
         raise _refuse("target_holds_a_run", msg)
-    head = _git("-C", str(target), "rev-parse", "--verify", "HEAD^{commit}").strip()
-    if _git("-C", str(target), "status", "--porcelain", "--untracked-files=all").strip():
+    # Read with no git command run in the target: its configuration, attributes and hooks are
+    # files a session may have written, and a status there would run what they name (a
+    # file-system monitor, a filter driver). What git ignores counts too: a session reads it.
+    from physgate.evaluation.launch_check import source_state
+
+    head, found = source_state(target)
+    if head is None:
+        msg = "the target is no repository checked out at a commit"
+        raise _refuse("git", msg, error="; ".join(f.detail for f in found))
+    if found:
         msg = "the target's worktree is not clean; every trial clones one commit, as it is"
-        raise _refuse("target_not_clean", msg)
+        raise _refuse("target_not_clean", msg, found="; ".join(f.detail for f in found))
     return head
 
 

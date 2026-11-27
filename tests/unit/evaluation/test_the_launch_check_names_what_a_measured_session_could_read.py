@@ -197,10 +197,11 @@ def test_a_place_deeper_than_any_bound_is_walked_whole(s: SimpleNamespace) -> No
 
 
 @pytest.mark.parametrize("how", ["untracked", "ignored", "both"])
-def test_files_git_does_not_track_or_ignores_in_the_source_s_own_directory_are_counted(
+def test_files_the_branch_does_not_hold_in_the_source_s_own_directory_are_counted(
     s: SimpleNamespace, how: str
 ) -> None:
-    # Every session reads the source's own directory, not only what a clone of it holds.
+    # Every session reads the source's own directory, not only what a clone of it holds; what git
+    # ignores is counted with the rest, since no ignore rule keeps a session from reading it.
     if how in ("untracked", "both"):
         (s.source / "left.py").write_text("an earlier run's work, never committed\n")
         (s.source / "notes").mkdir()
@@ -215,10 +216,8 @@ def test_files_git_does_not_track_or_ignores_in_the_source_s_own_directory_are_c
     assert code == 1, lines
     said = [line for line in lines if line.startswith("finding: source_files:")]
     assert len(said) == 1, lines
-    if how in ("untracked", "both"):
-        assert "2 files git does not track" in said[0], said
-    if how in ("ignored", "both"):
-        assert "1 file git ignores" in said[0], said
+    count = {"untracked": "2 files", "ignored": "1 file", "both": "3 files"}[how]
+    assert f"{count} the branch does not hold" in said[0], said
     # By kind and count alone: no file's name, nor anything it holds.
     for word in ("left.py", "a.txt", "scratch.txt", "earlier run", "leftover"):
         assert word not in "\n".join(lines), lines
@@ -233,7 +232,8 @@ def test_a_tracked_file_changed_in_the_source_is_counted_and_the_check_writes_no
     code, lines = _check(s)
     assert code == 1
     assert any(
-        line.startswith("finding: source_files:") and "1 file the branch tracks, changed" in line
+        line.startswith("finding: source_files:")
+        and "1 file the branch holds, changed or gone" in line
         for line in lines
     ), lines
     assert (index.read_bytes(), index.stat().st_mtime_ns) == before, "the check wrote the index"
@@ -361,26 +361,70 @@ def test_a_folder_at_the_store_s_top_outside_every_role_s_root_is_walked(
     assert f"finding: run_material_readable: {away / 'notes' / 'run-6'}: it holds run.json" in lines
 
 
-@pytest.mark.parametrize("program", ["a file-system monitor", "a filter driver", "a hook"])
+PROGRAMS = (
+    "a file-system monitor",
+    "a filter driver its .gitattributes names",
+    "a filter driver its info/attributes names",
+    "a diff driver",
+    "a hooks path",
+    "a submodule with a configuration of its own",
+)
+
+
+@pytest.mark.parametrize("program", PROGRAMS)
 def test_no_program_the_source_s_own_configuration_names_runs_when_its_directory_is_listed(
     s: SimpleNamespace, outside_tmp: Path, program: str
 ) -> None:
-    # The source's configuration and attributes are files a session may have written.
-    marker = Path(os.path.realpath(outside_tmp)) / "it-ran"
-    script = Path(os.path.realpath(outside_tmp)) / "program.sh"
+    # The source's configuration, attributes and hooks are files a session may have written.
+    base = Path(os.path.realpath(outside_tmp))
+    marker = base / "it-ran"
+    script = base / "program.sh"
     script.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat\n")
     script.chmod(0o700)
+    untracked = 1
     if program == "a file-system monitor":
         _git(s.source, "config", "core.fsmonitor", str(script))
-    elif program == "a filter driver":
-        _git(s.source, "config", "filter.evil.clean", str(script))
-        _git(s.source, "config", "filter.evil.smudge", str(script))
-        (s.source / ".gitattributes").write_text("* filter=evil\n")
-    else:
-        hooks = s.source / ".git" / "hooks"
-        for name in ("post-index-change", "reference-transaction", "fsmonitor-watchman"):
+    elif program.startswith("a filter driver"):
+        for key in ("clean", "smudge", "process"):
+            _git(s.source, "config", f"filter.evil.{key}", str(script))
+        if "gitattributes" in program:
+            (s.source / ".gitattributes").write_text("* filter=evil\n")
+            untracked = 2
+        else:
+            (s.source / ".git" / "info").mkdir(exist_ok=True)
+            (s.source / ".git" / "info" / "attributes").write_text("* filter=evil\n")
+    elif program == "a diff driver":
+        for key in ("command", "textconv"):
+            _git(s.source, "config", f"diff.evil.{key}", str(script))
+        (s.source / ".git" / "info").mkdir(exist_ok=True)
+        (s.source / ".git" / "info" / "attributes").write_text("* diff=evil\n")
+    elif program == "a hooks path":
+        hooks = base / "hooks"
+        hooks.mkdir()
+        for name in ("post-index-change", "reference-transaction", "post-checkout"):
             (hooks / name).write_text(f"#!/bin/sh\ntouch '{marker}'\n")
             (hooks / name).chmod(0o700)
+        _git(s.source, "config", "core.hooksPath", str(hooks))
+    else:
+        inner = base / "inner"
+        inner.mkdir()
+        _git(inner, "init", "-q", "-b", "main")
+        (inner / "x.txt").write_text("x\n")
+        _git(inner, "add", "-A")
+        _git(inner, "commit", "-q", "-m", "inner")
+        _git(
+            s.source,
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            str(inner),
+            "sub",
+        )
+        _git(s.source, "commit", "-q", "-m", "a submodule")
+        _git(s.source, "-C", "sub", "config", "core.fsmonitor", str(script))
+        (s.source / "sub" / "x.txt").write_text("y\n")
     marker.unlink(missing_ok=True)
     # Of the same length as it was: only its content tells it changed, which a filter would read.
     time.sleep(0.01)
@@ -390,6 +434,5 @@ def test_no_program_the_source_s_own_configuration_names_runs_when_its_directory
     assert not marker.exists(), f"{program} the source names ran"
     said = [line for line in lines if line.startswith("finding: source_files:")]
     assert len(said) == 1, lines
-    untracked = 2 if program == "a filter driver" else 1  # its .gitattributes too
-    assert f"{untracked} file{'s' if untracked > 1 else ''} git does not track" in said[0], said
-    assert "1 file the branch tracks, changed" in said[0], said
+    assert f"{untracked} file{'s' if untracked > 1 else ''} the branch does not hold" in said[0]
+    assert "1 file the branch holds, changed or gone" in said[0], said

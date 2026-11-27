@@ -168,6 +168,32 @@ def test_a_round_is_refused_with_a_target_whose_worktree_is_not_clean(tmp_path: 
     assert _refused(rig) == "target_not_clean"
 
 
+@pytest.mark.parametrize("names", ["a file-system monitor", "a filter driver"])
+def test_a_target_s_own_configuration_runs_nothing_when_its_worktree_is_judged(
+    tmp_path: Path, names: str
+) -> None:
+    # The round's target is a repository whose configuration and attributes a session may have
+    # written: judging its worktree runs no program they name, and a change is still seen.
+    rig = make_rig(tmp_path)
+    marker = tmp_path / "it-ran"
+    script = tmp_path / "program.sh"
+    script.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat\n")
+    script.chmod(0o700)
+    keys = ["core.fsmonitor"] if names == "a file-system monitor" else ["filter.x.clean"]
+    for key in keys:
+        subprocess.run(["git", "-C", str(rig.target), "config", key, str(script)], check=True)
+    if names == "a filter driver":
+        info = rig.target / ".git" / "info"
+        info.mkdir(exist_ok=True)
+        (info / "attributes").write_text("* filter=x\n")
+    tracked = sorted(p for p in rig.target.iterdir() if p.is_file())[0]
+    time.sleep(0.01)
+    data = tracked.read_bytes()
+    tracked.write_bytes(bytes([data[0] ^ 1]) + data[1:])  # the same length: only its content
+    assert _refused(rig) == "target_not_clean"
+    assert not marker.exists(), f"{names} the target names ran"
+
+
 def test_a_round_is_refused_with_a_target_whose_top_holds_a_run(tmp_path: Path) -> None:
     rig = make_rig(tmp_path)
     (rig.target / "run.json").write_text("{}\n")
