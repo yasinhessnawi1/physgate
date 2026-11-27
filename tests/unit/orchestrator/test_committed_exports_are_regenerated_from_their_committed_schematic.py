@@ -618,7 +618,8 @@ def test_the_command_s_folder_is_named_where_it_really_is_when_its_parent_is_a_l
     real.mkdir()
     linked = tmp_path / "linked-temp"
     linked.symlink_to(real, target_is_directory=True)
-    monkeypatch.setattr(tempfile, "tempdir", str(linked))
+    # The harness's own temporary place, where the folder is made, given through the link.
+    monkeypatch.setattr(derived, "harness_temp_dir", lambda: linked)
     found, runs = check(tmp_path, made(SOUND))
     assert found.refused_by is None, found.reason
     (call,) = runs.calls
