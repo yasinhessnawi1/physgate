@@ -239,7 +239,9 @@ def test_known_residual_without_the_layer_a_link_made_unseen_outside_the_worktre
     # files with a second name outside it for reasons of their own.
     with make_layout(tmp_path) as layout:
         source, marker, _ = _sources(layout)["the harness's skill file"]
-        link = _destinations(layout)["the session's home"]
+        # A place no rule names: beside the run, outside every root and the shared directories.
+        (layout.outside / "elsewhere").mkdir()
+        link = layout.outside / "elsewhere" / "hl.md"
         steps = [_link_unseen(source, {"elsewhere": link}), tool("Read", file_path=str(link))]
         try:
             seen = run_session(layout, steps, layer=False, fields=_fields(layout))
