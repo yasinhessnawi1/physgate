@@ -12,6 +12,7 @@ import io
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -358,3 +359,37 @@ def test_a_folder_at_the_store_s_top_outside_every_role_s_root_is_walked(
     s.store = away
     code, lines = _check(s)
     assert f"finding: run_material_readable: {away / 'notes' / 'run-6'}: it holds run.json" in lines
+
+
+@pytest.mark.parametrize("program", ["a file-system monitor", "a filter driver", "a hook"])
+def test_no_program_the_source_s_own_configuration_names_runs_when_its_directory_is_listed(
+    s: SimpleNamespace, outside_tmp: Path, program: str
+) -> None:
+    # The source's configuration and attributes are files a session may have written.
+    marker = Path(os.path.realpath(outside_tmp)) / "it-ran"
+    script = Path(os.path.realpath(outside_tmp)) / "program.sh"
+    script.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat\n")
+    script.chmod(0o700)
+    if program == "a file-system monitor":
+        _git(s.source, "config", "core.fsmonitor", str(script))
+    elif program == "a filter driver":
+        _git(s.source, "config", "filter.evil.clean", str(script))
+        _git(s.source, "config", "filter.evil.smudge", str(script))
+        (s.source / ".gitattributes").write_text("* filter=evil\n")
+    else:
+        hooks = s.source / ".git" / "hooks"
+        for name in ("post-index-change", "reference-transaction", "fsmonitor-watchman"):
+            (hooks / name).write_text(f"#!/bin/sh\ntouch '{marker}'\n")
+            (hooks / name).chmod(0o700)
+    marker.unlink(missing_ok=True)
+    # Of the same length as it was: only its content tells it changed, which a filter would read.
+    time.sleep(0.01)
+    (s.source / "README.md").write_text("b target\n")
+    (s.source / "left.py").write_text("never committed\n")
+    code, lines = _check(s)
+    assert not marker.exists(), f"{program} the source names ran"
+    said = [line for line in lines if line.startswith("finding: source_files:")]
+    assert len(said) == 1, lines
+    untracked = 2 if program == "a filter driver" else 1  # its .gitattributes too
+    assert f"{untracked} file{'s' if untracked > 1 else ''} git does not track" in said[0], said
+    assert "1 file the branch tracks, changed" in said[0], said

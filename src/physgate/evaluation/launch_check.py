@@ -139,14 +139,52 @@ def material_findings(places: Sequence[Path], refused: Sequence[Path]) -> list[F
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    from physgate.orchestrator.git import NO_TRANSPORT, harness_git
+    """One git command on the source, which no repository-defined program can make run anything.
 
+    The source's configuration and attributes are files a session may have written, so every
+    call of the check goes through here: the harness's own git, its forced flags (hooks, the
+    file-system monitor, signing and the commit graph off) and no transport, the attributes from
+    the empty tree only (so no filter or diff driver a ``.gitattributes`` names is selected), no
+    system or global configuration, submodules never recursed into, and no optional lock taken,
+    so nothing is written in the source either. Only plumbing that runs no driver is asked.
+    """
+    from physgate.orchestrator.git import (
+        FORCED_ENV,
+        FORCED_FLAGS,
+        NO_TRANSPORT,
+        attr_source,
+        harness_git,
+    )
+
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "HOME": os.devnull,
+        "LC_ALL": "C",
+        **FORCED_ENV,
+        "GIT_ATTR_SOURCE": attr_source().partition("=")[2],
+        "GIT_OPTIONAL_LOCKS": "0",
+    }
     return subprocess.run(  # noqa: S603 - the harness's own git, its arguments ours
-        [harness_git().path, *NO_TRANSPORT, "-C", str(repo), *args],
+        [
+            harness_git().path,
+            attr_source(),
+            *FORCED_FLAGS,
+            *NO_TRANSPORT,
+            "-c",
+            "core.untrackedCache=false",
+            "-c",
+            "submodule.recurse=false",
+            "-c",
+            "diff.ignoreSubmodules=all",
+            "--no-optional-locks",
+            "-C",
+            str(repo),
+            *args,
+        ],
         capture_output=True,
         text=True,
         check=False,
-        env={"PATH": "/usr/bin:/bin", "HOME": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
+        env=env,
     )
 
 
@@ -198,40 +236,27 @@ def _counted(n: int, what: str) -> str:
 def _working_files(source: Path) -> list[Finding]:
     """The source's own directory beside what its branch holds: counted by kind, never named.
 
-    Asked of git without its optional locks, so the check writes nothing in the source: files it
-    does not track, files it ignores (each one, inside an ignored folder too), tracked files
-    changed from the branch.
+    Listed with plumbing alone (:func:`_git`), which runs no program the repository names: files
+    git does not track, files it ignores (each one, inside an ignored folder too), and tracked
+    files changed from the index or the index from the branch's head.
     """
-    listed = _git(
-        source,
-        "--no-optional-locks",
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=all",
-        "--ignored=traditional",
-    )
-    if listed.returncode != 0:
-        return [Finding("source_unreadable", str(source), "git cannot list its own directory")]
-    entries = [e for e in listed.stdout.split("\0") if e]
-    kinds = {"untracked": 0, "ignored": 0, "changed": 0}
-    skip = False
-    for entry in entries:
-        if skip:  # the old name of a renamed entry
-            skip = False
-            continue
-        code = entry[:2]
-        if code == "??":
-            kinds["untracked"] += 1
-        elif code == "!!":
-            kinds["ignored"] += 1
-        else:
-            kinds["changed"] += 1
-            skip = "R" in code or "C" in code
+    asks = {
+        "untracked": ("ls-files", "-z", "--others", "--exclude-standard"),
+        "ignored": ("ls-files", "-z", "--others", "--ignored", "--exclude-standard"),
+        "changed": ("diff-files", "-z", "--name-only", "--ignore-submodules"),
+        "staged": ("diff-index", "-z", "--cached", "--name-only", "--ignore-submodules", "HEAD"),
+    }
+    kinds: dict[str, set[str]] = {}
+    for kind, argv in asks.items():
+        listed = _git(source, *argv)
+        if listed.returncode != 0:
+            return [Finding("source_unreadable", str(source), "git cannot list its own directory")]
+        kinds[kind] = {e for e in listed.stdout.split("\0") if e}
+    changed = len(kinds["changed"] | kinds["staged"])
     said = [
-        _counted(kinds["untracked"], "git does not track") if kinds["untracked"] else "",
-        _counted(kinds["ignored"], "git ignores") if kinds["ignored"] else "",
-        _counted(kinds["changed"], "the branch tracks, changed") if kinds["changed"] else "",
+        _counted(len(kinds["untracked"]), "git does not track") if kinds["untracked"] else "",
+        _counted(len(kinds["ignored"]), "git ignores") if kinds["ignored"] else "",
+        _counted(changed, "the branch tracks, changed") if changed else "",
     ]
     if not any(said):
         return []
