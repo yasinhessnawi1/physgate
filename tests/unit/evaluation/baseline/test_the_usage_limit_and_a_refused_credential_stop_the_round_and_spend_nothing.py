@@ -552,3 +552,27 @@ def test_the_round_s_exit_statuses_are_the_harness_round_s() -> None:
     assert EXIT_WAITING_FOR_A_PERSON == harness_round.EXIT_WAITING_FOR_A_PERSON
     assert RoundWaits("waiting_for_limit", "0" * 16, {}).exit_code == EXIT_WAITING_FOR_LIMIT
     assert set(get_args(Status)) <= set(get_args(harness_round.Status))
+
+
+class _StoppedAtItsCap(StandInArm):
+    """A session the arm itself stopped at its cap, whose stream then ends on the usage limit."""
+
+    def __call__(
+        self, task: Task, setup: Any, work: Path, *, cap: int, harness: Path | None = None
+    ) -> dict[str, Any]:  # noqa: ANN401
+        record = super().__call__(task, setup, work, cap=cap, harness=harness)
+        record["end"] = "budget_exhausted"
+        assert harness is not None
+        (harness / "raw.json").write_text(json.dumps(record))
+        return record
+
+
+def test_a_session_stopped_at_its_own_cap_whose_stream_ends_on_the_limit_is_recorded(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """The arm's own end: no wait, no one more go; the trial is recorded as it ended."""
+    out, runs = tmp_path / "round", _one(tmp_path, store)
+    arm = _StoppedAtItsCap(limited={1: RESET_EPOCH})
+    record = _start(store, runs, out, arm, at=BEFORE)
+    assert record.counts["visible"].trials == 1 and len(arm.calls) == 1
+    assert _kinds(out) == ["round", "started", "moving", "recorded"]

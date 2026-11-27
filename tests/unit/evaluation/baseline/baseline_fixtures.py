@@ -108,6 +108,7 @@ def stand_in_store(
     changes: dict[str, Any] | None = None,
     checked: bool = True,
     flagged: Sequence[int] = (),
+    practice: bool = False,
 ) -> StandInStore:
     """Twenty-four fixture tasks, each with its own brief, split into one version.
 
@@ -116,7 +117,8 @@ def stand_in_store(
     task is given in place of its own (a task the schema admits, though its role may not).
     ``checked``: the version's blind check is recorded beside it, as a check that answered
     leaves it, flagging the held-out tasks at the places ``flagged`` gives (none by default);
-    without it the version has no check record.
+    without it the version has no check record. ``practice``: the version is marked a practice
+    one, as the practice store's is.
     """
     store = root.resolve() / "store"
     pool = store / "control" / "withheld" / "pool"
@@ -140,6 +142,7 @@ def stand_in_store(
         provenance=canonical_json({"sessions": [{"session_id": "s-1", "end": "ended"}]}),
         retire=pool,
         generated="2026-11-08",
+        practice=practice,
     )
     directory = store / "control" / manifest.version
     tasks = {
@@ -285,6 +288,27 @@ def harness_run(
     settings.mkdir(parents=True)
     body = {"profile": "role", "role": "control", "tools_allowed": list(PROFILE_TOOLS["role"])}
     (settings / CONFIG_NAME).write_text(json.dumps(body))
+    return run_dir
+
+
+def harness_run_spending(
+    root: Path, task: Task, made: StandInStore, tokens: int, *, ended: bool = True
+) -> Path:
+    """A harness run on ``task`` that spent ``tokens`` tokens in all, as :func:`harness_run`'s."""
+    run_dir = harness_run(root, task, made, ended=False)
+    log = EventLog(run_dir / "events.jsonl", run_id="r", gate_mode="on")
+    usage = Usage(
+        input_tokens=tokens - 1000,
+        output_tokens=0,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    log.append(
+        TokensUsed(**log.envelope(), attribution="session:role-1", message_id="m2", usage=usage)
+    )
+    if ended:
+        log.append(IntegrationGateSkipped(**log.envelope(), reason="nothing_planned", subtasks=()))
+    log.close()
     return run_dir
 
 
