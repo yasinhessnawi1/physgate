@@ -922,7 +922,78 @@ def _baseline(config: ConfigView, state: _State) -> dict[str, Any]:
     }
     if hidden is not None:
         base["hidden"] = sorted(hidden)
+    base["anchors"] = _anchors(revert_roots, config.worktree)
     return base
+
+
+def _anchors(roots: list[str], worktree: str) -> dict[str, list[Any]]:
+    """For each revert root outside the worktree, the directory its put-back is held to.
+
+    The nearest directory above the root that is there at the session's start and is no link,
+    by its path, device and inode. The put-back opens it, holds it to that identity, and reaches
+    the root's parent from it one part at a time without following a link (:func:`_held_parent`),
+    so a link the session made above the root (a ``.config`` in its home pointing elsewhere) is
+    refused in words, never followed by a hook that runs outside the sandbox.
+    """
+    top = worktree.rstrip("/")
+    found: dict[str, list[Any]] = {}
+    for root in roots:
+        if root == top or root.startswith(top + "/"):
+            continue
+        here = os.path.dirname(root)
+        while True:
+            try:
+                st = os.lstat(here)
+            except OSError:
+                st = None
+            if st is not None and stat.S_ISDIR(st.st_mode):
+                found[root] = [here, st.st_dev, st.st_ino]
+                break
+            up = os.path.dirname(here)
+            if up == here:
+                break
+            here = up
+    return found
+
+
+#: The answer where a directory a protected root outside the worktree lies beneath is no longer
+#: the one recorded, or a part of the way down to it is a link.
+ANCHOR_NOT_HELD = (
+    "A directory above a protected path outside the worktree ({path}) is no longer the one the "
+    "session started with, or is a link, so nothing was put back there and every call is refused."
+)
+
+
+def _held_parent(root: str, anchor: list[Any]) -> int:
+    """The root's parent, reached from its anchor without following a link, as a descriptor.
+
+    The anchor is opened and held to its recorded identity; each part below it is opened with no
+    link followed, and made where it is missing (a session removed it: the put-back puts it
+    back), as a directory of the session's own.
+
+    Raises:
+        OSError: the anchor is not the recorded directory, or a part is a link or no directory.
+    """
+    where, device, inode = anchor
+    fd = os.open(where, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0))
+    try:
+        st = os.fstat(fd)
+        if (st.st_dev, st.st_ino) != (device, inode):
+            raise OSError(errno.ESTALE, "the directory is not the one recorded")
+        below = os.path.relpath(os.path.dirname(root), where)
+        for part in [] if below == "." else below.split("/"):
+            flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+            try:
+                nxt = os.open(part, flags, dir_fd=fd)
+            except FileNotFoundError:
+                os.mkdir(part, 0o700, dir_fd=fd)
+                nxt = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 def _depth(path: str) -> int:
@@ -1023,8 +1094,56 @@ def _restore_entry(
         os.symlink(entry.link, path)
 
 
+def _revert_held(
+    base: dict[str, Any], state: _State, config: ConfigView, held: int | None
+) -> tuple[list[str], list[str], str | None]:
+    """Put every revert root back, each relative to the directory its put-back is held to.
+
+    The roots beneath the worktree, relative to the held worktree (:class:`_Here`); each root
+    outside it that has an anchor (:func:`_anchors`), relative to its parent reached from that
+    anchor (:func:`_held_parent`); a root with none (a session's state from before anchors were
+    recorded) by its path, as before. Returns what was put back, what could not be, and the
+    first root whose way down could not be held (nothing is put back for it, nor after it).
+    """
+    anchors: dict[str, list[Any]] = base.get("anchors") or {}
+    roots: list[str] = base["revert_roots"]
+    top = config.worktree.rstrip("/")
+    inside = [r for r in roots if held is not None and (r == top or r.startswith(top + "/"))]
+    apart = [r for r in roots if r not in inside and r in anchors]
+    rest = [r for r in roots if r not in inside and r not in apart]
+    put_back: list[str] = []
+    failed: list[str] = []
+    groups: list[tuple[list[str], _Here, int | None]] = []
+    if inside:
+        groups.append((inside, _Here(config.worktree if held is not None else None), held))
+    for root in apart:
+        try:
+            parent = _held_parent(root, anchors[root])
+        except OSError:
+            return put_back, failed, root
+        groups.append(([root], _Here(os.path.dirname(root)), parent))
+    if rest:
+        groups.append((rest, _Here(None), None))
+    for group, here, fd in groups:
+        if not group:
+            continue
+        try:
+            if fd is not None:
+                os.fchdir(fd)
+            done, missed = _revert(base, state, here, group)
+        finally:
+            if fd is not None and fd != held:
+                os.close(fd)
+        put_back += done
+        failed += missed
+    return sorted(set(put_back)), sorted(set(failed)), None
+
+
 def _revert(
-    base: dict[str, Any], state: _State, here: _Here | None = None
+    base: dict[str, Any],
+    state: _State,
+    here: _Here | None = None,
+    roots: list[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Put the revert roots back. Returns (paths put back, paths that could not be).
 
@@ -1032,14 +1151,16 @@ def _revert(
     """
     here = here or _Here(None)
     exclude = base.get("revert_exceptions", [])
-    current = here.signatures(base["revert_roots"], exclude)
-    if current == {p: tuple(raw[0]) for p, raw in base["revert"].items()}:
+    roots = base["revert_roots"] if roots is None else roots
+    current = here.signatures(roots, exclude)
+    mine = {p: raw for p, raw in base["revert"].items() if _beneath_any(p, roots)}
+    if current == {p: tuple(raw[0]) for p, raw in mine.items()}:
         # Every path is where it was, with the signature it had: nothing moved,
         # so there is nothing to put back and nothing to verify. That is every
         # call but the rare one where something changed, and it spares the two
         # further walks the path below takes.
         return [], []
-    recorded = {p: _entry(raw) for p, raw in base["revert"].items()}
+    recorded = {p: _entry(raw) for p, raw in mine.items()}
     sealed = frozenset(base.get("sealed", ()))
     touched: list[str] = []
     moved: list[str] = []
@@ -1076,14 +1197,12 @@ def _revert(
             quarantine(here(path), state.quarantine)
             _restore_entry(here(path), was, state, sealed, path)
             touched.append(path)
-    for path in sorted(
-        set(recorded) - set(here.signatures(base["revert_roots"], exclude)), key=_depth
-    ):
+    for path in sorted(set(recorded) - set(here.signatures(roots, exclude)), key=_depth):
         _restore_entry(here(path), recorded[path], state, sealed, path)
         touched.append(path)
     # Verify, and take the restored files' new signatures as the baseline: a
     # replaced file has a new inode, with the content it had before.
-    after = here.signatures(base["revert_roots"], exclude)
+    after = here.signatures(roots, exclude)
     failed = sorted(set(after) ^ set(recorded))
     for path, entry in recorded.items():
         if (
@@ -1096,6 +1215,10 @@ def _revert(
         if path in after:
             base["revert"][path] = [list(after[path]), entry.digest, entry.link]
     return sorted(set(touched)), failed
+
+
+def _beneath_any(path: str, roots: list[str]) -> bool:
+    return any(path == r or path.startswith(r.rstrip("/") + "/") for r in roots)
 
 
 def _check_journals(
@@ -1492,14 +1615,18 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
                 _event(config, hook_input, "worktree not held", [])
                 return refuse(WORKTREE_NOT_HELD)
             try:
-                here = _Here(config.worktree if held is not None else None)
-                put_back, failed = _revert(base, state, here)
+                put_back, failed, refused = _revert_held(base, state, config, held)
             finally:
+                os.fchdir(back_to)
                 if held is not None:
-                    os.fchdir(back_to)
                     os.close(held)
         finally:
             os.close(back_to)
+        if refused is not None:
+            base["halted"] = ANCHOR_NOT_HELD.format(paths=refused, path=refused)
+            state.save(base)
+            _event(config, hook_input, "anchor not held", [refused])
+            return refuse(base["halted"])
         journals_changed, appended = _check_journals(base, state)
         records_changed = _check_records(base)
         node_findings = _check_nodes(base)
