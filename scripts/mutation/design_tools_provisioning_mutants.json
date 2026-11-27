@@ -10,10 +10,11 @@
    "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
   ],
   "data": [
-   "tests/integration/hooks/claude-code/package.json",
-   "tests/integration/hooks/claude-code/package-lock.json",
+   ".github/workflows/tool-environment.yml",
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json",
    "tests/integration/hooks/claude-code-2.1.322/package.json",
-   "tests/integration/hooks/claude-code-2.1.322/package-lock.json"
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code/package.json"
   ],
   "paths": [
    "toolenv"
@@ -34,10 +35,11 @@
    "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
   ],
   "data": [
-   "tests/integration/hooks/claude-code/package.json",
-   "tests/integration/hooks/claude-code/package-lock.json",
+   ".github/workflows/tool-environment.yml",
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json",
    "tests/integration/hooks/claude-code-2.1.322/package.json",
-   "tests/integration/hooks/claude-code-2.1.322/package-lock.json"
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code/package.json"
   ],
   "paths": [
    "toolenv"
@@ -58,10 +60,11 @@
    "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
   ],
   "data": [
-   "tests/integration/hooks/claude-code/package.json",
-   "tests/integration/hooks/claude-code/package-lock.json",
+   ".github/workflows/tool-environment.yml",
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json",
    "tests/integration/hooks/claude-code-2.1.322/package.json",
-   "tests/integration/hooks/claude-code-2.1.322/package-lock.json"
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code/package.json"
   ],
   "paths": [
    "toolenv"
@@ -82,10 +85,11 @@
    "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
   ],
   "data": [
-   "tests/integration/hooks/claude-code/package.json",
-   "tests/integration/hooks/claude-code/package-lock.json",
+   ".github/workflows/tool-environment.yml",
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json",
    "tests/integration/hooks/claude-code-2.1.322/package.json",
-   "tests/integration/hooks/claude-code-2.1.322/package-lock.json"
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code/package.json"
   ],
   "paths": [
    "toolenv"
@@ -107,10 +111,11 @@
    "tests/unit/toolenv/test_the_tool_environment_is_provisioned_from_its_own_locks.py"
   ],
   "data": [
-   "tests/integration/hooks/claude-code/package.json",
-   "tests/integration/hooks/claude-code/package-lock.json",
+   ".github/workflows/tool-environment.yml",
+   "tests/integration/hooks/claude-code-2.1.322/package-lock.json",
    "tests/integration/hooks/claude-code-2.1.322/package.json",
-   "tests/integration/hooks/claude-code-2.1.322/package-lock.json"
+   "tests/integration/hooks/claude-code/package-lock.json",
+   "tests/integration/hooks/claude-code/package.json"
   ],
   "paths": [
    "toolenv"

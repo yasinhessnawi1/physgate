@@ -253,6 +253,87 @@ def test_a_distribution_whose_licence_is_only_in_its_file_is_read_from_that_file
     assert (found != []) is refused, found
 
 
+#: What chardet's metadata states: installed on macOS on ARM alone, as PlatformIO's dependency.
+CHARDET = (
+    "License: LGPL\n"
+    "Classifier: License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)"
+)
+
+
+def _accepted(site: Path) -> dict[str, Any]:
+    missing: dict[str, Any] = {"no such function": {}}
+    accepted: Callable[[Path], object] = getattr(
+        _provision(), "licences_accepted", lambda _site: missing
+    )
+    found = accepted(site)
+    assert isinstance(found, dict)
+    return found
+
+
+def test_chardet_stating_its_two_lesser_gpl_statements_passes_and_is_recorded_with_its_reason(
+    tmp_path: Path,
+) -> None:
+    _installed(tmp_path, "chardet", CHARDET, version="5.2.0")
+    _installed(tmp_path, "rich", "License-Expression: MIT")
+    assert _refusals(tmp_path) == []
+    found = _accepted(tmp_path)
+    assert sorted(found) == ["chardet"]
+    entry = found["chardet"]
+    assert entry["version"] == "5.2.0"
+    assert entry["statements"] == [
+        "LGPL",
+        "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
+    ]
+    assert "LGPL-2.1-or-later" in entry["reason"]
+    assert len(entry["reason"].split()) > 10
+
+
+def test_the_acceptance_names_chardet_s_two_statements_alone_and_the_list_still_holds_no_lgpl() -> (
+    None
+):
+    provision = _provision()
+    named = getattr(provision, "LICENCE_ACCEPTED_BY_NAME", {})
+    assert sorted(named) == ["chardet"]
+    assert named["chardet"]["statements"] == [
+        line.split(": ", 1)[1] for line in CHARDET.split("\n")
+    ]
+    assert not [s for s in provision.ALLOWED_LICENCES if "LGPL" in s or "Lesser" in s]
+
+
+@pytest.mark.parametrize("name", ["lesser-library", "chardet-ng", "charset-detector"])
+def test_another_distribution_stating_the_lesser_gpl_is_refused(tmp_path: Path, name: str) -> None:
+    _installed(tmp_path, name, CHARDET, version="5.2.0")
+    found = _refusals(tmp_path)
+    assert len(found) == 1, found
+    assert f"{name} 5.2.0" in found[0]
+    assert "off the allowed list" in found[0]
+    assert _accepted(tmp_path) == {}
+
+
+@pytest.mark.parametrize(
+    ("metadata", "why"),
+    [
+        ("License-Expression: GPL-2.0-or-later", "states a GPL licence"),
+        ("License: GPLv2", "states a GPL licence"),
+        (
+            "Classifier: License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+            "states a GPL licence",
+        ),
+        (f"{CHARDET}\nLicense-Expression: GPL-2.0-only", "states a GPL licence"),
+        (f"{CHARDET}\nClassifier: License :: Other/Proprietary License", "off the allowed list"),
+        ("License: LGPL-3.0-only", "off the allowed list"),
+    ],
+)
+def test_chardet_stating_the_gpl_or_a_statement_not_accepted_of_it_is_refused(
+    tmp_path: Path, metadata: str, why: str
+) -> None:
+    _installed(tmp_path, "chardet", metadata, version="5.2.0")
+    found = _refusals(tmp_path)
+    assert len(found) == 1, found
+    assert "chardet 5.2.0" in found[0]
+    assert why in found[0]
+
+
 def test_every_distribution_is_read_and_all_refusals_are_named_at_once(tmp_path: Path) -> None:
     _installed(tmp_path, "one", "License-Expression: GPL-2.0-only")
     _installed(tmp_path, "two", "Summary: nothing")

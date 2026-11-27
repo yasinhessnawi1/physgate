@@ -140,10 +140,14 @@ def _expression(text: str, start: int) -> str:
 
 
 def _symbol(kicad: Path, library: str, name: str) -> tuple[str, dict[str, tuple[float, float]]]:
-    """A pinned symbol as a schematic embeds it, and where each of its pins ends."""
-    text = (kicad / SHARE / "symbols" / f"{library}.kicad_symdir" / f"{name}.kicad_sym").read_text(
-        encoding="utf-8"
-    )
+    """A pinned symbol as a schematic embeds it, and where each of its pins ends.
+
+    The Linux release keeps each library as a folder of one file per symbol; the macOS release
+    keeps it as one file that holds every symbol of the library.
+    """
+    symbols = kicad / SHARE / "symbols"
+    one = symbols / f"{library}.kicad_symdir" / f"{name}.kicad_sym"
+    text = (one if one.is_file() else symbols / f"{library}.kicad_sym").read_text(encoding="utf-8")
     body = _expression(text, text.index(f'(symbol "{name}"'))
     pins = {
         found.group(4): (float(found.group(1)), float(found.group(2)))

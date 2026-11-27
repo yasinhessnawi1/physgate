@@ -26,9 +26,10 @@ be complete the table says what is allowed instead:
   an upload by a route this file does not know (a test on the target, a debug session, a
   remote run, a program run through the tool's packages, a target or an option added later)
   is refused without being named;
-- the interactive consoles the design libraries bring (``ipython``, ``ipython3``, ``isympy``)
-  are guarded with no build-only use: an interpreter whose module and script this file does
-  not read is refused in every use, alone included;
+- the interactive consoles the design libraries bring (``ipython``, ``ipython3``, ``isympy``),
+  and on macOS the simulation library's interpreter trampoline (``mjpython``), are guarded with
+  no build-only use: an interpreter whose module and script this file does not read is refused
+  in every use, alone included;
 - the devices of each platform, which the OS layer reads from here too (``oslayer.policy``),
   so the two layers cannot name different devices.
 
@@ -297,7 +298,8 @@ _SKETCH_TOOL: Guard = (
     },
 )  # fmt: skip
 #: The interactive consoles the design libraries put in the environment (an IPython shell by
-#: both its names, and SymPy's): interpreters the module rule below does not read, so
+#: both its names, and SymPy's), and the simulation library's trampoline that runs CPython off
+#: the main thread on macOS (``mjpython``): interpreters the module rule below does not read, so
 #: ``ipython -m <flasher module>`` is not seen through. Guarded with no build-only use and no
 #: option of their own, so every use is refused, the bare one included.
 _NO_FORM: Guard = ({}, {})
@@ -312,6 +314,7 @@ GUARDED: Mapping[str, Guard] = {
     "ipython": _NO_FORM,
     "ipython3": _NO_FORM,
     "isympy": _NO_FORM,
+    "mjpython": _NO_FORM,
 }
 #: Interpreters that run one of the programs above as a module (``python -m platformio``) or
 #: as the script they are given.
