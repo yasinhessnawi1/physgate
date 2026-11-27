@@ -16,7 +16,8 @@ file of trial records, the per-role report's input, and refuses a cell that cann
   round runs its entry in its place. A pair with none (``pair_without_record``) or with two
   (``pair_counted_twice``) refuses the cell, named by its place in the cell's run set; so does a
   record held to a draw its harness round did not keep, a round whose own ledger cannot be read
-  as its own, a development round's record, and a raw round not ended.
+  as its own, and a raw round not ended. A development round writes no line in the register, so
+  none of its records is ever found.
 - **Nothing excluded is counted.** An excluded record of either arm refuses the cell
   (``trial_excluded``): the cell then has no verdict, as the criteria say.
 - **One commit.** Every harness run and every raw record names the harness commit it ran from;
@@ -233,13 +234,10 @@ def _raw_record(
         )
         raise _refuse("pair_on_a_superseded_draw", msg, earlier_round=round_id, **where)
     try:
-        ended = BaselineRecord.model_validate_json((out / BASELINE_RECORD).read_bytes())
+        BaselineRecord.model_validate_json((out / BASELINE_RECORD).read_bytes())
     except (OSError, ValueError):
         msg = f"the raw round {round_id} has not ended; a cell is gathered from ended rounds"
         raise _refuse("raw_round_not_ended", msg, earlier_round=round_id, **where) from None
-    if ended.development:
-        msg = f"the raw round {round_id} is a development round; none of its records is counted"
-        raise _refuse("development_round", msg, earlier_round=round_id, **where)
     ledger = Ledger(out / LEDGER, lines)
     record = _earlier_line(store, role, out, ledger, runs, entry, cast("TierName", tier))
     if isinstance(record, ExcludedTrial):
