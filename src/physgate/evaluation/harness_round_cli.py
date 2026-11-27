@@ -38,10 +38,12 @@ of a task seeded ``B + n``. ``--only PLACE`` takes on that one place of the roun
 not yet assembled; one already assembled is only said again), stops once it is assembled, and
 writes its one-entry run set ``trials/<PLACE>.runs.json`` and its sheet ``<PLACE>.trial.json``
 (in ``O`` for the visible tier, beneath the withheld root for a protected one), as every trial's
-are written once it is assembled. Its line's ``trial`` names the set and ``raw_pair``: ``now``
-(exit 0) or ``at_cell_end`` (exit 3: the trial gives no figure, and its raw pair runs once the
-cell's last harness trial is assembled). Status ``trial_assembled`` while later places remain; the
-call that assembles the last place ends the round as a whole call does.
+are written once it is assembled. Its line's ``trial`` names the set and, for a visible trial,
+``raw_pair``: ``now`` (exit 0) or ``at_cell_end`` (exit 3: the trial gives no figure, and its raw
+pair runs once the cell's last harness trial is assembled). A protected trial's ``raw_pair`` is
+never said outside the withheld root, and its call exits 0: its sheet beneath the root says it.
+Status ``trial_assembled`` while later places remain; the call that assembles the last place ends
+the round as a whole call does.
 
 It prints one JSON line of counts and digests, never a task, and writes the same into ``O``. Exit
 0 once every trial is assembled, a trial that gives no figure stated as ``no_figure`` (the cap

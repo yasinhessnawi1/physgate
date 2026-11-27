@@ -540,6 +540,27 @@
   ]
  },
  {
+  "name": "a_protected_trial_s_raw_pair_is_said_outside",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        shown = (\"index\", \"runs\", \"raw_pair\") if ctx.trial[\"tier\"] == VISIBLE else (\"index\", \"runs\")",
+  "new": "        shown = (\"index\", \"runs\", \"raw_pair\")",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_nothing_outside_the_withheld_root_tells_a_protected_trial_s_outcome.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
   "name": "set_aside_is_taken_at_a_trial_s_first_free_directory",
   "file": "src/physgate/evaluation/harness_round.py",
   "old": "    if state == \"free\" and any(x[\"attempt\"] != last for x in ctx.of(i, \"left\")):",

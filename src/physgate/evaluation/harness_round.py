@@ -46,7 +46,12 @@ fields are the parameters', held by their digest, or each trial's own.
 **The order is fixed, and written once** in the round's ledger before the first trial: the
 named tiers in the version's order (visible, validation, held out), within each the tasks by
 their brief's digest (a held-out task the check flagged is left out), within each task its
-trials from 0. Trial ``i`` has the seed ``seed base + i``.
+trials from 0; trial ``i`` has the seed ``seed base + i``. Given an order seed, a round runs one
+cell in the registered order instead (:func:`_registered_order`): the cell's (id digest, trial)
+pairs shuffled once by the seed string, trial ``n`` of a task seeded ``seed base + n``. A call
+may name one place of the order (``only``): it takes that trial on until it is assembled and
+stops there. Every trial's one-entry run set and its sheet (``trials/``) are written once it is
+assembled, in every mode.
 
 **Each trial** is one harness run on a fresh clone of the target placed inside the trial's run
 directory, ``<run root>/<round>/<iiii>-<n>``, with its review root beside the clone in the same
@@ -102,7 +107,12 @@ trial is never repeated and never skipped, and a killed run is resumed, never re
   removed, and a plan review session left running is stopped, its streams scanned for the
   held-out canaries; one that showed one stops the round (a restart does it first, above);
 - any other end is the run's own, and is assembled as it is: its answer is the one file of the
-  task's answer name directly inside the module directory its own recorded plan names.
+  task's answer name directly inside the module directory its own recorded plan names; a draw
+  whose record excludes it for an instrument's fault (by its reason's field alone,
+  :mod:`.harness_round_reruns`) is named on an ``excluded`` line and run once more into a fresh
+  directory with the same seed, the trial's one more go of the machine's rule one per trial;
+- a trial's directory reached through a link at any part of its path is never read or touched:
+  the round is refused (``run_dir_linked``).
 
 **What it writes:** the run set and the trial records of each tier, ``<tier>.runs.json`` and
 ``<tier>.trials.jsonl``, the visible tier's in the round's output directory and the protected
@@ -2798,6 +2808,9 @@ def _summary(ctx: _Round, *, done: bool) -> dict[str, Any]:
     if ctx.waiting is not None and not done:
         summary["waiting"] = ctx.waiting
     if ctx.trial is not None:
-        # The one trial a call named: where its set lies and whether its raw pair runs now.
-        summary["trial"] = {k: ctx.trial[k] for k in ("index", "runs", "raw_pair")}
+        # The one trial a call named: where its set lies, and for a visible trial whether its raw
+        # pair runs now. Of a protected trial that is never said outside the withheld root (it
+        # tells whether the trial gives a figure): its sheet beneath the root says it.
+        shown = ("index", "runs", "raw_pair") if ctx.trial["tier"] == VISIBLE else ("index", "runs")
+        summary["trial"] = {k: ctx.trial[k] for k in shown}
     return summary

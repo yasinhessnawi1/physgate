@@ -86,6 +86,36 @@ def test_the_output_directory_and_the_summary_are_the_same_however_a_protected_t
     assert _printed(second) == _printed(first)
 
 
+@pytest.mark.parametrize("ended", [{"fails": {1: "invalid_plan"}}, {"silent": {1}}])
+def test_one_protected_place_taken_on_alone_tells_nothing_of_how_it_ended(
+    tmp_path: Path, ended: dict[str, Any]
+) -> None:
+    # One place of a held-out cell's registered order: whether it gives a figure (so whether its
+    # raw pair runs now) is said only beneath the withheld root, never in what is printed, in the
+    # output directory or by the exit of the call.
+    def one(rig: Rig, driver: StandInDriver) -> tuple[str, dict[str, Any]]:
+        status, summary = run_round(
+            rig.inputs(tiers=("held_out",), trials=1, tasks=2, seed_base=1, order_seed=1124),
+            driver=driver,
+            scorer=_score,
+            sleep=lambda _: None,
+            only=0,
+        )
+        return status, summary
+
+    passed = make_rig(tmp_path / "passed")
+    status, first = one(passed, passed.driver())
+    other = make_rig(tmp_path / "other")
+    again, second = one(other, other.driver(**ended))
+    assert status == again == "trial_assembled"
+    shown, seen = _visible(passed), _visible(other)
+    for said in (first, second, shown["summary"], seen["summary"]):
+        said["trial"] = {k: v for k, v in said["trial"].items() if k != "runs"}
+        assert said["trial"] == {"index": 0}
+    assert seen == shown
+    assert _printed(second) == _printed(first)
+
+
 def test_of_a_protected_tier_only_its_trials_and_their_assembly_are_counted_outside(
     tmp_path: Path,
 ) -> None:

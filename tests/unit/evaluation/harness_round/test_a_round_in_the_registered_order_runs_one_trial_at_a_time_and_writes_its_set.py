@@ -45,7 +45,7 @@ def _ledger(rig: Rig) -> list[dict[str, Any]]:
 
 
 def _drawn(rig: Rig, tasks: int, trials: int) -> list[tuple[str, int]]:
-    """The draft's order, as its own words give it: (id digest, trial), sorted, shuffled once."""
+    """The registered order, as its own words give it: (id digest, trial), sorted, shuffled once."""
     digests = sorted(id_digest(t.id) for t in rig.made.tasks["visible"])[:tasks]
     pairs = sorted((d, n) for d in digests for n in range(trials))
     random.Random("1124:order:control_visible").shuffle(pairs)
