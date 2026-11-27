@@ -139,6 +139,7 @@ from physgate.orchestrator.git import (
 from physgate.orchestrator.protocols import Artefact, IssuedSpec, IssuedState, PersonOrder
 from physgate.orchestrator.repair import quoted
 from physgate.orchestrator.trajectory import Seal, read_sealed
+from physgate.oslayer.harness_temp import harness_temp_dir
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.places import READ_DIRNAME
 from physgate.reviewers.rubric import Rubric
@@ -499,7 +500,7 @@ def _object_store(object_dirs: tuple[str, ...], object_format: str) -> str:
     as its gitlink rather than recursed into — which is where the local configuration otherwise
     runs a program. It is created with the attempt's ``object_format``.
     """
-    store = tempfile.mkdtemp(prefix="physgate-review-store-")
+    store = tempfile.mkdtemp(prefix="physgate-review-store-", dir=harness_temp_dir())
     _STORES.append(store)
     done = subprocess.run(
         [_git_path(), attr_source(object_format), *_GIT_FLAGS, "init", "-q", "--bare",
@@ -1320,7 +1321,7 @@ def _left_out(where: GitDir, commit: str, leaving: list[_Leaving]) -> str:
     entries = b"".join(
         f"{left.base_mode} {left.base_id}\t{left.path}\0".encode() for left in leaving
     )
-    folder = tempfile.mkdtemp(prefix="physgate-review-index-")
+    folder = tempfile.mkdtemp(prefix="physgate-review-index-", dir=harness_temp_dir())
     try:
         index = str(Path(folder) / "index")
         _git_bytes(where, "read-tree", commit, index=index)

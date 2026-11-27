@@ -492,41 +492,60 @@ def test_a_path_beneath_another_named_one_is_not_named_again(tmp_path: Path) -> 
     assert not [a for a in deny if any(a != b and Path(a).is_relative_to(b) for b in deny)]
 
 
-def test_the_shared_temp_is_writable_and_claude_code_s_own_is_denied_both_ways(
+def _shared_config(paths: dict[str, Path], shared: Path, claude: Path) -> SessionConfig:
+    sdir = paths["sdir"]
+    request = InstallRequest(
+        profile="role",
+        role="control",
+        worktree=str(paths["worktree"]),
+        own_branch="subtask/sub1",
+        store_root=str(paths["run"] / "store"),
+        state_dir=str(sdir / "state"),
+        target_dir=str(sdir / "session"),
+        claude_config_dir=str(sdir / "config"),
+        user_home=str(sdir / "home"),
+        token_ceiling=1000,
+        shared_temps=(str(shared),),
+        shared_claude_temp=(str(claude),),
+    )
+    return build_config(request, current_installation())
+
+
+def test_the_shared_temp_directories_and_claude_code_s_own_are_denied_both_ways(
     tmp_path: Path,
 ) -> None:
+    # No command writes or reads where every session on the machine writes: what one trial left
+    # there another would read or change. A command writes its temporary files in its own.
     paths = _layout(tmp_path)
     shared = tmp_path / "shared-tmp"
     claude = shared / "claude-501"
     claude.mkdir(parents=True)
     policy = sandbox_policy(
-        _config(paths),
+        _shared_config(paths, shared, claude),
         home=str(paths["sdir"] / "home"),
         temp_dir=str(paths["temp"]),
-        shared_temp=(str(shared),),
         claude_temp=(str(claude),),
     )
     fs = _fs(policy)
-    assert str(shared) in fs["allowWrite"]
+    assert not [w for w in fs["allowWrite"] if Path(w).is_relative_to(shared)], fs["allowWrite"]
+    assert str(shared) in fs["denyWrite"] and str(shared) in fs["denyRead"]
     assert str(claude) in fs["denyWrite"] and str(claude) in fs["denyRead"]
+    home = paths["sdir"] / "home"
+    assert fs["allowWrite"] == sorted({str(home), os.path.realpath(home)})
 
 
-def test_a_run_directory_inside_the_shared_temp_keeps_its_sessions_denied(
+def test_a_shared_temp_directory_holding_the_session_s_own_places_is_not_named(
     tmp_path: Path,
 ) -> None:
-    # On a machine whose run directory sits under the shared /tmp, the run's sessions/
-    # would be writable with it: it is named around the session's own home instead.
+    # A session installed with its worktree in a shared temporary directory (one without the OS
+    # layer: the installer refuses a sandboxed one there) is not refused its own files; the
+    # directory is no writable place of the layer's either way.
     paths = _layout(tmp_path)
-    other = paths["run"] / "sessions" / "s0"
-    other.mkdir()
-    policy = sandbox_policy(
-        _config(paths),
-        home=str(paths["sdir"] / "home"),
-        temp_dir=str(paths["temp"]),
-        shared_temp=(str(tmp_path),),
-    )
-    deny = _fs(policy)["denyWrite"]
-    for denied in (other, paths["sdir"] / "state", paths["sdir"] / "config"):
-        assert any(Path(denied).is_relative_to(d) for d in deny), denied
-    home = paths["sdir"] / "home"
-    assert not any(home.is_relative_to(d) for d in deny)
+    claude = tmp_path / "claude-501"
+    claude.mkdir()
+    config = _shared_config(paths, tmp_path, claude)
+    named = {r.path for r in config.protected_roots}
+    assert str(tmp_path) not in named
+    assert str(claude) in named
+    policy = sandbox_policy(config, home=str(paths["sdir"] / "home"), temp_dir=str(paths["temp"]))
+    assert str(tmp_path) not in _fs(policy)["allowWrite"]

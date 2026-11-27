@@ -89,6 +89,8 @@ SESSIONS = "the run's session directories"
 HELD_OUT = "held-out evaluation tier"
 WITHHELD_WHOLE = "withheld from this session whole"
 CLAUDE_TEMP = "every Claude Code session of this user"
+SHARED_TEMP = "write temporary files in this session's own temporary directory, which $TMPDIR"
+HARNESS_TEMPS = "where the harness keeps its own temporary files"
 OWN_TEMPS = "where each session keeps its own temporary files"
 TWO_NAMES = paths.HARD_LINKED
 HOME_CLAUDE = "Claude Code's own directory in this session's home"
@@ -547,11 +549,24 @@ def outside_targets(s: SimpleNamespace) -> list[tuple[str, str, dict[str, str]]]
             str(lay.store / "control" / "withheld" / "pool" / "task.json"),
             dict.fromkeys(RAW, HELD_OUT),
         ),
-        ("/tmp, a new file", "/tmp/never-made-by-the-row.txt", {}),
+        (
+            "/tmp, a new file",
+            "/tmp/never-made-by-the-row.txt",
+            {k: SHARED_TEMP for k in (*ROLE, *RAW)},
+        ),
         ("/var/tmp, a new file", "/var/tmp/never-made-by-the-row.txt", {}),
         *(
-            ("a shared temporary directory, a new file", f"{d}/never-made-by-the-row.txt", {})
+            (
+                "a shared temporary directory, a new file",
+                f"{d}/never-made-by-the-row.txt",
+                {k: SHARED_TEMP for k in (*ROLE, *RAW)},
+            )
             for d in shared_temp_dirs()
+        ),
+        (
+            "the place the harness keeps its own temporary files",
+            "/var/tmp/pgh/0123456789/physgate-git-store-x/config",
+            {k: HARNESS_TEMPS for k in (*ROLE, *RAW)},
         ),
         (
             "Claude Code's shared temporary directory",
