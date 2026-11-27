@@ -1,11 +1,13 @@
 """An interactive console the design libraries bring is refused by name, in every use.
 
 The CAD library's dependencies put three interpreters in the environment's ``venv/bin``:
-``ipython``, ``ipython3`` and ``isympy``. The hardware rule reads what ``python`` runs as a
-module or a script; it does not read these. Listed as reaching no board they would let
-``ipython -m <flasher module>`` through, so they are guarded with no allowed form: every use is
-refused, bare included, in every profile. The two other programs those libraries bring, the DXF
-tool and the highlighter, reach no board, and their ordinary uses pass.
+``ipython``, ``ipython3`` and ``isympy``; on macOS the simulation library adds a fourth,
+``mjpython``, its trampoline that runs CPython off the main thread for its viewer. The hardware
+rule reads what ``python`` runs as a module or a script; it does not read these. Listed as
+reaching no board they would let ``ipython -m <flasher module>`` through, so they are guarded with
+no allowed form: every use is refused, bare included, in every profile. The two other programs
+those libraries bring, the DXF tool and the highlighter, reach no board, and their ordinary uses
+pass.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from physgate.hooks.config import HookInput
 
 H = hardware
 
-CONSOLES = ("ipython", "ipython3", "isympy")
+CONSOLES = ("ipython", "ipython3", "isympy", "mjpython")
 PROFILES = ("role", "baseline", "orchestrator", "reviewer")
 SERVER_TOOL = "mcp__platformio__build_project"
 
@@ -43,6 +45,12 @@ REFUSED = [
     ("sh -c 'isympy'", "isympy"),
     ("python3 -m IPython", "ipython"),
     ("python3 -m isympy", "isympy"),
+    ("mjpython", "mjpython"),
+    ("mjpython -m platformio run -t upload", "mjpython"),
+    ("mjpython -m serial.tools.miniterm /dev/cu.usbmodem1", "mjpython"),
+    ("mjpython script.py", "mjpython"),
+    ("/opt/env/venv/bin/mjpython -c 'import os'", "mjpython"),
+    ("'/opt/env/mujoco/MuJoCo_(mjpython).app/Contents/MacOS/mjpython' script.py", "mjpython"),
 ]
 #: The DXF tool and the highlighter, as a session would use them, and text naming a console.
 PASSING = [

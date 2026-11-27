@@ -36,6 +36,8 @@ REACHES_NO_BOARD = frozenset(
         "pip", "pip3", "pip3.12",
         "f2py", "numpy-config", "fonttools", "pyftmerge", "pyftsubset", "ttx", "idna",
         "normalizer", "tabulate", "readelf.py", "pyserial-ports",
+        # On macOS on ARM only: the encoding detector of chardet, which PlatformIO adds there.
+        "chardetect",
         "ezdxf", "pygmentize",
         "kinet2pcb", "netlist_to_skidl", "skidl-part-search", "schematizer", "markdown-it",
         "bottle", "bottle.py", "uvicorn", "websockets", "async-json-rpc-server",
