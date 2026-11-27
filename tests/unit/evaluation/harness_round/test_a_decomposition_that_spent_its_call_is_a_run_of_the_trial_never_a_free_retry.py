@@ -400,6 +400,22 @@ def test_a_second_free_set_aside_for_one_trial_stops_the_round_for_a_person(
     assert [(x["attempt"], x["by"]) for x in _ledger(rig, "left")] == [(1, "rule"), (2, "operator")]
 
 
+def test_a_restart_that_names_a_trial_standing_at_its_first_free_directory_is_refused(
+    tmp_path: Path, drivers: list[StandInDriver]
+) -> None:
+    # A first directory with nothing but its parameters is set aside by the rule, free: the round
+    # stands at no stop for a person there, so a person's word for it is refused and nothing is
+    # set aside or kept in hand for the trial's next free directory.
+    rig, slept = make_rig(tmp_path, design_review="observe"), list[float]()
+    _killed(rig, _driver(rig, drivers, killed_in_decompose={1}))
+    lines = (_place(rig) / LEDGER).read_bytes()
+    named = _driver(rig, drivers)
+    status, _ = _go(rig, named, slept, resume=True, set_aside=0)
+    assert status == "refused:set_aside_not_waiting"
+    assert named.decomposed == [] and (_place(rig) / LEDGER).read_bytes() == lines
+    assert _ledger(rig, "left") == []
+
+
 def test_a_restart_that_names_a_trial_the_round_is_not_stopped_at_is_refused(
     tmp_path: Path, drivers: list[StandInDriver]
 ) -> None:

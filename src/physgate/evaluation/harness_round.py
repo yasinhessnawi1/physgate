@@ -1700,8 +1700,8 @@ def _what_its_earlier_process_left(place: Path, round_id: str) -> None:
     )
     exposed: list[tuple[int, int]] = []
     for index, attempt in placed:
-        run_dir = _run_dir(Path(root), round_id, index, attempt)
-        if os.path.islink(run_dir) or not os.path.isdir(run_dir):
+        run_dir = Path(root) / round_id / f"{index:04d}-{attempt}"
+        if not _no_link_on_the_way(run_dir) or not os.path.isdir(run_dir):
             continue
         if _deal_with(place, index, attempt, run_dir):
             exposed.append((index, attempt))
@@ -2021,10 +2021,36 @@ def _trial(ctx: _Round, planned: _Planned) -> Status | None:
         )
 
 
+def _no_link_on_the_way(path: Path) -> bool:
+    """Whether no part of ``path``, from the top down to itself, is a link.
+
+    A part not there yet is no link: this process makes it.
+    """
+    return all(not os.path.islink(part) for part in (*reversed(path.parents), path))
+
+
+def _require_its_own(ctx: _Round, i: int, attempt: int, run_dir: Path) -> None:
+    """Refuse a trial directory reached through a link, before anything reads or touches it.
+
+    Its path is the run root the round recorded, the round's directory and the trial's, each
+    part held to be no link: a link at any of them (or a run root whose real path moved since)
+    would have the driver stop a review, remove a credential, write an exposure, decompose or
+    drive in a directory that is not its own.
+
+    Raises:
+        RoundError: a part of the path is a link.
+    """
+    recorded = Path(ctx.lines[0]["inputs"]["run_root"]) / ctx.round_id / run_dir.name
+    if recorded != run_dir or not _no_link_on_the_way(recorded):
+        msg = "a part of the trial's directory's path is a link; nothing in it is touched"
+        raise _refuse("run_dir_linked", msg, index=str(i), attempt=str(attempt))
+
+
 def _step(ctx: _Round, planned: _Planned, attempt: int) -> Status | None:
     """One step of the trial's current run, as its own records say; ``None`` to look again."""
     i = planned.index
     run_dir = ctx.run_dir(i, attempt)
+    _require_its_own(ctx, i, attempt, run_dir)
     state = _state(run_dir)
     if state == "unmade":
         return _decompose(ctx, planned, attempt, run_dir)
