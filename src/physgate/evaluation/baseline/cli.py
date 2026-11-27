@@ -14,10 +14,11 @@ record again and exits 0.
 
 It exits 1, naming no task, if the round is refused or stopped, and prints one line on stdout:
 ``status`` (``refused``), ``refused_because``, ``entry`` (the entry by its place in the run set,
-or ``null``) and ``session_started``: whether a session of that entry had started in the round.
-A refusal before any session (``session_started`` false) spends nothing: once its cause is
-removed the same round is started again. A stop after a session started (a pair that differs,
-other pins, an error, a move that failed, ``entry_stopped``) is never run again in its round.
+or ``null``) and ``session_started``: true where the entry was stopped for a cause after its
+session started, at this start or an earlier one (a pair that differs, other pins, an error, a
+move that failed, ``entry_stopped``): it is never run again in its round, only once more with
+``--rerun-of``. False is a refusal before any session of this start: it spent nothing, and the
+same round is started again once its cause is removed.
 ``--rerun-of OUT`` runs once more, as a new round of its one entry, an entry the earlier round
 ``OUT`` stopped on for a cause, recorded excluded for a reason its records give for not trusting
 the answer, or ran under a harness run that was itself run once more (named by the sheet beside

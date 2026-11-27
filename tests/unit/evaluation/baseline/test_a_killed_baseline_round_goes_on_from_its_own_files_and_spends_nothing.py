@@ -202,7 +202,7 @@ def test_a_round_killed_while_its_session_runs_runs_it_again_and_spends_nothing(
     slept: list[float] = []
     arm = StandInArm()
     record = _done(store, runs, out, arm, resume=True, slept=slept)
-    counts = record.counts[tier]
+    counts = record.counts[tier]  # type: ignore[index]
     assert (counts.trials, counts.passed, counts.unscored) == (1, 1, 0)
     assert len(arm.calls) == 1 and slept == [], "run again at once, its one more go not spent"
     assert _kinds(out) == ["round", "started", "killed", "started", "moving", "recorded"]
@@ -466,7 +466,10 @@ def test_an_arm_s_error_after_its_session_started_is_a_stop_never_a_kill(
 ) -> None:
     out, runs = tmp_path / "round", _one(tmp_path, store)
     outcome = _outcome(store, runs, out, StandInArm(raises={1: RuntimeError("tools changed")}))
-    assert isinstance(outcome, RuntimeError)
+    assert isinstance(outcome, BaselineError) and "tools changed" in str(outcome)
+    assert isinstance(outcome.__cause__, RuntimeError)
+    assert (outcome.context["refused_because"], outcome.context["entry"]) == ("error", "0")
+    assert outcome.context["session_started"] == "true"
     assert _ledger(out)[-1] == {
         "kind": "stopped",
         "index": 0,
@@ -540,13 +543,14 @@ def test_a_round_started_again_from_another_checkout_is_refused_before_anything(
     assert record.counts["visible"].passed == 1
 
 
-def test_a_raw_session_from_another_checkout_than_its_harness_run_s_is_a_pair_that_differs(
+def test_a_round_from_another_checkout_than_its_harness_run_s_is_refused_before_any_session(
     tmp_path: Path, store: StandInStore
 ) -> None:
     out, runs = tmp_path / "round", _one(tmp_path, store)
-    refused = _refused(store, runs, out, StandInArm(), setup=_from("d" * 40))
-    assert refused.context["refused_because"] == "pair_differs"
-    assert "harness" in str(refused)
+    arm = StandInArm()
+    refused = _refused(store, runs, out, arm, setup=_from("d" * 40))
+    assert refused.context["refused_because"] == "harness_differs"
+    assert arm.calls == [] and _kinds(out) == ["round"]
     # A development round forgives the harness's own state, as it always has.
     dev = _done(
         store, runs, tmp_path / "dev", StandInArm(), setup=_from("d" * 40), development=True
@@ -570,3 +574,93 @@ def test_the_session_after_a_reset_is_named_on_a_whole_started_line(
         "harness": {"commit": CHECKOUT.commit, "clean": True},
         "credential": fingerprint(Credential("subscription", SECRET)),
     }
+
+
+# -- the round's end, a runner that still lives, a session left running ----------------------------
+
+
+def test_a_round_killed_between_its_end_records_ends_on_its_next_start(
+    tmp_path: Path, store: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out, runs = tmp_path / "round", _one(tmp_path, store)
+    real = runner._write_end
+
+    def killed_at_the_record(path: Path, data: bytes) -> None:
+        if path.name == "baseline.json":
+            raise Killed
+        real(path, data)
+
+    monkeypatch.setattr(runner, "_write_end", killed_at_the_record)
+    with pytest.raises(Killed):
+        _outcome(store, runs, out, StandInArm())
+    monkeypatch.setattr(runner, "_write_end", real)
+    assert (out / "evaluation" / "tiers.json").is_file() and not (out / "baseline.json").exists()
+    arm = StandInArm()
+    record = _done(store, runs, out, arm, resume=True)
+    assert arm.calls == [] and record.counts["visible"].passed == 1
+    assert json.loads((out / "round.json").read_text())["status"] == "done"
+    assert _done(store, runs, out, arm, resume=True) == record, "started again, the same record"
+
+
+def test_a_round_record_a_kill_cut_is_written_whole_by_the_next_start(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    out, runs = tmp_path / "round", _one(tmp_path, store)
+    record = _done(store, runs, out, StandInArm())
+    whole = (out / "baseline.json").read_bytes()
+    (out / "baseline.json").write_bytes(whole[: len(whole) // 2])
+    (out / "round.json").unlink()
+    again = _done(store, runs, out, StandInArm(), resume=True)
+    assert (out / "baseline.json").read_bytes() == whole and again == record
+    assert json.loads((out / "round.json").read_text())["status"] == "done"
+
+
+def test_a_start_beside_a_runner_that_still_holds_the_work_root_settles_nothing(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    import fcntl
+    import os
+
+    out, runs = tmp_path / "round", _one(tmp_path, store)
+    with pytest.raises(Killed):
+        _outcome(store, runs, out, KilledInTheSession())
+    before = sorted(str(p) for p in work_root(store.store, "control").rglob("*"))
+    fd = os.open(work_root(store.store, "control"), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        arm = StandInArm()
+        refused = _refused(store, runs, out, arm, resume=True)
+    finally:
+        os.close(fd)
+    assert refused.context["refused_because"] == "session_lives" and arm.calls == []
+    assert sorted(str(p) for p in work_root(store.store, "control").rglob("*")) == before
+    assert _kinds(out) == ["round", "started"]
+
+
+def test_a_session_left_running_by_a_runner_killed_outright_is_stopped_at_the_next_start(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    import subprocess
+
+    from physgate.orchestrator.processes import started_at
+
+    out, runs = tmp_path / "round", _one(tmp_path, store)
+    with pytest.raises(Killed):
+        _outcome(store, runs, out, KilledInTheSession())
+    (place,) = work_root(store.store, "control").iterdir()
+    session = place / "place" / "session"
+    left = subprocess.Popen(["sleep", "120"], start_new_session=True)
+    try:
+        facts = {"pid": left.pid, "started": started_at(left.pid), "session_id": "s-left"}
+        (session / "process.json").write_text(json.dumps(facts))
+        record = _done(store, runs, out, StandInArm(), resume=True)
+        assert left.wait(timeout=15) is not None, "the left session was stopped"
+    finally:
+        if left.poll() is None:
+            left.kill()
+            left.wait()
+    assert record.counts["visible"].passed == 1
+    assert _kinds(out) == ["round", "started", "killed", "started", "moving", "recorded"]
+    assert not (
+        out / WORK / "0000-1" / "place" / "session" / "config" / ".credentials.json"
+    ).exists()

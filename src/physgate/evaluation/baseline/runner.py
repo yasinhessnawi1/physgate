@@ -83,6 +83,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import fcntl
 import hashlib
 import json
 import os
@@ -178,7 +179,7 @@ from physgate.evaluation.tiers.task import (
 )
 from physgate.orchestrator.binaries import ClaudeBinary, measure
 from physgate.orchestrator.common import utc_stamp
-from physgate.orchestrator.credentials import Credential, fingerprint
+from physgate.orchestrator.credentials import Credential, fingerprint, remove_secrets
 from physgate.orchestrator.dispatch import MAX_SESSION_FILE_BYTES, read_captured, read_stream_file
 from physgate.orchestrator.exceptions import InvocationError, RunConfigError, RunStateError
 from physgate.orchestrator.managed import answering_models
@@ -1269,10 +1270,15 @@ def run_baseline(
         if header.get("inputs_sha256") != given:
             msg = "the round is started again on other inputs than it began with"
             raise BaselineError(msg, refused_because="inputs_changed")
-        if (out / BASELINE_RECORD).exists():
-            # A round that ended is done: started again, it says so with its own record.
-            return BaselineRecord.model_validate_json((out / BASELINE_RECORD).read_bytes())
         round_id = str(header["round"])
+        finished = _ended_record(out)
+        if finished is not None:
+            # A round that ended is done: started again, it says so with its own record.
+            _write_whole(
+                out / ROUND_RECORD,
+                canonical_json({"format": 1, "round": round_id, "status": "done"}),
+            )
+            return finished
     elif out.exists():
         msg = "the round's directory exists; each round gets a directory of its own"
         raise BaselineError(msg, out=str(out))
@@ -1294,6 +1300,11 @@ def run_baseline(
             "disk, so every session is withheld the spelling that is there"
         )
         raise BaselineError(msg, out=str(out), refused_because="out_not_spelt_as_on_disk")
+    if resume:
+        # A session this round's own runner left running when it was killed outright is stopped
+        # first, its credential's files removed before and after; one of any other is not.
+        with _work_root_held(store, role):
+            stop_own_left_sessions(store, role, own_places(store, role, round_id))
     # Before anything else of the store is read: a session an earlier runner left running in the
     # work root (that runner killed outright, its hold gone with it) refuses the round in words.
     living = running_session(store, role)
@@ -1372,7 +1383,15 @@ def run_baseline(
         except Exception as exc:
             started = _stopped_on_an_error(ledger, trial.index, exc)
             if not protected:
-                raise
+                # A visible task may be named: its words are kept, chained, beside the entry.
+                msg = f"a visible trial stopped on an error ({type(exc).__name__}): {exc}"
+                raise BaselineError(
+                    msg,
+                    tier=trial.tier,
+                    entry=str(trial.index),
+                    refused_because="error",
+                    session_started=str(started).lower(),
+                ) from exc
             # A scorer's or an arm's error may name the task, a spec or a value of it; of a
             # protected trial only the tier and the error's kind are said, and nothing chained.
             msg = f"a {trial.tier} trial stopped on an error ({type(exc).__name__}), not repeated"
@@ -1416,10 +1435,11 @@ def run_baseline(
         rerun_of=ledger.lines[0].get("rerun_of"),
     )
     if external_set is not None:
-        write_new(out / EXTERNAL_RECORD, record_bytes(external_set))
+        _write_end(out / EXTERNAL_RECORD, record_bytes(external_set))
     if tiers is not None:
-        write_new(out / TIERS_RECORD, record_bytes(tiers))
-    write_new(out / BASELINE_RECORD, record_bytes(baseline))
+        _write_end(out / TIERS_RECORD, record_bytes(tiers))
+    # Last, and whole or not at all: a round is ended exactly when its record reads.
+    _write_end(out / BASELINE_RECORD, record_bytes(baseline))
     _write_whole(
         out / ROUND_RECORD, canonical_json({"format": 1, "round": round_id, "status": "done"})
     )
@@ -1571,11 +1591,122 @@ def _protected_brief(store: Path, role: Role, brief: str) -> bool:
     return False
 
 
+def _ended_record(out: Path) -> BaselineRecord | None:
+    """The round's record, where it was written whole; ``None`` where it was not, or is cut.
+
+    The record is the round's last write: a round killed before it, or while a record written
+    before the writes were whole was cut, has not ended, and its next start writes its end.
+    """
+    try:
+        data = (out / BASELINE_RECORD).read_bytes()
+    except FileNotFoundError:
+        return None
+    try:
+        return BaselineRecord.model_validate_json(data)
+    except ValueError:
+        return None
+
+
+def _write_end(path: Path, data: bytes) -> None:
+    """Write one of a round's end records whole, once; a start that ends the round again agrees.
+
+    The bytes a kill left are kept where they are the same bytes; where they are not whole JSON
+    (a write a kill cut), they are written whole in their place. A whole record that differs is
+    never replaced.
+
+    Raises:
+        BaselineError: a whole record of other bytes is there (``records_differ``).
+    """
+    if path.exists():
+        there = path.read_bytes()
+        if there == data:
+            return
+        try:
+            json.loads(there)
+        except ValueError:
+            pass
+        else:
+            msg = "an end record of the round is there with other contents; a person must look"
+            raise BaselineError(msg, refused_because="records_differ", record=path.name)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _write_whole(path, data)
+
+
+@contextlib.contextmanager
+def _work_root_held(store: Path, role: Role) -> Iterator[None]:
+    """The role's work root held, as a trial's place holds it, while a start settles what it left.
+
+    A runner of the round that still lives holds it for the whole of its trial, so a start
+    beside it is refused before it touches a session it may still be running.
+
+    Raises:
+        BaselineError: the work root is held (``session_lives``).
+    """
+    make_role_root(role_root(store, role))
+    fd = os.open(work_root(store, role), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            msg = (
+                "the role's work root is held by another runner (a trial's or a blind check's): "
+                "no start settles what a round left while it may still run"
+            )
+            raise BaselineError(msg, refused_because="session_lives") from None
+        yield
+    finally:
+        os.close(fd)
+
+
+#: How long a left session has to end on SIGTERM before SIGKILL, and how long it is waited for.
+LEFT_GRACE_S = 5.0
+LEFT_REAP_S = 5.0
+
+
+def stop_own_left_sessions(store: Path, role: Role, own: frozenset[Path]) -> list[str]:
+    """Stop a session the round left running when its runner was killed outright; credential first.
+
+    Only the round's own places are looked at, each by the process facts its arm wrote when it
+    spawned the session (the session leads a process group of its own). Its credential's files
+    are removed first, then its group is stopped (SIGTERM, then SIGKILL) where the facts' process
+    is still the session's own (its start time, or its id on its command line), and the files are
+    removed once more, since a session may write its own while it runs. A session whose facts
+    cannot be read never left the hold it is spawned in, and ran nothing. Returns the places
+    stopped, by name; one still alive after the wait is left, and refuses the round as it does.
+    """
+    from physgate.evaluation.tiers.store import _facts, _session_runs
+
+    stopped: list[str] = []
+    works = work_root(store, role)
+    for place in sorted(p for p in own if p.parent == works):
+        facts = _facts(works, (place.name, PLACE))
+        if isinstance(facts, str):
+            continue
+        pid, started, sid = facts["pid"], facts["started"], facts["session_id"]
+        if not _session_runs(pid, started, sid):
+            continue
+        sdir = place / PLACE / "session"
+        with contextlib.suppress(Exception):
+            remove_secrets(sdir / "state", sdir / "config")
+        for sig, wait in ((signal.SIGTERM, LEFT_GRACE_S), (signal.SIGKILL, LEFT_REAP_S)):
+            with contextlib.suppress(OSError):
+                os.killpg(pid, sig)
+            deadline = time.monotonic() + wait
+            while _session_runs(pid, started, sid) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if not _session_runs(pid, started, sid):
+                break
+        with contextlib.suppress(Exception):
+            remove_secrets(sdir / "state", sdir / "config")
+        stopped.append(place.name)
+    return stopped
+
+
 def in_order(planned: Sequence[Planned]) -> list[Planned]:
     """The order a round runs its entries in: the run set's, every entry with no figure last.
 
     An entry whose harness trial gave no figure is capped from its cell's other trials
-    (:mod:`.caps`), so it runs after them, at the end of the cell, as the draft orders it. An
+    (:mod:`.caps`), so it runs after them, once their totals are there to be read. An
     entry keeps its place in the run set as its index whatever its turn.
     """
     return [t for t in planned if not t.no_figure] + [t for t in planned if t.no_figure]
@@ -1897,7 +2028,8 @@ def _one_trial(trial: Planned, held: _Round, setup_for: SetupFor, *, word: bool)
     if stopped is not None:
         stopped_entry_refusal(index, str(stopped.get("because")))
     _require_before_started(trial, setup, held)
-    settled = _settled(trial, held, setup)
+    with _work_root_held(held.store, held.role):
+        settled = _settled(trial, held, setup)
     if settled is not None and settled != "again":
         return settled
     if settled is None:
@@ -2013,15 +2145,22 @@ def _require_the_round_s_checkout(ledger: Ledger, setup: RawSetup, index: int) -
 
 
 def _require_before_started(trial: Planned, setup: RawSetup, held: _Round) -> None:
-    """Hold the interpreter and the tool environment to the harness run's, before any line.
+    """Hold the checkout, the interpreter and the tools to the harness run's, before any line.
 
     The pair check holds both after the session too (:func:`.arms.compare.differences`); here a
     drift is a refusal before start, which spends nothing and leaves nothing, never a session.
 
     Raises:
-        BaselineError: ``interpreter_differs`` or ``tool_environment_differs``.
+        BaselineError: ``harness_differs`` (not in a development round, which forgives the
+            harness's own state), ``interpreter_differs`` or ``tool_environment_differs``.
     """
     index = trial.index
+    recorded_checkout = {"commit": trial.config.harness.commit, "clean": trial.config.harness.clean}
+    if not held.development and _checkout(setup) != recorded_checkout:
+        # Held after the session too, by the pair check; here a launch from another commit than
+        # the harness run's spends no session and no re-run.
+        msg = "the harness checkout here is not the one the harness run ran from"
+        raise BaselineError(msg, entry=str(index), refused_because="harness_differs")
     here = None if setup.role_python is None else setup.role_python.model_dump(mode="json")
     recorded = trial.config.role_python
     if here != (None if recorded is None else recorded.model_dump(mode="json")):
@@ -2280,7 +2419,15 @@ def _after_session(
         held.sleep(delay)
         return "again"
     scored = _scored(trial, held, record, harness)
-    found = differences(run_dir, work, role=held.role, task=task, record_dir=harness, cap=trial.cap)
+    found = differences(
+        run_dir,
+        work,
+        role=held.role,
+        task=task,
+        record_dir=harness,
+        # The pair's own total is read again from its run; a cap the rule took is held as taken.
+        cap=trial.cap if trial.no_figure else None,
+    )
     allowed = DEVELOPMENT_DIFFERENCES if held.development else frozenset()
     if end == "machine" and not answering_models(read_captured(stream).answered):
         # No model answered: the machine's end, as it was on the first go; there is no

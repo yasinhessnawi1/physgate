@@ -225,3 +225,36 @@ def test_the_harness_arm_s_records_are_audited_with_no_baseline_round(
     assert found["differences"] == {
         "harness.visible": [{"kind": "unrederivable", "index": 0, "field": None}]
     }
+
+
+def test_a_visible_trial_s_error_after_its_session_started_says_its_entry_and_that_it_ran(
+    tmp_path: Path,
+    store: StandInStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    scorer: None,
+) -> None:
+    import physgate.evaluation.baseline.runner as runner
+    import physgate.orchestrator.install as install
+
+    runs = run_set((harness_run(tmp_path / "runs", store.tasks["visible"][0], store), 0))
+    (tmp_path / "runs.json").write_text(runs.model_dump_json())
+    real = runner.run_baseline
+    arm = StandInArm(raises={1: RuntimeError("the tools changed while it ran")})
+
+    def stand_in(**given: Any) -> BaselineRecord:  # noqa: ANN401
+        return real(**{**given, "setup_for": setup_for, "arm": arm})
+
+    monkeypatch.setattr(runner, "run_baseline", stand_in)
+    monkeypatch.setattr(install, "prepare_install", lambda *_: tmp_path / "bin")
+    argv = ["baseline", "run", "--store", str(store.store), "--role", "control"]
+    argv += ["--version", store.version, "--runs", str(tmp_path / "runs.json")]
+    argv += ["--out", str(tmp_path / "o"), "--prices", PRICES]
+    assert main(argv) == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "format": 1,
+        "status": "refused",
+        "refused_because": "error",
+        "entry": 0,
+        "session_started": True,
+    }
