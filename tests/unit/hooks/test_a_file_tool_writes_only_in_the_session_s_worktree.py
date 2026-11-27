@@ -900,3 +900,12 @@ def test_a_relative_target_is_read_from_the_call_s_working_directory(
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
             code = runtime.main(argv, stdin, REGISTRY)
         assert code != 0 and OUTSIDE in err.getvalue(), (tool, err.getvalue())
+
+
+def test_the_refusal_says_what_holds_of_the_scratch_folder_and_no_more() -> None:
+    # In the words the role prompt uses: the folder's files are recorded, a record naming code in
+    # it is refused; nothing says that what code there computes is never a record.
+    said = paths.OUTSIDE_THE_WORKTREE.format(tool="Write")
+    assert "each file recorded by name and digest for the review" in said
+    assert "a record that names code in it is refused" in said
+    assert "accepted as a record" not in said
