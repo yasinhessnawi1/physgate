@@ -196,7 +196,10 @@ def test_the_session_s_stream_is_read_as_a_regular_file_or_refused_after_the_ses
     outcome = _within(
         lambda: _round(store, tmp_path, arm), stream if kind == "named pipe" else None
     )
-    assert isinstance(outcome, InvocationError), outcome
+    # A visible trial's error stops the round naming its entry, the refusal chained to it.
+    assert isinstance(outcome, BaselineError), outcome
+    assert isinstance(outcome.__cause__, InvocationError), outcome.__cause__
+    assert outcome.context["refused_because"] == "error"
 
 
 def _session_file(tmp_path: Path) -> Path:
