@@ -63,7 +63,8 @@ from physgate.orchestrator import design_rounds  # noqa: E402
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper  # noqa: E402
 from physgate.orchestrator.budget import SessionEnd  # noqa: E402
 from physgate.orchestrator.canaries import CanaryCheck  # noqa: E402
-from physgate.orchestrator.credentials import remove_secrets  # noqa: E402
+import physgate.orchestrator.cli as orchestrator_cli  # noqa: E402
+from physgate.orchestrator.credentials import Credential, remove_secrets  # noqa: E402
 from physgate.orchestrator.decompose import (  # noqa: E402
     Outcome,
     Plan,
@@ -83,6 +84,7 @@ from physgate.orchestrator.exceptions import (  # noqa: E402
     LimitNotResetError,
     ModelSeparationError,
     OrchestratorError,
+    RunConfigError,
     RunStateError,
 )
 from physgate.orchestrator.git import head_of  # noqa: E402
@@ -98,7 +100,12 @@ from physgate.orchestrator.protocols import (  # noqa: E402
 )
 from physgate.orchestrator.record import ReviewInstall, RunRecord  # noqa: E402
 from physgate.orchestrator.review_root_record import record_review_root  # noqa: E402
-from physgate.orchestrator.run_config import RunConfig, load_run_config  # noqa: E402
+from physgate.orchestrator.run_config import (  # noqa: E402
+    RunConfig,
+    account_in_effect,
+    load_run_config,
+    require_same_account,
+)
 from physgate.orchestrator.trajectory import seal  # noqa: E402
 from physgate.orchestrator.usage_limit import UsageLimit  # noqa: E402
 from physgate.orchestrator.waiting import (  # noqa: E402
@@ -302,6 +309,10 @@ class StandInDriver:
     #: The instant a limited session's stream gives its reset at; ``None``: its reset not read.
     limit_resets_at: str | None = None
     refused_credential: set[int] = field(default_factory=set)
+    #: The secret the command is started with; ``None``: the account is not held, as every row
+    #: but the account's drives. Given, each drive is held to the run's account as the command
+    #: holds it, with the person's word on a replaced credential as the command takes it.
+    secret: str | None = None
     #: The module directory the plan gives, from the minted id; ``modules/<id>`` by default.
     module_dir: Callable[[str], str] = lambda minted: f"modules/{minted}"
     #: Under a parameters' ``design_review: observe``, the plan's call and its review, scripted:
@@ -529,6 +540,19 @@ class StandInDriver:
             if waiting is not None:
                 return EXIT_WAITING_FOR_LIMIT
         config = load_run_config(run_dir / "run.json")
+        replaced = None
+        if self.secret is not None:
+            # The command's own account check, before anything is built (``_drive_run``).
+            credential = Credential(mode=config.auth, secret=self.secret)
+            try:
+                replaced = orchestrator_cli._credential_replaced(
+                    run_dir, config, credential, word=call.credential_replaced
+                )
+                if replaced is None:
+                    held = account_in_effect(config, read_events(run_dir / "events.jsonl"))
+                    require_same_account(config, credential, in_effect=held)
+            except (RunConfigError, RunStateError):
+                return 2  # as the command fails it: ``_fail``, exit 2
         run = RunGit(repo=call.target, run_dir=run_dir, run_id=config.run_id)
         plan = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, SubtaskPlanned)]
         keeper = StoreKeeper(run, run_dir / "store")
@@ -567,7 +591,11 @@ class StandInDriver:
         )
         word = "a person" if call.limit_reset else None
         try:
-            step = loop.resume(limit_reset_by=word) if call.resume else loop.run()
+            step = (
+                loop.resume(limit_reset_by=word, credential_replaced=replaced)
+                if call.resume
+                else loop.run()
+            )
         except LimitNotResetError:
             return EXIT_WAITING_FOR_LIMIT
         finally:

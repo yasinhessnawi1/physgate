@@ -185,7 +185,7 @@ from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decomposition_review import stop_left_review
 from physgate.orchestrator.design_rounds import journal_spend, rounds_on_the_limit
-from physgate.orchestrator.events import Event, Halted, parse_events
+from physgate.orchestrator.events import Event, Halted, Resumed, parse_events
 from physgate.orchestrator.exceptions import OrchestratorError, RunStateError
 from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
 from physgate.orchestrator.record import RunRecord
@@ -288,6 +288,9 @@ class Drive:
     #: The person's word that the account's usage limit reset (``--limit-reset``).
     limit_reset: bool
     log: Path
+    #: The person's word that the refused credential the run halted on was replaced
+    #: (``--credential-replaced``).
+    credential_replaced: bool = False
 
 
 class Driver(Protocol):
@@ -446,6 +449,8 @@ class CommandDriver:
         ]
         if call.resume and call.limit_reset:
             argv.append("--limit-reset")
+        if call.resume and call.credential_replaced:
+            argv.append("--credential-replaced")
         return self._main(argv, call.log)
 
     def _main(self, argv: list[str], log: Path) -> int:
@@ -960,6 +965,9 @@ class _Round:
     #: The trial a person's restart names, whose directory the round sets aside; ``None`` once
     #: used, or for none.
     set_aside_for: int | None = None
+    #: The person's word that the refused credential was replaced, for the one trial and attempt
+    #: whose run the round stood stopped at on it; ``None`` once used, or for none.
+    replaced_for: tuple[int, int] | None = None
     #: Why the round stands waiting, for a person or for the usage limit, for what it prints and
     #: writes in the output directory; ``None`` while it does not.
     waiting: dict[str, Any] | None = None
@@ -1018,6 +1026,7 @@ def run_round(
     resume: bool = False,
     limit_reset: bool = False,
     set_aside: int | None = None,
+    credential_replaced: bool = False,
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], datetime] = utc_now,
 ) -> tuple[Status, dict[str, Any]]:
@@ -1027,14 +1036,24 @@ def run_round(
     round stands at, held to the core's rule for a run's (:func:`resume_refusal`); ``set_aside``
     names the trial the round stands stopped at for a person, whose directory is then set aside on
     the person's word. Either given to a round that stands at no such wait is refused, before
-    anything is made. ``now`` is the clock a limit's wait is read against.
+    anything is made. ``credential_replaced`` is a person's word that the refused credential the
+    round stands stopped at was replaced with another secret: the trial's halted run is resumed
+    with that word (``physgate resume --credential-replaced``), which records both fingerprints;
+    given to a round that stands at no refused credential, it is refused before anything is
+    made. ``now`` is the clock a limit's wait is read against.
 
     Raises:
         RoundError: the round is refused, or stopped at a step it names; nothing of a task.
     """
-    if not resume and (set_aside is not None or limit_reset):
+    if not resume and (set_aside is not None or limit_reset or credential_replaced):
         # A fresh round stands at no wait: a person's word for one is refused before anything.
-        word = "set_aside" if set_aside is not None else "limit_reset"
+        word = (
+            "set_aside"
+            if set_aside is not None
+            else "limit_reset"
+            if limit_reset
+            else "credential_replaced"
+        )
         msg = "a fresh round stands at no wait a person's word is for"
         raise _refuse(f"{word}_not_waiting", msg)
     out = inputs.out
@@ -1089,13 +1108,23 @@ def run_round(
             order=order,
             tasks={b: t for tier in found.tasks.values() for b, t in tier.items()},
         )
-        status = _go(ctx, found, given, pins, dead, lock, claimed, limit_reset, set_aside)
+        words = _Words(limit_reset, set_aside, credential_replaced)
+        status = _go(ctx, found, given, pins, dead, lock, claimed, words)
     except BaseException as exc:
         # A process that ends as it should leaves no pid behind; a kill leaves its own.
         _release(lock, claimed=claimed[0] and isinstance(exc, Exception))
         raise
     _release(lock, claimed=claimed[0])
     return status, _summary(ctx, done=status in ("done", "done_without_caps"))
+
+
+@dataclass(frozen=True)
+class _Words:
+    """A person's words a restart is given: each for the one wait the round stands at."""
+
+    limit_reset: bool = False
+    set_aside: int | None = None
+    credential_replaced: bool = False
 
 
 def _go(
@@ -1106,8 +1135,7 @@ def _go(
     dead: int | None,
     lock: int,
     claimed: list[bool],
-    limit_reset: bool,
-    set_aside: int | None,
+    words: _Words,
 ) -> Status:
     """The round, once its lock is held and its ledger read: every trial in order, then its sets."""
     inputs = ctx.inputs
@@ -1122,6 +1150,7 @@ def _go(
     current: list[_Planned | None] = [None]
     try:
         # Read before this process acts: what the round stood waiting at when it was started.
+        set_aside, limit_reset = words.set_aside, words.limit_reset
         stopped = _stopped_for_a_person_at(ctx)
         if set_aside is not None and set_aside != stopped:
             msg = (
@@ -1135,6 +1164,12 @@ def _go(
             if ctx.reset_for is None:
                 msg = "the round stands waiting for no usage limit; the word is for none"
                 raise _refuse("limit_reset_not_waiting", msg)
+        if words.credential_replaced:
+            waiting_on = _credential_at_start(ctx)
+            if waiting_on is None:
+                msg = "the round stands stopped at no refused credential; the word is for none"
+                raise _refuse("credential_replaced_not_waiting", msg)
+            ctx.replaced_for = waiting_on
         if not ctx.lines:
             header = {
                 "kind": "round",
@@ -1614,11 +1649,50 @@ def _stopped_for_a_person_at(ctx: _Round) -> int | None:
         return None
     i = planned.index
     state = _state(ctx.run_dir(i, last))
+    if state == "run" and _halted_on_a_credential(ctx.run_dir(i, last)):
+        # A run halted on a refused credential: a person resumes it on the credential put right,
+        # or sets its directory aside and the trial is decomposed afresh, spending nothing.
+        return i
     if state == "spent" and ctx.of(i, "superseded"):
         return i
     if state == "free" and any(x["attempt"] != last for x in ctx.of(i, "left")):
         return i
     return None
+
+
+def _halted_on_a_credential(run_dir: Path) -> bool:
+    """Whether the run in ``run_dir`` stands halted on a refused credential, by its own log."""
+    _data, events = _events(run_dir)
+    halt = None if events is None else machine_end(events)
+    return halt is not None and halt.reason == CREDENTIAL_REFUSED
+
+
+def _credential_at_start(ctx: _Round) -> tuple[int, int] | None:
+    """The trial and attempt the round stood stopped at on a refused credential, read before acting.
+
+    Its run halted on one, or its decomposition met one (the ``credential`` line closing it, no
+    fresh one placed yet). The person's word is for that stop alone; a fresh decomposition
+    records the credential it is made on, so there the word is taken and nothing needs it.
+    """
+    standing = _standing(ctx)
+    if standing is None:
+        return None
+    planned, last, closing = standing
+    i = planned.index
+    if closing is not None:
+        return (i, last) if closing["kind"] == "credential" else None
+    run_dir = ctx.run_dir(i, last)
+    if _state(run_dir) == "run" and _halted_on_a_credential(run_dir):
+        return (i, last)
+    return None
+
+
+def _replaced(ctx: _Round, i: int, attempt: int) -> bool:
+    """Whether the person's word on the credential is for this run's resume; used once, if it is."""
+    if ctx.replaced_for != (i, attempt):
+        return False
+    ctx.replaced_for = None
+    return True
 
 
 # One trial. ---------------------------------------------------------------------------------
@@ -1845,11 +1919,16 @@ def _step(ctx: _Round, planned: _Planned, attempt: int) -> Status | None:
             )
             return None
     elif halt is not None and halt.reason == CREDENTIAL_REFUSED:
-        # No attempt either: the run waits for a person, and is resumed once started again.
+        # No attempt either: the run waits for a person, and is resumed once started again, on
+        # the credential put right, or on another secret where the person says it was replaced.
+        if ctx.set_aside_for == i:
+            return _set_aside_on_a_credential(ctx, planned, attempt, run_dir, spent)
         if _touched(ctx, i, attempt):
             return _wait_for_a_person(ctx, planned, attempt, CREDENTIAL_REFUSED)
         ctx.acted.add(("credential", i, attempt))
-        return _drive(ctx, planned, attempt, "resume", resume=True)
+        return _drive(
+            ctx, planned, attempt, "resume", resume=True, replaced=_replaced(ctx, i, attempt)
+        )
     elif halt is not None and halt.reason == USAGE_LIMIT:
         # Never an end: the run is resumed past the limit, however often it met it, once the
         # core would resume it; until then the round waits, saying until when.
@@ -1862,6 +1941,33 @@ def _step(ctx: _Round, planned: _Planned, attempt: int) -> Status | None:
         ctx.sleep(ctx.delay())
         return _drive(ctx, planned, attempt, "resume", resume=True)
     _assemble(ctx, planned, attempt, events)
+    return None
+
+
+def _set_aside_on_a_credential(
+    ctx: _Round, planned: _Planned, attempt: int, run_dir: Path, spent: int
+) -> Status | None:
+    """Set aside, on a person's word, a run halted on a refused credential: no attempt spent.
+
+    The run stays where it is, for the exposure scan, named on a ``credential`` line as the
+    person's act with what it spent; the trial is decomposed afresh, as after a decomposition
+    that met a refused credential.
+    """
+    i = planned.index
+    _left_behind(ctx, planned, attempt, run_dir)
+    ctx.set_aside_for = None
+    ctx.add(
+        {
+            "kind": "credential",
+            "index": i,
+            "attempt": attempt,
+            "run_id": ctx.run_id(i, attempt),
+            "tokens": spent,
+            "by": "operator",
+            "from_run": True,
+            "held": _held(run_dir),
+        }
+    )
     return None
 
 
@@ -1965,7 +2071,13 @@ def _superseded_without_a_run(
 
 
 def _drive(
-    ctx: _Round, planned: _Planned, attempt: int, command: str, *, resume: bool
+    ctx: _Round,
+    planned: _Planned,
+    attempt: int,
+    command: str,
+    *,
+    resume: bool,
+    replaced: bool = False,
 ) -> Status | None:
     """Drive or resume the trial's run, the person's word on the limit given if it is for it."""
     i = planned.index
@@ -1979,6 +2091,7 @@ def _drive(
             review_root=run_dir / REVIEW,
             limit_reset=resume and _the_word(ctx, i, attempt),
             log=_log(ctx, i, attempt, "drive"),
+            credential_replaced=resume and replaced,
         )
     )
     status = _waits(code, command, i, attempt)
@@ -2272,6 +2385,8 @@ def _audit(ctx: _Round) -> dict[str, Any]:
                 "superseded_count": len(gone),
                 "superseded": gone,
                 "left": [_named(x, _LEFT) for x in ctx.of(planned.index, "left")],
+                # Each refused credential a person's word replaced in the run: both fingerprints.
+                "credential_replaced": _replacements(Path(line["run_dir"])),
             }
         )
 
@@ -2290,12 +2405,22 @@ def _audit(ctx: _Round) -> dict[str, Any]:
         "no_cap": _no_cap(ctx, header["inputs"]["tiers"]),
         "superseded": every("superseded", _SUPERSEDED),
         "left": every("left", _LEFT),
-        "credential_refused": every("credential", ("index", "attempt", "run_id", "tokens")),
+        "credential_refused": every("credential", ("index", "attempt", "run_id", "tokens", "by")),
         "usage_limit": every("limit", ("index", "attempt", "run_id", "tokens")),
         "lock_taken_over": every("lock_taken_over", ("pid",)),
         "register_before": header["register_before"],
         "register_after": None if ended is None else ended["register_after"],
     }
+
+
+def _replacements(run_dir: Path) -> list[dict[str, Any]]:
+    """Each refused credential a person's word replaced in the run, as its log records them."""
+    events = _events(run_dir)[1] or []
+    return [
+        e.credential_replaced.model_dump(mode="json")
+        for e in events
+        if isinstance(e, Resumed) and e.credential_replaced is not None
+    ]
 
 
 def _summary(ctx: _Round, *, done: bool) -> dict[str, Any]:

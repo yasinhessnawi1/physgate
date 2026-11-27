@@ -82,6 +82,7 @@ from physgate.orchestrator.events import (
     ContractRuled,
     ContractTested,
     ContractValue,
+    CredentialReplaced,
     DecisionsSealed,
     DecisionTaken,
     Decomposed,
@@ -679,6 +680,7 @@ class Loop:
         confirm: Sequence[str] = (),
         confirmed_by: str | None = None,
         limit_reset_by: str | None = None,
+        credential_replaced: CredentialReplaced | None = None,
     ) -> Step:
         """Take over a run a previous process left, then drive it.
 
@@ -693,8 +695,10 @@ class Loop:
         decision is taken before every stream a previous process left has been read. ``confirm``
         names items whose decision is held because it was written while a session ran without
         the OS layer; ``confirmed_by`` is the operator who confirms them on the command line
-        (ARCH-133). Only then does such a decision act. ``limit_reset_by`` is the operator who
-        says on the command line that the account's usage limit has reset, where its reset could
+        (ARCH-133). Only then does such a decision act. ``credential_replaced`` is a person's
+        word that a run halted on a refused credential goes on on another secret: recorded on the
+        ``Resumed`` that follows, and refused for any other run. ``limit_reset_by`` is the operator
+        who says on the command line that the account's usage limit has reset, where its reset could
         not be read. It is recorded on the ``Resumed`` that follows; a resume that stops early
         for another reason resumes nothing, so nothing is recorded, and the word is given again
         on the resume that goes on.
@@ -708,6 +712,16 @@ class Loop:
                 allow the layer's absence.
         """
         limit_word = self._limit_reset(limit_reset_by)
+        if credential_replaced is not None:
+            halted_now = self.state.halted
+            if halted_now is None or halted_now.reason != "credential_refused":
+                msg = "a credential is replaced only for a run halted on a refused credential"
+                raise RunStateError(msg, run_dir=str(self.run_dir))
+            if self.state.interrupted() is None:
+                # The word is recorded on the attempt's resume: with none to name, nothing would
+                # say from where on the run drew on the new secret.
+                msg = "the run halted on a refused credential names no attempt to resume"
+                raise RunStateError(msg, run_dir=str(self.run_dir))
         self._require_os_layer()
         if self._took_an_owed_halt():
             return self._drive()
@@ -744,6 +758,7 @@ class Loop:
                     attempt=now.number,
                     point=self.state.resume_point(now),
                     limit_reset_by=limit_word,
+                    credential_replaced=credential_replaced,
                 )
             )
         elif (merge := self.state.halted_at_a_sign_off_line()) is not None:

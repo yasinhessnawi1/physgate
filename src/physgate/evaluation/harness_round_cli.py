@@ -2,7 +2,8 @@
 
 ``physgate harness-round --store S --role control --version V --tier visible [--tier
 validation --tier held_out] --trials K --seed-base B --params P --run-root R --target-from T
---install I --prices DATE --out O [--tasks N] [--resume] [--limit-reset] [--set-aside I]`` runs
+--install I --prices DATE --out O [--tasks N] [--resume] [--limit-reset] [--set-aside I]
+[--credential-replaced]`` runs
 one harness trial per task and trial of the named tiers, in a fixed order, each a run decomposed
 and driven by this process on a fresh clone of ``T`` inside its own run directory beneath the
 registered run root ``R`` (:mod:`physgate.evaluation.harness_round`). It writes the visible
@@ -22,8 +23,14 @@ halt, or the word, used once and named on the line of the directory it makes. ``
 is the person's word on trial ``I``'s directory, where the round stands stopped for a person: a
 decomposition that spent its call and left no run after the trial's one more go, or a second
 directory with nothing but its parameters. It is set aside, recorded as the person's act, and the
-trial decomposed again. ``--tasks N`` runs the first ``N`` tasks of each named tier in the round's
-order: a shakedown, whose run sets the counting rule refuses as not covering their tier.
+trial decomposed again; a run halted on a refused credential, set aside so, is decomposed afresh
+and spends nothing. ``--credential-replaced`` is the person's word that the refused credential
+the round stands stopped at was replaced with another secret: the trial's halted run is resumed
+with it (``physgate resume --credential-replaced``), which records both fingerprints on the run's
+resume line and prints them; the round's record names them per trial. Without it a run halted on
+a refused credential resumes only on the secret it began on. ``--tasks N`` runs the first ``N``
+tasks of each named tier in the round's order: a shakedown, whose run sets the counting rule
+refuses as not covering their tier.
 
 It prints one JSON line of counts and digests, never a task, and writes the same into ``O``. Exit
 0 once every trial is assembled; 3 once every trial is assembled but some give the baseline no cap
@@ -77,6 +84,15 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
             "say that the account's usage limit has reset, for the wait the round stands at; "
             "exit 75 is not a wait: sleep until the printed resume_after between starts, and "
             "never loop this word"
+        ),
+    )
+    run.add_argument(
+        "--credential-replaced",
+        dest="credential_replaced",
+        action="store_true",
+        help=(
+            "say that the refused credential the round stands stopped at was replaced with "
+            "another secret: the trial's halted run is resumed on it, both fingerprints recorded"
         ),
     )
     run.add_argument(
@@ -146,6 +162,7 @@ def _run(args: argparse.Namespace) -> int:
             resume=args.resume,
             limit_reset=args.limit_reset,
             set_aside=args.set_aside,
+            credential_replaced=args.credential_replaced,
         )
     except RoundError as exc:
         return _refused(exc.context.get("refused_because", "refused"), str(exc))
