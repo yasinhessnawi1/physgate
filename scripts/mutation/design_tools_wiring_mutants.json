@@ -597,6 +597,20 @@
   ]
  },
  {
+  "name": "the_command_s_folder_is_named_through_a_link",
+  "file": "src/physgate/orchestrator/derived.py",
+  "old": "    work = Path(os.path.realpath(tempfile.mkdtemp(prefix=\"physgate-derived-\")))\n",
+  "new": "    work = Path(tempfile.mkdtemp(prefix=\"physgate-derived-\"))\n",
+  "tests": [
+   "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+  ],
+  "data": [
+   "tests/unit/hooks/hook_helpers.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ]
+ },
+ {
   "name": "the_withheld_places_are_asked_once",
   "file": "src/physgate/oslayer/regeneration.py",
   "old": "            denied = tuple(withheld())\n",
