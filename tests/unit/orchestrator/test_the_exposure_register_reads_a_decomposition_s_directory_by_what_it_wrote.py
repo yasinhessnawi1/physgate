@@ -866,3 +866,28 @@ def test_a_settle_mark_keyed_by_the_directory_s_path_alone_is_not_honoured(
         patch.setattr(exposure, "_settle_key", by_path)
         _settle(tier, directory)
     assert SETTLE in str(_refused(tier))
+
+
+@pytest.mark.parametrize("record", ["run.json", "raw.json"])
+def test_a_settle_never_passes_over_a_run_nested_in_a_directory_whose_parameters_record_is_torn(
+    tier: OnTier, record: str
+) -> None:
+    # Settled, every entry of such a directory but one holding a run at its own top is passed
+    # over: a run two levels down would be read by nobody afterwards.
+    directory = _by_hand(tier, "torn", held_out=_recorded(tier))
+    nested = directory / "kept" / "inner"
+    if record == "run.json":
+        nested = harness_run(nested, tier.made.tasks["visible"][0], tier.made)
+        incident_in(nested)
+    else:
+        nested.mkdir(parents=True)
+        (nested / "raw.json").write_text("{}\n")
+    _unreadable_params(tier, directory)
+    _refused(tier)
+    with pytest.raises(ExposureError) as settling:
+        _settle(tier, directory)
+    assert settling.value.context.get("refused_because") == "settle_passes_over_a_run"
+    named = str(nested.relative_to(directory) / record)
+    assert named in str(settling.value), str(settling.value)
+    # Nothing was written: the register refuses the directory as before.
+    _refused(tier)

@@ -640,3 +640,33 @@ def test_a_role_session_is_told_where_a_throwaway_helper_goes() -> None:
     assert "each file recorded by name and digest for your review" in told
     assert "a record that names code in it is refused" in told
     assert "nothing it computes is accepted as a record" not in told
+
+
+@pytest.mark.parametrize("swap", ["another directory", "another module's worktree"])
+def test_a_directory_moved_to_the_worktree_s_path_is_not_cleared_and_its_clearing_is_incomplete(
+    tmp_path: Path, swap: str
+) -> None:
+    # A session without the OS layer can move its worktree away and another directory to its
+    # path (two renames). The orchestrator's clearing after the session acts on the directory it
+    # was given at the session's start, and on no other.
+    run, worktree = _run(tmp_path)
+    victim = worktree.parent / "victim"
+    if swap == "another module's worktree":
+        _git(run.repo, "worktree", "add", "-q", "-b", "other-1", str(victim))
+    else:
+        victim.mkdir()
+    (victim / SCRATCH).mkdir(parents=True)
+    (victim / SCRATCH / "another-trial-note.txt").write_text("another trial's bytes\n")
+    (victim / "mod" / "__pycache__").mkdir(parents=True)
+    (victim / "mod" / "__pycache__" / "x.cpython-312.pyc").write_bytes(b"compiled")
+    before = _left(victim)
+    held = os.lstat(worktree)
+    os.rename(worktree, worktree.parent / "moved-away")
+    os.rename(victim, worktree)
+    cleared = left_out.clear_left_out(worktree, repo=run.repo)
+    assert _left(worktree) == before, (
+        "the clearing emptied a directory moved to the worktree's path"
+    )
+    assert not cleared.complete
+    assert cleared.scratch == () and cleared.bytecode == (), "another directory's files recorded"
+    del held

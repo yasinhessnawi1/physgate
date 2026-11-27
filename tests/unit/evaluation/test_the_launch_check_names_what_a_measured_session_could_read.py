@@ -193,3 +193,31 @@ def test_a_place_deeper_than_any_bound_is_walked_whole(s: SimpleNamespace) -> No
     assert ("run_material_readable", str(deep)) in places
     assert ("run_material_readable", str(left)) in places
     assert "not_established" not in {f.kind for f in found}
+
+
+@pytest.mark.parametrize("how", ["untracked", "ignored", "both"])
+def test_files_git_does_not_track_or_ignores_in_the_source_s_own_directory_are_counted(
+    s: SimpleNamespace, how: str
+) -> None:
+    # Every session reads the source's own directory, not only what a clone of it holds.
+    if how in ("untracked", "both"):
+        (s.source / "left.py").write_text("an earlier run's work, never committed\n")
+        (s.source / "notes").mkdir()
+        (s.source / "notes" / "a.txt").write_text("x\n")
+    if how in ("ignored", "both"):
+        (s.source / ".gitignore").write_text(".physgate/\n")
+        _git(s.source, "add", ".gitignore")
+        _git(s.source, "commit", "-q", "-m", "ignore")
+        (s.source / ".physgate").mkdir()
+        (s.source / ".physgate" / "scratch.txt").write_text("a session's leftover\n")
+    code, lines = _check(s)
+    assert code == 1, lines
+    said = [line for line in lines if line.startswith("finding: source_files:")]
+    assert len(said) == 1, lines
+    if how in ("untracked", "both"):
+        assert "2 files git does not track" in said[0], said
+    if how in ("ignored", "both"):
+        assert "1 file git ignores" in said[0], said
+    # By kind and count alone: no file's name, nor anything it holds.
+    for word in ("left.py", "a.txt", "scratch.txt", "earlier run", "leftover"):
+        assert word not in "\n".join(lines), lines

@@ -209,3 +209,41 @@ def test_the_same_directory_reached_through_a_linked_parent_is_still_the_worktre
     code, said, _ = s.hooks.write("Write", str(worktree / "kept.txt"))
     assert code == 0, said
     assert not runtime.worktree_moved(s.hooks.config)
+
+
+@pytest.mark.parametrize("kind", ("role-in-the-layer", "role-hooks-only"))
+def test_nothing_outside_the_session_s_home_is_put_back_through_a_link_above_a_root_in_it(
+    kind: str, outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A put-back root two levels beneath the session's home (git's own configuration), and the
+    # level between made a link to another directory that holds an entry of the root's name: the
+    # sentinel runs outside the sandbox, so what it moves aside or writes there, no command of the
+    # session could have reached.
+    import shutil
+
+    s = installed(kind, outside_tmp, monkeypatch)
+    config = s.hooks.config
+    nested = [
+        Path(r.path)
+        for r in config.protected_roots
+        if r.watch == "revert" and r.path.endswith("/.config/git")
+    ]
+    assert nested, [r.path for r in config.protected_roots]
+    root = nested[0]
+    other = s.lay.home / "operator-config"
+    (other / root.name).mkdir(parents=True)
+    (other / root.name / "config").write_text("[user]\n\tname = the operator\n")
+    before = _tree(other)
+    if root.parent.is_dir() and not root.parent.is_symlink():
+        shutil.rmtree(root.parent)
+    os.symlink(other, root.parent)
+    own = s.worktree / "notes.md"
+    own.write_text("the session's own\n")
+    told = []
+    for _ in range(2):
+        code, said, _ = s.hooks.call(
+            "PreToolUse", tool_name="Read", tool_input={"file_path": str(own)}
+        )
+        told.append((code, said[:300]))
+    assert _tree(other) == before, told
+    assert (other / root.name / "config").read_text() == "[user]\n\tname = the operator\n"

@@ -16,7 +16,9 @@ nothing. The windows:
 - a resume that has stopped and read what an earlier process left running, before its record;
 - a review that wrote its end on disk before the loop read what it showed;
 - a review whose exposure reached the loop, as the loop writes that exposure or the review's tokens;
-- a review killed in its repair resume, whose repair stream showed the material.
+- a review killed in its repair resume, whose repair stream showed the material;
+- a review whose stream holds a line that cannot be read, which every scan counts as the canary:
+  the resume scans what it left before it redacts it, since the redaction replaces that line.
 
 A run killed before anything showed held-out material records no exposure and leaves its version
 open: the rows above do not pass by marking every killed run.
@@ -69,6 +71,9 @@ from test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_
 from test_a_session_s_findings_are_on_the_record_before_it_is_ended import (  # noqa: E402
     EndedBySession,
     _session_dir,
+)
+from test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote import (  # noqa: E402, E501
+    UNREADABLE_LINES,
 )
 
 from physgate.evaluation.tiers.heldout import tier_digest  # noqa: E402
@@ -211,6 +216,29 @@ class RepairedReviewer(EndedReviewer):
         (sdir / "ended.json").write_text(json.dumps(ENDED))
         self.hook(sid, 999_998, STARTED)
         (sdir / "stdout-repair-1.jsonl").write_text(self.stream)
+        raise KilledError
+
+
+@dataclass
+class UnreadableReviewer(EndedReviewer):
+    """Its review ends on disk with ``data`` as its stream, as bytes, and the process dies."""
+
+    data: bytes = b""
+
+    def review(self, artefact: Any) -> Any:  # noqa: ANN401
+        if self.seen:
+            return super().review(artefact)
+        self.seen.append(artefact)
+        assert self.hook is not None and self.review_root is not None
+        sid = "rev-sess-1"
+        self.hook(sid, 999_999, STARTED)
+        sdir = self.review_root / sid / "session"
+        sdir.mkdir(parents=True)
+        (sdir / "owner.json").write_text(json.dumps({"run_id": "run-1"}))
+        record = {"pid": 999_999, "started": STARTED, "session_id": sid, "kind": "reviewer"}
+        (sdir / "process.json").write_text(json.dumps(record))
+        (sdir / "stdout.jsonl").write_bytes(self.data)
+        (sdir / "ended.json").write_text(json.dumps(ENDED))
         raise KilledError
 
 
@@ -456,4 +484,17 @@ def test_a_review_killed_in_its_repair_resume_is_exposed_once_by_its_repair_stre
     assert _exposures(lines(rig)) == []
     taken_over(rig)
     assert kinds(lines(rig))[-1] == "halted"
+    _exposed_once(tier, rig)
+
+
+@pytest.mark.parametrize("line", UNREADABLE_LINES, ids=["not UTF-8", "a key twice"])
+def test_a_review_whose_stream_holds_a_line_that_cannot_be_read_is_exposed_once_at_the_resume(
+    tier: OnTier, line: bytes
+) -> None:
+    clean = _tool_output("the plan reads well").encode()
+    rig = _reviewed(tier, UnreadableReviewer(data=clean + line))
+    _killed(rig)
+    assert _exposures(lines(rig)) == []
+    taken_over(rig)
+    assert kinds(lines(rig))[-1] == "halted", "the run went on past a line no scan can read"
     _exposed_once(tier, rig)
