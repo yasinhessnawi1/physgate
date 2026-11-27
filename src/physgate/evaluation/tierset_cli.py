@@ -50,7 +50,12 @@ inside a harness session's environment, as defence in depth only.
 - ``physgate tiers mark-exposed --withheld W --version V --by NAME --reason TEXT`` marks a
   version exposed by hand, for a read no hook sees: a person's. As a second measure for that
   person, it asks for a terminal (``not_at_a_terminal``) and a name; neither is what stops a
-  session, which can make a terminal of its own.
+  session, which can make a terminal of its own. With ``--settles DIR``, the mark also settles
+  a directory beneath the run roots that the register refuses because a record or a stream of
+  it cannot be read: the person has looked at it, and what of it cannot be read is passed over
+  from then on, for as long as it is the directory that was looked at (the register keeps only
+  a digest of the directory's identity and of its parameters record, never its path; another
+  directory made at the same path is not settled).
 - ``physgate tiers add-run-root --withheld W --path DIR`` adds a directory beneath which the
   role's runs are made; a measured run made anywhere else is refused. A directory the scan
   could not read whole, with the roots there already, is refused and nothing is appended.
@@ -107,6 +112,8 @@ def add_parser(subparsers: Any) -> None:
             sub.add_argument("--version", required=True)
             sub.add_argument("--by", required=True)
             sub.add_argument("--reason", required=True)
+            # A directory beneath the run roots the register refuses, looked at by the person.
+            sub.add_argument("--settles", type=Path)
         elif name == "add-run-root":
             sub.add_argument("--path", type=Path, required=True)
         else:
@@ -299,7 +306,9 @@ def _write(args: argparse.Namespace) -> int:
                 said = {"refused_because": "not_at_a_terminal"}
                 print(json.dumps(said, sort_keys=True))
                 return 1
-            exposure.mark_exposed(store, args.role, args.version, by=args.by, reason=args.reason)
+            exposure.mark_exposed(
+                store, args.role, args.version, by=args.by, reason=args.reason, settles=args.settles
+            )
             said = {"marked": args.version}
         else:
             said = {"added": exposure.add_run_root(store, args.role, args.path)}

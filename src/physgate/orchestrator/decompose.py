@@ -101,6 +101,7 @@ from physgate.orchestrator.managed import (
     system_managed_facts,
 )
 from physgate.orchestrator.merge import RunGit
+from physgate.orchestrator.params_record import record_params
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR as INTEGRATION_MODULE_DIR
 from physgate.orchestrator.plan import REQUIREMENT_MAX_CHARS as REQUIREMENT_MAX_CHARS
 from physgate.orchestrator.plan import SPEC_MAX_CHARS as SPEC_MAX_CHARS
@@ -1932,6 +1933,80 @@ def require_fresh(run_dir: Path, *, rounds: bool = True) -> None:
             "nothing here deletes it"
         )
         raise RunStateError(msg, run_dir=str(run_dir))
+
+
+#: What a decomposition writes in a fresh run directory before its run's configuration: its
+#: parameters record and its review root's (each written apart, then renamed into place), and
+#: its own folder, where its calls run and its rounds and review records lie.
+DECOMPOSITION_LEFTOVERS = frozenset(
+    {
+        "params_source.json",
+        ".params_source.json.part",
+        "review_root.json",
+        ".review_root.json.part",
+        "decomposition",
+    }
+)
+
+
+def require_only_its_own(run_dir: Path, *, given: Sequence[Path]) -> None:
+    """Refuse a run directory that holds anything but a decomposition's leftovers and its inputs.
+
+    The exposure register reads a directory holding a decomposition's parameters record as that
+    decomposition's, passing over what the decomposition puts there; a decomposition made in a
+    folder that holds runs would make it the decomposition's too. So the run directory holds
+    nothing but what an earlier, killed decomposition into it wrote
+    (:data:`DECOMPOSITION_LEFTOVERS`) and what this one is given, where that lies in the run
+    directory itself (``given``: the target, the review root, the parameters file, the brief).
+    A directory not there yet holds nothing.
+
+    Raises:
+        RunStateError: it holds anything else, or cannot be listed.
+    """
+    try:
+        names = os.listdir(run_dir)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        msg = "the run directory cannot be listed, so what it holds cannot be told"
+        raise RunStateError(msg, run_dir=str(run_dir), why=repr(exc)) from exc
+    here = Path(os.path.realpath(run_dir))
+    inputs = {
+        Path(os.path.realpath(p)).name for p in given if Path(os.path.realpath(p)).parent == here
+    }
+    other = [name for name in names if name not in DECOMPOSITION_LEFTOVERS | inputs]
+    if other:
+        msg = (
+            f"the run directory holds {len(other)} entr{'y' if len(other) == 1 else 'ies'} that "
+            "no decomposition writes and this one is not given (its target, review root, "
+            "parameters or brief): a decomposition is made in a directory of its own, so that "
+            "nothing beneath it, a run least of all, is read as a part of it; decompose into a "
+            "fresh run directory"
+        )
+        raise RunStateError(msg, run_dir=str(run_dir))
+
+
+def open_decomposition(
+    run_dir: Path, *, params: Path, target: Path, brief: Path, review_root: Path | None
+) -> None:
+    """What ``decompose`` refuses and writes first in its run directory, before anything runs.
+
+    The directory is refused unless fresh (:func:`require_fresh`) and holding only what is its
+    own (:func:`require_only_its_own`); then the parameters file is recorded with the target, the
+    first thing a decomposition writes. The parameters name the held-out canaries, so every
+    session of the run is installed with that file withheld, wherever it lies; and where the
+    target's clone lies in the run directory, the exposure register knows it as the
+    decomposition's own by this record. ``review_root`` is the root the plan's reviewer runs
+    under, as every reader takes it, where one is named.
+
+    Raises:
+        RunStateError: the directory is refused, or the record could not be written.
+    """
+    require_fresh(run_dir)
+    require_only_its_own(
+        run_dir, given=[target, params, brief, *([] if review_root is None else [review_root])]
+    )
+    record_params(run_dir, params, target=target)
 
 
 def _json_line(raw: bytes) -> dict[str, Any]:

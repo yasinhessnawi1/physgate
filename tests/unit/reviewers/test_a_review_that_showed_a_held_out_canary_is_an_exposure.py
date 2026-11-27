@@ -69,6 +69,8 @@ def _review(
     totals_hold: bool = True,
     gone: bool = False,
     line: MessageUsage | None = None,
+    after: bytes = b"",
+    redacting: bool = False,
 ) -> object:
     read = tmp_path / "rs" / "review" / "read"
     read.mkdir(parents=True)
@@ -79,7 +81,7 @@ def _review(
         "message": {"content": [{"type": "tool_result", "content": shown}]},
     }
     if not gone:
-        stdout.write_text(json.dumps(tool_output) + "\n")
+        stdout.write_bytes((json.dumps(tool_output) + "\n").encode() + after)
     captured = SimpleNamespace(result=None, usage=(), answered={MODEL}, tampered=tampered)
 
     def totals(*_a: Any, **_k: Any) -> MessageUsage | None:  # noqa: ANN401
@@ -99,7 +101,8 @@ def _review(
     monkeypatch.setattr(ClaudeReviewer, "_spawn", lambda self, *a, **k: (stdout, 0, False))
     monkeypatch.setattr(claude, "review_prompt", lambda *a, **k: "p")
     monkeypatch.setattr(claude, "remove_secrets", lambda *a: None)
-    monkeypatch.setattr(claude, "redact", lambda *a: None)
+    if not redacting:
+        monkeypatch.setattr(claude, "redact", lambda *a: None)
     monkeypatch.setattr(claude, "read_captured", lambda path, data=None: captured)
     monkeypatch.setattr(claude, "compaction_line", totals)
     monkeypatch.setattr(claude, "verdict_schema", lambda *a, **k: {})
@@ -173,6 +176,24 @@ def test_an_empty_stream_is_read_as_the_session_ending_with_no_result(
     with pytest.raises(ReviewUnavailableError) as raised:
         _review(tmp_path, monkeypatch, "", gone=True)
     assert raised.value.cause == "infrastructure"
+
+
+@pytest.mark.parametrize(
+    "unreadable",
+    [
+        b'{"type":"user","message":{"content":"caf\xe9"}}\n',
+        b'{"type":"user","type":"assistant","message":{"content":"x"}}\n',
+    ],
+    ids=["not UTF-8", "a key twice"],
+)
+def test_a_line_the_redaction_replaces_whole_is_scanned_as_it_was_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unreadable: bytes
+) -> None:
+    # A line that cannot be read counts as the canary. The redaction replaces such a line whole,
+    # so the stream is scanned before it, as the exposure register and the next command scan it.
+    with pytest.raises(Exception) as raised:  # noqa: PT011 - which end it came to is the point
+        _review(tmp_path, monkeypatch, "nothing held out", after=unreadable, redacting=True)
+    assert isinstance(raised.value, HeldOutExposedError), repr(raised.value)
 
 
 def test_a_review_of_a_run_with_no_held_out_canary_is_not_scanned(

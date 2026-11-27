@@ -18,11 +18,14 @@ goes through the core's own rounds with its call and its review scripted.
 - Before a directory is left behind, the round does what the core's commands do with one a killed
   decomposition left: the credential files of its sessions no process runs as are removed, the
   plan's review session left running is stopped, and its stream is scanned for the held-out
-  canaries; one that showed one stops the round.
+  canaries; one that showed one stops the round. A restart does that first, for every directory
+  the round placed, before anything can refuse it: a refused start leaves no left review running
+  and no credential of one on disk.
 """
 
 from __future__ import annotations
 
+import fcntl
 import inspect
 import json
 import os
@@ -41,7 +44,9 @@ from physgate.evaluation.harness_round import (
     RoundError,
     run_round,
 )
+from physgate.evaluation.tiers.exposure import exposed_versions
 from physgate.evaluation.tiers.store import withheld_root
+from physgate.orchestrator import decomposition_review
 from physgate.orchestrator.processes import started_at
 
 #: The decomposition's one call, as the stand-in's call spends it, and the plan review's.
@@ -225,6 +230,144 @@ def test_a_left_review_whose_stream_showed_a_held_out_canary_stops_the_round(
     assert then.decomposed == [] and _ledger(rig, "superseded") == []
     left = rig.run_root / _place(rig).name / "0000-1"
     assert (left / "decomposition" / "review_exposed.json").is_file()
+
+
+def _keys(rig: Rig) -> list[Path]:
+    """The credential files of sessions beneath the run root, as a session's login puts one."""
+    return [p for p in rig.run_root.rglob("key") if p.parent.name == "state"]
+
+
+def test_a_start_refused_for_a_left_review_s_canary_leaves_no_credential_and_nothing_running(
+    tmp_path: Path, drivers: list[StandInDriver]
+) -> None:
+    rig = make_rig(tmp_path, design_review="observe")
+    canary = sorted(rig.made.canaries)[0]
+    first = _driver(rig, drivers, killed_in_review={1}, review_shows=f"read {canary}")
+    _killed(rig, first)
+    ((pid, _sid),) = first.left_reviews
+    assert started_at(pid) is not None and _keys(rig) != []
+    status, _ = _go(rig, _driver(rig, drivers), [], resume=True)
+    assert status == "refused:left_review_exposed"
+    # Dealt with before the refusal: the session stopped, its credential gone.
+    assert started_at(pid) is None, "the left review session still runs"
+    assert _keys(rig) == [], "a credential file stays beneath the run root"
+    # The register counts it too, and a later start is refused again, by the same word.
+    assert rig.made.version in exposed_versions(rig.made.store, "control")
+    status, _ = _go(rig, _driver(rig, drivers), [], resume=True)
+    assert status == "refused:left_review_exposed"
+
+
+def test_a_refused_start_deals_with_every_directory_the_round_left_not_only_the_first(
+    tmp_path: Path, drivers: list[StandInDriver], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = make_rig(tmp_path, design_review="observe")
+    canary = sorted(rig.made.canaries)[0]
+    first = _driver(rig, drivers, killed_in_review={1})
+    _killed(rig, first)
+    # Started again while the process table cannot say whether the first left review runs: the
+    # stop keeps its record and signals nothing, so it is left; the trial's one more go is then
+    # killed in its own review. Two directories are left, each with a review still running.
+    with monkeypatch.context() as patch:
+
+        def unreadable(*_: Any) -> bool:  # noqa: ANN401
+            msg = "ps could not be run"
+            raise OSError(msg)
+
+        patch.setattr(decomposition_review, "is_session", unreadable)
+        second = _driver(rig, drivers, killed_in_review={1})
+        _killed(rig, second, resume=True)
+    left = [*first.left_reviews, *second.left_reviews]
+    assert len(left) == 2 and all(started_at(pid) is not None for pid, _ in left)
+    # The first, still running, writes the canary into its stream after that start read it.
+    (stream,) = (rig.run_root / _place(rig).name / "0000-1" / "review").rglob("stdout.jsonl")
+    with stream.open("a") as written:
+        written.write(json.dumps({"type": "assistant", "text": f"read {canary}"}) + "\n")
+    status, said = _go(rig, _driver(rig, drivers), [], resume=True)
+    assert status == "refused:left_review_exposed"
+    assert (said["index"], said["attempt"], said["directories"]) == ("0", "1", "1")
+    # Every directory dealt with before the refusal, the one after the exposed one too.
+    assert [pid for pid, _ in left if started_at(pid) is not None] == []
+    assert _keys(rig) == [], "a credential file stays beneath the run root"
+
+
+def test_a_review_that_showed_the_canary_and_raised_in_the_round_s_own_process_stops_it(
+    tmp_path: Path, drivers: list[StandInDriver]
+) -> None:
+    rig = make_rig(tmp_path, design_review="observe")
+    canary = sorted(rig.made.canaries)[0]
+    driver = _driver(
+        rig, drivers, review_errs={1: "invocation_error"}, review_shows=f"read {canary}"
+    )
+    status, said = _go(rig, driver, [])
+    assert status == "refused:left_review_exposed"
+    assert (said["index"], said["attempt"]) == ("0", "1")
+    assert [c.run_dir.name for c in driver.decomposed] == ["0000-1"]
+    assert _ledger(rig, "superseded") == [] and _keys(rig) == []
+
+
+def test_a_restart_deals_only_with_the_directories_its_own_ledger_placed(
+    tmp_path: Path, drivers: list[StandInDriver]
+) -> None:
+    rig = make_rig(tmp_path, design_review="observe")
+    first = _driver(rig, drivers, killed_in_review={1})
+    _killed(rig, first)
+    ((pid, _sid),) = first.left_reviews
+    # Another round beneath the same run root, made and started again: it touches nothing of the
+    # first round's, whose left review still runs with its credential.
+    other = rig.inputs(trials=1, out=rig.root / "other")
+    for resume in (False, True):
+        made, _ = run_round(
+            other, driver=_driver(rig, drivers), scorer=_score, resume=resume, sleep=lambda _: None
+        )
+        assert made == "done"
+    assert started_at(pid) is not None and len(_keys(rig)) == 1
+    status, _ = _go(rig, _driver(rig, drivers), [], resume=True)
+    assert status == "done" and started_at(pid) is None and _keys(rig) == []
+
+
+def test_a_restart_given_another_run_root_deals_with_the_round_s_own_directories_first(
+    tmp_path: Path, drivers: list[StandInDriver]
+) -> None:
+    rig = make_rig(tmp_path, design_review="observe")
+    first = _driver(rig, drivers, killed_in_review={1})
+    _killed(rig, first)
+    ((pid, _sid),) = first.left_reviews
+    elsewhere = rig.root / "elsewhere"
+    elsewhere.mkdir()
+    # The directories are the ones the round's ledger placed, beneath the run root it records:
+    # never found beneath the root a restart names.
+    with pytest.raises(RoundError) as refused:
+        run_round(
+            rig.inputs(trials=1, run_root=elsewhere),
+            driver=_driver(rig, drivers),
+            scorer=_score,
+            resume=True,
+            sleep=lambda _: None,
+        )
+    assert refused.value.context.get("refused_because") == "run_root_not_registered"
+    assert started_at(pid) is None and _keys(rig) == []
+    status, _ = _go(rig, _driver(rig, drivers), [], resume=True)
+    assert status == "done" and _outcomes(rig) == ["pass"]
+
+
+def test_a_start_refused_because_another_driver_holds_the_round_touches_nothing(
+    tmp_path: Path, drivers: list[StandInDriver]
+) -> None:
+    rig = make_rig(tmp_path, design_review="observe")
+    first = _driver(rig, drivers, killed_in_review={1})
+    _killed(rig, first)
+    ((pid, _sid),) = first.left_reviews
+    held = os.open(_place(rig) / "driver.lock", os.O_RDWR)
+    try:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        status, _ = _go(rig, _driver(rig, drivers), [], resume=True)
+        assert status == "refused:round_held"
+        # The round may be driven now: what its driver runs is its own to stop.
+        assert started_at(pid) is not None and len(_keys(rig)) == 1
+    finally:
+        os.close(held)
+    status, _ = _go(rig, _driver(rig, drivers), [], resume=True)
+    assert status == "done" and started_at(pid) is None and _keys(rig) == []
 
 
 def test_a_directory_with_only_its_parameters_recorded_is_set_aside_once_and_named(

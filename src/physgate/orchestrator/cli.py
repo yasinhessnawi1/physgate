@@ -56,7 +56,7 @@ from physgate.orchestrator.credentials import (
 from physgate.orchestrator.decompose import (
     binary_version,
     call,
-    require_fresh,
+    open_decomposition,
     require_no_skill_file,
 )
 from physgate.orchestrator.decomposition_review import stop_left_review
@@ -100,7 +100,6 @@ from physgate.orchestrator.invocation import (
 )
 from physgate.orchestrator.loop import Loop, escalation_for, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
-from physgate.orchestrator.params_record import record_params
 from physgate.orchestrator.protocols import Gate, PlanReviewer, Reviewer
 from physgate.orchestrator.queue import (
     POSITIONS,
@@ -872,10 +871,13 @@ def _decompose_run(args: argparse.Namespace, *, registrations: Registrations | N
     except (LibraryError, OrchestratorError) as exc:
         return _fail(str(exc), **exc.context)
     try:
-        require_fresh(run_dir)
-        # The parameters name the held-out canaries: recorded first, so every session of the run
-        # is installed with the file withheld, wherever it lies.
-        record_params(run_dir, args.params)
+        # Refused unless fresh and holding only its own; then the parameters, which name the
+        # held-out canaries, recorded first with the target (where its clone lies in the run
+        # directory, it is the decomposition's own).
+        named = None if args.review_root is None else review_root_path(args.review_root)
+        open_decomposition(
+            run_dir, params=args.params, target=args.target, brief=args.brief, review_root=named
+        )
         reviewing = _plan_reviewer(args, config, credential, registrations)
         # The root the reviewer runs under, as every reader takes it: recorded before the review
         # runs, so a later command looks for this run's reviews where they are.

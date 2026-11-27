@@ -149,15 +149,6 @@ def test_the_core_s_own_start_raising_once_its_record_is_opened_is_superseded_wi
     assert _outcomes(rig) == ["pass"] and slept == [7.0]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "known limit: the store's scan walks a directory with no run configuration whole, and the "
-        "run branch's clone the start left in it is deeper than the walk's bound, so every command "
-        "that reads the register is refused until a person moves it"
-    ),
-)
 def test_a_round_whose_start_raised_once_is_started_again_as_it_was(tmp_path: Path) -> None:
     rig, slept = make_rig(tmp_path, design_review="observe"), list[float]()
     status, _ = _go(rig, rig.driver(library_refused_at_start={1}), slept)
@@ -218,15 +209,6 @@ def test_a_run_whose_log_holds_a_line_no_orchestrator_wrote_is_a_run_for_the_cor
     assert harness_round._state(run_dir) == "run"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "known limit: killed before its configuration is recorded, the directory holds the run "
-        "branch's clone and no run configuration; the store's scan walks it whole and passes its "
-        "depth bound, so the restart is refused before the round reads the trial"
-    ),
-)
 def test_a_decomposition_killed_before_its_configuration_is_recorded_is_superseded_on_restart(
     tmp_path: Path,
 ) -> None:
