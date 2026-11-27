@@ -297,5 +297,43 @@
       "tests/integration/orchestrator/replayed/v2_schema_control.json",
       "tests/integration/orchestrator/replayed/v2_schema_firmware.json"
     ]
+  },
+  {
+    "name": "a_key_beside_the_review_is_let_by",
+    "file": "src/physgate/reviewers/verdict_text.py",
+    "old": "set(given) != {WRAPPER}",
+    "new": "WRAPPER not in set(given)",
+    "tests": [
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py",
+      "tests/unit/reviewers/test_the_text_verdict_check_reads_the_whole_schema_and_fails_closed.py"
+    ],
+    "data": [
+      "tests/unit/reviewers/schema_subset.py",
+      "tests/unit/reviewers/test_the_verdict_contract_is_the_rubric_s_own.py",
+      "tests/integration/orchestrator/replayed/review_submission_control.json",
+      "tests/integration/orchestrator/replayed/review_submission_firmware.json",
+      "tests/integration/orchestrator/replayed/review_submission_v3_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_firmware.json"
+    ]
+  },
+  {
+    "name": "a_text_verdict_skips_the_stream_s_own_check",
+    "file": "src/physgate/reviewers/claude.py",
+    "old": "        if captured.tampered is not None:\n",
+    "new": "        if captured.tampered is not None and told is None:\n",
+    "tests": [
+      "tests/unit/reviewers/test_a_verdict_sent_as_text_is_a_verdict_only_when_it_holds_to_the_schema.py",
+      "tests/unit/reviewers/test_the_text_verdict_check_reads_the_whole_schema_and_fails_closed.py"
+    ],
+    "data": [
+      "tests/unit/reviewers/schema_subset.py",
+      "tests/unit/reviewers/test_the_verdict_contract_is_the_rubric_s_own.py",
+      "tests/integration/orchestrator/replayed/review_submission_control.json",
+      "tests/integration/orchestrator/replayed/review_submission_firmware.json",
+      "tests/integration/orchestrator/replayed/review_submission_v3_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_control.json",
+      "tests/integration/orchestrator/replayed/v2_schema_firmware.json"
+    ]
   }
 ]

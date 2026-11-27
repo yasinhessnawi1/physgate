@@ -166,5 +166,29 @@
     "data": [
       "tests/unit/orchestrator/orch_helpers.py"
     ]
+  },
+  {
+    "name": "a_relative_target_is_read_from_the_worktree",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "                spelling if os.path.isabs(spelling) else os.path.join(hook_input.cwd, spelling)",
+    "new": "                spelling if os.path.isabs(spelling) else os.path.join(config.worktree, spelling)",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
+  },
+  {
+    "name": "no_spelling_but_the_resolved_one_is_asked",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "    if not spelt or not any(_under(resolved, p) for p in places):\n        return False\n    if not any(_under(normal, p) for p in places):\n        return False\n",
+    "new": "    if not any(_under(resolved, p) for p in places):\n        return False\n",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py"
+    ]
   }
 ]
