@@ -445,6 +445,19 @@
   ]
  },
  {
+  "name": "hardware_mjpython_unguarded",
+  "file": "src/physgate/hooks/hardware.py",
+  "old": "    \"mjpython\": _NO_FORM,\n",
+  "new": "",
+  "tests": [
+   "tests/unit/hooks/test_an_interactive_console_the_design_libraries_bring_is_refused_by_name.py",
+   "tests/unit/hooks/hook_helpers.py"
+  ],
+  "paths": [
+   "toolenv"
+  ]
+ },
+ {
   "name": "hardware_bare_console_passes",
   "file": "src/physgate/hooks/hardware.py",
   "old": "        return bool(uses)",
