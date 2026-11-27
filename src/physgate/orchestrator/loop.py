@@ -3235,10 +3235,18 @@ class Loop:
         return IssuedSpec(commit=commit, path=spec_path, sha256=session.issued_spec_sha256)
 
     def _review(self, reviewer: Reviewer, artefact: Artefact) -> ReviewResult | None:
-        """The review's verdict, or ``None`` when there is none and the attempt escalates.
+        """The review's verdict, or ``None``: the attempt escalates, or the run halts.
 
-        An infrastructure failure is retried once; any other cause, or a second
-        failure, is final. What every try spent is attributed to the reviewer.
+        A review with no verdict for the reviewer's own reasons (no verdict, an invalid one, a
+        refusal) is final, and the attempt goes to a person. A review the machine ended is never
+        that, and the run halts with the review still owed (:meth:`_review_halts`): a refused
+        credential halts it ``credential_refused`` at once (never retried, nothing spent), an OS
+        layer that would not start ``os_layer_unavailable`` and a full disk ``disk_full``, as a
+        role session's end does; any other machine end is retried at once, then once after each
+        delay of the run's ``infra_retry_delays_s``, and then halts it
+        ``infrastructure_exhausted``. That is one try more than a role session gets: a review's
+        first retry is immediate, as it always was, and only then is the ladder taken. A resume
+        goes on at the attempt's checkpoint. What every try spent is attributed to the reviewer.
         """
         subtask_id, attempt = artefact.subtask_id, artefact.attempt
         retried = False
@@ -3290,7 +3298,11 @@ class Loop:
                     who = f"review session {exc.session_id or 'none'}"
                     self._wait_for_limit(subtask_id, attempt, exc.usage_limit, who, review=True)
                     return None
-                retry = exc.cause == "infrastructure" and not retried
+                if exc.cause == "infrastructure" and self._review_halts(
+                    subtask_id, attempt, exc, retried=retried
+                ):
+                    return None
+                retry = exc.cause == "infrastructure"
                 self._emit(
                     ReviewUnavailable(
                         **self._env(),
@@ -3308,11 +3320,66 @@ class Loop:
                 )
                 if not retry:
                     return None
+                if retried:
+                    # The ladder's next try, after its delay; the first retry was at once.
+                    now = self.state.subtasks[subtask_id].attempts[-1]
+                    tries = sum(1 for u in now.unavailable if u.retry)
+                    delay = infra_retry_delay(self.config.bounds.infra_retry_delays_s, tries - 2)
+                    if delay is not None:
+                        self._sleep(delay)
                 retried = True
                 continue
             if self._review_held(subtask_id, review.session_id, review.managed, review):
                 return None
             return review
+
+    def _review_halts(
+        self, subtask_id: str, attempt: int, exc: ReviewUnavailableError, *, retried: bool
+    ) -> bool:
+        """Halt the run for a review the machine ended, where its cause or its ladder says so.
+
+        Returns whether it halted: a refused credential, an OS layer that would not start or a
+        full disk at once, as a role session's end; any other machine end once the review's one
+        immediate retry and the run's ladder after it are spent. The review stays owed.
+        """
+        who = f"review session {exc.session_id or 'none'}"
+        where = f"subtask {subtask_id} attempt {attempt}"
+        cause = exc.session_cause
+        if cause == "credential_refused":
+            variable = SECRET_VARIABLE[self.config.auth]
+            detail = (
+                f"{where}: the API refused the {self.config.auth} credential of {who}; replace "
+                f"{variable} and resume (its review is still owed)"
+            )
+            self._emit(Halted(**self._env(), reason="credential_refused", detail=detail))
+            return True
+        if cause == "sandbox_unavailable":
+            detail = (
+                f"{where}: the OS layer of {who} would not start, so the session refused to run "
+                "without it; repair the sandbox's dependencies and resume (its review is still "
+                "owed)"
+            )
+            self._emit(Halted(**self._env(), reason="os_layer_unavailable", detail=detail))
+            return True
+        if cause == "disk_full":
+            detail = (
+                f"{where}: the binary of {who} said a full disk lost the session's own records; "
+                "free the space and look at the review before the run goes on"
+            )
+            self._emit(Halted(**self._env(), reason="disk_full", detail=detail))
+            return True
+        if not retried:
+            return False  # the one immediate retry a review has always had
+        now = self.state.subtasks[subtask_id].attempts[-1]
+        tries = sum(1 for u in now.unavailable if u.retry)
+        if infra_retry_delay(self.config.bounds.infra_retry_delays_s, tries - 1) is not None:
+            return False
+        detail = (
+            f"{where}: {who} ended with {cause or 'an infrastructure end'} after {tries} "
+            "infrastructure retries of its review; resume (its review is still owed)"
+        )
+        self._emit(Halted(**self._env(), reason="infrastructure_exhausted", detail=detail))
+        return True
 
     def _review_held(
         self,
