@@ -23,7 +23,9 @@ not have, that the register marks exposed, or that has no record of its blind ch
 that is not its real path spelt as the disk spells it, that is not one of the role's registered
 run roots, or beneath which the core would refuse a trial's review root (a word in its path that
 tells a reviewer what it reads, or a git checkout around it); parameters that are not
-reportable, that do not withhold every protected place of the store or do not look for every
+reportable, that pin a model to any role but the round's one or ask which parts a person has
+(a round's task is one role's, never a system to be built), that do not withhold every
+protected place of the store or do not look for every
 canary of the version and the store; parameters of any tier whose trials are not withheld from
 one another (``withheld_whole`` naming every registered run root of the store and nothing else,
 the run roots spelt as on disk, by the core's own rule, checked and never written); a target
@@ -926,11 +928,24 @@ def _run_dir(run_root: Path, round_id: str, index: int, attempt: int) -> Path:
 
 
 def _require_params(inputs: Inputs, canaries: frozenset[str]) -> None:
-    """Refuse parameters that are not a measured run's on this store.
+    """Refuse parameters that are not a measured run's on this store, or not one role's task.
+
+    A round measures one role on that role's tasks: a task is a design-level task, not a system
+    to be built. So the parameters pin a model to the round's role and to no other role
+    (``models.roles``), and ask nobody which parts they have (``parts_on_hand: off``). Given
+    another design role, the planner may give it a module, and the run is then reviewed as a
+    system whose other modules build on this one, held to limits a tier task never states, so
+    every trial would be the harness's failure; given the integration role, no plan of one
+    role's module passes the plan's check, so every trial would fail at planning; asked about
+    parts, a measured run (which acts on no decision) cannot start. Neither is a measurement of
+    the role. The pins of the reviewers and the decomposition are the core's to hold, at each
+    run. A round of whole runs, which the command does not drive, names every role it builds,
+    and is refused by this rule until one is written for it.
 
     Raises:
-        RoundError: not reportable, a protected place of the store not withheld, or a canary
-            not looked for; places by the store's own words, canaries by count.
+        RoundError: not reportable, roles other than the round's one (named), parts asked
+            about, a protected place of the store not withheld, or a canary not looked for;
+            places by the store's own words, canaries by count.
     """
     try:
         params = json.loads(inputs.params.read_bytes())
@@ -939,6 +954,24 @@ def _require_params(inputs: Inputs, canaries: frozenset[str]) -> None:
     if not isinstance(params, dict) or params.get("reportable") is not True:
         msg = "the run parameters are not reportable; a round's runs are measured runs"
         raise _refuse("params_not_reportable", msg)
+    models = params.get("models")
+    roles = models.get("roles") if isinstance(models, dict) else None
+    if not (isinstance(roles, dict) and all(isinstance(r, str) for r in roles)):
+        msg = "the run parameters pin their roles' models as an object, models.roles"
+        raise _refuse("params_unreadable", msg)
+    if set(roles) != {inputs.role}:
+        found = ", ".join(sorted(roles)) or "none"
+        msg = (
+            f"a round measures one role's tasks: the run parameters pin {inputs.role} and no "
+            f"other role, and here they pin {found}"
+        )
+        raise _refuse("params_roles_not_the_round_s", msg, roles=found)
+    if params.get("parts_on_hand") != "off":
+        msg = (
+            "a round's runs ask nobody which parts they have: parts_on_hand: off, here "
+            f"{params.get('parts_on_hand')}"
+        )
+        raise _refuse("params_ask_about_parts", msg)
     held_out = params.get("held_out")
     looked = params.get("held_out_canaries")
     if not (
