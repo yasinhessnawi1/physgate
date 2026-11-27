@@ -32,18 +32,22 @@ BEFORE = {
     # The tool layer changed every profile's installation in three ways and no other: the
     # hardware hook joins the pre-tool hooks, the binary's search tool joins the denied tools,
     # and both platforms' OS-layer profiles deny a board's device nodes to reads and writes.
-    ("role", False): "8ccf40333bc9f4997eebd716e844ece36bbcaed335f3871d01582af942e1cab0",
-    ("reviewer", False): "528293ed5df81d0cfa2caae6ee93c1aef720547363c1d4d931ad00a33033bdd9",
+    ("role", False): "fc387216f1891222c8942b0091bf7609aef42be98c09a7d2b4081c396a231923",
+    ("reviewer", False): "57610c19ea92cc80a0328f660be8e1ee3b7a37fa42a101d166da4d32352ac1a9",
     ("orchestrator", False): "f7e0e166765180f88e69aa16f6d935c4e0fc3491203f3f6eb256cab3da86f283",
-    ("baseline", False): "87cdeea9100250047725118e68657b34be30678e26c4c70196e1582d4af28a52",
+    ("baseline", False): "591d49e1e00ba7736fe760e7e1896f8bb2748dd3479fb348e4d480f76406648e",
     # Inside the layer the configuration now says so (``"os_layer": true``), so that a command's
     # read of the harness checkout is left to the layer there and refused where it is absent.
     # That key is the only change from the digests taken before the options, beside the tool
     # layer's three.
-    ("role", True): "2fe3e0d860a5f68ccccc768b91753de5731b286dd31d8f27485743cc4afa81fa",
-    ("reviewer", True): "55cf8e9700589ad314013f69d2f48838d739f4ad3407bdb39c81df1985ff5085",
+    # Since then, for the role, raw and reviewer sessions alone: the machine's shared temporary
+    # directories and the harness's own temporary place are refused both ways (two roots of the
+    # configuration, named in both platforms' denials), and a shared directory is no longer
+    # writable to a sandboxed command. Each named by the rig here, not taken from the machine.
+    ("role", True): "2c7a0b3a3c70d08374740a2f754faa5fd6c7238ee5bb73e1fe5b218c6c850c5c",
+    ("reviewer", True): "a2ddf02a590f30d321201b457c8377ac8b84f6c02903a8f1fbadd50cc4fdba8c",
     ("orchestrator", True): "67eca92534d15416e50eea1225b46aec83da91801ac7ec301e40abc4a57498d8",
-    ("baseline", True): "c2e4df8d02c479a185b6307f51552569a9c1183b09b80e975969b224e72ffc96",
+    ("baseline", True): "f9d4b78f4e30bc777f6d597d2f51f945f82a6726a797ff077566b3de3980b3c8",
 }
 PLACEHOLDER = "<rig>"
 
@@ -84,6 +88,8 @@ def _request(root: Path, profile: str, layer: bool) -> InstallRequest:
         "withheld": (str(root / "run" / "run.json"),),
         "shared_claude_temp": (str(root / "claude-temp"),),
         "session_temps": str(root / "temps"),
+        "shared_temps": (str(root / "shared-temp"),),
+        "harness_temps": str(root / "harness-temps"),
     }
     if layer:
         fields["os_layer_temp_dir"] = str(root / "temps" / "own")

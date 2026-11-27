@@ -1103,3 +1103,29 @@ def test_a_command_cannot_rename_its_worktree_or_leave_a_link_at_its_path(
     assert "renamed" not in told[0] and "linked" not in told[0], told[0]
     assert os.path.isdir(worktree) and not os.path.islink(worktree)
     assert not os.path.lexists(moved)
+
+
+@pytest.mark.usefixtures("layer")
+@pytest.mark.parametrize("inside", [True, False], ids=["folder-inside-a-withheld-place", "apart"])
+def test_the_regeneration_s_wrapper_runs_with_its_folder_inside_a_withheld_place(
+    tmp_path: Path, *, inside: bool
+) -> None:
+    # Measured, not read: whether the wrapper refuses a call whose own folder lies inside a place
+    # it is withheld (the harness's own temporary place, were it named among them). On macOS it
+    # runs and writes its folder (27.11); the Linux leg says the same on bubblewrap or not.
+    from physgate.oslayer.regeneration import default_runner
+
+    base = Path(os.path.realpath(tmp_path))
+    withheld = base / "withheld"
+    withheld.mkdir()
+    work = Path(tempfile.mkdtemp(prefix="w-", dir=withheld if inside else base))
+    run = default_runner(withheld=lambda: (str(withheld),))
+    code, _ = run(
+        ["/bin/sh", "-c", "echo made > out.txt"],
+        work,
+        {"PATH": "/usr/bin:/bin"},
+        30.0,
+        ("/bin", "/usr/bin", "/usr/lib", "/lib"),
+    )
+    assert code == 0
+    assert (work / "out.txt").read_text() == "made\n"

@@ -72,12 +72,32 @@ sandboxed role session is refused without it.
 
 Every role, baseline and reviewer session is installed with a temporary directory of
 its own (`--os-layer-temp` with the layer, `--temp` without it), of 32 characters at
-most, and the printed environment points the binary at it (`CLAUDE_CODE_TMPDIR`;
-`TMPDIR` was measured to move nothing). Without one the install is refused: the
+most, and the printed environment points the binary at it (`CLAUDE_CODE_TMPDIR`,
+which moves the binary's own files; `TMPDIR` alone was measured to move none of them)
+and every program it runs (`TMPDIR`, where the directory really is: a tool that writes a
+path relative to the place it resolves writes the one its `TMPDIR` names). Inside the OS
+layer the binary points each sandboxed command at a directory beneath it, spelt resolved
+(measured on 2.1.301 and 2.1.322), and on macOS a command's plain `mktemp`, which ignores
+`TMPDIR` there, makes its file in it too (a `mktemp` the survivor reaper's front puts first
+on the command's search path). Without one the install is refused: the
 binary would keep the session's temporary files, its background commands' output
 among them, in `/tmp/claude-<uid>`, which every session of the user on the machine
 shares and which these sessions may not read or write by any route. A role or
 baseline install is refused without `--sessions-root` too.
+
+The machine's shared temporary directories (`/tmp`, and on macOS the per-user one) are
+refused to every role, baseline and reviewer session both ways, on every layer: the file
+tools' hook, the shell hook (whose refusal says to write in `$TMPDIR`) and the OS layer's
+denials; no sandboxed command writes there. A place of the session's own that lies in one
+(only a session without the OS layer can be installed so) is opened again there alone. So is
+`/var/tmp/pgh`, where each harness process keeps its own temporary files (the stores it reads
+a change check and a review's packet through).
+
+The installer records the worktree's device and inode, and refuses a worktree whose path is a
+link. Every hook call holds the worktree's path to them before any hook runs, and refuses every
+call where the path no longer leads to that directory (renamed away, a link or another
+directory left at it); the sentinel opens the worktree itself, no link followed, holds it to the
+same identity and puts back only relative to it.
 
 It prints the spawn arguments: `--setting-sources ""` and `--settings <file>`,
 and a scratch `CLAUDE_CONFIG_DIR`. All of it is outside the worktree, and all of
@@ -329,6 +349,12 @@ uv run python tests/integration/hooks/measure_latency.py latency.json
   it. On Linux the installer hard-links the environment from its cache, which
   gives each installed file a second, unprotected name. The closure is to
   install the harness where the session's user cannot write.
+- **A hook decides before the client opens a path.** What the client itself opens after a
+  hook allowed it (a file tool's read or write) is opened by its path, at that instant: a
+  worktree renamed between the hook's check and the client's open would send that one call
+  elsewhere. Inside the OS layer the rename is refused (a standing real-client row on both pins
+  and both platforms' layers), which is what holds it in a measured session; the hooks hold it
+  only from the next call.
 - **The halt is detection only.** Code that tampers with the hooks' own code
   runs before any check inside it.
 - **Reads of the held-out tier have one layer** where the OS layer is absent. A

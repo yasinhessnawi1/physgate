@@ -534,18 +534,21 @@ def test_the_shared_temp_directories_and_claude_code_s_own_are_denied_both_ways(
     assert fs["allowWrite"] == sorted({str(home), os.path.realpath(home)})
 
 
-def test_a_shared_temp_directory_holding_the_session_s_own_places_is_not_named(
+def test_a_shared_temp_directory_holding_the_session_s_own_places_is_named_around_them(
     tmp_path: Path,
 ) -> None:
-    # A session installed with its worktree in a shared temporary directory (one without the OS
-    # layer: the installer refuses a sandboxed one there) is not refused its own files; the
-    # directory is no writable place of the layer's either way.
+    # A session installed with its places in a shared temporary directory (one without the OS
+    # layer: the installer and the policy refuse a sandboxed one a worktree there) is refused the
+    # directory all the same, its own places opened again there alone.
     paths = _layout(tmp_path)
     claude = tmp_path / "claude-501"
     claude.mkdir()
     config = _shared_config(paths, tmp_path, claude)
-    named = {r.path for r in config.protected_roots}
-    assert str(tmp_path) not in named
-    assert str(claude) in named
-    policy = sandbox_policy(config, home=str(paths["sdir"] / "home"), temp_dir=str(paths["temp"]))
-    assert str(tmp_path) not in _fs(policy)["allowWrite"]
+    root = next(r for r in config.protected_roots if r.path == str(tmp_path))
+    assert root.reads == "denied"
+    assert str(paths["worktree"]) in root.read_exceptions
+    assert str(paths["worktree"]) in root.exceptions
+    assert str(paths["sdir"] / "home") in root.exceptions
+    assert str(claude) in {r.path for r in config.protected_roots}
+    with pytest.raises(ValueError, match="inside a read-denied path"):
+        sandbox_policy(config, home=str(paths["sdir"] / "home"), temp_dir=str(paths["temp"]))
