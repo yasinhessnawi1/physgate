@@ -164,6 +164,10 @@ class BaselineRecord(_Frozen):
     #: shakedown: such a round is no baseline of any measurement. Left out otherwise, so every
     #: record keeps its bytes.
     practice: Literal[True] | None = Field(default=None, exclude_if=lambda v: v is None)
+    #: Where the round is the once-more of an earlier round's entry: that round's id and
+    #: directory, the entry's place in its run set, its last session, and why it is run again.
+    #: The earlier record is kept and never counted. Left out otherwise.
+    rerun_of: dict[str, Any] | None = Field(default=None, exclude_if=lambda v: v is None)
 
     @model_validator(mode="after")
     def _one_source_and_its_tiers(self) -> BaselineRecord:

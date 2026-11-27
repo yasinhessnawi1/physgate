@@ -10,7 +10,9 @@
       "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py",
       "tests/unit/evaluation/baseline/test_the_record_audit_re_derives_every_record_and_names_each_difference.py",
       "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py",
-      "tests/unit/evaluation/baseline/test_a_practice_version_says_so_and_only_a_shakedown_counts_it.py"
+      "tests/unit/evaluation/baseline/test_a_practice_version_says_so_and_only_a_shakedown_counts_it.py",
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py",
+      "tests/unit/evaluation/baseline/test_a_stop_signal_ends_a_raw_session_cleanly_and_the_next_start_goes_on.py"
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
@@ -55,8 +57,8 @@
   {
     "name": "a_killed_session_keeps_its_credential",
     "file": "src/physgate/evaluation/baseline/runner.py",
-    "old": "            clean_left_session(work, setup.credential.secret)\n",
-    "new": "            pass\n",
+    "old": "    if left[\"session\"]:\n        try:\n            clean_left_session(work, setup.credential.secret)\n",
+    "new": "    if left[\"session\"]:\n        try:\n            pass\n",
     "tests": [
       "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
     ],
@@ -472,6 +474,118 @@
     ]
   },
   {
+    "name": "a_once_more_is_run_a_third_time",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if header.get(\"rerun_of\") is not None:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_trial_with_a_raw_record_is_run_again",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        if not isinstance(line, ExcludedTrial):\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "an_untrusted_reason_runs_nothing_again",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if field in RAW_UNTRUSTED:\n        return \"untrusted\"\n",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_round_of_many_entries_is_a_once_more",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            if len(planned) != 1 or len(runs.trials) != 1:\n",
+    "new": "            if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_command_has_no_stop_handler",
+    "file": "src/physgate/evaluation/baseline/cli.py",
+    "old": "        with stopping():\n",
+    "new": "        with contextlib.nullcontext():\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_stop_signal_ends_a_raw_session_cleanly_and_the_next_start_goes_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_stopped_session_keeps_its_credential",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if (work / \"session\").exists():\n        try:\n            clean_left_session(work, setup.credential.secret)\n",
+    "new": "    if (work / \"session\").exists():\n        try:\n            pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_stop_signal_ends_a_raw_session_cleanly_and_the_next_start_goes_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_stop_is_said_as_a_refusal",
+    "file": "src/physgate/evaluation/baseline/cli.py",
+    "old": "    return EXIT_SESSIONS_ALIVE if alive else 128 + int(stop.signum)\n",
+    "new": "    return 1\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_stop_signal_ends_a_raw_session_cleanly_and_the_next_start_goes_on.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
     "name": "baseline_last",
     "file": "src/physgate/evaluation/baseline/runner.py",
     "old": "",
@@ -482,7 +596,9 @@
       "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py",
       "tests/unit/evaluation/baseline/test_the_record_audit_re_derives_every_record_and_names_each_difference.py",
       "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py",
-      "tests/unit/evaluation/baseline/test_a_practice_version_says_so_and_only_a_shakedown_counts_it.py"
+      "tests/unit/evaluation/baseline/test_a_practice_version_says_so_and_only_a_shakedown_counts_it.py",
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py",
+      "tests/unit/evaluation/baseline/test_a_stop_signal_ends_a_raw_session_cleanly_and_the_next_start_goes_on.py"
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",

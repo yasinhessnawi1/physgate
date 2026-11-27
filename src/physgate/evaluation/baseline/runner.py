@@ -88,6 +88,7 @@ import json
 import os
 import secrets
 import shutil
+import signal
 import stat
 import time
 from collections import Counter
@@ -245,6 +246,26 @@ Step = Literal["wait_for_limit", "wait_for_a_person", "once_more", "record"]
 
 class BaselineError(PerRoleError):
     """The round cannot be run, or was stopped, for a reason it names: no task content."""
+
+
+class Stopped(BaseException):  # noqa: N818 - the process told to stop, as an interrupt is
+    """A stop signal (SIGTERM, an interrupt, a hang-up) reached the round's process.
+
+    Raised in the main thread by the command's handler (:mod:`.baseline.cli`), so every way out
+    of a session runs as it does on any error: the arm ends its session with its process group
+    and removes its credential; the round clears the session's place of the credential and the
+    sentinel's record, and names the stop on a ``signalled`` line with what it left. The next
+    start then goes on as after any kill: the session never ended, so it is run again as if it
+    had not run, and nothing is spent.
+    """
+
+    def __init__(self, signum: int) -> None:
+        """A stop by the signal ``signum``."""
+        super().__init__(f"stopped by signal {signum}")
+        self.signum = signum
+        #: The entry the round was at, and whether a session of it had started.
+        self.entry: int | None = None
+        self.session_started = False
 
 
 class RoundWaits(Exception):  # noqa: N818 - a state the round stops in, not a fault
@@ -1177,6 +1198,8 @@ def run_baseline(
     now: Callable[[], datetime] = _now,
     cell: RunSet | None = None,
     shakedown: bool = False,
+    rerun_of: Path | None = None,
+    replaces: str | None = None,
 ) -> BaselineRecord:
     """Run the raw arm on every trial of ``runs``, and write the round's records under ``out``.
 
@@ -1189,6 +1212,14 @@ def run_baseline(
     every harness trial of the cell the entries' caps are taken from (:func:`plan`); an entry
     whose harness trial gave no figure runs after every other entry of the round. ``shakedown``
     is the word that lets the round run on a practice version.
+
+    **Once more, as a new round of one entry** (``rerun_of``, the earlier round's directory): a
+    raw trial whose round stopped on it for a cause, or whose record was excluded for a reason
+    its records give for not trusting the answer, or whose harness trial was run once more
+    (``replaces``: the run that re-run superseded), is run once more as a new round of its one
+    entry, the link held to the earlier round's own records before anything (:func:`rerun_link`)
+    and named in this round's ledger and record. The earlier round is kept and never read again
+    for a score; whoever gathers the cell's records takes this round's in its place.
 
     **The round waits, and spends nothing for it.** A session the account's usage limit ended
     stops the round as waiting for the reset (:class:`RoundWaits`, ``waiting_for_limit``); one
@@ -1221,7 +1252,16 @@ def run_baseline(
         RoundWaits: the round waits for the usage limit's reset or for a person.
     """
     given = _inputs_sha256(
-        store, role, version, external, runs, development, base_url, cell=cell, shakedown=shakedown
+        store,
+        role,
+        version,
+        external,
+        runs,
+        development,
+        base_url,
+        cell=cell,
+        shakedown=shakedown,
+        rerun_of=None if rerun_of is None else str(rerun_of),
     )
     if resume:
         ledger = Ledger.read(out, mend=True)
@@ -1274,18 +1314,27 @@ def run_baseline(
         own_places=own,
     )
     if not resume:
+        link = None
+        if rerun_of is not None:
+            if len(planned) != 1 or len(runs.trials) != 1:
+                msg = "a raw trial is run once more as a new round of its one entry"
+                raise BaselineError(msg, refused_because="rerun_refused", why="not_one_entry")
+            link = rerun_link(store, role, rerun_of, planned[0], replaces=replaces)
         out.mkdir(mode=0o700, parents=True)
         round_id = secrets.token_hex(8)
         ledger = Ledger(out / LEDGER, [])
-        ledger.add(
-            {
-                "kind": "round",
-                "format": LEDGER_FORMAT,
-                "round": round_id,
-                "inputs_sha256": given,
-                "started": utc_stamp(now()),
-            }
-        )
+        first: dict[str, Any] = {
+            "kind": "round",
+            "format": LEDGER_FORMAT,
+            "round": round_id,
+            "inputs_sha256": given,
+            "started": utc_stamp(now()),
+            # The run set itself, so a later round of one of its entries can name this one.
+            "runs": runs.model_dump(mode="json"),
+        }
+        if link is not None:
+            first["rerun_of"] = link
+        ledger.add(first)
     protected_root = withheld_root(store, role) / BASELINE_DIR / round_id
     counted = EXTERNAL_TIERS if isinstance(source, ExternalSetRecord) else VERSION_TIERS
     order = in_order(planned)
@@ -1364,6 +1413,7 @@ def run_baseline(
             for tier in counted
         },
         practice=True if isinstance(source, TierSet) and source.practice else None,
+        rerun_of=ledger.lines[0].get("rerun_of"),
     )
     if external_set is not None:
         write_new(out / EXTERNAL_RECORD, record_bytes(external_set))
@@ -1374,6 +1424,151 @@ def run_baseline(
         out / ROUND_RECORD, canonical_json({"format": 1, "round": round_id, "status": "done"})
     )
     return baseline
+
+
+#: Of a raw trial's exclusion, by the field its reason begins with: a reason its records give for
+#: not trusting the answer, which runs the trial once more, or an exposure, which never does. Any
+#: other field runs nothing again. The harness arm's driver classes its own trials' reasons by
+#: the same reading; this is the raw arm's half of it.
+RAW_UNTRUSTED = frozenset({"end", "sentinel_after_stop", "stream", "score"})
+RAW_EXPOSURE = frozenset({"canary", "held_out_seen"})
+RerunCause = Literal["untrusted", "exposure", "unknown"]
+
+
+def raw_rerun_cause(reason: str) -> RerunCause:
+    """What a raw trial's exclusion reason is, by the field it begins with; nothing else is read."""
+    field = reason.split(":", 1)[0].strip()
+    if field in RAW_UNTRUSTED:
+        return "untrusted"
+    if field in RAW_EXPOSURE:
+        return "exposure"
+    return "unknown"
+
+
+#: The stops a raw trial is run once more after, as a new round of its one entry, once the
+#: cause is removed: never a stop on an exposure.
+RERUN_STOPS = frozenset({"pair", "pins", "error", "move"})
+
+
+def rerun_link(
+    store: Path,
+    role: Role,
+    earlier_out: Path,
+    trial: Planned,
+    *,
+    replaces: str | None,
+) -> dict[str, Any]:
+    """What makes this one-entry round the once-more of an earlier round's entry; or a refusal.
+
+    Decided from the earlier round's own ledger and its trial line's kind alone, never from a
+    score: the earlier entry is the same harness trial's (its run, or the run ``replaces``
+    names, the one a re-run harness trial superseded), and either it stopped for a cause
+    (:data:`RERUN_STOPS`), or its trial was recorded excluded for a reason its records give for
+    not trusting the answer (:func:`raw_rerun_cause`), or, where its harness trial was run once
+    more, it ran under the superseded run's total. An earlier round that is itself such a
+    once-more is never run again: a second stop on the same entry leaves the cell without a
+    record. The earlier round's records are kept as they are and never read again for a score.
+
+    Raises:
+        BaselineError: the link does not hold (``rerun_refused``, with what refused it).
+    """
+
+    def refuse(why: str, words: str) -> NoReturn:
+        raise BaselineError(words, refused_because="rerun_refused", why=why, entry="0")
+
+    earlier = Ledger.read(earlier_out)
+    header = earlier.lines[0]
+    if header.get("rerun_of") is not None:
+        refuse(
+            "second_rerun", "the earlier round is itself a once-more; no entry runs a third time"
+        )
+    if not isinstance(header.get("runs"), dict):
+        refuse("earlier_runs_unrecorded", "the earlier round's ledger does not hold its run set")
+    runs = RunSet.model_validate_json(json.dumps(header["runs"]))
+    own, superseded = os.path.realpath(trial.entry.run_dir), replaces and os.path.realpath(replaces)
+    place = None
+    for index, entry in enumerate(runs.trials):
+        here = os.path.realpath(entry.run_dir)
+        if entry.trial != trial.entry.trial or here not in (own, superseded):
+            continue
+        brief = load_run_config(Path(entry.run_dir) / "run.json").brief_sha256
+        if brief == trial.config.brief_sha256:
+            place = (index, here == own)
+            break
+    if place is None:
+        refuse("not_this_entry", "the earlier round holds no entry of this harness trial")
+    index, same = place
+    stopped = earlier.stopped(index)
+    recorded = next((line for line in earlier.recorded() if int(line["index"]) == index), None)
+    session = earlier.sessions(index)
+    if stopped is None and recorded is None:
+        refuse("earlier_not_ended", "the earlier round's entry has not ended; it is resumed")
+    if not same:
+        because = "harness_rerun"
+    elif stopped is not None:
+        why = str(stopped.get("because"))
+        if why not in RERUN_STOPS:
+            refuse("stop_not_rerun", f"the earlier round stopped on this entry for {why}")
+        because = f"stopped:{why}"
+    else:
+        assert recorded is not None
+        line = _earlier_line(store, role, earlier_out, earlier, runs, index, trial.tier)
+        if not isinstance(line, ExcludedTrial):
+            refuse(
+                "recorded", "the entry has a raw record, and is never given to the raw arm again"
+            )
+        cause = raw_rerun_cause(line.reason)
+        if cause != "untrusted":
+            refuse(
+                f"excluded_{cause}", "the earlier exclusion is not one a trial is run once more for"
+            )
+        because = f"excluded:{line.reason.split(':', 1)[0].strip()}"
+    return {
+        "round": str(header["round"]),
+        "out": str(earlier_out),
+        "entry": index,
+        "session": session,
+        "because": because,
+    }
+
+
+def _earlier_line(
+    store: Path,
+    role: Role,
+    out: Path,
+    ledger: Ledger,
+    runs: RunSet,
+    index: int,
+    tier: TierName,
+) -> TrialRecord | ExcludedTrial:
+    """The trial line the earlier round recorded for ``index``, found by its place's order."""
+    protected = tier in PROTECTED_TIERS
+    place = (
+        withheld_root(store, role) / BASELINE_DIR / str(ledger.lines[0]["round"])
+        if protected
+        else out
+    )
+    lines = read_lines(place / TRIALS)
+    position = 0
+    for line in ledger.recorded():
+        at = int(line["index"])
+        if at == index:
+            return lines[position]
+        run = load_run_config(Path(runs.trials[at].run_dir) / "run.json")
+        if _protected_brief(store, role, run.brief_sha256) == protected:
+            position += 1
+    msg = "the earlier round's records do not hold the entry's line"
+    raise BaselineError(msg, refused_because="rerun_refused", why="records_short")
+
+
+def _protected_brief(store: Path, role: Role, brief: str) -> bool:
+    """Whether the brief is a protected tier's task's, in any version of the role's store."""
+    root = role_root(store, role)
+    for directory in sorted(p for p in root.iterdir() if len(p.name) == 64 and p.is_dir()):
+        found = _tasks(directory).get(brief)
+        if found is not None:
+            return found[0] in PROTECTED_TIERS
+    return False
 
 
 def in_order(planned: Sequence[Planned]) -> list[Planned]:
@@ -1438,7 +1633,7 @@ def own_places(store: Path, role: Role, round_id: str) -> frozenset[Path]:
 
 #: The lines a step passes over when it asks where an entry stands: a never-started place
 #: cleared away is no step of the entry's.
-PASSING = frozenset({"cleared"})
+PASSING = frozenset({"cleared", "signalled"})
 
 
 def _how_it_goes_on(
@@ -1747,11 +1942,44 @@ def _one_trial(trial: Planned, held: _Round, setup_for: SetupFor, *, word: bool)
             # The cap the session runs under, the step of the rule that gave it and its inputs:
             # with the trial, where its records lie.
             write_new(harness / CAP, canonical_json(trial.cap_rule.recorded()))
-            record = held.arm(trial.task, given, work, cap=trial.cap, harness=harness)
+            try:
+                record = held.arm(trial.task, given, work, cap=trial.cap, harness=harness)
+            except Stopped as stop:
+                _signalled(trial, held, setup, session, trial_dir, stop)
+                raise
             ended = _after_session(trial, held, session, record, trial_dir, working, halted_at=None)
         if ended == "again":
             continue
         return ended
+
+
+def _signalled(
+    trial: Planned, held: _Round, setup: RawSetup, session: int, trial_dir: Path, stop: Stopped
+) -> None:
+    """Clear a session a stop signal ended of its credential, and name the stop on the ledger.
+
+    The arm has ended the session and removed its own credential on its way out; the place is
+    cleared once more as a killed session's is (:func:`.arms.raw.clean_left_session`), since a
+    session may write its login file while it runs. The place stays in the work root with its
+    record of work: the next start keeps it as a killed session's and runs the entry again.
+    """
+    work = trial_dir / PLACE
+    cleared: bool | str = True
+    if (work / "session").exists():
+        try:
+            clean_left_session(work, setup.credential.secret)
+        except PerRoleError as exc:
+            cleared = type(exc).__name__
+    stop.entry, stop.session_started = trial.index, True
+    held.ledger.add(
+        {
+            "kind": "signalled",
+            "index": trial.index,
+            "session": session,
+            "signal": signal.Signals(stop.signum).name,
+            "cleared": cleared,
+        }
+    )
 
 
 #: Beside a trial's record in its harness directory: the cap it ran under, and the rule's step.

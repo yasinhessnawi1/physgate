@@ -18,10 +18,14 @@ or ``null``) and ``session_started``: whether a session of that entry had starte
 A refusal before any session (``session_started`` false) spends nothing: once its cause is
 removed the same round is started again. A stop after a session started (a pair that differs,
 other pins, an error, a move that failed, ``entry_stopped``) is never run again in its round.
-``--cell RUNS`` names the run set of every harness trial of the cell the entries' caps are
-taken from, where the round's own run set is not the whole cell; ``--shakedown`` lets the round
-run on a practice version. The round records the checkout it runs from with every session and
-holds the harness runs' to it.
+``--rerun-of OUT`` runs once more, as a new round of its one entry, an entry the earlier round
+``OUT`` stopped on for a cause, recorded excluded for a reason its records give for not trusting
+the answer, or ran under a harness run that was itself run once more (named by the sheet beside
+the run set, ``<n>.trial.json``); it is refused otherwise, and for an earlier round that was
+itself such a once-more. ``--cell RUNS`` names the run set of every harness trial of the cell
+the entries' caps are taken from, where the round's own run set is not the whole cell;
+``--shakedown`` lets the round run on a practice version. The round records the checkout it runs
+from with every session and holds the harness runs' to it.
 
 A round waits, as the harness round driver's does, and the command returns at once: 75 while
 it waits for the account's usage limit to reset, 77 while it waits for a person (a refused
@@ -53,8 +57,10 @@ command runs.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +90,12 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
     )
     run.add_argument(
         "--shakedown", action="store_true", help="the round is a shakedown: a practice version"
+    )
+    run.add_argument(
+        "--rerun-of",
+        dest="rerun_of",
+        type=Path,
+        help="the earlier round whose entry this one-entry round runs once more",
     )
     run.add_argument(
         "--limit-reset",
@@ -126,6 +138,7 @@ def _run(args: argparse.Namespace) -> int:
         BaselineError,
         RoundWaits,
         RunSet,
+        Stopped,
         run_baseline,
     )
     from physgate.evaluation.observe.cost import load_price_sheet
@@ -151,23 +164,28 @@ def _run(args: argparse.Namespace) -> int:
         runs = RunSet.model_validate_json(args.runs.read_bytes())
         cell = None if args.cell is None else RunSet.model_validate_json(args.cell.read_bytes())
         install_bin = prepare_install(install / "hooks", CHECKOUT)
-        record = run_baseline(
-            store=args.store.resolve(),
-            role=args.role,
-            version=args.version,
-            external=None if args.external is None else args.external.resolve(),
-            runs=runs,
-            out=out,
-            setup_for=_setup_for(install_bin, base_url, harness_state(CHECKOUT)),
-            base_url=base_url,
-            score=score,
-            prices=load_price_sheet(args.prices),
-            development=args.development,
-            resume=args.resume,
-            limit_reset=args.limit_reset,
-            cell=cell,
-            shakedown=args.shakedown,
-        )
+        with stopping():
+            record = run_baseline(
+                store=args.store.resolve(),
+                role=args.role,
+                version=args.version,
+                external=None if args.external is None else args.external.resolve(),
+                runs=runs,
+                out=out,
+                setup_for=_setup_for(install_bin, base_url, harness_state(CHECKOUT)),
+                base_url=base_url,
+                score=score,
+                prices=load_price_sheet(args.prices),
+                development=args.development,
+                resume=args.resume,
+                limit_reset=args.limit_reset,
+                cell=cell,
+                shakedown=args.shakedown,
+                rerun_of=None if args.rerun_of is None else args.rerun_of.resolve(),
+                replaces=replaced_run(args.runs),
+            )
+    except Stopped as stop:
+        return stopped_line(stop)
     except RoundWaits as waits:
         print(json.dumps(waits.printed(), sort_keys=True))
         return waits.exit_code
@@ -184,6 +202,95 @@ def _run(args: argparse.Namespace) -> int:
             shutil.rmtree(install, onexc=writable_again)
     print(json.dumps(record.model_dump(mode="json"), sort_keys=True))
     return 0
+
+
+@contextlib.contextmanager
+def stopping() -> Iterator[None]:
+    """Inside, a stop signal raises :class:`.runner.Stopped` in the main thread, once.
+
+    So the round unwinds as on any error: the arm ends its session with its process group and
+    removes its credential, and the round names the stop on its ledger. A further stop signal
+    while it unwinds is ignored, so the cleanup is not cut short; a kill is not, and leaves what
+    the next start clears. A signal the launcher set to be ignored stays ignored.
+    """
+    import signal
+    import threading
+
+    from physgate.evaluation.baseline.runner import Stopped
+    from physgate.orchestrator.stop_signals import STOP_SIGNALS
+
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    found: dict[int, Any] = {}
+
+    def stop(signum: int, _frame: Any) -> None:  # noqa: ANN401 - a signal handler's frame
+        for each in found:
+            signal.signal(each, signal.SIG_IGN)
+        raise Stopped(signum)
+
+    for signum in STOP_SIGNALS:
+        before = signal.getsignal(signum)
+        if before == signal.SIG_IGN:
+            continue
+        found[signum] = before
+        signal.signal(signum, stop)
+    try:
+        yield
+    finally:
+        for each, before in found.items():
+            signal.signal(each, before)
+
+
+def stopped_line(stop: Any) -> int:  # noqa: ANN401 - a runner.Stopped
+    """Say a stop, after every session of this process is gone; the status the command ends with.
+
+    The line: ``status`` ``stopped``, the signal, the entry the round was at and whether a session
+    of it had started, and how many sessions of this process still live. It ends with ``128 + N``
+    for the signal ``N``, as a process the signal ended would; with 76 where a session still
+    lives after its stop, since it may write its credential again.
+    """
+    import signal
+
+    from physgate.orchestrator.credentials import remove_held_secrets
+    from physgate.orchestrator.stop_signals import EXIT_SESSIONS_ALIVE, end_live_sessions
+
+    ended = end_live_sessions()
+    remove_held_secrets()
+    alive = len(ended.survivors)
+    print(
+        json.dumps(
+            {
+                "format": 1,
+                "status": "stopped",
+                "signal": signal.Signals(stop.signum).name,
+                "entry": stop.entry,
+                "session_started": stop.session_started,
+                "sessions_alive": alive,
+            },
+            sort_keys=True,
+        )
+    )
+    return EXIT_SESSIONS_ALIVE if alive else 128 + int(stop.signum)
+
+
+def replaced_run(runs: Path) -> str | None:
+    """The run a re-run harness trial superseded, as the sheet beside its run set names it.
+
+    The harness round writes beside each trial's one-entry run set (``<n>.runs.json``) a sheet
+    (``<n>.trial.json``) that names, for a trial run once more, the run it superseded
+    (``rerun_of.run_dir``). ``None`` where there is no such sheet or it names none.
+    """
+    if not runs.name.endswith(".runs.json"):
+        return None
+    sheet = runs.with_name(runs.name.removesuffix(".runs.json") + ".trial.json")
+    try:
+        found = json.loads(sheet.read_bytes())
+    except (OSError, ValueError):
+        return None
+    rerun = found.get("rerun_of") if isinstance(found, dict) else None
+    run_dir = rerun.get("run_dir") if isinstance(rerun, dict) else None
+    return run_dir if isinstance(run_dir, str) else None
 
 
 def refused_line(context: dict[str, str]) -> str:
