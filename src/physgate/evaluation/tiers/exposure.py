@@ -26,7 +26,7 @@ reads or writes.
 The register's lines name a version by its id and its protected tiers' digests, and a key that
 is a digest (of the incident's run and offset, or of the record's place): never a task id, a
 brief, a canary or an outcome. A hand mark, and a settle, carries the person who made it, why
-and when.
+and when; a settle also says, for a person, the path of the directory it settles.
 
 - **exposure:** a ``held_out_read`` incident in the event log of a run under one of the role's
   run roots; a raw-arm record, under the run roots or beneath the withheld root's baseline
@@ -65,7 +65,9 @@ and when.
   (:func:`settle_directory`, a line of its own that marks no version): from then on what of it
   cannot be read is passed over.
 - **settle:** a directory under the run roots that the register refused, settled by a person
-  who looked at it, named by its identity (:func:`settle_directory`). It marks no version.
+  who looked at it, named by its identity (:func:`settle_directory`). It marks no version. Its
+  path, as given and as resolved then, is beside the key for a person to read; only the key
+  settles.
 - **authoring:** a read of the tiers by their author or their blind check. Never an exposure.
 - **measurement:** one scoring of a protected tier whose result anyone sees.
 
@@ -165,6 +167,8 @@ _PREFIX = 8
 Key = Sha256
 Date = Annotated[str, StringConstraints(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")]
 Text = Annotated[str, StringConstraints(min_length=1, max_length=500)]
+#: A path said for a person who reads the register, never one anything is matched by.
+SaidPath = Annotated[str, StringConstraints(min_length=1, max_length=4096)]
 
 
 class ExposureError(PerRoleError):
@@ -232,10 +236,15 @@ class RunRoot(_Line):
 class Settle(_Line):
     """A directory under the run roots that a person has looked at: it marks no version.
 
-    It names the directory by its identity alone (:func:`_settle_key`, a digest: never its
-    path), with who settled it, why and when. From then on, while the directory is the one that
-    was looked at, what of it cannot be read is passed over, and what it shows is still read
+    It names the directory by its identity (:func:`_settle_key`, a digest: never its path),
+    with who settled it, why and when. From then on, while the directory is the one that was
+    looked at, what of it cannot be read is passed over, and what it shows is still read
     (:func:`settle_directory`). A version it may have shown is marked by hand apart.
+
+    Beside the key, the directory's path as the person gave it and as it resolved then, for a
+    person who reads the register to find which directory it was. Only the key settles: nothing
+    is ever matched by a path, so a path changed by hand, or a directory later made at it, is
+    settled by neither. A line written before the paths were recorded holds neither.
     """
 
     kind: Literal["settle"]
@@ -243,6 +252,8 @@ class Settle(_Line):
     by: Text
     reason: Text
     date: Date
+    given_path: SaidPath | None = None
+    resolved_path: SaidPath | None = None
 
 
 AnyLine = Exposure | Authoring | Measurement | Settle
@@ -1513,15 +1524,24 @@ def _refusal_of(
     return None
 
 
-def settle_directory(store: Path, role: Role, directory: Path, *, by: str, reason: str) -> None:
+def _for_a_person(path: str) -> str:
+    """``path`` as a register line can hold it: a name the disk does not spell in UTF-8 escaped."""
+    return path.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
+def settle_directory(
+    store: Path, role: Role, directory: Path, *, by: str, reason: str, given: str | None = None
+) -> None:
     """Settle by hand a directory under the run roots that the register refuses: a person looked.
 
-    One line of its own (:class:`Settle`): the directory's identity, who, why and when. It marks
-    no version. From then on, while the directory is the one that was looked at (its identity
-    and the parameters record in it, :func:`_settle_key`), what of it cannot be read is passed
-    over; what it shows is still read. Another directory made at the same path, a copy, or a
-    later decomposition into it is not settled. A version the person judges it may have shown is
-    marked by hand apart (:func:`mark_exposed`).
+    One line of its own (:class:`Settle`): the directory's identity, who, why and when, and for a
+    person who reads the register its path, as given (``given``, the words the person typed;
+    ``directory`` where none are) and as it resolved then. It marks no version. From then on,
+    while the directory is the one that was looked at (its identity and the parameters record in
+    it, :func:`_settle_key`), what of it cannot be read is passed over; what it shows is still
+    read. Another directory made at the same path, a copy, or a later decomposition into it is
+    not settled: the path recorded is never what settles. A version the person judges it may
+    have shown is marked by hand apart (:func:`mark_exposed`).
 
     Refused for a directory that is not one (a link, or not there), one that lies outside every
     run root of the role (or is a run root itself), and one the register refuses nothing for, or
@@ -1566,6 +1586,9 @@ def settle_directory(store: Path, role: Role, directory: Path, *, by: str, reaso
         "by": by.strip(),
         "reason": reason.strip(),
         "date": _today(),
+        # Said for a person; the key alone settles.
+        "given_path": _for_a_person(str(directory) if given is None else given),
+        "resolved_path": _for_a_person(str(real)),
     }
     try:
         Settle.model_validate({**payload, "n": 0, "prev": _ZERO})

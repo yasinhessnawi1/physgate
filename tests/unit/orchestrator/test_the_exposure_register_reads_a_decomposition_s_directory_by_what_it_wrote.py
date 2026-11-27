@@ -472,13 +472,18 @@ def test_a_run_whose_journal_does_not_read_is_settled_by_hand_too(tier: OnTier) 
     assert _readable(tier) == frozenset()
 
 
-def test_a_settle_names_no_path_in_the_register(tier: OnTier) -> None:
+def test_a_settle_names_its_path_only_where_a_person_reads_it(tier: OnTier) -> None:
     directory = _by_hand(tier, "old")
     _unreadable_review(tier, directory)
     _settle(tier, directory)
     register = (tier.made.store / ROLE / "withheld" / "register.jsonl").read_text()
-    assert str(tier.runs) not in register
-    assert directory.name not in register
+    (line,) = [json.loads(text) for text in register.splitlines()]
+    # Said for a person, beside the key; the rest of the line, its key among it, names no path.
+    said = {line.pop("given_path"), line.pop("resolved_path")}
+    assert said == {str(directory), str(directory.resolve())}, said
+    rest = json.dumps(line)
+    assert str(tier.runs) not in rest
+    assert directory.name not in rest
 
 
 def test_a_process_table_that_cannot_be_read_refuses_until_it_answers(

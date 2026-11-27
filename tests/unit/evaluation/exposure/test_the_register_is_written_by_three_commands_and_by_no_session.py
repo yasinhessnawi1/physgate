@@ -12,7 +12,7 @@ version (a hand mark settles nothing, and says which command does). A run root t
 every later scan refuse is not added. A round's prepared target is checked by a command of its
 own, which writes nothing.
 No command removes a line, so nothing unmarks a version. ``tiers status`` shows an exposed
-version as stale.
+version as stale, and lists each settle with its directory's path as typed and as resolved.
 """
 
 from __future__ import annotations
@@ -175,6 +175,31 @@ def test_a_settle_at_a_terminal_is_one_line_that_marks_no_version(
     # Settled, it refuses nothing more: a second settle is refused.
     code, said = _tiers(capsys, *_settle_argv(made, directory))
     assert code != 0 and said.get("refused_because") == "settle_refuses_nothing"
+
+
+def test_a_settle_keeps_the_path_as_typed_and_as_resolved_and_the_status_lists_it(
+    tmp_path: Path,
+    made: StandInStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runs = with_run_root(made, tmp_path / "runs")
+    directory = _refusing(made, runs)
+    (tmp_path / "alias").symlink_to(runs)
+    monkeypatch.chdir(tmp_path)
+    typed = "alias/./cut/"
+    _at_a_terminal(monkeypatch, yes=True)
+    argv = _settle_argv(made, directory)
+    argv[argv.index("--directory") + 1] = typed
+    code, said = _tiers(capsys, *argv)
+    assert code == 0, said
+    (line,) = api(f"{EXPOSURE}.register_lines")(made.store, "control")
+    assert (line.given_path, line.resolved_path) == (typed, str(directory.resolve()))
+    _, status = _tiers(capsys, "status", "--store", str(made.store))
+    (listed,) = status["settles"]
+    assert listed["role"] == "control" and listed["key"] == line.key, listed
+    assert (listed["given_path"], listed["resolved_path"]) == (typed, str(directory.resolve()))
+    assert (listed["by"], listed["reason"], listed["date"]) == (line.by, line.reason, line.date)
 
 
 def test_a_settle_of_a_directory_outside_the_run_roots_is_refused_at_the_command(

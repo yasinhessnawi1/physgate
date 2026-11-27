@@ -11,7 +11,10 @@ or ``refused`` (the version is not what its manifest says, and why). Beside each
 counts and digests, the model, the seed and the date, and its blind check (``check``): the
 record's counts (tasks, all three answers yes, flagged) and whether the check wrote it or it
 was imported; ``null`` where the version has none, and so is not scored on its held-out tier;
-or why the record is refused. Never a flagged task's digest. And for the store, what only a split in
+or why the record is refused. Never a flagged task's digest. Under ``settles``, each directory a
+person settled (below), for a role that holds a version: its key, who, why and when, and its path
+as given and as resolved then (``null`` on a line written before the paths were recorded), for a
+person to find it by. And for the store, what only a split in
 progress holds (pools, versions being written) and records of a session's work out of a role's
 root, counted. Never a task id, a brief or a canary. It exits 1 if a version is refused or the
 store holds a split's leftovers or work left; and if the store cannot be read, it prints one
@@ -59,10 +62,11 @@ inside a harness session's environment, as defence in depth only.
   version the person judges it may have shown is marked with ``mark-exposed``) and writes one
   line of its own: the directory's identity (a digest of its device and inode and of its
   parameters record, never its path; another directory made at the same path is not settled),
-  who, why and when. It asks for a terminal as ``mark-exposed`` does, and is refused for a
-  directory that lies outside every run root of the role (``settle_outside_the_run_roots``) and
-  for one the register refuses nothing in, or nothing a settle passes over
-  (``settle_refuses_nothing``).
+  who, why and when, and beside them, for a person, the directory's path as typed and as it
+  resolved then (``tiers status`` lists them; nothing is matched by a path). It asks for a
+  terminal as ``mark-exposed`` does, and is refused for a directory that lies outside every run
+  root of the role (``settle_outside_the_run_roots``) and for one the register refuses nothing
+  in, or nothing a settle passes over (``settle_refuses_nothing``).
 - ``physgate tiers add-run-root --withheld W --path DIR`` adds a directory beneath which the
   role's runs are made; a measured run made anywhere else is refused. A directory the scan
   could not read whole, with the roots there already, is refused and nothing is appended.
@@ -131,8 +135,9 @@ def add_parser(subparsers: Any) -> None:
             # No longer this command's: refused, naming the command that settles a directory.
             sub.add_argument("--settles", type=Path, help=argparse.SUPPRESS)
         elif name == "settle":
-            # A directory beneath the run roots the register refuses, looked at by the person.
-            sub.add_argument("--directory", type=Path, required=True)
+            # A directory beneath the run roots the register refuses, looked at by the person:
+            # kept as typed, since the settle line says it so for a person.
+            sub.add_argument("--directory", required=True)
             sub.add_argument("--by", required=True)
             sub.add_argument("--reason", required=True)
         elif name == "add-run-root":
@@ -185,13 +190,14 @@ def status(store: Path) -> dict[str, Any]:
     """
     from physgate.evaluation.tiers.authoring import TIERS
     from physgate.evaluation.tiers.checks import CheckError, counts, read_check
-    from physgate.evaluation.tiers.exposure import ExposureError, exposure_sources
+    from physgate.evaluation.tiers.exposure import ExposureError, exposure_sources, register_lines
     from physgate.evaluation.tiers.manifest import VERSION_NAME, TierSetError, read_version
     from physgate.evaluation.tiers.manifest import staleness as stale
     from physgate.evaluation.tiers.store import leftovers, role_root
     from physgate.evaluation.tiers.task import Role
 
     versions: list[dict[str, Any]] = []
+    settles: list[dict[str, Any]] = []
     for role in get_args(Role):
         root = role_root(store, role)
         names = (
@@ -203,6 +209,14 @@ def status(store: Path) -> dict[str, Any]:
         exposed: dict[str, frozenset[str]] = {}
         try:
             exposed = exposure_sources(store, role) if names else {}
+            if names:
+                # Each directory a person settled, with its path as they gave it and as it
+                # resolved then: words for a person, never what settles (the key does).
+                settles += [
+                    {"role": role, **line.model_dump(mode="json", exclude={"n", "prev"})}
+                    for line in register_lines(store, role)
+                    if line.kind == "settle"
+                ]
         except ExposureError as exc:
             # Whether any version of the role was seen cannot be told: none reads as fresh.
             unread = exc.context.get("refused_because", "register_unreadable")
@@ -244,7 +258,7 @@ def status(store: Path) -> dict[str, Any]:
                     "check": check,
                 }
             )
-    return {"versions": versions, "left": leftovers(store)}
+    return {"versions": versions, "settles": settles, "left": leftovers(store)}
 
 
 #: The one refusal ``--publish`` exits 0 on: the role holds no fresh version, which is a state of
@@ -344,10 +358,16 @@ def _write(args: argparse.Namespace) -> int:
                 print(json.dumps(said, sort_keys=True))
                 return 1
             if args.tiers_command == "settle":
+                directory = Path(args.directory).absolute()
                 exposure.settle_directory(
-                    store, args.role, args.directory.absolute(), by=args.by, reason=args.reason
+                    store,
+                    args.role,
+                    directory,
+                    by=args.by,
+                    reason=args.reason,
+                    given=args.directory,
                 )
-                said = {"settled": str(args.directory.absolute())}
+                said = {"settled": str(directory)}
             else:
                 exposure.mark_exposed(
                     store, args.role, args.version, by=args.by, reason=args.reason

@@ -9,7 +9,8 @@
   a line the redaction replaces, counted as the canary, is still counted by every later reader.
 - A settle is a line of its own that marks no version, refused for a directory outside every run
   root and for one the register refuses nothing in; a register written when a hand mark settled
-  a directory reads as it did.
+  a directory reads as it did. It says, for a person, its directory's path as given and as
+  resolved; only its key settles, and a settle line without the paths reads as before.
 - The walk passes over only the target and the review root a decomposition's records name in its
   own directory, and a run at the top of a place it passes over is still found.
 - ``decompose`` looks into a review root and a target given inside its run directory.
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -69,7 +71,7 @@ from physgate.evaluation.tiers import exposure  # noqa: E402
 from physgate.evaluation.tiers.exposure import ExposureError  # noqa: E402
 from physgate.evaluation.tiers.store import withheld_root  # noqa: E402
 from physgate.evaluation.tiers.task import Role  # noqa: E402
-from physgate.orchestrator import decomposition_review, dispatch  # noqa: E402
+from physgate.orchestrator import decomposition_review, design_rounds, dispatch  # noqa: E402
 from physgate.orchestrator.decomposition_review import stop_left_review  # noqa: E402
 from physgate.orchestrator.exceptions import RunStateError  # noqa: E402
 from physgate.orchestrator.protocols import ReviewResult  # noqa: E402
@@ -372,6 +374,61 @@ def test_a_register_written_when_a_hand_mark_settled_a_directory_reads_as_it_did
     assert _readable(tier) == frozenset({tier.made.version})
 
 
+def _refusing(tier: OnTier, name: str) -> Path:
+    directory = _by_hand(tier, name)
+    (directory / REVIEW_RECORD).write_text("{")
+    return directory
+
+
+def _settle_line(directory: Path, **paths: str) -> dict[str, object]:
+    """A settle line keyed by ``directory``'s identity, with ``paths`` for a person, or none."""
+    return {
+        "kind": "settle",
+        "key": exposure._settle_key(directory),  # noqa: SLF001 - the key the line carries
+        "by": "a person",
+        "reason": "looked at the directory",
+        "date": "2026-11-27",
+        **paths,
+    }
+
+
+def test_a_settle_says_for_a_person_the_path_of_its_directory_as_given_and_as_resolved(
+    tier: OnTier,
+) -> None:
+    directory = _refusing(tier, "old")
+    _settle(tier, directory)
+    (line,) = _lines(tier)
+    fields: dict[str, object] = getattr(line, "model_dump", dict)()
+    assert fields.get("given_path") == str(directory), fields
+    assert fields.get("resolved_path") == str(directory.resolve()), fields
+
+
+def test_a_settle_line_whose_path_is_changed_by_hand_settles_its_own_directory_and_no_other(
+    tier: OnTier,
+) -> None:
+    one, other = _refusing(tier, "one"), _refusing(tier, "other")
+    # Keyed by the one, its paths naming the other: as if the paths were changed by hand.
+    named = {"given_path": str(other), "resolved_path": str(other.resolve())}
+    withheld = withheld_root(tier.made.store, ROLE)
+    exposure._append(withheld, "register", [_settle_line(one, **named)])  # noqa: SLF001
+    # The other still refuses: a path settles nothing.
+    assert SETTLE in str(_refused(tier))
+    # And the one is settled by its key: with the other's record read again, the store reads.
+    (other / REVIEW_RECORD).unlink()
+    assert _readable(tier) == frozenset()
+
+
+def test_a_settle_line_written_before_the_paths_were_recorded_reads_as_before(
+    tier: OnTier,
+) -> None:
+    directory = _refusing(tier, "old")
+    withheld = withheld_root(tier.made.store, ROLE)
+    exposure._append(withheld, "register", [_settle_line(directory)])  # noqa: SLF001
+    assert _readable(tier) == frozenset()
+    (line,) = _lines(tier)
+    assert (getattr(line, "given_path", ""), getattr(line, "resolved_path", "")) == (None, None)
+
+
 @pytest.mark.parametrize("second", ["a run", "a decomposition"])
 def test_a_settle_of_one_directory_settles_no_other_that_refuses_alike(
     tier: OnTier, second: str
@@ -482,6 +539,37 @@ def test_the_names_decompose_looks_for_are_the_ones_the_register_reads() -> None
 
     named = {exposure.RUN_RECORD, exposure.RAW_RECORD, exposure.PARAMS_RECORD}
     assert named == REGISTER_RECORDS
+
+
+def test_a_decomposition_writes_nothing_beneath_its_review_root_before_its_first_journal_line(
+    tier: OnTier, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The round driver's layout: the review root made empty inside the trial's directory, which
+    # the command's own look into it needs. Nothing the command does before its review writes
+    # beneath it: not before its round journal's first line, and not before the review starts.
+    trial, args = _trial(tier, tmp_path)
+    root = (trial / "review").resolve()
+    seen: list[tuple[str, list[str]]] = []
+    append = design_rounds._append  # noqa: SLF001 - the journal's own writer
+
+    def looking(journal: Path, line: Any) -> None:  # noqa: ANN401
+        seen.append((type(line).__name__, sorted(os.listdir(root))))
+        append(journal, line)
+
+    monkeypatch.setattr(design_rounds, "_append", looking)
+
+    class Looking(Recording):
+        def review_plan(self, under: Any) -> ReviewResult:  # noqa: ANN401
+            seen.append(("review", sorted(os.listdir(root))))
+            return super().review_plan(under)
+
+    reviewer = Looking(Stopped(), (SESSION, 4242, OTHER_START), stream=CLEAN, root=root)
+    with pytest.raises(Stopped):
+        _exit(args, reviewer)
+    kinds = [what for what, _ in seen]
+    assert "RoundStarted" in kinds and "review" in kinds, seen
+    assert kinds.index("RoundStarted") < kinds.index("review"), seen
+    assert all(not held for _, held in seen[: kinds.index("review") + 1]), seen
 
 
 def test_require_only_its_own_refuses_a_review_root_inside_that_holds_anything(
