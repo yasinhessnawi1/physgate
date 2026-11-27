@@ -26,8 +26,8 @@ refused rather than read as a shorter run.
 - every input the run took is a value with a unit, the seed included;
 - the code that produced it is named: the script, and every file of code the producing
   process loaded from outside the interpreter, each with the digest of its bytes as the
-  writer saw them. Whether that code may stand behind a record is the collector's
-  judgement, not this schema's;
+  writer saw them. Whether a record may name that code is the collector's judgement,
+  not this schema's;
 - nothing exceeds the bounds below, and no JSON object repeats a key: a plain JSON read
   keeps the last of two equal keys silently, so a record could otherwise say two things.
 

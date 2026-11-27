@@ -54,6 +54,9 @@ from physgate.series.seal import (
     AttemptRecord,
     AttemptSeries,
     Bytecode,
+    CodeBlob,
+    ScratchFile,
+    SealedRecord,
     SessionSeries,
 )
 
@@ -302,8 +305,10 @@ def test_a_place_the_look_cannot_list_marks_every_record_of_the_session(tmp_path
         hidden.chmod(0o700)
     why = getattr(series, "not_vouched", None)
     assert why is not None and "could not be listed" in why, series
-    shown = summary.listing(_attempt(run, series)).decode()
-    assert "NOT VOUCHED FOR" in _section(shown, "step")
+    section = _section(summary.listing(_attempt(run, series)).decode(), "step")
+    assert "NOT VOUCHED FOR: the look for compiled code beside this record's code" in section
+    # Nothing was found, and the listing does not say that something was.
+    assert "compiled code lay where" not in section
 
 
 def test_a_file_beside_a_record_is_named_past_the_first_bound(tmp_path: Path) -> None:
@@ -342,8 +347,6 @@ def test_a_file_beside_a_record_is_named_past_the_first_bound(tmp_path: Path) ->
 def test_a_file_lies_beside_a_record_exactly_where_the_interpreter_reads_compiled_code(
     path: str, marks: bool
 ) -> None:
-    from physgate.series.seal import CodeBlob, SealedRecord
-
     record = SealedRecord(
         record_id="step",
         sha256="a" * 64,
@@ -554,3 +557,43 @@ def test_the_loop_hands_the_review_an_attempt_whose_session_left_bytecode_alone(
     assert reviewed.series is not None
     shown = json.loads(reviewed.series.model_dump_json())
     assert shown["bytecode"][0]["files"][0]["path"] == f"modules/control/__pycache__/law.{TAG}.pyc"
+
+
+def test_the_loop_hands_the_review_what_a_session_s_scratch_folder_held_alone(
+    tmp_path: Path,
+) -> None:
+    held = ScratchFile(path=".physgate/scratch/run_it.py", kind="file", length=9, sha256="c" * 64)
+    left = SessionSeries(scratch=(held,), scratch_found=3, scratch_cut="a bound, in words")
+    rig = Rig(tmp_path, dispatcher=FakeDispatcher(series={1: left}))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    (reviewed,) = rig.reviewer.seen
+    assert reviewed.series is not None
+    (scratch,) = reviewed.series.scratch
+    assert (scratch.found, scratch.files, scratch.cut) == (3, (held,), "a bound, in words")
+
+
+def test_the_loop_hands_the_review_why_none_of_a_session_s_records_is_vouched_for(
+    tmp_path: Path,
+) -> None:
+    sealed = SealedRecord(
+        record_id="step",
+        sha256="a" * 64,
+        length=10,
+        script=f"{MODULE}/sim.py",
+        script_sha256="a" * 64,
+        script_blob="b" * 40,
+    )
+    left = SessionSeries(records=(sealed,), not_vouched="home/hidden could not be listed")
+    rig = Rig(tmp_path, dispatcher=FakeDispatcher(series={1: left}))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    (reviewed,) = rig.reviewer.seen
+    assert reviewed.series is not None
+    (record,) = reviewed.series.records
+    why, beside = reviewed.series.not_vouched(record.session_id, "step")
+    assert (why, beside) == ("home/hidden could not be listed", [])

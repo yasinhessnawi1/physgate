@@ -72,8 +72,9 @@ LIMITS = (
     "That process was the session's, which can run other code than it names; the harness has "
     "not re-run the script, so a record does not show that the code it names is the code that "
     "ran. A record is marked " + NOT_VOUCHED.upper() + " where compiled code was found, when its "
-    "session ended, beside a file it names or as a cache of the series writer; an unmarked "
-    "record is only one beside which nothing was found.\n"
+    "session ended, beside a file it names or as a cache of the series writer, or where that "
+    "look could not be made whole; an unmarked record is only one beside which the look found "
+    "nothing.\n"
 )
 
 
@@ -145,14 +146,20 @@ def _not_vouched(why: str | None, beside: list[Bytecode]) -> list[str]:
     """The mark of a record not vouched for, first in its section; nothing for any other."""
     if why is None and not beside:
         return []
-    lines = [
-        f"- {NOT_VOUCHED.upper()}: compiled code lay where the interpreter reads it in place of "
-        "the source of a file this record names, or of the series writer, when its session "
-        "ended, so the code that ran may not be the code it names\n"
-    ]
+    lines: list[str] = []
+    if beside:
+        lines.append(
+            f"- {NOT_VOUCHED.upper()}: compiled code lay where the interpreter reads it in place "
+            "of the source of a file this record names, or of the series writer, when its "
+            "session ended, so the code that ran may not be the code it names\n"
+        )
+        lines += [f"  - {_quoted(found.path)}: {_seal_of(found)}\n" for found in beside]
     if why is not None:
-        lines.append(f"  - why: {_quoted(why)}\n")
-    lines += [f"  - {_quoted(found.path)}: {_seal_of(found)}\n" for found in beside]
+        lines.append(
+            f"- {NOT_VOUCHED.upper()}: the look for compiled code beside this record's code, when "
+            "its session ended, could not be made whole, so nothing here says no such code lay "
+            f"there: {_quoted(why)}\n"
+        )
     return lines
 
 
@@ -219,7 +226,7 @@ def _discarded(discarded: tuple[AttemptDiscard, ...]) -> str:
 def _bytecode(left: tuple[AttemptBytecode, ...]) -> str:
     total = sum(held.found for held in left)
     lines = [
-        "# Bytecode left in the worktree\n\n",
+        "# Bytecode found when a session ended\n\n",
         "A compiled file the interpreter would run in place of a module's source, found when a "
         "session ended: in the worktree, removed before its commit and never part of the "
         "attempt; or, by an absolute path, beneath a cache prefix in a directory of the "

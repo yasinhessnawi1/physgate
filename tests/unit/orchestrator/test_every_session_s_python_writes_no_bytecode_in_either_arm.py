@@ -266,7 +266,7 @@ def test_the_review_s_series_listing_names_each_bytecode_file_a_session_left(
     )
     series = AttemptSeries(run_dir=str(tmp_path), subtask_id="s1", attempt=1, bytecode=(left,))
     shown = listing(series).decode()
-    assert "# Bytecode left in the worktree" in shown
+    assert "# Bytecode found when a session ended" in shown
     assert "Files found: 3." in shown
     assert "elsewhere/__pycache__/base.cpython-312.pyc" in shown and "sha256 " + "a" * 64 in shown
     assert "modules/power/x.pyc" in shown and "and 1 more, not named" in shown
@@ -297,6 +297,17 @@ if MODE == "marked":
     tag = sys.implementation.cache_tag
     with open(f"modules/power/__pycache__/helper.{tag}.pyc", "wb") as out:
         out.write(bootstrap._code_to_timestamp_pyc(code, held.st_mtime, held.st_size))
+    # And beneath a cache prefix in the session's own home and its own temporary directory.
+    mirrored = os.path.join(os.path.abspath("modules/power").lstrip("/"), f"helper.{tag}.pyc")
+    planted = []
+    for place in (os.environ["HOME"], os.environ["CLAUDE_CODE_TMPDIR"]):
+        target = os.path.join(place, "pc", mirrored)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "wb") as out:
+            out.write(b"planted")
+        planted.append(target)
+    with open(os.path.join(FLAGS, "planted"), "w") as out:
+        out.write("\n".join(planted))
     os.makedirs(".physgate/scratch", exist_ok=True)
     with open(".physgate/scratch/note.txt", "w") as out:
         out.write("a note\n")
@@ -364,8 +375,12 @@ def test_the_dispatcher_s_end_marks_a_record_sealed_beside_compiled_code_and_rec
     assert [r.record_id for r in report.series.records] == ["step"], report.series.refused
     tag = sys.implementation.cache_tag
     marked = [b for b in report.series.bytecode if "step" in getattr(b, "records", ())]
-    assert [b.path for b in marked] == [f"modules/power/__pycache__/helper.{tag}.pyc"]
-    assert marked[0].sha256 is not None
+    home, temp = (run.flags / "planted").read_text().split("\n")
+    # Each place as the dispatcher spells it (``/var`` is a link on macOS).
+    shown = [b.path if i == 0 else os.path.realpath(b.path) for i, b in enumerate(marked)]
+    expected = [f"modules/power/__pycache__/helper.{tag}.pyc", home, temp]
+    assert shown == [expected[0], *(os.path.realpath(p) for p in expected[1:])]
+    assert all(b.sha256 is not None for b in marked)
     note = [(e.path, e.kind) for e in getattr(report.series, "scratch", ())]
     assert note == [(".physgate/scratch/note.txt", "file")]
     # On the session's end line as it is dumped, which a resume and the review read.

@@ -63,7 +63,6 @@ from physgate.orchestrator.git import common_dir, git, verified_git_dir
 from physgate.series.collect import WRITER_PATH
 from physgate.series.seal import (
     MAX_ENTRIES,
-    NOT_VOUCHED,
     Bytecode,
     ScratchFile,
     SealedRecord,
@@ -708,9 +707,7 @@ def end_series(
             "left_out_incomplete": not cleared.complete,
         }
     if why:
-        update["not_vouched"] = (
-            f"{NOT_VOUCHED}: the look for bytecode beside its code was not whole: " + "; ".join(why)
-        )[:500]
+        update["not_vouched"] = "; ".join(why)[:500]
     if cleared.scratch_found:
         update |= {
             "scratch": cleared.scratch,

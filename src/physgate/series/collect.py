@@ -602,8 +602,8 @@ def _provenance(
 
     The script and every file of code the record names in the worktree must be the module's
     (the writer excepted) and unchanged since the record was written. Their blobs are what the
-    change check holds the attempt commit to: code the attempt does not commit with these
-    bytes cannot stand behind the curve. A file outside the worktree is admitted only as the
+    change check holds the attempt commit to: a record may name only code the attempt commits
+    with these bytes. A file outside the worktree is admitted only as the
     interpreter's own (:func:`_environment_code`), and is recorded. Every file is checked for
     a refusal before a changed or gone module file is reported, so a record that is both
     changed and refused is refused.
