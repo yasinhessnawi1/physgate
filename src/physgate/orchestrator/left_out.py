@@ -689,7 +689,7 @@ def end_series(
     bytecode = list(cleared.bytecode)
     found = cleared.bytecode_found
     why: list[str] = []
-    if series.records and concerns:
+    if series.records:
         elsewhere, stopped = caches_beneath(own, concerns)
         room = MAX_ENTRIES - len(bytecode)
         bytecode += elsewhere[:room]

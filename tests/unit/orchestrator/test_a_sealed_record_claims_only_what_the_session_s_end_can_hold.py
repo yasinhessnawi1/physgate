@@ -40,10 +40,10 @@ from test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt 
     _run,
     _scope,
     _write,
-    left_out,
 )
 
 from physgate.orchestrator import apply as apply_module
+from physgate.orchestrator import left_out
 from physgate.orchestrator.apply import GitChangeChecker
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.merge import RunGit, commit_attempt
@@ -373,14 +373,17 @@ def test_what_the_scratch_folder_held_is_recorded_by_path_length_and_digest_befo
     (scratch / "link").symlink_to("/etc/hosts")
     cleared = left_out.clear_left_out(worktree, repo=run.repo)
     held = [(e.path, e.kind, e.length, e.sha256) for e in getattr(cleared, "scratch", ())]
-    digest = lambda text: hashlib.sha256(text.encode()).hexdigest()  # noqa: E731
+
+    def digest(text: str) -> str:
+        return hashlib.sha256(text.encode()).hexdigest()
+
     assert held == [
         (".physgate/scratch/d/n.txt", "file", 2, digest("n\n")),
         (".physgate/scratch/link", "link", None, None),
         (".physgate/scratch/run_it.py", "file", 9, digest("print(1)\n")),
         (".physgate/scratch/shut.txt", "file", 7, digest("hidden\n")),
     ]
-    assert cleared.scratch_found == 4 and cleared.scratch_cut is None  # type: ignore[attr-defined]
+    assert cleared.scratch_found == 4 and cleared.scratch_cut is None
     assert not scratch.exists()
 
 
@@ -393,9 +396,10 @@ def test_a_scratch_folder_past_its_bound_is_recorded_and_says_where_it_stopped(
     monkeypatch.setattr(left_out, "MAX_SCRATCH_BYTES", 25)
     cleared = left_out.clear_left_out(worktree, repo=run.repo)
     named = getattr(cleared, "scratch", ())
-    assert len(named) == 200 and cleared.scratch_found == 205  # type: ignore[attr-defined]
+    assert len(named) == 200 and cleared.scratch_found == 205
     assert [e.sha256 is not None for e in named[:3]] == [True, True, False]
-    cut = cleared.scratch_cut  # type: ignore[attr-defined]
+    cut = cleared.scratch_cut
+    assert cut is not None
     assert "named the first 200 of 205 entries" in cut
     assert "198 files named by length alone" in cut
 

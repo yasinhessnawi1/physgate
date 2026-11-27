@@ -171,8 +171,8 @@ def _record(
         count = len(record.producer.loaded)
         lines.append(f"- code it loaded besides the script: {count} file{'s' * (count != 1)}\n")
         for code in record.producer.loaded:
-            marked = _ENVIRONMENT if code.path.startswith("/") else ""
-            lines.append(f"  - {_quoted(code.path)}, sha256 {code.sha256}{marked}\n")
+            installed = _ENVIRONMENT if code.path.startswith("/") else ""
+            lines.append(f"  - {_quoted(code.path)}, sha256 {code.sha256}{installed}\n")
     for name in sorted(record.inputs):
         given = record.inputs[name]
         lines.append(f"- input {name}: {_number(given.value)} {given.unit}\n")
