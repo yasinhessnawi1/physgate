@@ -71,6 +71,8 @@ def _review(
     line: MessageUsage | None = None,
     after: bytes = b"",
     redacting: bool = False,
+    told: list[tuple[str, bytes]] | None = None,
+    first_read_fails: bool = False,
 ) -> object:
     read = tmp_path / "rs" / "review" / "read"
     read.mkdir(parents=True)
@@ -104,11 +106,26 @@ def _review(
     if not redacting:
         monkeypatch.setattr(claude, "redact", lambda *a: None)
     monkeypatch.setattr(claude, "read_captured", lambda path, data=None: captured)
+    if first_read_fails:
+        real_read = claude.read_stream_file
+        reads: list[Path] = []
+
+        def once_refused(path: Path) -> bytes:
+            reads.append(path)
+            if len(reads) == 1:
+                msg = "the stream could not be read this once"
+                raise InvocationError(msg)
+            return real_read(path)
+
+        monkeypatch.setattr(claude, "read_stream_file", once_refused)
     monkeypatch.setattr(claude, "compaction_line", totals)
     monkeypatch.setattr(claude, "verdict_schema", lambda *a, **k: {})
     monkeypatch.setattr(claude, "contract_text", lambda *a, **k: "c")
     rubric = Rubric(role="control", text="r", sha256="0" * 64)
     reviewer = ClaudeReviewer(role="control", setup=_setup(tmp_path, canaries), rubric=rubric)
+    if told is not None and hasattr(reviewer, "record_shown"):
+        # What the stream holds when the review says its scan showed a canary.
+        reviewer.record_shown(lambda session: told.append((session, stdout.read_bytes())))
     return reviewer.review(SimpleNamespace())  # type: ignore[arg-type]
 
 
@@ -193,6 +210,47 @@ def test_a_line_the_redaction_replaces_whole_is_scanned_as_it_was_written(
     # so the stream is scanned before it, as the exposure register and the next command scan it.
     with pytest.raises(Exception) as raised:  # noqa: PT011 - which end it came to is the point
         _review(tmp_path, monkeypatch, "nothing held out", after=unreadable, redacting=True)
+    assert isinstance(raised.value, HeldOutExposedError), repr(raised.value)
+
+
+@pytest.mark.parametrize(
+    "unreadable",
+    [
+        b'{"type":"user","message":{"content":"caf\xe9"}}\n',
+        b'{"type":"user","type":"assistant","message":{"content":"x"}}\n',
+    ],
+    ids=["not UTF-8", "a key twice"],
+)
+def test_a_review_says_its_scan_showed_a_canary_before_its_redaction_replaces_the_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unreadable: bytes
+) -> None:
+    told: list[tuple[str, bytes]] = []
+    with pytest.raises(HeldOutExposedError) as raised:
+        _review(
+            tmp_path, monkeypatch, "nothing held out", after=unreadable, redacting=True, told=told
+        )
+    # Told once, with the line still in the stream: a kill after the redaction loses nothing.
+    assert [(session, unreadable in held) for session, held in told] == [
+        (raised.value.session_id, True)
+    ]
+    assert unreadable not in (tmp_path / "stdout.jsonl").read_bytes(), "the stream was redacted"
+
+
+def test_a_review_that_showed_nothing_says_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    told: list[tuple[str, bytes]] = []
+    with pytest.raises(Exception) as raised:  # noqa: PT011 - any end but an exposure
+        _review(tmp_path, monkeypatch, "nothing held out", redacting=True, told=told)
+    assert not isinstance(raised.value, HeldOutExposedError)
+    assert told == []
+
+
+def test_a_canary_the_first_read_missed_is_found_by_the_read_after_the_redaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(Exception) as raised:  # noqa: PT011 - which end it came to is the point
+        _review(tmp_path, monkeypatch, f"read: <!-- {CANARY} -->", first_read_fails=True)
     assert isinstance(raised.value, HeldOutExposedError), repr(raised.value)
 
 

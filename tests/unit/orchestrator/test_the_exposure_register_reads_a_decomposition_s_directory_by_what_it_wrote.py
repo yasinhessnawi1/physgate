@@ -8,7 +8,8 @@ other entry, so a run beneath is found. A record that does not read refuses, nam
 Which versions a decomposition's exposure marks: the ones its recorded held-out tiers name, and
 none where it recorded that it named none. One made before that record marks every version of
 the role, and only on evidence that something showed. A review stream that is gone is gone; one
-that is there and cannot be read refuses by its kind, and a person who looks settles it by hand.
+that is there and cannot be read refuses by its kind, and a person who looks settles it by hand:
+a line of its own, which marks no version.
 
 The register's scan, the next command's and the live review's read the same unredacted bytes, a
 review resumed for its repair is seen running, and a review that raised is scanned before its
@@ -159,14 +160,27 @@ def _end_line(session: str | None = SID, *, cause: bool = True, mark: bool = Tru
 
 
 def _settle(tier: OnTier, directory: Path) -> None:
+    api(f"{EXPOSURE}.settle_directory")(
+        tier.made.store,
+        ROLE,
+        directory,
+        by="a person",
+        reason="looked at the directory and found nothing it may have shown",
+    )
+
+
+def _mark(tier: OnTier, version: str) -> None:
     api(f"{EXPOSURE}.mark_exposed")(
         tier.made.store,
         ROLE,
-        tier.made.version,
+        version,
         by="a person",
         reason="looked at the directory and marked what it may have shown",
-        settles=directory,
     )
+
+
+#: What a refusal a settle passes over names: the command that settles a directory.
+SETTLE = "physgate tiers settle"
 
 
 # --- the walk: a decomposition's directory is one by its parameters record, read --------------
@@ -435,12 +449,16 @@ def test_a_person_who_settles_a_refusing_directory_by_hand_makes_the_store_usabl
     SETTLED[broken](tier, directory)
     said = str(_refused(tier))
     # The words say what a person does.
-    assert "--settles" in said, said
+    assert SETTLE in said, said
     later = tier.later_refusal()
     assert later is not None and "(register_unreadable)" in later, later
     _settle(tier, directory)
-    assert _readable(tier) == frozenset({tier.made.version})
+    # The settle marks no version: the store reads, and nothing is exposed until a person marks.
+    assert _readable(tier) == frozenset()
     assert _scan(tier) == (0, 0)
+    later = tier.later_refusal()
+    assert later is None or "(register_unreadable)" not in later, later
+    _mark(tier, tier.made.version)
     later = tier.later_refusal()
     assert later is not None and "(version_exposed)" in later, later
 
@@ -449,12 +467,12 @@ def test_a_run_whose_journal_does_not_read_is_settled_by_hand_too(tier: OnTier) 
     run = harness_run(tier.runs / "a", tier.made.tasks["visible"][0], tier.made)
     (run / "decomposition").mkdir()
     (run / JOURNAL).write_bytes(b"{not a line\n")
-    assert "--settles" in str(_refused(tier))
+    assert SETTLE in str(_refused(tier))
     _settle(tier, run)
-    assert _readable(tier) == frozenset({tier.made.version})
+    assert _readable(tier) == frozenset()
 
 
-def test_a_hand_mark_that_settles_names_no_path_in_the_register(tier: OnTier) -> None:
+def test_a_settle_names_no_path_in_the_register(tier: OnTier) -> None:
     directory = _by_hand(tier, "old")
     _unreadable_review(tier, directory)
     _settle(tier, directory)
@@ -681,7 +699,7 @@ def test_a_decomposition_s_folder_this_user_cannot_search_refuses_by_its_kind(ti
     try:
         assert "cannot be read" in str(_refused(tier))
         _settle(tier, directory)
-        assert _readable(tier) == frozenset({tier.made.version})
+        assert _readable(tier) == frozenset()
     finally:
         (directory / "decomposition").chmod(0o700)
 
@@ -695,11 +713,11 @@ def test_a_settled_directory_whose_parameters_record_does_not_read_is_not_walked
     (directory / "target" / ".git" / "refs" / "a" / "b" / "c" / "d" / "e" / "f").mkdir(parents=True)
     _unreadable_params(tier, directory)
     said = str(_refused(tier))
-    assert "--settles" in said and "moved out of it" in said, said
+    assert SETTLE in said and "moved out of it" in said, said
     _settle(tier, directory)
-    assert _readable(tier) == frozenset({tier.made.version})
+    assert _readable(tier) == frozenset()
     later = tier.later_refusal()
-    assert later is not None and "(version_exposed)" in later, later
+    assert later is None or "(register_unreadable)" not in later, later
 
 
 def test_a_settled_directory_whose_parameters_record_does_not_read_still_shows_what_it_showed(
@@ -710,14 +728,8 @@ def test_a_settled_directory_whose_parameters_record_does_not_read_still_shows_w
     (directory / EXPOSED_FILE).write_text(json.dumps({"session_id": "an-earlier-review"}))
     _unreadable_params(tier, directory)
     _refused(tier)
-    api(f"{EXPOSURE}.mark_exposed")(
-        tier.made.store,
-        ROLE,
-        later.version,
-        by="a person",
-        reason="looked at the directory and marked what it may have shown",
-        settles=directory,
-    )
+    _settle(tier, directory)
+    _mark(tier, later.version)
     assert _readable(tier) == frozenset({tier.made.version, later.version})
 
 
@@ -737,15 +749,18 @@ def test_a_decomposition_s_directory_that_cannot_be_searched_refuses_until_it_ca
     monkeypatch.setattr(design_rounds, "exposed_reviews", refused)
     said = str(_refused(tier))
     assert "cannot be searched" in said and "readable to this user again" in said, said
-    assert "--settles" not in said, said
-    # A settle does not clear it, as the words say: what the read found would be lost with it.
-    _settle(tier, directory)
+    assert SETTLE not in said, said
+    # A settle does not pass over it, as the words say: what the read found would be lost with
+    # it. So the settle is refused, and nothing is written.
+    with pytest.raises(ExposureError) as refused:
+        _settle(tier, directory)
+    assert refused.value.context.get("refused_because") == "settle_refuses_nothing"
     assert "cannot be searched" in str(_refused(tier))
     # The act its words name clears it: the directory reads again.
     monkeypatch.setattr(design_rounds, "exposed_reviews", real)
-    assert _readable(tier) == frozenset({tier.made.version})
+    assert _readable(tier) == frozenset()
     later = tier.later_refusal()
-    assert later is not None and "(version_exposed)" in later, later
+    assert later is None or "(register_unreadable)" not in later, later
 
 
 def test_a_settled_directory_keeps_what_it_showed_when_a_later_step_cannot_be_read(
@@ -763,15 +778,9 @@ def test_a_settled_directory_keeps_what_it_showed_when_a_later_step_cannot_be_re
 
     monkeypatch.setattr(decomposition_review, "review_record", unreadable)
     assert "cannot be read" in str(_refused(tier))
-    # The person settles it marking the later version; the exposure it showed still marks its own.
-    api(f"{EXPOSURE}.mark_exposed")(
-        tier.made.store,
-        ROLE,
-        later.version,
-        by="a person",
-        reason="looked at the directory and marked what it may have shown",
-        settles=directory,
-    )
+    # The person settles it and marks the later version; what it showed still marks its own.
+    _settle(tier, directory)
+    _mark(tier, later.version)
     assert _readable(tier) == frozenset({tier.made.version, later.version})
 
 
@@ -816,9 +825,9 @@ def test_a_settled_directory_replaced_at_its_path_by_another_refuses_again(
     directory = _by_hand(tier, "old")
     _unreadable_review(tier, directory)
     _settle(tier, directory)
-    assert _readable(tier) == frozenset({tier.made.version})
+    assert _readable(tier) == frozenset()
     replaced(tier, directory)
-    assert "--settles" in str(_refused(tier))
+    assert SETTLE in str(_refused(tier))
 
 
 def test_a_settled_directory_stays_settled_when_an_unrelated_file_beside_it_changes(
@@ -830,7 +839,7 @@ def test_a_settled_directory_stays_settled_when_an_unrelated_file_beside_it_chan
     (directory / "notes.txt").write_text("a note a person left")
     (tier.runs / "notes.txt").write_text("another")
     (directory / "decomposition" / "notes.txt").write_text("and one more")
-    assert _readable(tier) == frozenset({tier.made.version})
+    assert _readable(tier) == frozenset()
 
 
 def test_a_settle_mark_keyed_by_the_directory_s_path_alone_is_not_honoured(
@@ -851,4 +860,4 @@ def test_a_settle_mark_keyed_by_the_directory_s_path_alone_is_not_honoured(
     with monkeypatch.context() as patch:
         patch.setattr(exposure, "_settle_key", by_path)
         _settle(tier, directory)
-    assert "--settles" in str(_refused(tier))
+    assert SETTLE in str(_refused(tier))

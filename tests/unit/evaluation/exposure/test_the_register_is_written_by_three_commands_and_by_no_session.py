@@ -1,4 +1,4 @@
-"""The register is written by three commands, and by no session.
+"""The register is written by four commands, and by no session.
 
 What holds a session off is the place: the register and the run roots lie beneath the role's
 withheld root, which every run that names anything under the role's root withholds. A role
@@ -7,7 +7,10 @@ names that root, and the OS layer denies writes beneath it (shown here in the ge
 policy; through the real binary in the integration rows). Each writer also refuses inside a
 harness session's environment, as defence in depth: a session controls its own environment.
 A hand mark asks for a terminal and a name, a second measure for the person who makes it,
-never what stops a session. A run root that would make every later scan refuse is not added.
+never what stops a session; so does a settle, which is a command of its own and marks no
+version (a hand mark settles nothing, and says which command does). A run root that would make
+every later scan refuse is not added. A round's prepared target is checked by a command of its
+own, which writes nothing.
 No command removes a line, so nothing unmarks a version. ``tiers status`` shows an exposed
 version as stale.
 """
@@ -106,6 +109,118 @@ def test_a_hand_mark_without_a_reason_is_refused_at_the_command_too(
     assert code != 0 and said.get("refused_because") == "hand_mark_without_a_reason"
 
 
+def test_a_hand_mark_naming_a_directory_to_settle_is_refused_and_names_the_command_that_does(
+    tmp_path: Path,
+    made: StandInStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _at_a_terminal(monkeypatch, yes=True)
+    code, said = _tiers(capsys, *_mark(made), "--settles", str(tmp_path))
+    assert code != 0 and said.get("refused_because") == "settles_is_its_own_command"
+    assert "physgate tiers settle" in said.get("error", ""), said
+    assert api(f"{EXPOSURE}.register_lines")(made.store, "control") == []
+
+
+def _settle_argv(made: StandInStore, directory: Path) -> list[str]:
+    return [
+        "settle",
+        "--withheld",
+        str(withheld_root(made.store, "control")),
+        "--directory",
+        str(directory),
+        "--by",
+        "a person",
+        "--reason",
+        "looked at the directory",
+    ]
+
+
+def _refusing(made: StandInStore, runs: Path) -> Path:
+    """A directory beneath the run roots the register refuses: its parameters record is torn."""
+    directory = runs / "cut"
+    directory.mkdir()
+    (directory / "params_source.json").write_text("{")
+    with pytest.raises(api(f"{EXPOSURE}.ExposureError")):
+        api(f"{EXPOSURE}.exposed_versions")(made.store, "control")
+    return directory
+
+
+def test_a_settle_is_refused_away_from_a_terminal(
+    tmp_path: Path,
+    made: StandInStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    directory = _refusing(made, with_run_root(made, tmp_path / "runs"))
+    _at_a_terminal(monkeypatch, yes=False)
+    code, said = _tiers(capsys, *_settle_argv(made, directory))
+    assert code != 0 and said.get("refused_because") == "not_at_a_terminal"
+    assert api(f"{EXPOSURE}.register_lines")(made.store, "control") == []
+
+
+def test_a_settle_at_a_terminal_is_one_line_that_marks_no_version(
+    tmp_path: Path,
+    made: StandInStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    directory = _refusing(made, with_run_root(made, tmp_path / "runs"))
+    _at_a_terminal(monkeypatch, yes=True)
+    code, said = _tiers(capsys, *_settle_argv(made, directory))
+    assert code == 0, said
+    (line,) = api(f"{EXPOSURE}.register_lines")(made.store, "control")
+    assert (line.kind, line.by, line.reason) == ("settle", "a person", "looked at the directory")
+    assert api(f"{EXPOSURE}.exposed_versions")(made.store, "control") == frozenset()
+    # Settled, it refuses nothing more: a second settle is refused.
+    code, said = _tiers(capsys, *_settle_argv(made, directory))
+    assert code != 0 and said.get("refused_because") == "settle_refuses_nothing"
+
+
+def test_a_settle_of_a_directory_outside_the_run_roots_is_refused_at_the_command(
+    tmp_path: Path,
+    made: StandInStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with_run_root(made, tmp_path / "runs")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    _at_a_terminal(monkeypatch, yes=True)
+    code, said = _tiers(capsys, *_settle_argv(made, elsewhere))
+    assert code != 0 and said.get("refused_because") == "settle_outside_the_run_roots"
+
+
+@pytest.mark.parametrize(
+    ("how", "reason"),
+    [
+        ("as a round prepares it", None),
+        ("nested six deep", "target_too_deep"),
+        ("holding run.json", "target_holds_a_record"),
+        ("holding raw.json", "target_holds_a_record"),
+        ("holding params_source.json", "target_holds_a_record"),
+    ],
+)
+def test_a_round_s_prepared_target_is_checked_by_a_command_of_its_own(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], how: str, reason: str | None
+) -> None:
+    target = tmp_path / "target"
+    (target / ".git" / "refs" / "heads").mkdir(parents=True)
+    (target / "README.md").write_text("a target")
+    if how == "nested six deep":
+        (target / ".git" / "a" / "b" / "c" / "d" / "e").mkdir(parents=True)
+    elif how.startswith("holding"):
+        (target / "docs").mkdir()
+        (target / "docs" / how.split()[-1]).write_text("{}")
+    code, said = _tiers(capsys, "check-target", "--path", str(target))
+    if reason is None:
+        assert code == 0 and said.get("checked") == str(target), said
+    else:
+        assert code != 0 and said.get("refused_because") == reason, said
+    # It writes nothing.
+    assert not (target / "params_source.json").exists() or how.endswith("params_source.json")
+
+
 def test_the_scan_and_the_run_roots_are_written_by_their_commands_and_counted(
     tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -152,7 +267,7 @@ def test_no_command_removes_a_line(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit):
         main(["tiers", "--help"])
     shown = capsys.readouterr().out
-    for command in ("status", "scan-exposures", "mark-exposed", "add-run-root"):
+    for command in ("status", "scan-exposures", "mark-exposed", "settle", "add-run-root"):
         assert command in shown, f"tiers has no {command}"
     for word in ("unmark", "remove", "delete", "clear", "reset"):
         assert word not in shown, f"tiers has a command that may take a line away: {word}"
@@ -230,7 +345,7 @@ def test_a_role_session_of_a_run_on_the_store_cannot_read_or_write_the_register_
         )
     # A writer a session started would write beneath the withheld root, which its commands may
     # not write, whatever names it was given.
-    for command in ("scan-exposures", "mark-exposed", "add-run-root"):
+    for command in ("scan-exposures", "mark-exposed", "settle", "add-run-root"):
         typed = f"physgate tiers {command} --withheld {withheld}"
         assert shell_paths.check(parse(typed)[0], wt, config), (
             f"a role session's shell may run {command} on the role's withheld root"
@@ -261,18 +376,21 @@ def test_every_role_and_baseline_session_carries_a_marker_the_writers_refuse(
     assert markers & set(done.spawn_env), f"a {profile} session carries no marker: {done.spawn_env}"
 
 
-def _three_writers(made: StandInStore, runs: Path) -> dict[str, Any]:
+def _the_writers(made: StandInStore, runs: Path) -> dict[str, Any]:
     return {
         "scan": lambda: api(f"{EXPOSURE}.record_scan")(made.store, "control"),
         "mark": lambda: api(f"{EXPOSURE}.mark_exposed")(
             made.store, "control", made.version, by="a person", reason="opened the tier by hand"
+        ),
+        "settle": lambda: api(f"{EXPOSURE}.settle_directory")(
+            made.store, "control", runs, by="a person", reason="looked at the directory"
         ),
         "root": lambda: api(f"{EXPOSURE}.add_run_root")(made.store, "control", runs),
     }
 
 
 @pytest.mark.parametrize("marker", ["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "CLAUDE_CODE_TMPDIR"])
-@pytest.mark.parametrize("writer", ["scan", "mark", "root"])
+@pytest.mark.parametrize("writer", ["scan", "mark", "settle", "root"])
 def test_each_writer_refuses_inside_a_harness_session_and_appends_nothing(
     tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch, marker: str, writer: str
 ) -> None:
@@ -281,7 +399,7 @@ def test_each_writer_refuses_inside_a_harness_session_and_appends_nothing(
     error = api(f"{EXPOSURE}.ExposureError")
     monkeypatch.setenv(marker, "1")
     with pytest.raises(error) as refused:
-        _three_writers(made, runs)[writer]()
+        _the_writers(made, runs)[writer]()
     assert refused.value.context.get("refused_because") == "inside_a_session"
     # The logs a version is written with hold no line.
     assert api(f"{EXPOSURE}.register_lines")(made.store, "control") == []

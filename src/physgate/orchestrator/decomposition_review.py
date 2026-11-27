@@ -40,7 +40,7 @@ from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.credentials import remove_secrets
 from physgate.orchestrator.dispatch import redact, review_streams
 from physgate.orchestrator.exceptions import InvocationError
-from physgate.orchestrator.ports import SpawnHook
+from physgate.orchestrator.ports import ShownHook, SpawnHook
 from physgate.orchestrator.processes import is_session, stop_tree
 from physgate.orchestrator.session_files import FileRefused, read_beneath
 from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
@@ -68,11 +68,12 @@ def review_spawned(
     def spawned(session_id: str, pid: int, started: str) -> None:
         path = run_dir / REVIEW_SESSION
         path.parent.mkdir(parents=True, exist_ok=True)
-        spawns = 1
+        spawns, shown = 1, False
         try:
             earlier = json.loads(path.read_text())
             if earlier.get("session_id") == session_id:
                 spawns = int(earlier["spawns"]) + 1
+                shown = earlier.get("shown") is True
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             pass
         # Named as the reviewer named it (``places.review_dir``), from the id it spawned.
@@ -89,12 +90,49 @@ def review_spawned(
             "session_dir": where,
             "held_out_canaries": held_out,
         }
+        if shown:
+            # What an earlier spawn of the same review showed is never written away.
+            record["shown"] = True
         written = path.with_name(f".{path.name}.part")
         written.write_text(json.dumps(record))
         # A repair resume of the same review is spawned again: its record replaces the first.
         os.replace(written, path)
 
     return spawned
+
+
+def review_showed(run_dir: Path) -> ShownHook:
+    """The hook the live review calls once its scan shows a canary, before it redacts its stream.
+
+    The redaction replaces whole a line it cannot read, a line the scan counts as the canary, so
+    what the scan saw is made durable first: the review's record says so (``shown``), written
+    apart, synced and renamed, and every later reader of the record (the exposure register, the
+    next command, the round's own end) counts the review as exposed whatever its stream reads
+    afterwards. A kill between the redaction and the round's end line then loses nothing. The
+    record goes, as before, once that end line is journalled. Where the record is there and
+    cannot be read, the exposure file the next command writes is written instead; a session
+    with no record here (none was written for it) is not this directory's review.
+
+    Raises:
+        OSError: neither could be written: the exposure is then not durable, and the stream is
+            left unredacted, for the next command to scan before it redacts it.
+    """
+
+    def showed(session_id: str) -> None:
+        path = run_dir / REVIEW_SESSION
+        if not os.path.lexists(path):
+            return
+        try:
+            record = json.loads(path.read_text())
+            if not isinstance(record, dict):
+                raise TypeError(type(record).__name__)
+        except (OSError, ValueError, TypeError):
+            _synced(run_dir / REVIEW_EXPOSED, json.dumps({"session_id": session_id}).encode())
+            return
+        if record.get("session_id") == session_id:
+            _synced(path, json.dumps({**record, "shown": True}).encode())
+
+    return showed
 
 
 def review_over(run_dir: Path, *, scanned: bool = True) -> None:
@@ -140,8 +178,9 @@ def stop_left_review(run_dir: Path, secrets: Iterable[str] = ()) -> LeftReview:
     its streams are scanned for the held-out canaries the record names. An exposure is written to
     its own file first, synced, so every later command names it again. An unreadable record, a
     process table that cannot be read, or a stream that cannot be read keeps the record. Once
-    nothing of it runs, its credential files are removed and its streams redacted of ``secrets``,
-    as a resume does for its own leftovers, before they are read.
+    nothing of it runs, its credential files are removed first, whatever the scan comes to, and
+    the words say whether they were; its streams are redacted of ``secrets``, as a resume does
+    for its own leftovers, only once they are scanned.
     """
     found = _stop_and_scan(run_dir, tuple(secrets))
     # Read once the scan is done: an exposure this command found, or an earlier one recorded.
@@ -171,6 +210,9 @@ class ReviewRecord:
     #: The review's session directory, beneath the review root.
     session_dir: Path
     canaries: frozenset[str]
+    #: The live review's own scan showed a canary, recorded before its redaction
+    #: (:func:`review_showed`); a record from before that is never written says nothing.
+    shown: bool = False
 
 
 class ReviewRecordError(ValueError):
@@ -196,6 +238,7 @@ def review_record(run_dir: Path) -> ReviewRecord | None:
             spawns=int(record["spawns"]),
             session_dir=Path(where) if isinstance(where, str) else Path(),
             canaries=frozenset(str(c) for c in record["held_out_canaries"]),
+            shown=record.get("shown") is True,
         )
         if not isinstance(where, str) or found.spawns < 1:
             raise TypeError(type(where).__name__)
@@ -275,10 +318,15 @@ def shown_in(data: bytes, canaries: frozenset[str], *, running: bool = False) ->
 def streams_show(record: ReviewRecord, *, running: bool = False) -> bool:
     """Whether a stream the review's spawns wrote shows a held-out canary its record names.
 
+    A record whose live review recorded that its scan showed one (``shown``) shows one, whatever
+    its streams read now: the redaction after that scan may have replaced the very line.
+
     Raises:
         InvocationError: a stream is gone, a link, not a regular file, on a linked directory or
             over the size bound: never read as clean.
     """
+    if record.shown:
+        return True
     for read in read_review_streams(record):
         if read.data is None:
             kind = STREAM_REFUSALS[read.refused or "file"]
@@ -360,20 +408,31 @@ def _stop_and_scan(run_dir: Path, secrets: tuple[str, ...]) -> str | None:
             f"the design review session {session_id} (pid {pid}) a killed decompose left could "
             f"not be checked: {exc!r}; nothing was signalled"
         )
-    # Nothing of it runs now. Every stream its spawns wrote is final, and scanned once, as it was
-    # written: before the redaction, which replaces whole a line it cannot read, a line the scan
-    # counts as the canary. So this command counts what the exposure register counts.
+    # Nothing of it runs now, and it needs no credential: a killed decompose never removed its
+    # credential files. They go first, whatever the scan below comes to: a stream that cannot be
+    # read keeps the record, never the credential. A refusal here keeps the record too, and the
+    # scan still runs.
     session = record.session_dir
+    try:
+        remove_secrets(session / "state", session / "config")
+    except InvocationError as exc:
+        removed = f"its credential files could not all be removed ({exc})"
+    else:
+        removed = None
+    said += f"; {removed or 'its credential files were removed'}"
+    # Every stream its spawns wrote is final, and scanned once, as it was written: before the
+    # redaction, which replaces whole a line it cannot read, a line the scan counts as the
+    # canary. So this command counts what the exposure register counts.
     try:
         shown = streams_show(record)
     except InvocationError as exc:
         return f"{said}; its directory cannot be read ({exc}), so the record is kept"
     if shown:
         _synced(run_dir / REVIEW_EXPOSED, json.dumps({"session_id": session_id}).encode())
-    # It needs no credential now: a killed decompose never removed it, and its streams were never
-    # redacted.
+    if removed is not None:
+        return f"{said}, so the record is kept"
+    # Only the redaction waits for the scan: its streams were never redacted.
     try:
-        remove_secrets(session / "state", session / "config")
         for name in review_streams(record.spawns):
             for secret in secrets:
                 redact(session / name, secret)

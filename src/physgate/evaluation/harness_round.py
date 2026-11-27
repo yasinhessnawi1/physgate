@@ -1486,6 +1486,25 @@ def _left_behind(ctx: _Round, planned: _Planned, attempt: int, run_dir: Path) ->
         raise _left_exposed(planned.index, attempt)
 
 
+def _a_directory_all_the_way(run_root: Path, run_dir: Path) -> bool:
+    """Whether every part of ``run_dir``'s path beneath the run root is a directory, never a link.
+
+    The round's folder above the trial's directory as well as the directory itself: a link at
+    either is followed by nothing here, so what it leads to, outside the run root, is never
+    dealt with as the round's own.
+    """
+    below = Path(os.path.realpath(run_root))
+    try:
+        parts = run_dir.relative_to(below).parts
+    except ValueError:
+        return False
+    for part in parts:
+        below = below / part
+        if os.path.islink(below) or not os.path.isdir(below):
+            return False
+    return bool(parts)
+
+
 def _what_its_earlier_process_left(place: Path, round_id: str) -> None:
     """Deal with every directory the round's earlier process placed, before the start can refuse.
 
@@ -1524,7 +1543,7 @@ def _what_its_earlier_process_left(place: Path, round_id: str) -> None:
     exposed: list[tuple[int, int]] = []
     for index, attempt in placed:
         run_dir = _run_dir(Path(root), round_id, index, attempt)
-        if os.path.islink(run_dir) or not os.path.isdir(run_dir):
+        if not _a_directory_all_the_way(Path(root), run_dir):
             continue
         if _deal_with(place, index, attempt, run_dir):
             exposed.append((index, attempt))

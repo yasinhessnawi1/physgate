@@ -113,7 +113,7 @@ from physgate.orchestrator.managed import (
     policy_limits_digest,
     system_managed_facts,
 )
-from physgate.orchestrator.ports import SpawnHook
+from physgate.orchestrator.ports import ShownHook, SpawnHook
 from physgate.orchestrator.processes import kill_own
 from physgate.orchestrator.protocols import (
     Artefact,
@@ -652,12 +652,18 @@ class ClaudeReviewer:
         self._root = review_root_path(setup.review_root)
         #: Told each review session's spawn before it runs anything (:meth:`record_spawns`).
         self._on_spawn: SpawnHook | None = None
+        #: Told a review session whose scan showed a canary, before its redaction.
+        self._on_shown: ShownHook | None = None
         #: The current review's invocations, each with the conditions it ran under.
         self._seen: list[SessionManaged] = []
 
     def record_spawns(self, hook: SpawnHook) -> None:
         """Tell ``hook`` each review session's id, pid and start time, as the loop records them."""
         self._on_spawn = hook
+
+    def record_shown(self, hook: ShownHook) -> None:
+        """Tell ``hook`` each review session whose scan showed a canary, before its redaction."""
+        self._on_shown = hook
 
     @property
     def model(self) -> str:
@@ -921,6 +927,9 @@ class ClaudeReviewer:
         except InvocationError:
             written = None
         showed = written is not None and canary_seen(written, canaries) is not None
+        # What the scan saw is made durable before the redaction can replace the line it counted.
+        if showed and self._on_shown is not None:
+            self._on_shown(session_id)
         redact(stdout, self._setup.credential.secret)
         # One read of the redacted stream, without following a link, for its end.
         # This process opened it before the session ran, so a stream that is not there was
