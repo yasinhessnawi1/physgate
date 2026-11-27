@@ -3274,7 +3274,8 @@ class Loop:
                 # (ARCH-141). The exposure is recorded first, then what it spent, then one halt;
                 # no verdict is taken and nothing is retried. The canary is not recorded. A
                 # process killed before the exposure's line finds the review again at the resume
-                # (its tokens are the loop's word that the review is back, so none come first).
+                # (its tokens and the halt written with them are the loop's word that the review
+                # is back, so none come first).
                 detail = f"held-out material in the stream of review session {exc.session_id}"
                 self._emit(
                     Incident(

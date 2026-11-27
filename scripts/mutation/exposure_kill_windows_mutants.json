@@ -58,8 +58,8 @@
  {
   "name": "an_ended_session_with_no_line_is_not_read_again",
   "file": "src/physgate/orchestrator/dispatch.py",
-  "old": "                ended.exists() and not _unended(own, events, review=review)\n",
-  "new": "                ended.exists()\n",
+  "old": "            if not record_path.exists() or (ended.exists() and not _unended(own, events)):\n",
+  "new": "            if not record_path.exists() or ended.exists():\n",
   "tests": [
    "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
   ],
@@ -100,7 +100,7 @@
  {
   "name": "an_incident_does_not_take_an_ended_session_up",
   "file": "src/physgate/orchestrator/dispatch.py",
-  "old": "        or (isinstance(e, Incident | FindingsRecorded) and e.seq > spawn)\n",
+  "old": "        and not any(isinstance(e, Incident | FindingsRecorded) and e.seq > spawn for e in events)\n",
   "new": "",
   "tests": [
    "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"

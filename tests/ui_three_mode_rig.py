@@ -197,7 +197,9 @@ def _drive(
         run_dir=run_dir,
         gate=PhysicsGate() if gate is None else gate,
         reviewers={
-            role: reviewer or evaluation_rig().Reviewer(model=m, ids="drive")
+            # Its runs are held to records the loop wrote before a review's spawn was on the
+            # run's log (``escalation_paths.golden.json``), so its reviewer records none.
+            role: reviewer or evaluation_rig().Reviewer(model=m, ids="drive", records_spawns=False)
             for role, m in cfg.models.reviewers.items()
         },
         dispatcher=StandInSession(run, payloads, clock=clock),

@@ -4,9 +4,9 @@ The reviewer writes its session's end record as the session ends, before it read
 loop records what the review came to only once the review is back. A process killed in between
 leaves a review the event log does not say is back: the next process reads it as a leftover, every
 stream its spawns wrote, and an exposure there halts the run. An exposure the loop is told of is
-recorded before the review's tokens, which are the loop's word that the review is back. A review in
-its repair resume keeps its first invocation's end on disk while it runs again: it is stopped, and
-its repair stream read.
+recorded before the review's tokens, which with the halt after them are the loop's word that the
+review is back. A review in its repair resume keeps its first invocation's end on disk while it
+runs again: it is stopped, and its repair stream read.
 """
 
 from __future__ import annotations

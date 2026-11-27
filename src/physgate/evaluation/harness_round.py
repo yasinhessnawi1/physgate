@@ -228,8 +228,6 @@ from physgate.orchestrator.events import (
     Halted,
     LeftoverRead,
     Resumed,
-    SessionEnded,
-    SessionSpawned,
     TokensUsed,
     parse_events,
 )
@@ -245,6 +243,7 @@ from physgate.orchestrator.run_config import (
     RunConfig,
     load_run_config,
 )
+from physgate.orchestrator.session_ends import open_sessions
 from physgate.orchestrator.stop_signals import remove_left_credentials
 from physgate.orchestrator.usage_limit import UsageLimit, resume_after, resume_refusal, stamped
 from physgate.orchestrator.waiting import EXIT_WAITING_FOR_LIMIT, limit_wait
@@ -2946,10 +2945,8 @@ def _no_figure_because(run_dir: Path, unscored: bool) -> NoFigure:
         return "log_unreadable"
     if unscored:
         return "unscored"
-    spawned = {e.session_id for e in events if isinstance(e, SessionSpawned)}
-    ended = {e.session_id for e in events if isinstance(e, SessionEnded | LeftoverRead)}
     if (
-        spawned - ended
+        open_sessions(events, run_dir)
         or any(isinstance(e, TokensUsed) and e.partial for e in events)
         or any(isinstance(e, LeftoverRead) and not e.complete for e in events)
     ):

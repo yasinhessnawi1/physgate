@@ -804,21 +804,71 @@ def test_a_sound_held_out_harness_trial_with_a_passing_answer_is_a_pass(tmp_path
     assert harness_ended_by_infrastructure(run, HELD_OUT, answer_found=True) is False
 
 
-@pytest.mark.parametrize("kill", ["review", "session"])
+def _review_stream_gone(run: Path) -> None:
+    (run / "review" / "rev-1" / "session" / "stdout.jsonl").unlink()
+
+
+def _review_root_unrecorded(run: Path) -> None:
+    (run / "review_root.json").unlink()
+
+
+def _review_stream_under_sessions_only(run: Path) -> None:
+    # Where a role session's stream is: no review's stream is looked for there.
+    stream = run / "review" / "rev-1" / "session" / "stdout.jsonl"
+    moved = run / "sessions" / "rev-1" / "stdout.jsonl"
+    moved.parent.mkdir(parents=True)
+    stream.rename(moved)
+
+
+@pytest.mark.parametrize(
+    ("damage", "said"),
+    [
+        (_review_stream_gone, "stream: review session rev-1's stream stdout.jsonl is gone"),
+        (
+            _review_stream_under_sessions_only,
+            "stream: review session rev-1's stream stdout.jsonl is gone",
+        ),
+        (
+            _review_root_unrecorded,
+            "stream: review session rev-1's stream: the run recorded no review root",
+        ),
+    ],
+    ids=[
+        "its review's stream gone",
+        "its review's stream under sessions",
+        "no review root recorded",
+    ],
+)
+def test_a_held_out_trial_s_review_stream_is_looked_for_beneath_the_run_s_review_root(
+    tmp_path: Path, damage: Callable[[Path], None], said: str
+) -> None:
+    """A review ended by its own lines, its stream where the run recorded its reviews go."""
+    run = _loop_run(tmp_path)
+    assert isinstance(_harness_trial(run), TrialRecord)
+    damage(run)
+    trial = _harness_trial(run)
+    assert isinstance(trial, ExcludedTrial) and trial.reason == said, trial
+
+
+@pytest.mark.parametrize(
+    ("kill", "left"), [("review", "module review rev-1"), ("session", "role session sess-1")]
+)
 def test_a_held_out_harness_trial_of_a_run_that_never_ended_is_excluded(
-    tmp_path: Path, kill: str
+    tmp_path: Path, kill: str, left: str
 ) -> None:
     """A run killed and never resumed may have a stream nothing scanned.
 
     A reviewer's stream lies outside the run directory and is scanned only as its review
-    ends, or by a resume; a run killed during the review has neither, and spawned no session
-    whose missing end would show it. So a held-out trial is taken only from a run that ended.
+    ends, or by a resume; a run killed during the review has neither. Its review's spawn is on
+    the log with nothing after it that ends it, as a role session killed while it runs is, so the
+    session left open is named. A held-out trial is taken only from a run that ended.
     """
     run = _loop_run(tmp_path, kill=kill)
     trial = _harness_trial(run)
     assert isinstance(trial, ExcludedTrial), trial
-    assert trial.reason.startswith("run: the run has not ended"), trial.reason
-    with pytest.raises(TrialExcludedError, match="^run: the run has not ended"):
+    said = f"session: {left} never ended, so its stream was never scanned"
+    assert trial.reason == said, trial.reason
+    with pytest.raises(TrialExcludedError, match=f"^session: {left} never ended"):
         harness_ended_by_infrastructure(run, HELD_OUT, answer_found=False)
 
 

@@ -42,11 +42,13 @@ from physgate.orchestrator.dispatch import redact, review_streams
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.ports import ShownHook, SpawnHook
 from physgate.orchestrator.processes import is_session, stop_tree
+from physgate.orchestrator.session_ends import PLAN_REVIEW_SPAWN
 from physgate.orchestrator.session_files import FileRefused, read_beneath
 from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
 
-#: Where a design review's session is recorded while it runs, beneath the run directory.
-REVIEW_SESSION = PurePosixPath("decomposition", "review_session.json")
+#: Where a design review's session is recorded while it runs, beneath the run directory: the
+#: record every reader of the run takes as the review still open (``session_ends``).
+REVIEW_SESSION = PLAN_REVIEW_SPAWN
 #: Where a held-out exposure a killed ``decompose``'s review showed is recorded, once found.
 REVIEW_EXPOSED = PurePosixPath("decomposition", "review_exposed.json")
 #: The digests of the held-out tiers a reviewed decomposition was given, recorded before its review.

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import uuid
@@ -31,6 +32,7 @@ from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.decompose import Outcome, Plan, PlannedModule, mint_id, start_run
 from physgate.orchestrator.escalation import bind
+from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.git import head_of, object_format, verified_git_dir
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt
@@ -60,6 +62,9 @@ from physgate.series.collect import collect as collect
 from physgate.series.collect import empty_outbox
 from physgate.series.seal import SessionSeries, SetAside
 from physgate.state.schema import Node
+
+#: The start time a stand-in records at its spawn, as a held process's is recorded.
+SPAWN_STARTED = "stand-in"
 
 #: The harness as the command measures it, once at import.
 HARNESS = measured_harness()
@@ -243,6 +248,9 @@ class FakeSession:
                 **self.linked,
             }
         sid = f"fake-{uuid.uuid4().hex[:12]}"
+        if on_spawn is not None:
+            # As the dispatcher does, while the real session's process is held before it runs.
+            on_spawn(sid, os.getpid(), SPAWN_STARTED)
         usage = Usage(
             input_tokens=10 * self.calls,
             output_tokens=3,
@@ -417,21 +425,66 @@ class Gate:
 
 @dataclass
 class Reviewer:
+    """A passing reviewer whose session is recorded as the real reviewer's is.
+
+    The loop wires it to its spawn record (``record_spawns``), so each review's session is on the
+    run's log as a role session's is, and nothing but the review's own lines ends it. With a
+    ``review_root``, its session's stream is where the real reviewer leaves one.
+    """
+
     model: str = "claude-opus-5-5"
     #: The prefix of its message ids, to make one run's differ from another's.
     ids: str = "r"
     calls: int = 0
     #: Every attempt it was asked to review, as the loop handed it over.
     seen: list[Artefact] = field(default_factory=list)
+    #: The review root its sessions' streams are left beneath, or ``None`` for none.
+    review_root: Path | None = None
+    #: Whether its spawns are recorded. Off only for runs held to records the loop wrote before
+    #: a review's spawn was on the run's log.
+    records_spawns: bool = True
+    #: How many of its first reviews fail the attempt; every later one passes.
+    fails: int = 0
+    #: How many of its first tries the machine ends after spending a message, before any verdict.
+    machine_ended: int = 0
+    tries: int = 0
+    hook: SpawnHook | None = None
+
+    def record_spawns(self, hook: SpawnHook) -> None:
+        self.hook = hook
 
     def review(self, artefact: Artefact) -> ReviewResult:
+        self.tries += 1
+        sid = f"rev-{uuid.uuid4().hex[:8]}"
+        if self.hook is not None and self.records_spawns:
+            self.hook(sid, os.getpid(), SPAWN_STARTED)
+        if self.review_root is not None:
+            stream = self.review_root / sid / "session" / "stdout.jsonl"
+            stream.parent.mkdir(parents=True, exist_ok=True)
+            stream.write_text(json.dumps({"type": "result", "session_id": sid}) + "\n")
+        if self.tries <= self.machine_ended:
+            spent = Usage(
+                input_tokens=25,
+                output_tokens=4,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            raise ReviewUnavailableError(
+                "the review's session ended on an API error",
+                cause="infrastructure",
+                session_id=sid,
+                reviewer_model=self.model,
+                usage=(MessageUsage(message_id=f"{self.ids}-try-{self.tries}", usage=spent),),
+                session_cause="api_error",
+            )
         self.calls += 1
         self.seen.append(artefact)
+        failed = self.calls <= self.fails
         return ReviewResult(
-            verdict="pass",
-            finding="sound",
+            verdict="fail" if failed else "pass",
+            finding="the gain changed silently" if failed else "sound",
             reviewer_model=self.model,
-            session_id=f"rev-{uuid.uuid4().hex[:8]}",
+            session_id=sid,
             usage=(
                 MessageUsage(
                     # Numbered per call, as the scripted endpoint numbers its messages.
