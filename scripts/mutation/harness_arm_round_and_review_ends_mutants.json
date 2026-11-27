@@ -311,7 +311,7 @@
  {
   "name": "the_registered_order_is_not_shuffled",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "    random.Random(f\"{inputs.order_seed}:order:{inputs.role}_{tier}\").shuffle(pairs)",
+  "old": "    drawn.shuffle(pairs)",
   "new": "    pass",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_round_in_the_registered_order_runs_one_trial_at_a_time_and_writes_its_set.py"
@@ -395,8 +395,8 @@
  {
   "name": "a_tier_s_run_set_names_a_trial_by_its_place",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "        entries = [{\"run_dir\": x[\"run_dir\"], \"trial\": p.trial} for p, x in these]",
-  "new": "        entries = [{\"run_dir\": x[\"run_dir\"], \"trial\": p.index} for p, x in these]",
+  "old": "        entries = [{\"run_dir\": x[\"run_dir\"], \"trial\": p.trial} for p, x in these]\n        combined += entries",
+  "new": "        entries = [{\"run_dir\": x[\"run_dir\"], \"trial\": p.index} for p, x in these]\n        combined += entries",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_round_in_the_registered_order_runs_one_trial_at_a_time_and_writes_its_set.py"
   ],

@@ -563,7 +563,7 @@ def review_round(
             # A refused credential the session ended on, off the limit: the terminal line names
             # it, so a mode that holds the plan ends void on it as a wait for a person.
             session_cause=(
-                CREDENTIAL_REFUSED
+                "credential_refused"
                 if exc.session_cause == CREDENTIAL_REFUSED and exc.usage_limit is None
                 else None
             ),

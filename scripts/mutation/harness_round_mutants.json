@@ -926,8 +926,8 @@
  {
   "name": "a_left_review_s_exposure_is_not_refused",
   "file": "src/physgate/evaluation/harness_round.py",
-  "old": "    if _deal_with(ctx.place, planned.index, attempt, run_dir):",
-  "new": "    if False:",
+  "old": "    if _deal_with(ctx.place, planned.index, attempt, run_dir):\n        raise _left_exposed(planned.index, attempt)",
+  "new": "    if False:\n        raise _left_exposed(planned.index, attempt)",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_decomposition_that_spent_its_call_is_a_run_of_the_trial_never_a_free_retry.py"
   ],

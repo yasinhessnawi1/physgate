@@ -98,8 +98,8 @@
  {
   "name": "review_s_limit_dropped",
   "file": "src/physgate/orchestrator/design_rounds.py",
-  "old": "            usage_limit=exc.usage_limit,\n        )",
-  "new": "            usage_limit=None,\n        )",
+  "old": "            usage_limit=exc.usage_limit,\n            # A refused credential",
+  "new": "            usage_limit=None,\n            # A refused credential",
   "tests": [
    "tests/unit/orchestrator/test_a_decomposition_stopped_by_the_usage_limit_waits_for_its_reset.py"
   ],

@@ -3,7 +3,8 @@
 ``physgate harness-round --store S --role control --version V --tier visible [--tier
 validation --tier held_out] --trials K --seed-base B --params P --run-root R --target-from T
 --install I --prices DATE --out O [--tasks N] [--resume] [--limit-reset] [--set-aside I]
-[--credential-replaced] [--order-seed S] [--only PLACE]`` runs
+[--credential-replaced] [--order-seed S] [--only PLACE] [--ablation NAME --ablation-params A]
+[--drop-ablation WHY --dropped-by WHO]`` runs
 one harness trial per task and trial of the named tiers, in a fixed order, each a run decomposed
 and driven by this process on a fresh clone of ``T`` inside its own run directory beneath the
 registered run root ``R`` (:mod:`physgate.evaluation.harness_round`). It writes the visible
@@ -44,6 +45,22 @@ pair runs once the cell's last harness trial is assembled). A protected trial's 
 never said outside the withheld root, and its call exits 0: its sheet beneath the root says it.
 Status ``trial_assembled`` while later places remain; the call that assembles the last place ends
 the round as a whole call does.
+
+``--ablation NAME --ablation-params A`` runs an ablation arm beside the harness trials of the one
+visible cell, in the registered order: ``A`` is an ablation run's parameters (``ablation: true``,
+``reportable: false``) that differ from ``P`` in the parts they take away alone (a refusal names
+the field), held by its digest as ``P`` is. Each (task, trial) of the cell is a unit: the harness
+trial and the arm's trial of the same task and seed, each a place of its own. The units keep the
+cell's order, and the same generator then orders each unit's two places by one shuffle of [the
+harness trial, the arm's trial]. ``--only PLACE`` takes on a place of either arm; its line's
+``trial`` names the place's ``arm`` (``harness`` or ``ablation``, with the arm's name), and an
+ablation trial's ``raw_pair`` is ``never`` (exit 0): no raw trial is paired with it, and it caps
+none. The arm's trials are held to every rule the harness's are; they are written only into the
+arm's own files beside ``O``'s (``ablation.NAME.runs.json``, ``ablation.NAME.trials.jsonl``, and
+each trial's set and sheet in ``ablation.NAME/trials/``), never into a tier's set or the combined
+one, and the round's record and line count the arm apart. ``--drop-ablation WHY --dropped-by WHO``
+drops the arm's places not yet assembled, at once and for good, recorded on the ledger with who
+and why; the harness trials go on alone, and every later start says the same words, or is refused.
 
 It prints one JSON line of counts and digests, never a task, and writes the same into ``O``. Exit
 0 once every trial is assembled, a trial that gives no figure stated as ``no_figure`` (the cap
@@ -108,6 +125,29 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
             "once it is assembled, and write its one-entry run set"
         ),
     )
+    run.add_argument(
+        "--ablation",
+        metavar="NAME",
+        help="run an ablation arm of this name beside the visible cell's harness trials",
+    )
+    run.add_argument(
+        "--ablation-params",
+        dest="ablation_params",
+        type=Path,
+        help="the ablation arm's parameters: an ablation run's, differing only in what they ablate",
+    )
+    run.add_argument(
+        "--drop-ablation",
+        dest="drop_ablation",
+        metavar="WHY",
+        help="drop the ablation arm's places not yet assembled, at once and for good, for WHY",
+    )
+    run.add_argument(
+        "--dropped-by",
+        dest="dropped_by",
+        metavar="WHO",
+        help="who drops the ablation arm (a plain word), with --drop-ablation",
+    )
     run.add_argument("--resume", action="store_true", help="go on with the round OUT names")
     run.add_argument(
         "--limit-reset",
@@ -157,7 +197,9 @@ def _run(args: argparse.Namespace) -> int:
     from physgate.evaluation.harness_round import (
         EXIT_DONE_WITHOUT_CAPS,
         EXIT_WAITING_FOR_A_PERSON,
+        Ablation,
         CommandDriver,
+        Drop,
         Inputs,
         RoundError,
         run_round,
@@ -173,6 +215,12 @@ def _run(args: argparse.Namespace) -> int:
         return _refused("counts", "a round runs at least one trial of at least one task")
     if len(set(args.tiers)) != len(args.tiers):
         return _refused("tiers", "each tier is named once")
+    if (args.ablation is None) != (args.ablation_params is None):
+        return _refused(
+            "ablation_needs_both", "an ablation arm is given by its name and parameters"
+        )
+    if (args.drop_ablation is None) != (args.dropped_by is None):
+        return _refused("ablation_drop_words", "a drop says who makes it and why")
     try:
         inputs = Inputs(
             store=args.store.resolve(),
@@ -190,6 +238,11 @@ def _run(args: argparse.Namespace) -> int:
             out=args.out.resolve(),
             tasks=args.tasks,
             order_seed=args.order_seed,
+            ablation=(
+                None
+                if args.ablation is None
+                else Ablation(name=args.ablation, params=args.ablation_params.resolve())
+            ),
         )
         status, summary = run_round(
             inputs,
@@ -200,6 +253,11 @@ def _run(args: argparse.Namespace) -> int:
             set_aside=args.set_aside,
             credential_replaced=args.credential_replaced,
             only=args.only,
+            drop=(
+                None
+                if args.drop_ablation is None
+                else Drop(by=args.dropped_by, why=args.drop_ablation)
+            ),
         )
     except RoundError as exc:
         return _refused(exc.context.get("refused_because", "refused"), str(exc))

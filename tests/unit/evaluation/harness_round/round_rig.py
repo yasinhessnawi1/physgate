@@ -743,6 +743,15 @@ class Rig:
         fields.update(changes)
         return Inputs(**fields)
 
+    def arm_params(self, name: str = "reviewers_off", **changes: Any) -> Path:  # noqa: ANN401
+        """An ablation arm's parameters: the round's, as an ablation run with its reviewers off."""
+        fields: dict[str, Any] = json.loads(self.params.read_bytes())
+        fields.update(ablation=True, reportable=False, reviewers="off")
+        fields.update(changes)
+        path = self.root / f"params.{name}.json"
+        path.write_text(json.dumps(fields))
+        return path
+
     def task(self, tier: str = "visible") -> Task:
         """The first task of ``tier`` in the round's order: by its brief's digest."""
         return min(

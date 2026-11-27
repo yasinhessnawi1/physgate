@@ -53,6 +53,19 @@ may name one place of the order (``only``): it takes that trial on until it is a
 stops there. Every trial's one-entry run set and its sheet (``trials/``) are written once it is
 assembled, in every mode.
 
+**An ablation arm** (``Inputs.ablation``) runs beside the visible cell's harness trials, in the
+registered order alone: a name, and an ablation run's parameters that differ from the round's in
+the parts they take away and nothing else (:func:`_require_arm`), copied beside the round's and
+held by their digest. Each (task, trial) of the cell is a unit of two places, the harness trial
+and the arm's trial of the same task and seed; the units keep the cell's order, and the same
+generator then orders each unit's two places by one shuffle of [the harness trial, the arm's
+trial], unit by unit. An arm's trial is taken on as a harness trial is, under every rule below
+but reportability; every ledger line of its place names the arm. It is written only into the
+arm's own set, records, sets and sheets beside the output directory's (``ablation.<name>``),
+never into a tier's set, the combined set or the cap rule's figures; its sheet says no raw trial
+is ever paired with it; the round's record and summary count it apart. A person's word drops the
+arm's remaining places at once and for good (:func:`_drop`); the harness's go on.
+
 **Each trial** is one harness run on a fresh clone of the target placed inside the trial's run
 directory, ``<run root>/<round>/<iiii>-<n>``, with its review root beside the clone in the same
 directory: so every place a trial's sessions and reviewers write lies in one run directory
@@ -138,6 +151,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -215,7 +229,13 @@ from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
 from physgate.orchestrator.record import RunRecord
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.review_root_record import RECORD_NAME as REVIEW_ROOT_RECORD
-from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.orchestrator.run_config import (
+    ABLATION_ONLY,
+    BEFORE_THE_SWITCH,
+    BUILT,
+    RunConfig,
+    load_run_config,
+)
 from physgate.orchestrator.stop_signals import remove_left_credentials
 from physgate.orchestrator.usage_limit import UsageLimit, resume_after, resume_refusal, stamped
 from physgate.orchestrator.waiting import EXIT_WAITING_FOR_LIMIT, limit_wait
@@ -651,6 +671,44 @@ class Inputs:
     #: sorted and shuffled once by ``random.Random("<seed>:order:<suite>")``, trial ``n`` of a task
     #: seeded ``seed base + n``; ``None`` for the driver's own order.
     order_seed: int | None = None
+    #: The ablation arm the round runs beside its harness trials, in the same order, or ``None``.
+    ablation: Ablation | None = None
+
+
+@dataclass(frozen=True)
+class Ablation:
+    """An ablation arm: its name, and its own parameters, an ablation run's (:func:`_require_arm`).
+
+    Its trials are the harness's with the part its parameters take away: one per task and trial of
+    the visible cell, each a place of its own in the round's one order beside the harness trial of
+    the same task and seed. They are held to every rule a reportable trial is held to but its
+    reportability, and none of them is ever written where a reportable reader reads.
+    """
+
+    name: str
+    params: Path
+
+
+@dataclass(frozen=True)
+class Drop:
+    """A person's word that drops the ablation arm's remaining places: who says so, and why."""
+
+    by: str
+    why: str
+
+
+#: An arm's name: it names the arm's files beside the round's own, so it is a plain word.
+ARM_NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+#: The names an ablation arm never takes: the arms the per-role report and the baseline read.
+NOT_AN_ARM_NAME = frozenset({"harness", "raw", "observe"})
+#: Who drops an arm, as the ledger records it: a plain word (a person's name, or the launch rule).
+DROPPED_BY = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+#: The flags an arm's parameters set apart from the reportable parameters, besides the ablated ones.
+ARM_KINDS = ("ablation", "reportable")
+#: What the arm's files are named by, beside the round's own: ``ablation.<name>``.
+ABLATION = "ablation"
+#: The plan review modes that re-plan a rejected plan begin so (``repair:N``).
+REPAIR = "repair:"
 
 
 def _refuse(reason: str, msg: str, **context: str) -> RoundError:
@@ -794,6 +852,7 @@ def _refusals(inputs: Inputs) -> tuple[_Version, frozenset[str], str]:
         raise _refuse("check_record_not_the_tier", msg)
     flagged = frozenset(by_digest[digest][0] for digest in record.flagged)
     _require_params(inputs, found.canaries)
+    _require_arm(inputs)
     _target_head(inputs.target_from)
     check_sha256 = hashlib.sha256(check_path(store, role, inputs.version).read_bytes()).hexdigest()
     return found, flagged, check_sha256
@@ -929,6 +988,84 @@ def _whole_root_refusal(params: Mapping[str, Any]) -> tuple[str, str] | None:
     return run_roots_refusal(RunConfig.model_construct(**fields), None)
 
 
+def _same(a: Any, b: Any) -> bool:  # noqa: ANN401 - parsed JSON values
+    """Whether two parsed JSON values are the same value, ``true`` never taken for ``1``."""
+    return json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+
+
+def _require_arm(inputs: Inputs) -> None:
+    """Refuse an ablation arm that is not one, or that differs in more than what it ablates.
+
+    The arm runs the visible cell's tasks and trials alone: never a protected tier, and only in
+    the registered order, where each of its trials is placed beside its reference. Its parameters
+    are an ablation run's by the configuration's own rule (``ablation: true``, ``reportable:
+    false``, :class:`.RunConfig`), take away at least one part (a value of
+    :data:`.run_config.ABLATION_ONLY`, each a value something implements), and are the reportable
+    parameters in every other field, so the two arms differ in what is ablated alone; the field
+    that differs is named. So every rule the reportable parameters were held to above (the
+    store's places withheld, every canary looked for, the run roots withheld whole) holds of the
+    arm's as well.
+
+    Raises:
+        RoundError: the arm is refused, for a reason it names.
+    """
+    arm = inputs.ablation
+    if arm is None:
+        return
+    if not ARM_NAME.fullmatch(arm.name) or arm.name in NOT_AN_ARM_NAME:
+        msg = "an ablation arm's name is a plain lower-case word, and not an arm the report reads"
+        raise _refuse("ablation_name", msg)
+    if inputs.tiers != (VISIBLE,):
+        msg = "an ablation arm runs on the visible tier alone; a protected tier is never given one"
+        raise _refuse("ablation_protected_tier", msg)
+    if inputs.order_seed is None:
+        msg = (
+            "an ablation arm's trials are placed in the registered order beside their reference: "
+            "give the order seed"
+        )
+        raise _refuse("ablation_needs_the_order", msg)
+    reportable = json.loads(inputs.params.read_bytes())
+    try:
+        given = json.loads(arm.params.read_bytes())
+    except (OSError, ValueError):
+        raise _refuse("ablation_params_unreadable", "the arm's parameters cannot be read") from None
+    if not isinstance(given, dict):
+        raise _refuse("ablation_params_unreadable", "the arm's parameters are not an object")
+    if given.get("ablation") is not True or given.get("reportable") is not False:
+        msg = "the arm's parameters are not an ablation run's (ablation: true, reportable: false)"
+        raise _refuse("ablation_params_not_an_ablation", msg)
+    for name in sorted(set(reportable) | set(given)):
+        if name in ABLATION_ONLY or name in ARM_KINDS:
+            continue
+        if name not in reportable or name not in given or not _same(reportable[name], given[name]):
+            msg = (
+                "the arm's parameters differ from the reportable parameters in more than what "
+                f"they ablate: {name}"
+            )
+            raise _refuse("ablation_params_differ", msg, field=name)
+    ablated = []
+    for name, arms in ABLATION_ONLY.items():
+        value = given.get(name, BEFORE_THE_SWITCH[name])
+        if value not in BUILT[name]:
+            msg = f"the arm's parameters take {name}: {value}, which nothing implements"
+            raise _refuse("ablation_not_built", msg, field=name)
+        if not _same(value, reportable.get(name, BEFORE_THE_SWITCH[name])):
+            ablated.append(name)
+            if value not in arms:
+                # An arm is the harness with a part taken away, never one given back.
+                msg = (
+                    f"the arm's parameters give {name} back where the reportable ones take it away"
+                )
+                raise _refuse("ablation_params_differ", msg, field=name)
+    if not ablated:
+        msg = "the arm's parameters take nothing away: they are the reportable run's"
+        raise _refuse("ablation_ablates_nothing", msg)
+    if str(given.get("design_review", "off")).startswith(REPAIR):
+        # A re-plan is an experiment arm a reportable run alone names (:class:`.RunConfig`).
+        msg = "the arm's parameters re-plan a rejected plan, which only a reportable run names"
+        raise _refuse("ablation_replans", msg)
+
+
 # The round. ---------------------------------------------------------------------------------
 
 
@@ -939,6 +1076,16 @@ class _Planned:
     brief_sha256: str
     trial: int
     seed: int
+    #: The ablation arm the place is of, by its name; ``None`` for the harness as measured.
+    arm: str | None = None
+
+
+def _place_line(planned: _Planned) -> dict[str, Any]:
+    """A place as the ledger's order holds it: a harness place as it always was, an arm's named."""
+    line = vars(planned).copy()
+    if planned.arm is None:
+        del line["arm"]
+    return line
 
 
 def _order(inputs: Inputs, found: _Version, flagged: frozenset[str]) -> list[_Planned]:
@@ -983,11 +1130,24 @@ def _registered_order(inputs: Inputs, found: _Version, flagged: frozenset[str]) 
     pairs = sorted(
         (digest, trial, brief) for digest, brief in digests for trial in range(inputs.trials)
     )
-    random.Random(f"{inputs.order_seed}:order:{inputs.role}_{tier}").shuffle(pairs)
-    return [
-        _Planned(index, tier, brief, trial, inputs.seed_base + trial)
-        for index, (_digest, trial, brief) in enumerate(pairs)
-    ]
+    drawn = random.Random(f"{inputs.order_seed}:order:{inputs.role}_{tier}")
+    drawn.shuffle(pairs)
+    if inputs.ablation is None:
+        return [
+            _Planned(index, tier, brief, trial, inputs.seed_base + trial)
+            for index, (_digest, trial, brief) in enumerate(pairs)
+        ]
+    # With an ablation arm, each (task, trial) pair is a unit: the harness trial (its raw pair
+    # run right after it) and the arm's trial of the same task and seed. The units keep the
+    # cell's order, and the same generator then orders each unit's two parts by one shuffle of
+    # [the harness trial, the arm's trial], unit by unit in that order.
+    order: list[_Planned] = []
+    for _digest, trial, brief in pairs:
+        parts: list[str | None] = [None, inputs.ablation.name]
+        drawn.shuffle(parts)
+        for arm in parts:
+            order.append(_Planned(len(order), tier, brief, trial, inputs.seed_base + trial, arm))
+    return order
 
 
 def _inputs_record(inputs: Inputs, target_head: str, check_sha256: str) -> dict[str, Any]:
@@ -1010,6 +1170,19 @@ def _inputs_record(inputs: Inputs, target_head: str, check_sha256: str) -> dict[
         "check_sha256": check_sha256,
         # Only where it is given, so a round in the driver's own order is held as it always was.
         **({} if inputs.order_seed is None else {"order_seed": inputs.order_seed}),
+        # Only where an arm is given, so a round without one is held as it always was.
+        **(
+            {}
+            if inputs.ablation is None
+            else {
+                "ablation": {
+                    "arm": inputs.ablation.name,
+                    "params_sha256": hashlib.sha256(
+                        inputs.ablation.params.read_bytes()
+                    ).hexdigest(),
+                }
+            }
+        ),
     }
 
 
@@ -1048,10 +1221,26 @@ class _Round:
     trial: dict[str, Any] | None = None
     #: What this process has done to each run, so a step that moves nothing is not taken twice.
     acted: set[tuple[Any, ...]] = field(default_factory=set)
+    #: The ablation arm's places a person's word dropped: never taken on again, in no set.
+    dropped: frozenset[int] = frozenset()
 
     def add(self, line: dict[str, Any]) -> None:
+        """Append a line; one of an ablation arm's places names the arm it is of."""
+        index = line.get("index")
+        if type(index) is int and 0 <= index < len(self.order):
+            arm = self.order[index].arm
+            if arm is not None:
+                line = {**line, "arm": arm}
         _append(self.ledger, line)
         self.lines.append(line)
+
+    def open_order(self) -> list[_Planned]:
+        """The round's places still to be had: every place but the dropped arm's."""
+        return [p for p in self.order if p.index not in self.dropped]
+
+    def params(self, planned: _Planned) -> Path:
+        """The parameters the place's trial is decomposed with, beneath the withheld root."""
+        return self.place / _params_name(planned.arm)
 
     def of(self, index: int, kind: str) -> list[dict[str, Any]]:
         return [x for x in self.lines if x["kind"] == kind and x.get("index") == index]
@@ -1073,9 +1262,9 @@ class _Round:
     def run_id(self, index: int, attempt: int) -> str:
         return f"{self.round_id}-{index:04d}-{attempt}"
 
-    def delay(self) -> float:
-        """The first registered retry delay, from the parameters every trial is decomposed with."""
-        bounds = json.loads((self.place / "params.json").read_bytes()).get("bounds", {})
+    def delay(self, planned: _Planned) -> float:
+        """The first registered retry delay, from the parameters the place's trial is given."""
+        bounds = json.loads(self.params(planned).read_bytes()).get("bounds", {})
         delays = bounds.get("infra_retry_delays_s") or []
         return float(delays[0]) if delays else 0.0
 
@@ -1093,6 +1282,11 @@ class _Round:
         return path
 
 
+def _params_name(arm: str | None) -> str:
+    """The name of the round's copy of an arm's parameters: ``params.json`` for the harness's."""
+    return "params.json" if arm is None else f"params.{ABLATION}.{arm}.json"
+
+
 def run_round(
     inputs: Inputs,
     *,
@@ -1103,6 +1297,7 @@ def run_round(
     set_aside: int | None = None,
     credential_replaced: bool = False,
     only: int | None = None,
+    drop: Drop | None = None,
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], datetime] = utc_now,
 ) -> tuple[Status, dict[str, Any]]:
@@ -1120,11 +1315,18 @@ def run_round(
     is assembled (or waits) and stops there, ``trial_assembled``, its one-entry run set written,
     so a raw trial can run right after it; only the first place not yet assembled may be named,
     or one already assembled (which only says it again). ``now`` is the clock a limit's wait is
-    read against.
+    read against. ``drop`` is a person's word that drops the ablation arm's places not yet
+    assembled, at once and for good: written on the ledger with who and why before anything else
+    is taken on, so the harness's places go on alone; every later start of the round says the
+    same, or is refused.
 
     Raises:
         RoundError: the round is refused, or stopped at a step it names; nothing of a task.
     """
+    if not resume and drop is not None:
+        # A fresh round has placed nothing of its arm: a round run without it is the one asked for.
+        msg = "a fresh round has no ablation place to drop; start it without the arm"
+        raise _refuse("ablation_drop_on_a_fresh_round", msg)
     if not resume and only not in (None, 0):
         # A fresh round has assembled nothing: its first place is the only one it may take on.
         msg = "only the first place of the order not yet assembled may be taken on"
@@ -1192,7 +1394,7 @@ def run_round(
             order=order,
             tasks={b: t for tier in found.tasks.values() for b, t in tier.items()},
         )
-        words = _Words(limit_reset, set_aside, credential_replaced, only)
+        words = _Words(limit_reset, set_aside, credential_replaced, only, drop)
         status = _go(ctx, found, given, pins, dead, lock, claimed, words)
     except BaseException as exc:
         # A process that ends as it should leaves no pid behind; a kill leaves its own.
@@ -1211,6 +1413,8 @@ class _Words:
     credential_replaced: bool = False
     #: The one place of the order this call takes on, or ``None`` for every trial.
     only: int | None = None
+    #: The word that drops the ablation arm's remaining places, or ``None``.
+    drop: Drop | None = None
 
 
 def _go(
@@ -1226,15 +1430,27 @@ def _go(
     """The round, once its lock is held and its ledger read: every trial in order, then its sets."""
     inputs = ctx.inputs
     if not ctx.lines:
-        # The parameters every trial is decomposed with, beneath the withheld root.
-        shutil.copyfile(inputs.params, ctx.place / "params.json")
-    copied = hashlib.sha256((ctx.place / "params.json").read_bytes()).hexdigest()
+        # The parameters every trial is decomposed with, beneath the withheld root; an ablation
+        # arm's beside them, by the arm's name.
+        shutil.copyfile(inputs.params, ctx.place / _params_name(None))
+        if inputs.ablation is not None:
+            shutil.copyfile(inputs.ablation.params, ctx.place / _params_name(inputs.ablation.name))
+    copied = hashlib.sha256((ctx.place / _params_name(None)).read_bytes()).hexdigest()
     if copied != given["params_sha256"]:
         msg = "the round's copy of its parameters is not the file it was started with"
         raise _refuse("params_changed", msg)
+    if inputs.ablation is not None:
+        arm_copy = ctx.place / _params_name(inputs.ablation.name)
+        copied = hashlib.sha256(arm_copy.read_bytes()).hexdigest()
+        if copied != given["ablation"]["params_sha256"]:
+            msg = "the round's copy of its arm's parameters is not the file it was started with"
+            raise _refuse("params_changed", msg, arm=inputs.ablation.name)
     protected_named = any(tier in PROTECTED_TIERS for tier in inputs.tiers)
     current: list[_Planned | None] = [None]
     try:
+        # A dropped arm's places are closed before anything is read of where the round stands:
+        # a word for a wait at one of them is for no wait.
+        _drop(ctx, words.drop)
         # Read before this process acts: what the round stood waiting at when it was started; its
         # directory first held to be the round's own, since reading a run's record may cut it.
         standing = _standing(ctx)
@@ -1272,7 +1488,7 @@ def _go(
                 "protected_sha256": {
                     tier: getattr(found.manifest, tier).sha256 for tier in PROTECTED_TIERS
                 },
-                "order": [vars(p) for p in ctx.order],
+                "order": [_place_line(p) for p in ctx.order],
                 "register_before": _register_head(inputs.store, inputs.role),
                 "started": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
@@ -1298,7 +1514,7 @@ def _go(
             # One trial of the order, named: assembled, its set written, and said where it lies
             # and whether its raw pair runs now; the round goes on later, unless it was the last.
             ctx.trial = _sheet(ctx, ctx.order[words.only])
-            if len(_assembled(ctx)) < len(ctx.order):
+            if len(_assembled(ctx)) < len(ctx.open_order()):
                 _write_whole(inputs.out / ROUND_RECORD, canonical_json(_summary(ctx, done=False)))
                 return "trial_assembled"
         _outputs(ctx)
@@ -1327,16 +1543,101 @@ def _these(ctx: _Round, only: int | None) -> list[_Planned]:
         RoundError: the place is not in the order, or an earlier place is not yet assembled.
     """
     if only is None:
-        return ctx.order
+        return ctx.open_order()
     if not 0 <= only < len(ctx.order):
         raise _refuse(
             "only_not_in_the_order", "the round's order has no such place", only=str(only)
         )
-    first = next((p.index for p in ctx.order if not ctx.of(p.index, "assembled")), None)
+    if only in ctx.dropped:
+        msg = "the place is the ablation arm's, which was dropped: it is never taken on again"
+        raise _refuse("only_dropped", msg, only=str(only))
+    first = next((p.index for p in ctx.open_order() if not ctx.of(p.index, "assembled")), None)
     if not ctx.of(only, "assembled") and only != first:
         msg = "only the first place of the order not yet assembled may be taken on"
         raise _refuse("only_out_of_order", msg, only=str(only), first=str(first))
     return [ctx.order[only]]
+
+
+#: The ledger's line that drops the ablation arm's remaining places, once and for good.
+ARM_DROPPED = "arm_dropped"
+
+
+def _drop(ctx: _Round, drop: Drop | None) -> None:
+    """Drop the ablation arm's places not yet assembled on a person's word, or hold the drop made.
+
+    Once a drop is on the ledger every start says the same words (who and why), or is refused:
+    a start that left them out would read as a round whose arm still runs. A drop is made once,
+    for good, before anything else is taken on: each directory of a dropped place is dealt with
+    as one left behind is (its left review stopped, its credentials removed) and named with what
+    it held; it stays where it is, for the exposure scan, in no set. The harness's places go on.
+
+    Raises:
+        RoundError: the word is not the drop made, is missing after one, is given to a round with
+            no arm or no line yet, or finds nothing left to drop; or a dropped directory's left
+            plan review showed held-out material.
+    """
+    made = next((x for x in ctx.lines if x["kind"] == ARM_DROPPED), None)
+    if made is not None:
+        if drop is None:
+            msg = (
+                "the round's ablation arm was dropped; every later start says so, with the same "
+                "words"
+            )
+            raise _refuse("ablation_dropped_unsaid", msg, by=str(made["by"]))
+        if (drop.by, drop.why) != (made["by"], made["why"]):
+            msg = "the round's ablation arm was dropped by other words than these"
+            raise _refuse("ablation_dropped_otherwise", msg, by=str(made["by"]))
+        ctx.dropped = frozenset(int(i) for i in made["places"])
+        return
+    if drop is None:
+        return
+    arm = ctx.inputs.ablation
+    if arm is None:
+        raise _refuse("ablation_drop_no_arm", "the round has no ablation arm to drop")
+    if not DROPPED_BY.fullmatch(drop.by) or not drop.why.strip() or "\n" in drop.why:
+        msg = "a drop names who makes it in a plain word, and why in one line"
+        raise _refuse("ablation_drop_words", msg)
+    if not ctx.lines:
+        msg = "the round has made nothing yet: start it again without the arm"
+        raise _refuse("ablation_drop_before_start", msg)
+    remaining = [p for p in ctx.order if p.arm is not None and not ctx.of(p.index, "assembled")]
+    if not remaining:
+        raise _refuse("ablation_nothing_to_drop", "every place of the ablation arm is assembled")
+    left: list[dict[str, Any]] = []
+    exposed: list[tuple[int, int]] = []
+    for planned in remaining:
+        for line in ctx.of(planned.index, "placed"):
+            attempt = int(line["attempt"])
+            run_dir = ctx.run_dir(planned.index, attempt)
+            _require_its_own(ctx, planned.index, attempt, run_dir)
+            held = None
+            if os.path.isdir(run_dir):
+                if _deal_with(ctx.place, planned.index, attempt, run_dir):
+                    exposed.append((planned.index, attempt))
+                held = _held(run_dir)
+            left.append(
+                {
+                    "index": planned.index,
+                    "attempt": attempt,
+                    "run_id": ctx.run_id(planned.index, attempt),
+                    "run_dir": str(run_dir),
+                    "held": held,
+                }
+            )
+    ctx.add(
+        {
+            "kind": ARM_DROPPED,
+            "arm": arm.name,
+            "by": drop.by,
+            "why": drop.why,
+            "places": [p.index for p in remaining],
+            "left": left,
+            "at": utc_stamp(ctx.now()),
+        }
+    )
+    ctx.dropped = frozenset(p.index for p in remaining)
+    if exposed:
+        raise _left_exposed(*exposed[0], directories=str(len(exposed)))
 
 
 #: Beneath the round's directory (a protected tier) or its output directory (the visible tier):
@@ -1348,6 +1649,8 @@ def _sheet(ctx: _Round, planned: _Planned) -> dict[str, Any]:
     """What a raw trial's rule reads of an assembled harness trial: never an outcome or a score."""
     line = next(x for x in ctx.lines if x["kind"] == "assembled" and x["index"] == planned.index)
     excluded = line["record"].get("reason") if line["outcome"] == "excluded" else None
+    if planned.arm is not None:
+        return _arm_sheet(ctx, planned, line, excluded)
     where = ctx.inputs.out if planned.tier == VISIBLE else ctx.place
     return {
         "format": 1,
@@ -1373,10 +1676,49 @@ def _sheet(ctx: _Round, planned: _Planned) -> dict[str, Any]:
     }
 
 
+def _arm_files(ctx: _Round, arm: str) -> Path:
+    """Where an ablation arm's files lie: beside the round's own, named by the arm."""
+    return ctx.inputs.out / f"{ABLATION}.{arm}"
+
+
+def _arm_sheet(
+    ctx: _Round, planned: _Planned, line: dict[str, Any], excluded: str | None
+) -> dict[str, Any]:
+    """An ablation trial's sheet: the arm, and that no raw trial is ever paired with it.
+
+    Its figure is stated as a harness trial's is, and is never any raw trial's cap; its set lies
+    in the arm's own directory, never among the harness's.
+    """
+    where = _arm_files(ctx, str(planned.arm)) / TRIALS
+    return {
+        "format": 1,
+        "round": ctx.round_id,
+        "index": planned.index,
+        "tier": planned.tier,
+        "suite": f"{ctx.inputs.role}_{planned.tier}",
+        "arm": ABLATION,
+        "ablation": planned.arm,
+        "trial": planned.trial,
+        "seed": planned.seed,
+        "attempt": line["attempt"],
+        "run_id": line["run_id"],
+        "run_dir": line["run_dir"],
+        "harness_total": line["harness_total"],
+        "no_figure": line.get("no_figure"),
+        "raw_pair": "never",
+        "rerun_of": line.get("rerun_of"),
+        "excluded": excluded,
+        "class": None if excluded is None else rerun_cause(excluded, "harness"),
+        "runs": str(where / f"{planned.index:04d}.runs.json"),
+    }
+
+
 def _one_entry(ctx: _Round, planned: _Planned) -> None:
     """Write the assembled trial's one-entry run set and its sheet; the same bytes again after."""
     sheet = _sheet(ctx, planned)
     trials = Path(sheet["runs"]).parent
+    # An arm's own directory first, beside the round's output, then its sets'.
+    trials.parent.mkdir(mode=0o700, exist_ok=True)
     trials.mkdir(mode=0o700, exist_ok=True)
     entry = {"run_dir": sheet["run_dir"], "trial": planned.trial}
     runs = RunSet.model_validate_json(json.dumps({"format": 1, "trials": [entry]}))
@@ -1517,10 +1859,12 @@ def _held_to(
         raise _refuse("ledger_unreadable", "the round's ledger does not begin with its round")
     header = lines[0]
     if header.get("inputs_sha256") != hashlib.sha256(canonical_json(given)).hexdigest():
-        changed = sorted(k for k in given if header.get("inputs", {}).get(k) != given[k])
+        held = header.get("inputs", {})
+        # Each field that differs, one the start leaves out (an arm, an order seed) included.
+        changed = sorted(k for k in set(given) | set(held) if held.get(k) != given.get(k))
         msg = "the round is resumed with other inputs than it was started with"
         raise _refuse("inputs_differ", msg, fields=",".join(changed))
-    if header.get("order") != [vars(p) for p in order]:
+    if header.get("order") != [_place_line(p) for p in order]:
         raise _refuse("order_differs", "the round's order is not the one its ledger holds")
     changed = _pins_differ(header.get("pins") or {}, pins)
     if changed:
@@ -1766,8 +2110,11 @@ def _log_at(place: Path, index: int, attempt: int, step: str) -> Path:
 
 
 def _standing(ctx: _Round) -> tuple[_Planned, int, dict[str, Any] | None] | None:
-    """The first trial not assembled, its last attempt and the line that closed it, if placed."""
-    planned = next((p for p in ctx.order if not ctx.of(p.index, "assembled")), None)
+    """The first trial not assembled, its last attempt and the line that closed it, if placed.
+
+    A dropped arm's place is never where the round stands.
+    """
+    planned = next((p for p in ctx.open_order() if not ctx.of(p.index, "assembled")), None)
     if planned is None:
         return None
     placed = ctx.of(planned.index, "placed")
@@ -2134,7 +2481,7 @@ def _step(ctx: _Round, planned: _Planned, attempt: int) -> Status | None:
                     "run_id": ctx.run_id(i, attempt),
                     "cause": cause,
                     "tokens": spent,
-                    "delay_s": ctx.delay(),
+                    "delay_s": ctx.delay(planned),
                     "by": "rule",
                     "from_run": True,
                     "held": _held(run_dir),
@@ -2161,7 +2508,7 @@ def _step(ctx: _Round, planned: _Planned, attempt: int) -> Status | None:
         return _drive(ctx, planned, attempt, "resume", resume=True)
     elif halt is not None and _machine_halts(events) == 1 and not once_more_taken:
         _once(ctx, ("resume", i, attempt), "the run's one resume left it where it was")
-        ctx.sleep(ctx.delay())
+        ctx.sleep(ctx.delay(planned))
         return _drive(ctx, planned, attempt, "resume", resume=True)
     _assemble(ctx, planned, attempt, events)
     return None
@@ -2204,7 +2551,7 @@ def _decompose(ctx: _Round, planned: _Planned, attempt: int, run_dir: Path) -> S
             brief=ctx.brief(planned),
             seed=planned.seed,
             run_id=ctx.run_id(i, attempt),
-            params=ctx.place / "params.json",
+            params=ctx.params(planned),
             target=run_dir / TARGET,
             run_dir=run_dir,
             install=ctx.inputs.install,
@@ -2291,7 +2638,7 @@ def _superseded_without_a_run(
             "run_id": ctx.run_id(i, attempt),
             "cause": cause,
             "tokens": tokens,
-            "delay_s": ctx.delay(),
+            "delay_s": ctx.delay(planned),
             "by": by,
             "from_run": False,
             "held": _held(run_dir),
@@ -2583,9 +2930,10 @@ def _no_cap_in_the_cell(ctx: _Round) -> list[str]:
     For such a trial the cap rule has nothing to take (the largest figure among the task's other
     trials, else the middle figure of the cell): the round ends ``done_without_caps``. Where a
     trial of the tier gives a figure, the rule gives every no-figure trial of it a cap, and the
-    round ends ``done``, the no-figure trials stated.
+    round ends ``done``, the no-figure trials stated. An ablation arm's trials are never among a
+    cell's figures: no raw trial is paired with one, and none is capped by one.
     """
-    assembled = _assembled(ctx)
+    assembled = _harness(ctx)
     tiers: list[str] = []
     for tier in VERSION_TIERS:
         totals = [x["harness_total"] for p, x in assembled if p.tier == tier]
@@ -2598,8 +2946,37 @@ def _no_cap_in_the_cell(ctx: _Round) -> list[str]:
 
 
 def _assembled(ctx: _Round) -> list[tuple[_Planned, dict[str, Any]]]:
+    """Every assembled place of the round, of either arm, in the round's order."""
     by_index = {x["index"]: x for x in ctx.lines if x["kind"] == "assembled"}
     return [(p, by_index[p.index]) for p in ctx.order if p.index in by_index]
+
+
+def _harness(ctx: _Round) -> list[tuple[_Planned, dict[str, Any]]]:
+    """The assembled trials of the harness as measured: the only ones a reportable reader reads."""
+    return [(p, x) for p, x in _assembled(ctx) if p.arm is None]
+
+
+def _of_arm(ctx: _Round, arm: str) -> list[tuple[_Planned, dict[str, Any]]]:
+    """The assembled trials of the ablation arm ``arm``."""
+    return [(p, x) for p, x in _assembled(ctx) if p.arm == arm]
+
+
+def _arm_named(ctx: _Round) -> str | None:
+    """The round's ablation arm, as its ledger's inputs name it; ``None`` for a round with none."""
+    given = ctx.lines[0]["inputs"].get("ablation")
+    return None if given is None else str(given["arm"])
+
+
+def _lines_of(ctx: _Round, kind: str, arm: str | None) -> list[dict[str, Any]]:
+    """The ledger's lines of ``kind`` of one arm's places (``None``: the harness's)."""
+    return [
+        x
+        for x in ctx.lines
+        if x["kind"] == kind
+        and type(x.get("index")) is int
+        and 0 <= x["index"] < len(ctx.order)
+        and ctx.order[x["index"]].arm == arm
+    ]
 
 
 def _record_line(line: dict[str, Any]) -> bytes:
@@ -2609,8 +2986,13 @@ def _record_line(line: dict[str, Any]) -> bytes:
 
 
 def _outputs(ctx: _Round) -> None:
-    """Every run set, every tier's records and the round's records, written from the ledger."""
-    done = _assembled(ctx)
+    """Every run set, every tier's records and the round's records, written from the ledger.
+
+    The tiers' sets and the combined set are the harness's alone; an ablation arm's trials go
+    into the arm's own set and records, beside them and named by the arm, where no reader of a
+    tier's set or the combined set looks.
+    """
+    done = _harness(ctx)
     combined: list[dict[str, Any]] = []
     for tier in VERSION_TIERS:
         these = [(p, x) for p, x in done if p.tier == tier]
@@ -2624,6 +3006,16 @@ def _outputs(ctx: _Round) -> None:
         _write_whole(where / f"{tier}.trials.jsonl", b"".join(_record_line(x) for _, x in these))
     every = RunSet.model_validate_json(json.dumps({"format": 1, "trials": combined}))
     _write_whole(ctx.place / COMBINED, every.model_dump_json().encode())
+    arm = _arm_named(ctx)
+    if arm is not None:
+        these = _of_arm(ctx, arm)
+        if these:
+            entries = [{"run_dir": x["run_dir"], "trial": p.trial} for p, x in these]
+            runs = RunSet.model_validate_json(json.dumps({"format": 1, "trials": entries}))
+            where = ctx.inputs.out
+            _write_whole(where / f"{ABLATION}.{arm}.runs.json", runs.model_dump_json().encode())
+            records = b"".join(_record_line(x) for _, x in these)
+            _write_whole(where / f"{ABLATION}.{arm}.trials.jsonl", records)
     if not any(x["kind"] == "ended" for x in ctx.lines):
         after = _register_head(ctx.inputs.store, ctx.inputs.role)
         ctx.add({"kind": "ended", "register_after": after})
@@ -2631,11 +3023,13 @@ def _outputs(ctx: _Round) -> None:
     _write_whole(ctx.inputs.out / ROUND_RECORD, canonical_json(_summary(ctx, done=True)))
 
 
-def _pins(ctx: _Round) -> dict[str, Any]:
-    """The pins every assembled run shares; a pin they do not share is named as differing."""
+def _pins(
+    ctx: _Round, assembled: Sequence[tuple[_Planned, dict[str, Any]]] | None = None
+) -> dict[str, Any]:
+    """The pins every assembled harness run (or each given) shares; others named as differing."""
     seen: dict[str, set[str]] = {}
     values: dict[str, Any] = {}
-    for _, line in _assembled(ctx):
+    for _, line in _harness(ctx) if assembled is None else assembled:
         config = load_run_config(Path(line["run_dir"]) / "run.json")
         tools = config.tool_environment
         pins = {
@@ -2682,20 +3076,20 @@ def _named(line: dict[str, Any], keys: Sequence[str]) -> dict[str, Any]:
 
 
 def _no_cap(ctx: _Round, tiers: Sequence[str]) -> dict[str, int]:
-    """How many assembled trials of each of ``tiers`` give the baseline no cap."""
-    assembled = _assembled(ctx)
+    """How many assembled harness trials of each of ``tiers`` give the baseline no cap."""
+    assembled = _harness(ctx)
     return {
         tier: sum(1 for p, x in assembled if p.tier == tier and x["harness_total"] is None)
         for tier in tiers
     }
 
 
-def _audit(ctx: _Round) -> dict[str, Any]:
-    """The round's record, beneath the withheld root: every trial, run and digest."""
-    header = ctx.lines[0]
-    ended = next((x for x in ctx.lines if x["kind"] == "ended"), None)
+def _trial_entries(
+    ctx: _Round, assembled: Sequence[tuple[_Planned, dict[str, Any]]]
+) -> list[dict[str, Any]]:
+    """Each assembled trial as the round's record names it: its seed, run, total and outcome."""
     trials = []
-    for planned, line in _assembled(ctx):
+    for planned, line in assembled:
         gone = [_named(x, _SUPERSEDED) for x in ctx.of(planned.index, "superseded")]
         trials.append(
             {
@@ -2722,11 +3116,32 @@ def _audit(ctx: _Round) -> dict[str, Any]:
                 "credential_replaced": _replacements(Path(line["run_dir"])),
             }
         )
+    return trials
+
+
+def _ends(ctx: _Round, arm: str | None) -> dict[str, list[dict[str, Any]]]:
+    """Every superseded, set-aside, excluded, credential and limit line of one arm's places."""
 
     def every(kind: str, keys: Sequence[str]) -> list[dict[str, Any]]:
-        return [_named(x, keys) for x in ctx.lines if x["kind"] == kind]
+        return [_named(x, keys) for x in _lines_of(ctx, kind, arm)]
 
     return {
+        "superseded": every("superseded", _SUPERSEDED),
+        "left": every("left", _LEFT),
+        "excluded_runs": every("excluded", _EXCLUDED),
+        "credential_refused": every("credential", ("index", "attempt", "run_id", "tokens", "by")),
+        "usage_limit": every("limit", ("index", "attempt", "run_id", "tokens")),
+    }
+
+
+def _audit(ctx: _Round) -> dict[str, Any]:
+    """The round's record, beneath the withheld root: every trial, run and digest.
+
+    The harness's trials and ends as they always were; an ablation arm's apart, under ``arms``.
+    """
+    header = ctx.lines[0]
+    ended = next((x for x in ctx.lines if x["kind"] == "ended"), None)
+    record = {
         "format": 1,
         "round": ctx.round_id,
         "inputs": header["inputs"],
@@ -2734,21 +3149,34 @@ def _audit(ctx: _Round) -> dict[str, Any]:
         "pins_at_start": header.get("pins"),
         "protected_sha256": header["protected_sha256"],
         "pins": _pins(ctx),
-        "trials": trials,
+        "trials": _trial_entries(ctx, _harness(ctx)),
         "no_cap": _no_cap(ctx, header["inputs"]["tiers"]),
         # The same count, by the name the cap rule reads it under; and the tiers where no trial
         # gives a figure, so the rule can give none of them a cap.
         "no_figure": _no_cap(ctx, header["inputs"]["tiers"]),
         "no_cap_in_the_cell": _no_cap_in_the_cell(ctx),
-        "superseded": every("superseded", _SUPERSEDED),
-        "left": every("left", _LEFT),
-        "excluded_runs": every("excluded", _EXCLUDED),
-        "credential_refused": every("credential", ("index", "attempt", "run_id", "tokens", "by")),
-        "usage_limit": every("limit", ("index", "attempt", "run_id", "tokens")),
-        "lock_taken_over": every("lock_taken_over", ("pid",)),
+        **_ends(ctx, None),
+        "lock_taken_over": [
+            _named(x, ("pid",)) for x in ctx.lines if x["kind"] == "lock_taken_over"
+        ],
         "register_before": header["register_before"],
         "register_after": None if ended is None else ended["register_after"],
     }
+    arm = _arm_named(ctx)
+    if arm is not None:
+        mine = _of_arm(ctx, arm)
+        record["arms"] = {
+            arm: {
+                "kind": ABLATION,
+                "params_sha256": header["inputs"]["ablation"]["params_sha256"],
+                "raw_pair": "never",
+                "pins": _pins(ctx, mine),
+                "trials": _trial_entries(ctx, mine),
+                **_ends(ctx, arm),
+                "dropped": next((x for x in ctx.lines if x["kind"] == ARM_DROPPED), None),
+            }
+        }
+    return record
 
 
 def _replacements(run_dir: Path) -> list[dict[str, Any]]:
@@ -2769,15 +3197,15 @@ def _summary(ctx: _Round, *, done: bool) -> dict[str, Any]:
     counts the look.
     """
     header = ctx.lines[0]
-    assembled = _assembled(ctx)
-    visible = {p.index for p in ctx.order if p.tier == VISIBLE}
+    assembled = _harness(ctx)
+    visible = {p.index for p in ctx.order if p.tier == VISIBLE and p.arm is None}
     tiers: dict[str, Any] = {}
     for tier in header["inputs"]["tiers"]:
-        planned = [p for p in ctx.order if p.tier == tier]
+        planned = [p for p in ctx.order if p.tier == tier and p.arm is None]
         mine = [x for p, x in assembled if p.tier == tier]
         counts: dict[str, Any] = {"trials": len(planned), "assembled": len(mine)}
         if tier == VISIBLE:
-            for outcome in ("pass", "fail", "flaky", "unscored", "excluded"):
+            for outcome in OUTCOMES:
                 counts[outcome] = sum(1 for x in mine if x["outcome"] == outcome)
         tiers[tier] = counts
 
@@ -2805,12 +3233,46 @@ def _summary(ctx: _Round, *, done: bool) -> dict[str, Any]:
             (x["register_after"] for x in ctx.lines if x["kind"] == "ended"), None
         ),
     }
+    arm = _arm_named(ctx)
+    if arm is not None:
+        summary["arms"] = {arm: _arm_counts(ctx, arm)}
     if ctx.waiting is not None and not done:
         summary["waiting"] = ctx.waiting
     if ctx.trial is not None:
-        # The one trial a call named: where its set lies, and for a visible trial whether its raw
-        # pair runs now. Of a protected trial that is never said outside the withheld root (it
-        # tells whether the trial gives a figure): its sheet beneath the root says it.
+        # The one trial a call named: which arm it is of, where its set lies, and for a visible
+        # trial whether its raw pair runs now (an ablation trial's never does). Of a protected
+        # trial that is never said outside the withheld root (it tells whether the trial gives a
+        # figure): its sheet beneath the root says it.
         shown = ("index", "runs", "raw_pair") if ctx.trial["tier"] == VISIBLE else ("index", "runs")
-        summary["trial"] = {k: ctx.trial[k] for k in shown}
+        summary["trial"] = {"arm": ctx.trial["arm"], **{k: ctx.trial[k] for k in shown}}
+        if ctx.trial["arm"] == ABLATION:
+            summary["trial"]["ablation"] = ctx.trial["ablation"]
     return summary
+
+
+#: The outcomes a visible trial's count is kept by.
+OUTCOMES = ("pass", "fail", "flaky", "unscored", "excluded")
+
+
+def _arm_counts(ctx: _Round, arm: str) -> dict[str, Any]:
+    """An ablation arm's counts, apart from the harness's: its places, outcomes, ends and drop."""
+    places = {p.index for p in ctx.order if p.arm == arm}
+    mine = [x for _, x in _of_arm(ctx, arm)]
+    counts: dict[str, Any] = {
+        "kind": ABLATION,
+        "tier": VISIBLE,
+        "trials": len(places),
+        "assembled": len(mine),
+        "dropped": len(places & ctx.dropped),
+    }
+    for outcome in OUTCOMES:
+        counts[outcome] = sum(1 for x in mine if x["outcome"] == outcome)
+    for kind, name in (
+        ("superseded", "superseded"),
+        ("left", "left"),
+        ("excluded", "excluded_runs"),
+        ("credential", "credential_refused"),
+        ("limit", "usage_limit"),
+    ):
+        counts[name] = len(_lines_of(ctx, kind, arm))
+    return counts
