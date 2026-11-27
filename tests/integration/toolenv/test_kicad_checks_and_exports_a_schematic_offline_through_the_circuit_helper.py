@@ -17,9 +17,11 @@ taken away. Read here, on the pinned release:
 - nothing is written into either root, and in the test's own folder nothing outside the
   session's temporary directory, its home and the module.
 - at commit, the three exports are regenerated from the committed schematic inside the tool
-  containment (bubblewrap on Linux): an honest set passes, a hand-edited clean report and stale
-  exports are refused, a project file that silences a rule changes nothing in the report, and
-  a schematic that draws on a sub-sheet is refused in words that say so.
+  containment (bubblewrap on Linux, a generated profile on macOS): an honest set passes, a
+  hand-edited clean report and stale exports are refused, a project file that silences a rule
+  changes nothing in the report, and a schematic that draws on a sub-sheet is refused in words
+  that say so. On macOS the profile lets the command read the system TLS library's settings
+  file, which kicad-cli's start needs, and no other of the system's settings.
 
 ``PHYSGATE_KICAD_ROOT`` and ``PHYSGATE_TOOL_ENVIRONMENT`` name the two provisioned roots
 (``toolenv/provision.py --dest ... --kicad-dest ...``) at this commit; without both, the rows
@@ -606,6 +608,24 @@ def test_a_schematic_that_draws_on_a_sub_sheet_is_refused_in_words_at_commit(
     refusal = _held(session, base, _commit(repo, "sub-sheet"))
     assert refusal is not None
     assert "sub-sheet" in refusal.reason  # type: ignore[attr-defined]
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="the generated profile is macOS's wrapper")
+def test_inside_the_wrapper_on_macos_the_tls_library_s_settings_are_read(tmp_path: Path) -> None:
+    # kicad-cli starts the system TLS library at every start; denied its settings file, the
+    # library ends the program from inside that start and KiCad's exit handler spins for ever.
+    # A plain read of the file stands for it here, with no KiCad.
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    settings = regeneration.MACOS_TLS_CONFIGURATION
+    assert os.path.isfile(settings), f"this macOS has no {settings}"
+    run = regeneration.contained_runner(platform=sys.platform, withheld=lambda: ())
+    work = Path(os.path.realpath(tmp_path)) / "work"
+    work.mkdir()
+    plain = {"PATH": "/usr/bin:/bin"}
+    assert run(["/bin/cat", settings], work, plain, 30.0, ())[0] == 0
+    # And no other of the system's settings: the file alone is read.
+    assert os.path.isfile("/private/etc/hosts")
+    assert run(["/bin/cat", "/private/etc/hosts"], work, plain, 30.0, ())[0] != 0
 
 
 @pytest.mark.skipif(not LINUX, reason="the wrapper that ends a whole tree is Linux's bubblewrap")
