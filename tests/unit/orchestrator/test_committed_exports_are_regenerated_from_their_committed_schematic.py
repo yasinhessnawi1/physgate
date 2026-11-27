@@ -629,6 +629,20 @@ def test_the_command_s_folder_is_named_where_it_really_is_when_its_parent_is_a_l
     assert all(str(linked) not in value for value in call["env"].values()), call["env"]
 
 
+def test_the_command_s_folder_lies_in_the_harness_s_own_temporary_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Where no session reads or writes: not a shared temporary directory, where one running
+    # beside the change check could put or replace a product before the comparison.
+    place = tmp_path / "harness-temp"
+    place.mkdir()
+    monkeypatch.setattr(derived, "harness_temp_dir", lambda: place)
+    found, runs = check(tmp_path, made(SOUND))
+    assert found.refused_by is None, found.reason
+    (call,) = runs.calls
+    assert call["work"].is_relative_to(os.path.realpath(place)), call["work"]
+
+
 def test_a_failed_regeneration_s_folder_is_removed_too(tmp_path: Path) -> None:
     files = made(SOUND)
     files[f"{MODULE}/board.kicad_sch"] = (SOUND + "FAIL\n").encode()

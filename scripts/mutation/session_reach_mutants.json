@@ -153,5 +153,22 @@
       "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py",
       "tests/unit/hooks/hook_helpers.py"
     ]
+  },
+  {
+    "name": "the_regeneration_s_folder_is_made_in_the_shared_temporary_directory",
+    "file": "src/physgate/orchestrator/derived.py",
+    "old": "tempfile.mkdtemp(prefix=\"physgate-derived-\", dir=harness_temp_dir())",
+    "new": "tempfile.mkdtemp(prefix=\"physgate-derived-\")",
+    "tests": [
+      "tests/unit/orchestrator/test_committed_exports_are_regenerated_from_their_committed_schematic.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_role_session_s_own_directory_names_no_protected_task.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/hooks/hook_helpers.py"
+    ]
   }
 ]
