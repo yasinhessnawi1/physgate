@@ -3,10 +3,11 @@
 It is never sent to a person, and never counted as the harness's own fail. A refused credential
 halts the run ``credential_refused`` at once, never retried and nothing spent of the attempt; an
 OS layer that would not start halts it ``os_layer_unavailable``, as a role session's end does; any
-other machine end is retried once at once (as a review always was), then once after each delay of
-the run's retry ladder, and then halts the run ``infrastructure_exhausted``. That is one try more
-than a role session gets. A resume goes on at the attempt's checkpoint, the review owed again. A
-review with no verdict for the reviewer's own reasons still goes to a person at once.
+other machine end (a full disk its binary names among them) is retried once at once (as a review
+always was), then once after each delay of the run's retry ladder, and then halts the run
+``infrastructure_exhausted``. That is one try more than a role session gets. A resume goes on at
+the attempt's checkpoint, the review owed again. A review with no verdict for the reviewer's own
+reasons still goes to a person at once.
 """
 
 from __future__ import annotations
@@ -140,18 +141,24 @@ def test_a_review_the_ladder_lets_pass_merges_and_halts_nothing(tmp_path: Path) 
     assert [e for e in events if isinstance(e, Merged)]
 
 
-@pytest.mark.parametrize(
-    ("session_cause", "halt"),
-    [("sandbox_unavailable", "os_layer_unavailable"), ("disk_full", "disk_full")],
-)
-def test_an_os_layer_or_a_full_disk_halts_the_run_as_a_role_session_s_end_does(
-    tmp_path: Path, session_cause: str, halt: str
+def test_an_os_layer_that_would_not_start_halts_the_run_as_a_role_session_s_end_does(
+    tmp_path: Path,
 ) -> None:
-    rig = Rig(tmp_path, reviewer=_down(1, session_cause), delays=(30.0,))
+    rig = Rig(tmp_path, reviewer=_down(1, "sandbox_unavailable"), delays=(30.0,))
     events = _run(rig)
     assert len(rig.reviewer.seen) == 1
-    assert _halts(events) == [halt]
+    assert _halts(events) == ["os_layer_unavailable"]
     assert not [e for e in events if isinstance(e, Escalated)]
+
+
+def test_a_full_disk_the_review_s_binary_names_takes_the_ladder_as_any_machine_end(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(tmp_path, reviewer=_down(3, "disk_full"), delays=(30.0,))
+    events = _run(rig)
+    assert len(rig.reviewer.seen) == 3
+    assert _retries(events) == [("infrastructure", True)] * 2
+    assert _halts(events) == ["infrastructure_exhausted"]
 
 
 @pytest.mark.parametrize("cause", ["no_verdict", "invalid_verdict", "refused"])

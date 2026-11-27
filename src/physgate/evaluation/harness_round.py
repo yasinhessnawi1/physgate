@@ -1115,6 +1115,10 @@ def run_round(
     Raises:
         RoundError: the round is refused, or stopped at a step it names; nothing of a task.
     """
+    if not resume and only not in (None, 0):
+        # A fresh round has assembled nothing: its first place is the only one it may take on.
+        msg = "only the first place of the order not yet assembled may be taken on"
+        raise _refuse("only_out_of_order", msg, only=str(only), first="0")
     if not resume and (set_aside is not None or limit_reset or credential_replaced):
         # A fresh round stands at no wait: a person's word for one is refused before anything.
         word = (
@@ -1221,7 +1225,12 @@ def _go(
     protected_named = any(tier in PROTECTED_TIERS for tier in inputs.tiers)
     current: list[_Planned | None] = [None]
     try:
-        # Read before this process acts: what the round stood waiting at when it was started.
+        # Read before this process acts: what the round stood waiting at when it was started; its
+        # directory first held to be the round's own, since reading a run's record may cut it.
+        standing = _standing(ctx)
+        if standing is not None:
+            at, last, _closing = standing
+            _require_its_own(ctx, at.index, last, ctx.run_dir(at.index, last))
         set_aside, limit_reset = words.set_aside, words.limit_reset
         stopped = _stopped_for_a_person_at(ctx)
         if set_aside is not None and set_aside != stopped:

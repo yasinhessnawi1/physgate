@@ -183,3 +183,60 @@ def test_a_person_may_set_the_halted_run_aside_and_the_trial_is_decomposed_afres
     assert assembled["attempt"] == 2 and assembled["outcome"] == "pass"
     record = _record(rig)
     assert [x["by"] for x in record["credential_refused"]] == ["operator"]
+
+
+def test_the_command_driver_gives_the_resume_the_command_s_own_word(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.evaluation.harness_round import CommandDriver, Drive
+
+    said: list[list[str]] = []
+    monkeypatch.setattr(CommandDriver, "_main", lambda self, argv, log: said.append(argv) or 0)
+
+    def drive(*, resume: bool, replaced: bool) -> list[str]:
+        CommandDriver().drive(
+            Drive(
+                resume=resume,
+                run_dir=tmp_path / "run",
+                target=tmp_path / "run" / "target",
+                install=tmp_path / "install",
+                review_root=tmp_path / "run" / "review",
+                limit_reset=False,
+                log=tmp_path / "drive.log",
+                credential_replaced=replaced,
+            )
+        )
+        return said[-1]
+
+    assert drive(resume=True, replaced=True)[0] == "resume"
+    assert "--credential-replaced" in drive(resume=True, replaced=True)
+    assert "--credential-replaced" not in drive(resume=True, replaced=False)
+    assert "--credential-replaced" not in drive(resume=False, replaced=True)
+
+
+def test_the_round_s_command_takes_the_word_to_the_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from physgate.cli import main
+    from physgate.evaluation import harness_round
+
+    rig = make_rig(tmp_path)
+    given: dict[str, Any] = {}
+
+    def round_(inputs: Any, **how: Any) -> Any:  # noqa: ANN401
+        given.update(how)
+        return "done", {"done": True}
+
+    monkeypatch.setattr(harness_round, "run_round", round_)
+    argv = [
+        "harness-round",
+        *("--store", str(rig.made.store), "--role", "control", "--version", rig.made.version),
+        *("--tier", "visible", "--trials", "1", "--seed-base", "100", "--tasks", "1"),
+        *("--params", str(rig.params), "--run-root", str(rig.run_root)),
+        *("--target-from", str(rig.target), "--install", str(rig.root / "install")),
+        *("--prices", "2026-10-16", "--out", str(rig.root / "out"), "--resume"),
+        "--credential-replaced",
+    ]
+    assert main(argv) == 0
+    assert given["credential_replaced"] is True and given["resume"] is True
+    capsys.readouterr()

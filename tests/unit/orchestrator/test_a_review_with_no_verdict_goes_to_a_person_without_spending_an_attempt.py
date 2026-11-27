@@ -165,8 +165,9 @@ def test_a_reject_beside_a_blocking_defect_is_an_ordinary_reject(tmp_path: Path)
 
 
 def test_the_record_refuses_a_verdict_or_another_try_after_no_verdict(tmp_path: Path) -> None:
+    # A machine end retried, then the reviewer's own no verdict: final, for a person.
     reviewer = FakeReviewer(
-        unavailable={1: _unavailable("infrastructure"), 2: _unavailable("infrastructure")}
+        unavailable={1: _unavailable("infrastructure"), 2: _unavailable("no_verdict")}
     )
     events = _run(tmp_path, reviewer)
     final = max(i for i, e in enumerate(events) if isinstance(e, ReviewUnavailable))

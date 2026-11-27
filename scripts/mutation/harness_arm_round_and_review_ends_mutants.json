@@ -498,10 +498,31 @@
   ]
  },
  {
-  "name": "a_trial_s_directory_through_a_link_is_touched",
+  "name": "a_later_trial_s_directory_through_a_link_is_touched",
   "file": "src/physgate/evaluation/harness_round.py",
   "old": "    _require_its_own(ctx, i, attempt, run_dir)\n",
   "new": "    pass\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_trial_s_directory_reached_through_a_link_is_never_touched.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_trial_s_directory_through_a_link_is_read_at_a_restart",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "            _require_its_own(ctx, at.index, last, ctx.run_dir(at.index, last))",
+  "new": "            pass",
   "tests": [
    "tests/unit/evaluation/harness_round/test_a_trial_s_directory_reached_through_a_link_is_never_touched.py"
   ],

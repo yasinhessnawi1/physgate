@@ -117,6 +117,10 @@ def test_one_place_is_taken_on_alone_and_its_one_entry_set_is_written_at_once(
 
 def test_only_the_first_place_not_yet_assembled_may_be_named(tmp_path: Path) -> None:
     rig = make_rig(tmp_path)
+    with pytest.raises(RoundError) as fresh:
+        _call(rig, 1)
+    assert fresh.value.context["refused_because"] == "only_out_of_order"
+    assert not (rig.root / "out").exists(), "a refused fresh call makes nothing"
     _call(rig, 0)
     with pytest.raises(RoundError) as ahead:
         _call(rig, 2, resume=True)

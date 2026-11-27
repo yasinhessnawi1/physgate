@@ -75,3 +75,52 @@ def test_a_link_on_the_way_to_a_trial_s_directory_refuses_the_restart_and_touche
     assert driver.drives == [] and driver.decomposed == []
     assert _digest(foreign) == before
     assert (place / "ledger.jsonl").read_bytes() == ledger
+
+
+def test_a_restart_reads_nothing_through_a_link_not_even_the_run_s_record(tmp_path: Path) -> None:
+    # Reading a run's record cuts a torn last line, as the core does: through a link, the
+    # restart's first reading of where the round stands would write in another's directory.
+    rig = make_rig(tmp_path)
+    run_dir = _waiting(rig)
+    foreign = tmp_path / "elsewhere" / run_dir.name
+    foreign.parent.mkdir()
+    run_dir.rename(foreign)
+    with (foreign / "events.jsonl").open("ab") as log:
+        log.write(b'{"torn": ')
+    run_dir.symlink_to(foreign, target_is_directory=True)
+    before = _digest(foreign)
+    with pytest.raises(RoundError) as raised:
+        run_round(
+            rig.inputs(trials=1), driver=rig.driver(), scorer=_score, resume=True, set_aside=0
+        )
+    assert raised.value.context["refused_because"] == "run_dir_linked"
+    assert _digest(foreign) == before
+
+
+def test_a_later_trial_s_directory_made_a_link_is_refused_when_the_round_reaches_it(
+    tmp_path: Path,
+) -> None:
+    rig = make_rig(tmp_path)
+    status, _ = run_round(
+        rig.inputs(trials=2), driver=rig.driver(limited={1}), scorer=_score, sleep=lambda _: None
+    )
+    assert status == "waiting_for_limit"
+    summary = json.loads((rig.root / "out" / ROUND_RECORD).read_bytes())
+    later = rig.run_root / str(summary["round"]) / "0001-1"
+    foreign = tmp_path / "elsewhere"
+    foreign.mkdir()
+    (foreign / "kept").write_text("another's\n")
+    later.symlink_to(foreign, target_is_directory=True)
+    before = _digest(foreign)
+    with pytest.raises(RoundError) as raised:
+        run_round(
+            rig.inputs(trials=2),
+            driver=rig.driver(),
+            scorer=_score,
+            resume=True,
+            limit_reset=True,
+            sleep=lambda _: None,
+        )
+    assert raised.value.context["refused_because"] == "run_dir_linked"
+    assert raised.value.context["index"] == "1"
+    assert _digest(foreign) == before
