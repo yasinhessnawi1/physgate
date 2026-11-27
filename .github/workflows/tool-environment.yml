@@ -33,6 +33,9 @@ jobs:
       # refuses a tool environment that lies in any of them.
       PG_ENVIRONMENT: /home/runner/pg-env/env
       PG_MEASURED: /home/runner/pg-env/measured.json
+      # KiCad's own root, beside the environment and never inside it, and its measure.
+      PG_KICAD: /home/runner/pg-env/kicad
+      PG_KICAD_MEASURED: /home/runner/pg-env/kicad-measured.json
     steps:
       # ---- the half that fetches -----------------------------------------------------
       # Each action is named by the commit its tag pointed at on the day it was read, so
@@ -60,19 +63,121 @@ jobs:
           # lockfiles, the pins, the script and the servers copied in. Any change to one
           # of them is a new key, so a kept environment is never one built from other
           # locks. It is restored to the path it was built at, which its interpreter's
-          # own files name.
-          key: tool-environment-${{ runner.os }}-${{ runner.arch }}-uv-0.12.17-${{ hashFiles('toolenv/**') }}
+          # own files name. The key names KiCad's root too, so an environment kept from before
+          # KiCad was built beside it is never restored without one.
+          key: tool-environment-${{ runner.os }}-${{ runner.arch }}-uv-0.12.17-with-kicad-${{ hashFiles('toolenv/**') }}
 
-      - name: Build the tool environment, where none was kept
+      - name: Restore the pinned downloads kept for these pins, where no environment was kept
+        # Node, the display-library packages, the published model and KiCad's release, each named
+        # with its sha256 in toolenv/pins.json, kept keyed on that file in the folders provisioning
+        # looks in before it fetches: provisioning holds a kept file to its pin's digest exactly
+        # as it holds a fetched one. The hook suite's OS-layer legs keep the same set.
+        id: downloads
+        if: steps.kept.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/provision-downloads/node
+            ${{ runner.temp }}/provision-downloads/system-libraries
+            ${{ runner.temp }}/provision-downloads/reference
+            ${{ runner.temp }}/provision-downloads/kicad
+          key: toolenv-pinned-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('toolenv/pins.json') }}
+
+      - name: Fetch each pinned download not kept, a few times over, held to its digest
+        # Provisioning's own fetch and digest check, retried where the fetch fails (an archive
+        # answering 502 or 503 is common); a file whose bytes are not the pinned ones stops the
+        # step at once. If a file still cannot be fetched, the build below fetches it itself, as
+        # before, and nothing is kept.
+        id: seed
+        if: steps.kept.outputs.cache-hit != 'true' && steps.downloads.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          uv run --frozen python - "$RUNNER_TEMP/provision-downloads" <<'PY'
+          import importlib.util
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+          import time
+          from pathlib import Path
+
+          spec = importlib.util.spec_from_file_location("provision", "toolenv/provision.py")
+          assert spec is not None and spec.loader is not None
+          provision = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(provision)
+          # One try may take five minutes, not provisioning's half hour, so a stalled fetch is
+          # tried again instead of holding the job.
+          provision.STEP_TIMEOUT_S = 300
+
+          cache = Path(sys.argv[1])
+          pins = provision.load_pins()
+          version = str(pins["node"]["version"])
+          node, node_digest = provision.node_archive(pins, "Linux", "x86_64")
+          kicad = provision.kicad_pin(pins, "Linux", "x86_64")
+          most = provision.MAX_DOWNLOAD_BYTES
+          wanted = [
+              (cache / "node" / version / node, f"{provision.NODE_DIST}/v{version}/{node}", node_digest, most),
+              *(
+                  (cache / "system-libraries" / p["file"], f"{provision.PACKAGE_FILES}/{p['file']}",
+                   p["sha256"], most)
+                  for p in provision.system_packages(pins, "Linux", "x86_64")
+              ),
+              *(
+                  (cache / provision.REFERENCE / m["file"], m["url"], m["sha256"], most)
+                  for m in provision.reference_models(pins)
+              ),
+              (cache / "kicad" / str(kicad["file"]), str(kicad["url"]), str(kicad["sha256"]),
+               int(kicad["bytes"])),
+          ]
+          for kept, url, digest, size in wanted:
+              for attempt in range(1, 6):
+                  if kept.exists():
+                      break
+                  with tempfile.TemporaryDirectory() as scratch:
+                      work = Path(scratch)
+                      try:
+                          fetched = provision.fetch(url, work / "archive", work, max_bytes=size)
+                      except (provision.ProvisionError, subprocess.TimeoutExpired) as exc:
+                          print(f"attempt {attempt} of 5 failed for {url}: {str(exc)[-300:]}", flush=True)
+                          time.sleep(20 * attempt)
+                          continue
+                      provision.require_digest(fetched, digest)
+                      kept.parent.mkdir(parents=True, exist_ok=True)
+                      shutil.move(fetched, kept)
+              if not kept.exists():
+                  sys.exit(f"{url} could not be fetched in five attempts")
+              provision.require_digest(kept, digest)
+              print(f"{kept.relative_to(cache)} {digest}", flush=True)
+          PY
+
+      - name: Keep the pinned downloads for the next build on the same pins
+        # Saved only when every pinned file is there and matched its digest, so a kept set is
+        # never a partial one.
+        if: steps.kept.outputs.cache-hit != 'true' && steps.downloads.outputs.cache-hit != 'true' && steps.seed.outcome == 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/provision-downloads/node
+            ${{ runner.temp }}/provision-downloads/system-libraries
+            ${{ runner.temp }}/provision-downloads/reference
+            ${{ runner.temp }}/provision-downloads/kicad
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
+
+      - name: Build the tool environment and KiCad's own root beside it, where none was kept
         # The only step in which the environment meets the network. The script holds each
         # download to a digest recorded before it was fetched (the interpreter, each
         # wheel, Node, each npm package, each PlatformIO package), copies every file,
         # checks the result offline (two firmware fixtures run on the simulator to their
-        # known answers among it) and leaves it read-only.
+        # known answers among it) and leaves it read-only. KiCad is a separate program
+        # (GPL-3.0-or-later), provisioned apart into a root of its own: the pinned release, held
+        # to its exact size and sha256, unpacked by its own runtime with no FUSE and copied so
+        # the harness's measure accepts it; its program then answers the pinned version with
+        # every download refused.
         if: steps.kept.outputs.cache-hit != 'true'
         run: |
           uv run --frozen python toolenv/provision.py \
-            --dest "$PG_ENVIRONMENT" --cache "$RUNNER_TEMP/provision-downloads"
+            --dest "$PG_ENVIRONMENT" --kicad-dest "$PG_KICAD" \
+            --cache "$RUNNER_TEMP/provision-downloads"
 
       - name: Measure what was built, before anything uses it
         # The harness's own manifest: every file by mode, size and sha256. Written beside
@@ -91,6 +196,24 @@ jobs:
                             "total_bytes": found.total_bytes}))
           PY
           cat "$PG_MEASURED"
+
+      - name: Measure KiCad's root, before anything uses it
+        # The same manifest over KiCad's root alone, kept beside it like the environment's, so a
+        # restored root is held to it too.
+        if: steps.kept.outputs.cache-hit != 'true'
+        run: |
+          uv run --frozen python - "$PG_KICAD" > "$PG_KICAD_MEASURED" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          from physgate.toolenv.manifest import manifest
+
+          found = manifest([Path(sys.argv[1])])
+          print(json.dumps({"digest": found.digest, "entries": found.entries,
+                            "total_bytes": found.total_bytes}))
+          PY
+          cat "$PG_KICAD_MEASURED"
 
       - name: Keep the environment for the next run on the same locks
         # Saved here and not when the job ends, so what is kept is what was built and
@@ -114,12 +237,13 @@ jobs:
         # library socat needs that the image may lack. Each is the build the distribution
         # published for this release, fetched by its file name and refused unless its
         # sha256 is the one written here (the same digests the distribution's own package
-        # index gives). A newer build is taken by changing these lines, never by itself.
+        # index gives). A newer build is taken by changing these lines, never by itself. The
+        # archive answers 502 or 503 at times, so each fetch is tried up to six times.
         run: |
           mkdir "$RUNNER_TEMP/debs"
           cd "$RUNNER_TEMP/debs"
           while read -r digest file; do
-            curl -fsSL --proto '=https' -o "$file" \
+            curl -fsSL --proto '=https' --retry 5 --retry-all-errors --retry-delay 15 -o "$file" \
               "https://launchpad.net/ubuntu/+archive/primary/+files/$file"
             echo "$digest  $file" | sha256sum --check --strict
           done <<'PINS'
@@ -237,6 +361,27 @@ jobs:
           print(f"environment {now.digest}: {now.entries} entries, {now.total_bytes} bytes")
           PY
 
+      - name: KiCad's root is the one measured when it was built, byte for byte
+        # Whether it was built in this run or restored: its manifest is the one measured when it
+        # was built.
+        run: |
+          "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync python - \
+            "$PG_KICAD" "$PG_KICAD_MEASURED" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          from physgate.toolenv.manifest import manifest
+
+          kicad, measured = Path(sys.argv[1]), Path(sys.argv[2])
+          kept = json.loads(measured.read_text())
+          now = manifest([kicad])
+          assert (now.digest, now.entries, now.total_bytes) == (
+              kept["digest"], kept["entries"], kept["total_bytes"]
+          ), f"measured {now}, kept {kept}"
+          print(f"KiCad root {now.digest}: {now.entries} entries, {now.total_bytes} bytes")
+          PY
+
       - name: Real sessions use the tool environment inside the OS layer, offline
         # A role session computes and builds with the environment inside bubblewrap; no
         # session writes a tool environment through the real tool path, or opens a serial
@@ -245,12 +390,26 @@ jobs:
         # own servers answer with the pinned libraries, to the pinned binary too; every program
         # the environment installs is one the hardware rule has classed; the simulator is the
         # locked one, recorded by its version line, keeps the 32U4's vectors and registers,
-        # and firmware built with the environment runs on it to its known answers. Then
-        # every row is counted: a file that skipped here ran nowhere on Linux, so a skip
-        # is a failure, as is a run that collected nothing.
+        # and firmware built with the environment runs on it to its known answers. A real
+        # session builds, exports and measures a chassis with the design tools with git and the
+        # network refused. KiCad's program answers its pinned version from its own root; a
+        # session wired to both roots checks and exports schematics, and at commit the exports
+        # are regenerated inside bubblewrap. The published model measures as recorded, a block
+        # solved by finite elements agrees with the beam formulas, and a drawing of the chassis
+        # plate repeats its bytes. Then every row is counted: a file that skipped here ran
+        # nowhere on Linux, so a skip is a failure, as is a run that collected nothing.
+        #
+        # Every file under the tool environment's and the drawings' integration folders runs
+        # here, so a file added there later runs without anyone listing it, except these, which
+        # run in the hook suite's OS-layer legs instead: two that provision an environment of
+        # their own with the network (the accepted environment; the no-GPL circuit library's
+        # second build), the chassis fixture (its offline row skips where one process cannot be
+        # taken offline), the wrapper rows of each platform (some are macOS's), and the server in
+        # a withheld root (counted there).
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
           PHYSGATE_TOOL_ENVIRONMENT: /home/runner/pg-env/env
+          PHYSGATE_KICAD_ROOT: /home/runner/pg-env/kicad
         run: |
           status=0
           "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync pytest -q -rs -m integration \
@@ -259,12 +418,14 @@ jobs:
             tests/integration/hooks/test_no_session_writes_the_tool_environment_through_the_real_tool_path.py \
             tests/integration/hooks/test_no_session_reaches_a_serial_device_through_the_real_tool_path.py \
             tests/integration/hooks/test_a_plain_build_told_to_flash_finds_no_device_inside_the_os_layer.py \
-            tests/integration/toolenv/test_the_own_tool_servers_compute_with_the_pinned_libraries.py \
-            tests/integration/toolenv/test_provisioning_finds_its_own_interpreter_from_any_working_directory.py \
-            tests/integration/toolenv/test_every_program_the_tool_environment_installs_is_classed_for_the_hardware_rule.py \
-            tests/integration/toolenv/test_the_provisioned_simulator_is_the_locked_one_and_recorded_by_its_version_line.py \
-            tests/integration/toolenv/test_firmware_on_the_simulator_shows_the_board_s_behaviour_under_each_scenario.py \
-            tests/integration/toolenv/test_the_simulated_atmega32u4_keeps_its_datasheet_s_registers_and_vectors.py \
+            tests/integration/hooks/test_the_design_tools_work_offline_inside_the_os_layer.py \
+            tests/integration/toolenv \
+            tests/integration/drawings \
+            --ignore=tests/integration/toolenv/test_a_provisioned_tool_environment_is_one_the_harness_accepts.py \
+            --ignore=tests/integration/toolenv/test_the_circuit_library_loads_no_gpl_library_and_its_source_builds_repeat.py \
+            --ignore=tests/integration/toolenv/test_the_design_tools_build_export_measure_and_hash_the_chassis_fixture.py \
+            --ignore=tests/integration/toolenv/test_a_tool_server_s_wrapper_holds_on_each_platform.py \
+            --ignore=tests/integration/toolenv/test_a_tool_server_in_a_root_withheld_whole_reads_its_worktree_alone_inside_its_wrapper.py \
             || status=$?
           python3 - "$RUNNER_TEMP/rows.xml" "$status" <<'PY'
           import sys
@@ -295,23 +456,30 @@ jobs:
           print(f"environment {now.digest}, as built")
           PY
 
-      - name: A library-backed record seals on the run's environment, through the real dispatcher
+      - name: Dispatched sessions use the run's environment, through the real dispatcher
         # A dispatched role session inside bubblewrap, its run's network none: records whose
         # library code is the environment's seal; the session's own copy of the library, in a
         # virtual environment or under a PYTHONHOME of its own, is refused; without the layer
-        # the record is kept unsealed. The hook installation the dispatcher spawns from is
-        # built here first, which needs the host's network, so this step is not wrapped in the
-        # offline namespace; the session's own network is the run's (none) all the same.
-        # Counted as above: a skip means the rows ran nowhere on Linux.
+        # the record is kept unsealed. A session is wired to the environment as its file says,
+        # and a mechanical session builds, measures and is reviewed with the design tools. The
+        # hook installation the dispatcher spawns from is built here first, which needs the
+        # host's network, so this step is not wrapped in the offline namespace; the session's own
+        # network is the run's (none) all the same. Every orchestrator integration file that
+        # names the variable for a provisioned environment runs here, so one added later runs
+        # without anyone listing it. Counted as above: a skip means the rows ran nowhere on Linux.
         if: success() || failure()
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
           PHYSGATE_TOOL_ENVIRONMENT: /home/runner/pg-env/env
+          PHYSGATE_KICAD_ROOT: /home/runner/pg-env/kicad
         run: |
+          mapfile -t files < <(grep -l 'PHYSGATE_TOOL_ENVIRONMENT' tests/integration/orchestrator/test_*.py)
+          [ "${#files[@]}" -gt 0 ] || { echo "no orchestrator file names the variable"; exit 1; }
+          printf '%s\n' "${files[@]}"
           status=0
           uv run --frozen --no-sync pytest -q -rs -m integration \
             --junitxml="$RUNNER_TEMP/seal-rows.xml" \
-            tests/integration/orchestrator/test_a_dispatched_session_s_library_backed_record_seals_on_the_run_s_environment.py \
+            "${files[@]}" \
             || status=$?
           python3 - "$RUNNER_TEMP/seal-rows.xml" "$status" <<'PY'
           import sys
@@ -323,4 +491,24 @@ jobs:
           passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
           ok = sys.argv[2] == "0" and rows["tests"] > 0 and passed == rows["tests"]
           sys.exit(0 if ok else 1)
+          PY
+
+      - name: Both roots are unchanged by everything that ran beside them
+        # After the dispatched sessions too: the environment and KiCad's root, each held to the
+        # manifest measured when it was built.
+        if: success() || failure()
+        run: |
+          "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync python - \
+            "$PG_ENVIRONMENT" "$PG_MEASURED" "$PG_KICAD" "$PG_KICAD_MEASURED" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          from physgate.toolenv.manifest import manifest
+
+          for root, measured in ((sys.argv[1], sys.argv[2]), (sys.argv[3], sys.argv[4])):
+              kept = json.loads(Path(measured).read_text())
+              now = manifest([Path(root)])
+              assert now.digest == kept["digest"], f"{root}: measured {now.digest}, built {kept['digest']}"
+              print(f"{root} {now.digest}, as built")
           PY
