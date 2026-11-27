@@ -4,12 +4,17 @@ A trial-layer row that asks whether a run ended needs a log the loop could have 
 the replay takes as a run. A hand-written handful of lines is not one. So these runs are
 made by :class:`~physgate.orchestrator.loop.Loop` itself, with the stand-in dispatcher,
 reviewer, gate and merger the orchestrator's own rows use, and the stand-in dispatcher writing
-each session's stream beneath ``sessions/``, where the loop's would be.
+each session's stream beneath ``sessions/``, where the loop's would be. Each session's and each
+review's spawn is on the log as the real dispatcher and reviewer record it, and each review's
+stream is beneath the run's review root.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +24,8 @@ if str(ORCHESTRATOR_TESTS) not in sys.path:
 
 from loop_fakes import FakeDispatcher, FakeReviewer, KilledError, Rig  # noqa: E402
 
+from physgate.orchestrator.ports import SessionReport, SessionRequest, SpawnHook  # noqa: E402
+from physgate.orchestrator.protocols import Artefact, ReviewResult  # noqa: E402
 from physgate.orchestrator.record import DecompositionSummary, PlanEntry  # noqa: E402
 from physgate.orchestrator.review_root_record import record_review_root  # noqa: E402
 from physgate.orchestrator.run_config import ModelStrings  # noqa: E402
@@ -41,6 +48,44 @@ DECOMPOSED = DecompositionSummary(
     spec_commit="a" * 40,
     head_revision=1,
 )
+
+
+#: The start time a stand-in records at its spawn, as a held process's is recorded.
+SPAWN_STARTED = "stand-in"
+
+
+@dataclass
+class SpawningDispatcher(FakeDispatcher):
+    """The stand-in dispatcher, each session's spawn recorded first, as the real one records it."""
+
+    def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
+        if on_spawn is not None:
+            on_spawn(f"sess-{len(self.requests) + 1}", os.getpid(), SPAWN_STARTED)
+        return super().run(request, on_spawn)
+
+
+@dataclass
+class SpawningReviewer(FakeReviewer):
+    """The stand-in reviewer, each review's session spawned and its stream left as the real one's.
+
+    Its stream is beneath ``review_root``, where the real reviewer leaves it.
+    """
+
+    review_root: Path | None = None
+    hook: SpawnHook | None = None
+
+    def record_spawns(self, hook: SpawnHook) -> None:
+        self.hook = hook
+
+    def review(self, artefact: Artefact) -> ReviewResult:
+        sid = f"rev-{len(self.seen) + 1}"
+        if self.hook is not None:
+            self.hook(sid, os.getpid(), SPAWN_STARTED)
+        if self.review_root is not None:
+            stream = self.review_root / sid / "session" / "stdout.jsonl"
+            stream.parent.mkdir(parents=True, exist_ok=True)
+            stream.write_text(json.dumps({"type": "result", "session_id": sid}) + "\n")
+        return super().review(artefact)
 
 
 def loop_run(
@@ -67,12 +112,16 @@ def loop_run(
     record_review_root(run_dir, run_dir / "review")
     rig = Rig(
         run_dir,
-        dispatcher=FakeDispatcher(
+        dispatcher=SpawningDispatcher(
             trajectories=run_dir / "sessions",
             kill_on=1 if kill == "session" else None,
             infra={} if halted_on is None else {1: halted_on},  # type: ignore[dict-item]
         ),
-        reviewer=FakeReviewer(kill_on=1 if kill == "review" else None, verdicts=list(verdicts)),
+        reviewer=SpawningReviewer(
+            kill_on=1 if kill == "review" else None,
+            verdicts=list(verdicts),
+            review_root=run_dir / "review",
+        ),
         config_overrides={"run_id": "r", "models": CONTROL_MODELS, **config},
     )
     loop = rig.open()

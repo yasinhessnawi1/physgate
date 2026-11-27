@@ -1,0 +1,281 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/orchestrator/session_ends.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_a_spawned_session_is_open_until_a_line_of_its_own_end_follows_its_last_spawn.py",
+   "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "tokens_alone_end_a_review",
+  "file": "src/physgate/orchestrator/session_ends.py",
+  "old": "            if isinstance(following, Halted | Incident):\n                return following\n",
+  "new": "            if following is not None or following is None:\n                return event\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_spawned_session_is_open_until_a_line_of_its_own_end_follows_its_last_spawn.py",
+   "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "an_end_before_the_last_spawn_ends_it",
+  "file": "src/physgate/orchestrator/session_ends.py",
+  "old": "    after = events[last + 1 :]\n",
+  "new": "    after = events\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_spawned_session_is_open_until_a_line_of_its_own_end_follows_its_last_spawn.py",
+   "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_verdict_does_not_end_a_review",
+  "file": "src/physgate/orchestrator/session_ends.py",
+  "old": "        or (isinstance(event, ReviewRan) and event.result.session_id == session_id)\n",
+  "new": "        or (isinstance(event, ReviewRan) and event.result.session_id == 'never')\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_spawned_session_is_open_until_a_line_of_its_own_end_follows_its_last_spawn.py",
+   "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_plan_s_review_is_not_looked_for",
+  "file": "src/physgate/evaluation/per_role/arms/compare.py",
+  "old": "    left = open_sessions(events, run_dir)\n",
+  "new": "    left = open_sessions(events)\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_spawned_session_is_open_until_a_line_of_its_own_end_follows_its_last_spawn.py",
+   "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_review_s_stream_is_looked_for_under_sessions",
+  "file": "src/physgate/evaluation/per_role/assemble.py",
+  "old": "    where = root / session_id / SESSION_DIRNAME\n",
+  "new": "    where = run_dir / \"sessions\" / session_id\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_spawned_session_is_open_until_a_line_of_its_own_end_follows_its_last_spawn.py",
+   "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "no_review_root_is_taken_as_held",
+  "file": "src/physgate/evaluation/per_role/assemble.py",
+  "old": "    if root is None:\n        return f\"review session {session_id}'s stream: the run recorded no review root\"\n",
+  "new": "    if root is None:\n        return None\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_spawned_session_is_open_until_a_line_of_its_own_end_follows_its_last_spawn.py",
+   "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_round_takes_every_spawn_as_left_open",
+  "file": "src/physgate/evaluation/harness_round.py",
+  "old": "        open_sessions(events, run_dir)\n        or any(",
+  "new": "        any(e.kind == \"session_spawned\" for e in events)\n        or any(",
+  "tests": [
+   "tests/unit/orchestrator/test_a_spawned_session_is_open_until_a_line_of_its_own_end_follows_its_last_spawn.py",
+   "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_dispatcher_reads_every_ended_session_again",
+  "file": "src/physgate/orchestrator/dispatch.py",
+  "old": "        and session_open(session_id, events)\n",
+  "new": "        and spawn is not None\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_spawned_session_is_open_until_a_line_of_its_own_end_follows_its_last_spawn.py",
+   "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
+   "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
+   "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/orchestrator/left_session.py",
+   "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
+   "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+   "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ }
+]

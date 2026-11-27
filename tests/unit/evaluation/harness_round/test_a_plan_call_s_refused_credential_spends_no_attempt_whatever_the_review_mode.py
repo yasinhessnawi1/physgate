@@ -52,3 +52,33 @@ def test_a_plan_call_s_refused_credential_waits_for_a_person_and_spends_no_attem
     (assembled,) = [x for x in lines if x["kind"] == "assembled"]
     assert (assembled["attempt"], assembled["outcome"]) == (2, "pass")
     assert slept == [], "a refused credential is no machine end: no delay is slept for it"
+
+
+@pytest.mark.parametrize("mode", ["on", "repair:1"])
+def test_a_plan_review_s_refused_credential_under_a_mode_that_holds_waits_for_a_person(
+    tmp_path: Path, mode: str
+) -> None:
+    # The plan's review session, not the call, met the refused credential: under a mode that
+    # holds the plan the rounds end void on the review, and the void names the credential, so the
+    # round stops for a person and spends none of the trial's one more go.
+    rig = make_rig(tmp_path, design_review=mode)
+    driver = rig.driver(review_errs={1: "credential_refused"})
+    slept: list[float] = []
+    status, summary = run_round(
+        rig.inputs(trials=1), driver=driver, scorer=_scorer, sleep=slept.append
+    )
+    assert status == "waiting_for_a_person"
+    assert summary["waiting"]["why"] == "credential_refused"
+    kinds = [(x["kind"], x.get("attempt")) for x in _ledger(rig)[1:]]
+    assert kinds == [("placed", 1), ("credential", 1)]
+    (line,) = [x for x in _ledger(rig) if x["kind"] == "credential"]
+    assert line["tokens"] == 50 + 20 + 3, "the call's and the review's spend, named on the line"
+    status, _summary = run_round(
+        rig.inputs(trials=1), driver=driver, scorer=_scorer, resume=True, sleep=slept.append
+    )
+    assert status == "done"
+    lines = _ledger(rig)
+    assert not [x for x in lines if x["kind"] == "superseded"]
+    (assembled,) = [x for x in lines if x["kind"] == "assembled"]
+    assert (assembled["attempt"], assembled["outcome"]) == (2, "pass")
+    assert slept == [], "a refused credential is no machine end: no delay is slept for it"

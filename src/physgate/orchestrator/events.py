@@ -1608,11 +1608,22 @@ class DesignUnavailable(BaseModel):
     #: the ``infrastructure`` cause as an attempt's review on the limit has it; left out of every
     #: other end, so such a line keeps its bytes.
     usage_limit: UsageLimit | None = None
+    #: A refused credential the review's session ended on, as its reviewer classed the session's
+    #: end, beside the ``infrastructure`` cause: no attempt and no machine end, but a wait for a
+    #: person, as for the plan's call; left out of every other end, so such a line keeps its bytes.
+    session_cause: Literal["credential_refused"] | None = None
 
     @model_validator(mode="after")
     def _only_infrastructure_ends_on_the_limit(self) -> DesignUnavailable:
         if self.usage_limit is not None and self.cause != "infrastructure":
             msg = "only a review's infrastructure end is one on the usage limit"
+            raise ValueError(msg)
+        if self.session_cause is not None and (
+            self.cause != "infrastructure" or self.usage_limit is not None
+        ):
+            msg = (
+                "only a review's infrastructure end off the usage limit names a refused credential"
+            )
             raise ValueError(msg)
         return self
 
@@ -1623,6 +1634,8 @@ class DesignUnavailable(BaseModel):
             data.pop("spec_defects", None)
         if self.usage_limit is None:
             data.pop("usage_limit", None)
+        if self.session_cause is None:
+            data.pop("session_cause", None)
         return data
 
 

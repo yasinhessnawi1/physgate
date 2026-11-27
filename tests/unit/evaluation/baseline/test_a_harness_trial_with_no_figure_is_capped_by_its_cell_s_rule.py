@@ -12,6 +12,7 @@ step and inputs are recorded with it, beside its record, where the audit derives
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ from baseline_fixtures import (
     setup_for,
     stand_in_store,
 )
+from harness_rig import loop_run
 
 from physgate.evaluation.baseline.audit import audit_raw
 from physgate.evaluation.baseline.caps import CellTrial, NoCapError, RawCap, median_total, raw_cap
@@ -40,6 +42,7 @@ from physgate.evaluation.baseline.runner import (
     run_baseline,
 )
 from physgate.evaluation.observe.cost import load_price_sheet
+from physgate.orchestrator.events import ReviewRan, SessionSpawned, read_events
 
 # -- the rule ------------------------------------------------------------------------------------
 
@@ -150,6 +153,37 @@ def test_a_trial_with_no_figure_runs_last_capped_at_its_task_s_largest(
         score=lambda _t, _a: dict(SCORED),
     )
     assert found == []
+
+
+def test_a_reviewed_trial_s_raw_pair_is_capped_at_its_own_total(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """Each review's session is spawned on the log, and only its own lines end it.
+
+    So a harness trial whose module was reviewed, here twice, gives its own figure, and its raw
+    pair is capped by the rule's first step, never by the cell's.
+    """
+    task = store.tasks["visible"][0]
+    run = harness_run(tmp_path / "runs", task, store)
+    made = loop_run(tmp_path / "loop" / "run", verdicts=("fail",))
+    shutil.copyfile(made / "events.jsonl", run / "events.jsonl")
+    shutil.copytree(made / "review", run / "review", dirs_exist_ok=True)
+    events = read_events(run / "events.jsonl")
+    reviews = {e.result.session_id for e in events if isinstance(e, ReviewRan)}
+    assert len(reviews) == 2
+    assert reviews <= {e.session_id for e in events if isinstance(e, SessionSpawned)}
+    total = harness_figure(run)
+    assert total is not None
+    arm = StandInArm()
+    out = tmp_path / "round"
+    record = _round(store, run_set((run, 0)), out, arm)
+    assert isinstance(record, BaselineRecord), record
+    assert [cap for _, cap, _ in arm.calls] == [total]
+    assert _cap_record(out, "0000-1") == {
+        "rule": "pair",
+        "cap": total,
+        "inputs": [{"place": 0, "total": total}],
+    }
 
 
 def test_a_round_of_the_no_figure_entry_alone_takes_its_cap_from_the_cell_it_is_given(

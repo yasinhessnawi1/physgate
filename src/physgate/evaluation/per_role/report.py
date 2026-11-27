@@ -77,6 +77,13 @@ ARMS: tuple[Arm, ...] = ("harness", "observe", "raw")
 #: How a trial ended for the scorer. Only ``pass`` passes.
 Outcome = Literal["pass", "fail", "flaky", "unscored"]
 Count = Annotated[int, Field(ge=0)]
+#: What an ablation trial's record says it is: each part its run took away, as ``flag=value``,
+#: sorted and joined by commas (``reviewers=off``). A trial of the harness as measured has none.
+AblationMark = Annotated[
+    str, StringConstraints(pattern=r"^[a-z_]+=[a-z0-9:_]+(,[a-z_]+=[a-z0-9:_]+)*$")
+]
+#: The refusal of every reader of a measured arm's records given an ablation trial's record.
+ABLATION_RECORD = "ablation_record"
 Text = Annotated[str, StringConstraints(min_length=1, max_length=400)]
 
 #: Draws per bootstrap interval, as the analysis was registered.
@@ -191,9 +198,15 @@ class TrialRecord(_Frozen):
     review: ReviewCatches | None = None
     control: ControlFlags | None = None
     firmware: FirmwareRuns | None = None
+    #: An ablation trial's own mark (ARCH-140): what its run took away. Never a measured
+    #: harness trial's; left out where there is none, so every such record keeps its bytes.
+    ablation: AblationMark | None = Field(default=None, exclude_if=lambda v: v is None)
 
     @model_validator(mode="after")
     def _holds_its_arm_s_shape(self) -> TrialRecord:
+        if self.ablation is not None and self.arm == "raw":
+            msg = "an ablation trial is a harness's, with a part taken away; the raw arm has none"
+            raise ValueError(msg)
         harnessed = self.arm != "raw"
         if (self.gate is not None, self.review is not None) != (harnessed, harnessed):
             msg = "a harness arm records its gate and reviewers, and the raw arm neither"
@@ -313,13 +326,19 @@ def complete(design: Design, records: Sequence[TrialRecord]) -> dict[str, list[T
     """The records by suite, refused unless each suite has every task × arm × trial once.
 
     Raises:
-        ReportError: a record is not in the design, is repeated, is of the other role, or
-            a task, arm or trial the design names has no record.
+        ReportError: a record is an ablation trial's, is not in the design, is repeated, is of
+            the other role, or a task, arm or trial the design names has no record.
     """
     suites = {s.name: s for s in design.suites}
     seen: set[tuple[str, str, str, int]] = set()
     by_suite: dict[str, list[TrialRecord]] = {name: [] for name in suites}
     for record in records:
+        if record.ablation is not None:
+            msg = (
+                f"a record of {record.suite!r} is an ablation trial's ({record.ablation}): it is "
+                "never a figure of a measured arm"
+            )
+            raise ReportError(msg, suite=record.suite, refused_because=ABLATION_RECORD)
         suite = suites.get(record.suite)
         if suite is None:
             msg = f"a record names the suite {record.suite!r}, which the design does not have"

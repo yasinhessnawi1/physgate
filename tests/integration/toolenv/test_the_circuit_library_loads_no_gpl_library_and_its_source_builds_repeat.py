@@ -4,11 +4,15 @@ On a provisioned environment: ``import skidl`` in the environment's interpreter 
 of InSpice (the GPL simulator the project overrides out); no installed distribution states a
 GPL licence, or one off the allowed list, by its own metadata; and the three packages built from
 source at provisioning are recorded with their source digests (the lock's) and the digests of
-the wheels built from them, which a second provisioning from a fresh download cache repeats.
+the wheels built from them, which a second provisioning from a fresh build cache repeats.
 
 ``PHYSGATE_TOOL_ENVIRONMENT`` names a provisioned environment (``toolenv/provision.py``); with
 none named one is built here, which needs the network (``PHYSGATE_TOOLENV_CACHE`` keeps the
-downloads). The second provisioning always takes a fresh cache, so its wheels are built anew.
+downloads). The second provisioning always takes a cache with no folder of uv's, so its wheels
+are built anew; the pinned archives (Node, the display-library packages, the published model)
+are copied into it from the first cache where they are kept there, since provisioning holds each
+to its pin's sha256 whichever cache it is found in. Where every one of them was kept, the second
+provisioning may fetch none of them: the claim is about the wheels, not the archive's servers.
 """
 
 from __future__ import annotations
@@ -16,6 +20,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import platform
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -58,16 +64,57 @@ def _writable(root: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+def downloads(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The download cache the first provisioning used, or would have: kept, or one of its own."""
+    kept = os.environ.get("PHYSGATE_TOOLENV_CACHE")
+    return Path(kept) if kept else tmp_path_factory.mktemp("toolenv-cache")
+
+
+@pytest.fixture(scope="module")
+def env(downloads: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     if NAMED:
         yield Path(NAMED)
         return
     built = tmp_path_factory.mktemp("built") / "env"
-    kept = os.environ.get("PHYSGATE_TOOLENV_CACHE")
-    cache = Path(kept) if kept else tmp_path_factory.mktemp("toolenv-cache")
-    _provision().provision(built, cache)
+    _provision().provision(built, downloads)
     yield built
     _writable(built)
+
+
+def _pinned_archives(provision: ModuleType) -> list[str]:
+    """Each pinned archive provisioning fetches on this machine, as its place in a cache."""
+    pins = provision.load_pins()
+    system, machine = platform.system(), platform.machine()
+    node, _ = provision.node_archive(pins, system, machine)
+    packages = provision.system_packages(pins, system, machine)
+    return [
+        f"node/{pins['node']['version']}/{node}",
+        *(f"system-libraries/{p['file']}" for p in packages),
+        *(f"{provision.REFERENCE}/{m['file']}" for m in provision.reference_models(pins)),
+    ]
+
+
+def _build_cache_with_the_kept_archives(
+    provision: ModuleType, downloads: Path, fresh: Path
+) -> bool:
+    """Copy each pinned archive kept in ``downloads`` into ``fresh``; whether all of them were.
+
+    Only the pinned archives: never uv's folder, which holds the wheels built from source and
+    the first provisioning's other wheels, so the second provisioning builds its own. Copied,
+    not linked, so nothing the second provisioning does reaches the kept files; provisioning
+    holds each copy to its pin's sha256 before it uses it, as it does a file it fetched.
+    """
+    wanted = _pinned_archives(provision)
+    for place in wanted:
+        if (downloads / place).is_file():
+            (fresh / place).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(downloads / place, fresh / place)
+            print(f"kept: {place}")
+    return all((fresh / place).is_file() for place in wanted)
+
+
+def _refuse_every_fetch(url: str, *_args: object, **_kwargs: object) -> Path:
+    raise AssertionError(f"{url} was fetched although every pinned archive was kept")
 
 
 def _site(env: Path) -> Path:
@@ -157,7 +204,7 @@ def test_the_packages_built_from_source_are_recorded_with_both_digests(env: Path
 
 
 def test_a_second_provisioning_from_a_fresh_cache_builds_wheels_of_the_same_contents(
-    env: Path, tmp_path_factory: pytest.TempPathFactory
+    env: Path, downloads: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
     # Measured on UiA (15.11): the wheel files themselves differ between two builds (the zip
     # holds each file's time), so the claim is the sources' digests and the wheels' contents,
@@ -165,9 +212,16 @@ def test_a_second_provisioning_from_a_fresh_cache_builds_wheels_of_the_same_cont
     # wheel files' digests are printed, not compared.
     first = _record(env).get("built_from_source")
     assert isinstance(first, dict), "the record names no package built from source"
+    provision = _provision()
+    fresh = tmp_path_factory.mktemp("fresh-build-cache")
+    if _build_cache_with_the_kept_archives(provision, downloads, fresh):
+        # The archive the display libraries come from answers 502 and 503 under load: with
+        # every pinned archive at hand, a fetch would only say something about its servers.
+        vars(provision)["fetch"] = _refuse_every_fetch
+    assert not (fresh / "uv").exists(), "the second provisioning would not build its own wheels"
     again = tmp_path_factory.mktemp("again") / "env"
     try:
-        second = _provision().provision(again, tmp_path_factory.mktemp("fresh-cache"))
+        second = provision.provision(again, fresh)
         # The second provisioning read every licence and imported the circuit library too.
         assert second.get("licences_read") == _record(env).get("licences_read")
         assert second["self_check"]["circuit"] == {"skidl": "3.0.0", "inspice_modules": []}

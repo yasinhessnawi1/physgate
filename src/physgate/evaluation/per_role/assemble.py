@@ -54,17 +54,19 @@ ended after the answer was written.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from physgate.evaluation.observe.cost import CostLine, DatedSheet
 from physgate.evaluation.per_role.arms.compare import ENDED_STEPS, next_step
 from physgate.evaluation.per_role.arms.raw import WATCH_FAILURES
 from physgate.evaluation.per_role.report import (
+    AblationMark,
     Arm,
     ControlFlags,
     Outcome,
@@ -82,19 +84,22 @@ from physgate.evaluation.tiers.task import Task
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.catches import parse_time
 from physgate.orchestrator.design_rounds import decomposition_streams
-from physgate.orchestrator.dispatch import read_captured, review_material_seen
+from physgate.orchestrator.dispatch import read_captured, review_material_seen, review_streams
 from physgate.orchestrator.events import (
     Event,
     Halted,
     Incident,
     LeftoverRead,
-    SessionEnded,
     SessionSpawned,
     parse_events,
 )
+from physgate.orchestrator.exceptions import RunStateError
 from physgate.orchestrator.gate_events import gate_events
 from physgate.orchestrator.replay import replay
-from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.orchestrator.review_root_record import recorded_review_root
+from physgate.orchestrator.run_config import ABLATION_ONLY, RunConfig, load_run_config
+from physgate.orchestrator.session_ends import open_sessions, spawn_kind
+from physgate.reviewers.places import SESSION_DIRNAME
 
 #: The run halts that are the machine's, not the design's: the account's usage limit among them.
 INFRASTRUCTURE_HALTS = frozenset(
@@ -135,6 +140,57 @@ class ExcludedTrial(BaseModel):
     trial: int
     #: The record's field that excludes it, then what that field says; no held-out content.
     reason: str
+    #: An ablation trial's own mark, as a trial record carries it (:data:`.report.AblationMark`);
+    #: left out where there is none, so every such record keeps its bytes.
+    ablation: AblationMark | None = Field(default=None, exclude_if=lambda v: v is None)
+
+
+def ablation_mark(config: RunConfig) -> str | None:
+    """What an ablation run took away, as its trial's record says it; ``None`` for any other run.
+
+    Read from the run's own configuration, so whoever assembles the record (the round, the
+    record audit) writes the same mark: each switch at a value only an ablation run takes, and a
+    gate that does not block, as ``flag=value``, sorted; an ablation run that took none of them
+    away is marked ``ablation=true``.
+    """
+    if not config.ablation:
+        return None
+    parts = [
+        f"{name}={value}"
+        for name, arms in ABLATION_ONLY.items()
+        if (value := getattr(config, name)) in arms
+    ]
+    if config.gate_mode != "on":
+        parts.append(f"gate_mode={config.gate_mode}")
+    return ",".join(sorted(parts)) or "ablation=true"
+
+
+def read_arm_records(lines: Iterable[str]) -> list[TrialRecord | ExcludedTrial]:
+    """An ablation arm's records, for the arm's own analysis: each one an ablation trial's.
+
+    The one reader of an arm's records: a line that is not an ablation trial's record (a
+    measured arm's, or one with no mark) is refused, so a measured arm's records are never read
+    as the arm's, as the arm's are never read as a measured arm's.
+
+    Raises:
+        ReportError: a line is not a trial record, or carries no ablation mark.
+    """
+    records: list[TrialRecord | ExcludedTrial] = []
+    for number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            raw = json.loads(line)
+            model = ExcludedTrial if "reason" in raw and "outcome" not in raw else TrialRecord
+            record = model.model_validate_json(line)
+        except (ValueError, TypeError, ValidationError):
+            msg = f"line {number} is not a trial record"
+            raise ReportError(msg, refused_because="trials_unreadable") from None
+        if record.ablation is None:
+            msg = f"line {number} is not an ablation trial's record: it carries no ablation mark"
+            raise ReportError(msg, refused_because="not_an_ablation_record")
+        records.append(record)
+    return records
 
 
 class TrialExcludedError(ReportError):
@@ -198,14 +254,12 @@ def harness_exclusion(
     for event in events:
         if isinstance(event, LeftoverRead) and event.scan != "scanned":
             return f"leftover_read: session {event.session_id}'s stream was never scanned"
-    ended = {e.session_id for e in events if isinstance(e, SessionEnded | LeftoverRead)}
-    for event in events:
-        if not isinstance(event, SessionSpawned):
-            continue
-        if event.session_id not in ended:
-            return f"session: {event.session_id} never ended, so its stream was never scanned"
-        if not (run_dir / "sessions" / event.session_id / STREAM_NAME).is_file():
-            return f"stream: session {event.session_id}'s stream is gone"
+    for left in open_sessions(events, run_dir):
+        return f"session: {left} never ended, so its stream was never scanned"
+    for session_id in dict.fromkeys(e.session_id for e in events if isinstance(e, SessionSpawned)):
+        gone = _stream_gone(session_id, events, run_dir)
+        if gone is not None:
+            return f"stream: {gone}"
     for place in decomposition_streams(events):
         if not (run_dir / place).is_file():
             return f"stream: {place}, which the log names, is gone"
@@ -214,9 +268,38 @@ def harness_exclusion(
             return "canary: the task's own canary showed in a stream of the run"
     # Last, once every stream the run left beneath its directory is held: a reviewer's lies
     # outside it, beneath the review root, and is scanned only as its review ends, or by a
-    # resume. A run killed during a review, and never resumed, has neither, and wrote no line
-    # whose missing end would show it; only the run's own end says every review ended.
+    # resume. A run killed during a review, and never resumed, has neither: its review's spawn
+    # is left open above, and the run's own end says the rest of what it owed ended too.
     return _unended(events)
+
+
+def _stream_gone(session_id: str, events: Sequence[Event], run_dir: Path) -> str | None:
+    """Why a spawned session's streams are not all where its kind keeps them, or ``None``.
+
+    A role session's is beneath the run directory. A module review's are beneath the review root
+    the run recorded, in the review's session directory: its first stream and one per repair
+    resume, each a spawn of its own. A session whose kind the records do not tell has no place to
+    look, and is never taken as held.
+    """
+    kind = spawn_kind(session_id, events)
+    if kind == "role session":
+        if not (run_dir / "sessions" / session_id / STREAM_NAME).is_file():
+            return f"session {session_id}'s stream is gone"
+        return None
+    if kind != "module review":
+        return f"session {session_id} is of no kind the records tell, so its stream is not found"
+    try:
+        root = recorded_review_root(run_dir)
+    except RunStateError:
+        return f"review session {session_id}'s stream: the run's review root record is unreadable"
+    if root is None:
+        return f"review session {session_id}'s stream: the run recorded no review root"
+    spawns = sum(1 for e in events if isinstance(e, SessionSpawned) and e.session_id == session_id)
+    where = root / session_id / SESSION_DIRNAME
+    for name in review_streams(spawns):
+        if not (where / name).is_file():
+            return f"review session {session_id}'s stream {name} is gone"
+    return None
 
 
 def _unended(events: Sequence[Event]) -> str | None:
@@ -438,8 +521,11 @@ def harness_trial(
         or harness_exclusion(config, events, run_dir, task)
         or score_exclusion(task, score, unscored)
     )
+    mark = ablation_mark(config)
     if excluded is not None:
-        return ExcludedTrial(suite=suite, task=task.id, arm=arm, trial=trial, reason=excluded)
+        return ExcludedTrial(
+            suite=suite, task=task.id, arm=arm, trial=trial, reason=excluded, ablation=mark
+        )
     outcome, flags = _outcome(task, score, unscored)
     gate, review = gate_and_reviews(gate_events(events, manifest_id), events)
     return TrialRecord.model_validate(
@@ -454,6 +540,7 @@ def harness_trial(
             "gate": gate,
             "review": review,
             "control": flags,
+            **({} if mark is None else {"ablation": mark}),
         }
     )
 
