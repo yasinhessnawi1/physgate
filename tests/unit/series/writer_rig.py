@@ -1,10 +1,12 @@
 """A stand-in worktree holding the series writer where a run puts it, and a way to run scripts.
 
-Scripts run as real processes. They use ``-E -s`` (no ``PYTHON*`` variables, no user
+Scripts run as real processes. They use ``-E -s -B`` (no ``PYTHON*`` variables, no user
 site-packages) and not ``-I``, because a role session runs ``python3 script.py`` with its
 own empty home and the script's own directory on the path, which ``-I`` would remove. The
 user site is kept out because on a developer machine it loads code (measured: setuptools'
-``_distutils_hack``) that a role session's empty home never would.
+``_distutils_hack``) that a role session's empty home never would. No bytecode is written
+(``-B``), as every session's Python is told: the writer refuses a record while a module it
+loaded from the worktree has a compiled file beside it.
 """
 
 from __future__ import annotations
@@ -64,10 +66,10 @@ def write_script(
 
 
 def run(script: Path, interpreter: str = sys.executable) -> subprocess.CompletedProcess[str]:
-    """Run ``script`` the way a role session would, from the worktree."""
+    """Run ``script`` the way a role session would, from the worktree, writing no bytecode."""
     base = script.parents[2]
     return subprocess.run(
-        [interpreter, "-E", "-s", str(script)],
+        [interpreter, "-E", "-s", "-B", str(script)],
         cwd=base,
         capture_output=True,
         text=True,

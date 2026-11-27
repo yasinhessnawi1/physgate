@@ -124,8 +124,9 @@ jobs:
         pin:
           - { rig: claude-code, version: "2.1.301" }
           - { rig: claude-code-2.1.322, version: "2.1.322" }
-    # A leg takes up to about 40 minutes on a hosted runner; the limit leaves room for a slow one.
-    timeout-minutes: 60
+    # A leg that finished took 43 to 60 minutes on a hosted runner in late November, and four legs
+    # were stopped at the old 60-minute limit; this one leaves room for a slow leg and new rows.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
@@ -222,6 +223,103 @@ jobs:
           sudo mount -t tmpfs -o "size=4m,mode=0700,uid=$(id -u),gid=$(id -g)" tmpfs /mnt/pg-small
           df -k /mnt/pg-small
 
+      - name: Restore the pinned downloads kept for these pins
+        # The rows below that provision a tool environment of their own fetch the same pinned
+        # files each time: Node, the display-library packages, the published model and KiCad's
+        # release, each named with its sha256 in toolenv/pins.json. They are kept here, keyed on
+        # that file, in the folders provisioning looks in before it fetches; provisioning holds a
+        # kept file to its pin's digest exactly as it holds a fetched one.
+        id: downloads
+        if: success() || failure()
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/provision-downloads/node
+            ${{ runner.temp }}/provision-downloads/system-libraries
+            ${{ runner.temp }}/provision-downloads/reference
+            ${{ runner.temp }}/provision-downloads/kicad
+          key: toolenv-pinned-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('toolenv/pins.json') }}
+
+      - name: Fetch each pinned download not kept, a few times over, held to its digest
+        # Only where nothing was kept. Provisioning's own fetch and digest check, retried where the
+        # fetch fails (an archive answering 502 or 503 is common); a file whose bytes are not the
+        # pinned ones stops the step at once. If a file still cannot be fetched, the rows below
+        # run as before and fetch it themselves, and nothing is kept.
+        id: seed
+        if: (success() || failure()) && steps.downloads.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          uv run --frozen python - "$RUNNER_TEMP/provision-downloads" <<'PY'
+          import importlib.util
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+          import time
+          from pathlib import Path
+
+          spec = importlib.util.spec_from_file_location("provision", "toolenv/provision.py")
+          assert spec is not None and spec.loader is not None
+          provision = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(provision)
+          # One try may take five minutes, not provisioning's half hour, so a stalled fetch is
+          # tried again instead of holding the job.
+          provision.STEP_TIMEOUT_S = 300
+
+          cache = Path(sys.argv[1])
+          pins = provision.load_pins()
+          version = str(pins["node"]["version"])
+          node, node_digest = provision.node_archive(pins, "Linux", "x86_64")
+          kicad = provision.kicad_pin(pins, "Linux", "x86_64")
+          most = provision.MAX_DOWNLOAD_BYTES
+          wanted = [
+              (cache / "node" / version / node, f"{provision.NODE_DIST}/v{version}/{node}", node_digest, most),
+              *(
+                  (cache / "system-libraries" / p["file"], f"{provision.PACKAGE_FILES}/{p['file']}",
+                   p["sha256"], most)
+                  for p in provision.system_packages(pins, "Linux", "x86_64")
+              ),
+              *(
+                  (cache / provision.REFERENCE / m["file"], m["url"], m["sha256"], most)
+                  for m in provision.reference_models(pins)
+              ),
+              (cache / "kicad" / str(kicad["file"]), str(kicad["url"]), str(kicad["sha256"]),
+               int(kicad["bytes"])),
+          ]
+          for kept, url, digest, size in wanted:
+              for attempt in range(1, 6):
+                  if kept.exists():
+                      break
+                  with tempfile.TemporaryDirectory() as scratch:
+                      work = Path(scratch)
+                      try:
+                          fetched = provision.fetch(url, work / "archive", work, max_bytes=size)
+                      except (provision.ProvisionError, subprocess.TimeoutExpired) as exc:
+                          print(f"attempt {attempt} of 5 failed for {url}: {str(exc)[-300:]}", flush=True)
+                          time.sleep(20 * attempt)
+                          continue
+                      provision.require_digest(fetched, digest)
+                      kept.parent.mkdir(parents=True, exist_ok=True)
+                      shutil.move(fetched, kept)
+              if not kept.exists():
+                  sys.exit(f"{url} could not be fetched in five attempts")
+              provision.require_digest(kept, digest)
+              print(f"{kept.relative_to(cache)} {digest}", flush=True)
+          PY
+
+      - name: Keep the pinned downloads for the next run on the same pins
+        # Saved only when every pinned file is there and matched its digest, so a kept set is
+        # never a partial one.
+        if: (success() || failure()) && steps.downloads.outputs.cache-hit != 'true' && steps.seed.outcome == 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/provision-downloads/node
+            ${{ runner.temp }}/provision-downloads/system-libraries
+            ${{ runner.temp }}/provision-downloads/reference
+            ${{ runner.temp }}/provision-downloads/kicad
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
+
       - name: Every other test marked integration, wherever it lives
         # The whole test tree with only the hook suite left out, so that a marked test added
         # later, in a directory that exists now or in a new one, runs here without anyone
@@ -234,11 +332,14 @@ jobs:
         # process of its own measures it again, so a file written there between the two
         # reads as a different harness.
         # The ablation arms' rows are left out here and run in the step below, which counts them.
+        # The rows that provision a tool environment of their own share one download cache, the
+        # folder the steps above filled: a pinned file is fetched once, not once per file of rows.
         if: success() || failure()
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
           PHYSGATE_OSLAYER_REPORT: ${{ runner.temp }}/oslayer-report
           PHYSGATE_FULL_VOLUME: /mnt/pg-small
+          PHYSGATE_TOOLENV_CACHE: ${{ runner.temp }}/provision-downloads
         run: >
           uv run pytest -q -rs -m integration tests --ignore=tests/integration/hooks
           --ignore=tests/integration/orchestrator/test_a_pairwise_set_of_ablation_arms_runs_through_the_command_on_the_real_binary.py

@@ -93,7 +93,11 @@ from physgate.orchestrator.install import (
     require_current,
     require_recorded_manifest,
 )
-from physgate.orchestrator.invocation import claude_binary, session_search_path
+from physgate.orchestrator.invocation import (
+    claude_binary,
+    session_python_bytecode,
+    session_search_path,
+)
 from physgate.orchestrator.loop import Loop, escalation_for, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, PlanReviewer, Reviewer
@@ -677,6 +681,8 @@ def _config(args: argparse.Namespace, credential: Credential | None) -> RunConfi
         "binary": binary.model_dump(),
         # Read from the deny the sessions' settings carry, never from the parameters.
         "tool_search": session_tool_search(),
+        # Read from what every session is spawned with, never from the parameters.
+        "python_bytecode": session_python_bytecode(),
     }
     if "account" in params:
         # Runs may be spread over several accounts: the parameters name the one this run draws

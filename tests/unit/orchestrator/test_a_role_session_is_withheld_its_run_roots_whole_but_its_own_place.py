@@ -110,7 +110,8 @@ def _spelt(argv: list[str], root: Path) -> str:
 
 
 def test_a_run_that_names_no_root_withheld_whole_records_the_bytes_it_did() -> None:
-    plain = make_config(harness=FIXED)
+    # Its sessions' Python wrote bytecode, as every run recorded before that field existed reads.
+    plain = make_config(harness=FIXED, python_bytecode="written")
     assert "withheld_whole" not in json.loads(plain.canonical_bytes())
     assert plain.sha256() == BEFORE_RECORD, (plain.sha256(), plain.canonical_bytes())
 

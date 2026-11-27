@@ -36,6 +36,7 @@ from physgate.series.record import Column, Record
 from physgate.series.seal import (
     MAX_ENTRIES,
     OVERFLOW_NAME,
+    AttemptBytecode,
     AttemptDiscard,
     AttemptSeries,
     SeriesCheck,
@@ -169,6 +170,30 @@ def _discarded(discarded: tuple[AttemptDiscard, ...]) -> str:
     return "".join(lines)
 
 
+def _bytecode(left: tuple[AttemptBytecode, ...]) -> str:
+    total = sum(held.found for held in left)
+    lines = [
+        "# Bytecode left in the worktree\n\n",
+        "A compiled file the interpreter would run in place of a module's source, found when a "
+        "session ended and removed before its commit; never part of the attempt. A record "
+        "whose process could have run such a file is refused when it is written. Files found: "
+        f"{total}.\n\n",
+    ]
+    for held in left:
+        lines.append(f"- session {held.session_id}: {held.found} found\n")
+        for found in held.files:
+            seal = (
+                f"sha256 {found.sha256}, {found.length} bytes"
+                if found.sha256 is not None
+                else "its bytes could not be read"
+            )
+            lines.append(f"  - {_quoted(found.path)}: {seal}\n")
+        if held.found > len(held.files):
+            lines.append(f"  - and {held.found - len(held.files)} more, not named\n")
+    lines.append("\n")
+    return "".join(lines)
+
+
 def _check(check: SeriesCheck) -> str:
     read = (
         f"{_number(check.read_value)} {check.read_unit}"
@@ -197,6 +222,8 @@ def listing(series: AttemptSeries) -> bytes:
         pieces.append(_record(held.session_id, record))
     if series.discarded:
         pieces.append(_discarded(series.discarded))
+    if series.bytecode:
+        pieces.append(_bytecode(series.bytecode))
     tolerance = f"{float(RELATIVE_TOLERANCE):g}"
     pieces.append(
         "# Quantities read off a record\n\n"

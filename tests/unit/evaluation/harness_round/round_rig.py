@@ -135,6 +135,7 @@ PINS: dict[str, Any] = {
     "tool_servers": None,
     "endpoint": "default",
     "tool_search": "denied",
+    "python_bytecode": "not_written",
 }
 #: The plan's reviewer, on another model than the decomposition's.
 PLAN_REVIEWER = "claude-sonnet-5"
@@ -187,6 +188,7 @@ def params(made: StandInStore, **changes: Any) -> dict[str, Any]:  # noqa: ANN40
         network_enforced=True,
         tool_servers=None,
         tool_search="denied",
+        python_bytecode="not_written",
         # The plan's review is a model call; the stand-in makes none.
         design_review="off",
         models={

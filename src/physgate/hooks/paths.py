@@ -124,15 +124,17 @@ HARD_LINKED_READ = (
     "command could have given a file the session may not read that second name"
 )
 REFUSED = "{path} is protected: {reason}. The {tool} call is refused."
-#: A write outside the worktree. It names no path: the target is the session's own words, but
-#: the refusal is written to the hook log too, and a path outside the worktree is not labelled.
+#: A write outside the worktree. It names no path of the call's: the target is the session's own
+#: words, but the refusal is written to the hook log too, and a path outside the worktree is not
+#: labelled. It names the one folder in the worktree that is never part of an attempt
+#: (``orchestrator.left_out.SCRATCH_DIR``, held equal by a test, not imported: the hooks load
+#: nothing of the orchestrator's on a tool call).
 OUTSIDE_THE_WORKTREE = (
     "The {tool} call is refused: this session's file tools write only in its own worktree, and "
     "the target lies outside it, as written or as resolved, or is reached through a link. Name "
-    "the file by its own path in the worktree. A throwaway helper script belongs in the worktree "
-    "as well (a role session's in its module's directory: anything it leaves elsewhere in the "
-    "worktree puts its attempt out of scope), and is removed before the session ends unless it "
-    "is part of the work."
+    "the file by its own path in the worktree. A throwaway helper script or note goes in the "
+    "worktree's .physgate/scratch/ folder, which is never part of an attempt and is emptied "
+    "when the session ends; nothing computed by code there is accepted as a record."
 )
 RELATIVE_TO_UNKNOWN = (
     "{path} is a relative path and this call's working directory ({cwd!r}) is not an "

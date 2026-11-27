@@ -127,6 +127,7 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         "ablation": False,
         # What the sessions' settings do today: the search tool is denied.
         "tool_search": "denied",
+        "python_bytecode": "not_written",
         "design_review": "off",
         "parts_on_hand": "off",
         "review_compaction": "off",
@@ -318,7 +319,7 @@ class FakeSession:
         script = worktree / request.module_dir / "sim.py"
         script.write_text(self.scripts.get(self.calls, self.script))
         done = subprocess.run(
-            [sys.executable, "-E", "-s", str(script)],
+            [sys.executable, "-E", "-s", "-B", str(script)],
             cwd=worktree,
             capture_output=True,
             text=True,
