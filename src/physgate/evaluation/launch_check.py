@@ -317,6 +317,34 @@ def _working_files(source: Path, head: str) -> list[Finding]:
     return [Finding("source_files", str(source), detail)]
 
 
+#: What in a git directory makes git read references or objects from somewhere else, which the
+#: check does not follow: a source that holds one is refused as unread, by its kind.
+INDIRECTIONS = ("commondir", "objects/info/alternates", "objects/info/http-alternates")
+
+
+def _own_git_dir(source: Path) -> tuple[Path | None, list[Finding]]:
+    """The source's git directory, where it holds its references and objects itself; or why not.
+
+    Read as git would read it only where git reads nothing from elsewhere: a ``.git`` that is a
+    directory of its own (no pointer file, no link), with no file sending git to a common
+    directory or to another object store, no reference table, and ``refs`` and ``packed-refs``
+    no link. Anywhere else the check and git could disagree about what the source holds, so it
+    is refused (``source_indirect``): in doubt the check says it could not read the source.
+    """
+    git_dir = source / ".git"
+    if git_dir.is_symlink() or not git_dir.is_dir():
+        why = "its .git is no directory of its own (a pointer file or a link)"
+        return None, [Finding("source_indirect", str(source), why)]
+    for name in (*INDIRECTIONS, "reftable"):
+        if os.path.lexists(git_dir / name):
+            why = f"its git directory holds {name}, which sends git elsewhere"
+            return None, [Finding("source_indirect", str(source), why)]
+    for name in ("refs", "packed-refs", "HEAD", "objects"):
+        if (git_dir / name).is_symlink():
+            return None, [Finding("source_indirect", str(source), f"its {name} is a link")]
+    return git_dir, []
+
+
 def source_state(source: Path) -> tuple[str | None, list[Finding]]:
     """The commit the source is checked out at, and what its own directory holds beside it.
 
@@ -324,9 +352,9 @@ def source_state(source: Path) -> tuple[str | None, list[Finding]]:
     commit from its references as data (``None`` where it has none to read), its directory hashed
     here (:func:`_working_files`). For a caller that needs the source as one commit, as it is.
     """
-    git_dir = source / ".git"
-    if git_dir.is_symlink() or not git_dir.is_dir():
-        return None, [Finding("source_unreadable", str(source), "its .git is no directory")]
+    git_dir, refused = _own_git_dir(source)
+    if git_dir is None:
+        return None, refused
     try:
         head = _head(git_dir, _refs(git_dir))
     except (_UnreadableError, OSError) as exc:
@@ -348,9 +376,9 @@ def source_findings(source: Path) -> list[Finding]:
     from physgate.orchestrator.exceptions import GitError
     from physgate.orchestrator.git import unreachable_from
 
-    git_dir = source / ".git"
-    if git_dir.is_symlink() or not git_dir.is_dir():
-        return [Finding("source_unreadable", str(source), "its .git is no directory of its own")]
+    git_dir, refused = _own_git_dir(source)
+    if git_dir is None:
+        return refused
     try:
         refs = _refs(git_dir)
     except (_UnreadableError, OSError) as exc:

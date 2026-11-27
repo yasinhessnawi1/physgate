@@ -436,3 +436,46 @@ def test_no_program_the_source_s_own_configuration_names_runs_when_its_directory
     assert len(said) == 1, lines
     assert f"{untracked} file{'s' if untracked > 1 else ''} the branch does not hold" in said[0]
     assert "1 file the branch holds, changed or gone" in said[0], said
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [
+        "a linked worktree as the source",
+        "a .git pointer file",
+        "an alternates file to a store that holds more",
+        "a refs directory that is a link",
+    ],
+)
+def test_a_source_whose_git_directory_sends_git_elsewhere_is_refused_as_unread(
+    s: SimpleNamespace, outside_tmp: Path, layout: str
+) -> None:
+    # Wherever git would read references or objects from somewhere the check does not follow,
+    # the two could disagree about what the source holds: the check refuses to say "nothing".
+    base = Path(os.path.realpath(outside_tmp))
+    source = s.source
+    if layout == "a linked worktree as the source":
+        source = base / "linked"
+        _git(s.source, "worktree", "add", "-q", "--detach", str(source))
+    elif layout == "a .git pointer file":
+        moved = base / "moved.git"
+        (s.source / ".git").rename(moved)
+        (s.source / ".git").write_text(f"gitdir: {moved}\n")
+    elif layout == "an alternates file to a store that holds more":
+        other = base / "other"
+        other.mkdir()
+        _git(other, "init", "-q", "-b", "main")
+        (other / "work.py").write_text("another run's work\n")
+        _git(other, "add", "-A")
+        _git(other, "commit", "-q", "-m", "more")
+        alternates = s.source / ".git" / "objects" / "info" / "alternates"
+        alternates.parent.mkdir(parents=True, exist_ok=True)
+        alternates.write_text(f"{other / '.git' / 'objects'}\n")
+    else:
+        refs = s.source / ".git" / "refs"
+        refs.rename(base / "refs-elsewhere")
+        refs.symlink_to(base / "refs-elsewhere")
+    s.source = source
+    code, lines = _check(s)
+    assert code == 1, lines
+    assert any(line.startswith(f"finding: source_indirect: {source}:") for line in lines), lines
