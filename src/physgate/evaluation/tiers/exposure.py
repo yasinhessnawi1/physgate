@@ -737,8 +737,7 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
             )
             raise _refuse("register_unreadable", msg)
         names = {e.name: e for e in listed}
-        run = names.get(RUN_RECORD)
-        is_run = run is not None and run.is_file(follow_symlinks=False)
+        is_run = _is_run_record(names.get(RUN_RECORD))
         if is_run:
             walk.runs.append(here)
         # A decomposition cut before its run's configuration (killed, or its start refused once
@@ -1518,7 +1517,7 @@ def _refusal_of(
     """
     walk = _Walk(runs=[], records=[], settled=settled)
     try:
-        if os.path.isfile(directory / RUN_RECORD) and not os.path.islink(directory / RUN_RECORD):
+        if _is_run(directory):
             _run_findings(directory, known, settled)
         elif os.path.lexists(directory / PARAMS_RECORD) and _own(directory, walk) is not None:
             _decomposition_findings(directory, known, settled, withheld)
@@ -1530,6 +1529,24 @@ def _refusal_of(
 def _for_a_person(path: str) -> str:
     """``path`` as a register line can hold it: a name the disk does not spell in UTF-8 escaped."""
     return path.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
+def _is_run_record(entry: os.DirEntry[str] | None) -> bool:
+    """Whether ``entry`` makes its directory a run's, as the register's walk reads it.
+
+    A plain file named as a run's configuration, no link: the walk reads such a directory as a
+    run (its configuration, log and journal), and any other directory by its parameters record.
+    """
+    return entry is not None and entry.is_file(follow_symlinks=False)
+
+
+def _is_run(directory: Path) -> bool:
+    """Whether ``directory`` is a run's, by :func:`_is_run_record`, the walk's own test."""
+    try:
+        with os.scandir(directory) as listed:
+            return _is_run_record(next((e for e in listed if e.name == RUN_RECORD), None))
+    except OSError:
+        return False
 
 
 def _params_torn(directory: Path) -> bool:
@@ -1643,7 +1660,7 @@ def settle_directory(
     if why is not None:
         msg = f"{why}; a settle is recorded only for a directory it makes readable"
         raise _refuse("settle_refuses_nothing", msg)
-    if not os.path.lexists(real / RUN_RECORD) and _params_torn(real):
+    if not _is_run(real) and _params_torn(real):
         # Settled, such a directory is not walked but for a run at its top: a run or a raw
         # trial's record deeper in it would be read by nobody afterwards.
         _require_no_run_beneath(real)
