@@ -992,11 +992,20 @@ def test_an_interpreter_with_no_cache_prefix_writes_no_bytecode_beside_what_it_i
 
 def _built_open(path: str, *, write: bool) -> str:
     """A command that opens ``path`` by a spelling it builds as it runs: only the layer sees it."""
-    act = "open(p, 'w').write('planted')" if write else "print(sorted(os.listdir(p))[:3])"
+    act = (
+        "open(p, 'w').write('planted')"
+        if write
+        else "print('listed:', sorted(os.listdir(p))) if os.path.isdir(p) "
+        "else print(open(p).read())"
+    )
     return python(
         f"import os\np = os.path.join(*{['/', *Path(path).relative_to('/').parts]!r})\n"
         f"try:\n    {act}\n    print('did')\nexcept OSError as e:\n    print('denied:', e.strerror)"
     )
+
+
+#: What another trial left in a shared temporary directory, which no session reads.
+LEFT_MARKER = "LEFT-BY-ANOTHER-TRIAL-4b1e"
 
 
 @pytest.mark.usefixtures("layer")
@@ -1004,17 +1013,28 @@ def _built_open(path: str, *, write: bool) -> str:
 def test_no_command_reads_or_writes_a_shared_temporary_directory_or_the_harness_s_own(
     layout: Layout, *, raw: bool
 ) -> None:
+    # Measured as what reaches the machine: on macOS the layer refuses each open; on Linux a
+    # read-denied directory is an empty layer for the command, so what it writes there is gone
+    # when it ends and what others left there is not seen. Either way nothing crosses.
     from physgate.oslayer.harness_temp import harness_temp_dir
 
     store = Path(tempfile.mkdtemp(prefix="physgate-git-store-", dir=harness_temp_dir()))
     (store / "config").write_text("[core]\n\tbare = true\n")
-    planted = [f"{d}/pg-planted-{os.getpid()}-{time.monotonic_ns()}" for d in shared_temp_dirs()]
+    tag = f"{os.getpid()}-{time.monotonic_ns()}"
+    left = [Path(d) / f"pg-left-{tag}" for d in shared_temp_dirs()]
+    for where in left:
+        where.mkdir()
+        (where / "note.txt").write_text(LEFT_MARKER + "\n")
+    planted = [f"{d}/pg-planted-{tag}" for d in shared_temp_dirs()]
+    writes = [tool("Bash", command=_built_open(p, write=True), description="w") for p in planted]
+    reads = [
+        tool("Bash", command=_built_open(str(p), write=False), description="r")
+        for where in left
+        for p in (where.parent, where / "note.txt")
+    ]
     steps = [
-        *(tool("Bash", command=_built_open(p, write=True), description="w") for p in planted),
-        *(
-            tool("Bash", command=_built_open(d, write=False), description="r")
-            for d in shared_temp_dirs()
-        ),
+        *writes,
+        *reads,
         tool("Bash", command=_built_open(str(store / "config"), write=True), description="ws"),
         tool("Bash", command=_built_open(str(store), write=False), description="rs"),
         tool("Bash", command=f"cat {planted[0]}", description="named"),
@@ -1024,16 +1044,26 @@ def test_no_command_reads_or_writes_a_shared_temporary_directory_or_the_harness_
     finally:
         for p in planted:
             Path(p).unlink(missing_ok=True)
+        for where in left:
+            shutil.rmtree(where, ignore_errors=True)
     kept = (store / "config").read_text()
     shutil.rmtree(store)
     told = run["told"]
     assert isinstance(told, list)
-    for said in told[:-1]:
-        assert "denied:" in said and "did" not in said, told
-    assert kept == "[core]\n\tbare = true\n"
-    assert not any(os.path.lexists(p) for p in planted)
+    write_said = told[: len(writes)]
+    read_said = told[len(writes) : len(writes) + len(reads)]
+    store_write, store_read, named = told[len(writes) + len(reads) :]
+    # Nothing a command wrote reached the machine, and nothing another left was read.
+    assert not any(os.path.lexists(p) for p in planted), write_said
+    assert kept == "[core]\n\tbare = true\n", store_write
+    for said in read_said:
+        assert LEFT_MARKER not in said and f"pg-left-{tag}" not in said, said
+    assert "'config'" not in store_read, store_read
+    if sys.platform == "darwin":
+        for said in (*write_said, *read_said, store_write, store_read):
+            assert "denied:" in said and "\ndid" not in said, said
     # The hook refuses a command that names one, and says where to write instead.
-    assert "$TMPDIR" in told[-1] and "own temporary directory" in told[-1], told[-1]
+    assert "$TMPDIR" in named and "own temporary directory" in named, named
     fs = run["settings"]["sandbox"]["filesystem"]  # type: ignore[index]
     for d in shared_temp_dirs():
         assert not any(Path(w) == Path(d) or Path(w).is_relative_to(d) for w in fs["allowWrite"])
