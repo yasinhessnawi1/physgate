@@ -47,7 +47,7 @@ REFUSED = [
     ("python3 -m isympy", "isympy"),
     ("mjpython", "mjpython"),
     ("mjpython -m platformio run -t upload", "mjpython"),
-    ("mjpython -m serial.tools.miniterm /dev/cu.usbmodem1", "mjpython"),
+    ("mjpython -m serial.tools.miniterm", "mjpython"),
     ("mjpython script.py", "mjpython"),
     ("/opt/env/venv/bin/mjpython -c 'import os'", "mjpython"),
     ("'/opt/env/mujoco/MuJoCo_(mjpython).app/Contents/MacOS/mjpython' script.py", "mjpython"),
