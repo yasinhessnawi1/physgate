@@ -32,6 +32,7 @@ from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.decompose import Outcome, Plan, PlannedModule, mint_id, start_run
 from physgate.orchestrator.escalation import bind
+from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.git import head_of, object_format, verified_git_dir
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt
@@ -444,14 +445,16 @@ class Reviewer:
     records_spawns: bool = True
     #: How many of its first reviews fail the attempt; every later one passes.
     fails: int = 0
+    #: How many of its first tries the machine ends after spending a message, before any verdict.
+    machine_ended: int = 0
+    tries: int = 0
     hook: SpawnHook | None = None
 
     def record_spawns(self, hook: SpawnHook) -> None:
         self.hook = hook
 
     def review(self, artefact: Artefact) -> ReviewResult:
-        self.calls += 1
-        self.seen.append(artefact)
+        self.tries += 1
         sid = f"rev-{uuid.uuid4().hex[:8]}"
         if self.hook is not None and self.records_spawns:
             self.hook(sid, os.getpid(), SPAWN_STARTED)
@@ -459,6 +462,23 @@ class Reviewer:
             stream = self.review_root / sid / "session" / "stdout.jsonl"
             stream.parent.mkdir(parents=True, exist_ok=True)
             stream.write_text(json.dumps({"type": "result", "session_id": sid}) + "\n")
+        if self.tries <= self.machine_ended:
+            spent = Usage(
+                input_tokens=25,
+                output_tokens=4,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            raise ReviewUnavailableError(
+                "the review's session ended on an API error",
+                cause="infrastructure",
+                session_id=sid,
+                reviewer_model=self.model,
+                usage=(MessageUsage(message_id=f"{self.ids}-try-{self.tries}", usage=spent),),
+                session_cause="api_error",
+            )
+        self.calls += 1
+        self.seen.append(artefact)
         failed = self.calls <= self.fails
         return ReviewResult(
             verdict="fail" if failed else "pass",

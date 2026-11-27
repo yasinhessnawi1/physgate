@@ -342,6 +342,8 @@ class StandInDriver:
     schema_refused_first: set[int] = field(default_factory=set)
     #: How many of each drive's first module reviews fail their attempt.
     review_fails: int = 0
+    #: How many of each drive's first module review tries the machine ends, before any verdict.
+    reviews_machine_ended: int = 0
     #: The review sessions left running, as (pid, session id): a row stops what is left.
     left_reviews: list[tuple[int, str]] = field(default_factory=list)
     #: What this driver measures as the harness, the client and its version.
@@ -580,6 +582,7 @@ class StandInDriver:
                     ids=uuid.uuid4().hex[:6],
                     review_root=review_root_path(call.review_root),
                     fails=self.review_fails,
+                    machine_ended=self.reviews_machine_ended,
                 )
                 for r, m in config.models.reviewers.items()
             },

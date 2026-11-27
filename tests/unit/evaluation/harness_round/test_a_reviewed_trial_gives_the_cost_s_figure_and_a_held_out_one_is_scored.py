@@ -17,7 +17,7 @@ from round_rig import SCORED, make_rig
 from physgate.evaluation import harness_round
 from physgate.evaluation.harness_round import run_round
 from physgate.orchestrator.accounting import TokenAccount
-from physgate.orchestrator.events import ReviewRan, SessionSpawned, read_events
+from physgate.orchestrator.events import ReviewRan, ReviewUnavailable, SessionSpawned, read_events
 from physgate.orchestrator.session_ends import open_sessions
 
 
@@ -59,6 +59,31 @@ def test_a_trial_reviewed_twice_after_its_plan_s_review_gives_the_figure_its_cos
     assert assembled["no_figure"] is None
     assert assembled["harness_total"] == account.total().total()
     # The figure is the cost line's: every row's tokens, as the run's cost prices them.
+    assert assembled["record"]["cost"]["tokens"] == assembled["harness_total"]
+
+
+def test_a_review_try_the_machine_ended_and_its_retry_are_each_counted_once_in_the_figure(
+    tmp_path: Path,
+) -> None:
+    rig = make_rig(tmp_path)
+    status, _summary = run_round(
+        rig.inputs(trials=1),
+        driver=rig.driver(reviews_machine_ended=1),
+        scorer=_scorer,
+        sleep=lambda _: None,
+    )
+    assert status == "done"
+    assembled = _assembled(rig.made.store)
+    run_dir = Path(assembled["run_dir"])
+    events = read_events(run_dir / "events.jsonl")
+    ended = [e.session_id for e in events if isinstance(e, ReviewUnavailable)]
+    ran = [e.result.session_id for e in events if isinstance(e, ReviewRan)]
+    assert len(ended) == 1 and len(ran) == 1 and ended != ran, "one try ended, its retry answered"
+    assert open_sessions(events, run_dir) == ()
+    account = TokenAccount.from_events(events)
+    tries = {f"reviewer:{s}" for s in (*ended, *ran)}
+    assert tries <= set(account.by_attribution()), "a try's spend is not on the record"
+    assert assembled["harness_total"] == account.total().total()
     assert assembled["record"]["cost"]["tokens"] == assembled["harness_total"]
 
 

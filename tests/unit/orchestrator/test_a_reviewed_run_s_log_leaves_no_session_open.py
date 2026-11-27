@@ -44,7 +44,14 @@ def test_taking_every_spawn_for_a_role_session_finds_each_review_open() -> None:
 
 def test_its_total_counts_the_plan_s_review_and_every_module_review_once() -> None:
     account = TokenAccount.from_events(_events())
-    by_kind = {k: u.total() for k, u in account.by_kind().items()}
     reviewers = [a for a in account.by_attribution() if a.startswith("reviewer:")]
     assert len(reviewers) == 4, "the plan's review and the three module reviews"
-    assert account.total().total() == sum(by_kind.values())
+
+    # Each line's four classes, as the log was written: n lines of base b spend, line i:
+    # (3 + i) + (b + i) + (10 b + i) + b // 2.
+    def spent(n: int, b: int) -> int:
+        return sum(3 + i + b + i + 10 * b + i + b // 2 for i in range(n))
+
+    roles = sum(spent(3, 20 + a) for a in (1, 2, 3))
+    reviews = sum(spent(4 - a + 1, 60 + a) for a in (1, 2, 3))
+    assert account.total().total() == spent(1, 40) + spent(2, 30) + roles + reviews
