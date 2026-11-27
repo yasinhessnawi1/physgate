@@ -9,7 +9,19 @@ and digests only. ``--development`` holds the round to harness runs that need no
 reportable; the record says so. The endpoint is ``ANTHROPIC_BASE_URL``, or the binary's
 default, as for every other command, and every harness run must have recorded it; the
 credential is read from the environment variable the run's auth mode names, after every
-entry has been checked. It exits 1, naming no task, if the round is refused or stopped.
+entry has been checked. A round that has ended, started again with ``--resume``, prints its
+record again and exits 0.
+
+It exits 1, naming no task, if the round is refused or stopped, and prints one line on stdout:
+``status`` (``refused``), ``refused_because``, ``entry`` (the entry by its place in the run set,
+or ``null``) and ``session_started``: whether a session of that entry had started in the round.
+A refusal before any session (``session_started`` false) spends nothing: once its cause is
+removed the same round is started again. A stop after a session started (a pair that differs,
+other pins, an error, a move that failed, ``entry_stopped``) is never run again in its round.
+``--cell RUNS`` names the run set of every harness trial of the cell the entries' caps are
+taken from, where the round's own run set is not the whole cell; ``--shakedown`` lets the round
+run on a practice version. The round records the checkout it runs from with every session and
+holds the harness runs' to it.
 
 A round waits, as the harness round driver's does, and the command returns at once: 75 while
 it waits for the account's usage limit to reset, 77 while it waits for a person (a refused
@@ -30,8 +42,9 @@ every harness trial record named by ``--harness`` (a tier, its run set and its t
 the harness round writes them), is derived again from its trial's own files and compared. It
 prints one JSON line: of a visible tier each difference by kind and the trial's place in its run
 set, of a protected tier only how many of each kind, and the digest of the whole detail, which is
-written beneath the role's withheld root. It exits 0 when nothing differs, 1 when anything does,
-and 2 with ``refused_because`` when the audit cannot be made.
+written beneath the role's withheld root. ``--out`` and ``--runs`` may be left out to audit the
+harness arm's records alone. It exits 0 when nothing differs, 1 when anything does, and 3 with
+``refused_because`` on one line when the audit cannot be made (2 is the command line refused).
 
 The scorer's numerical libraries are the evaluation group's; they are imported only when the
 command runs.
@@ -67,6 +80,12 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
     run.add_argument("--development", action="store_true")
     run.add_argument("--resume", action="store_true", help="go on with the round OUT holds")
     run.add_argument(
+        "--cell", type=Path, help="the run set of every harness trial of the cell, for the caps"
+    )
+    run.add_argument(
+        "--shakedown", action="store_true", help="the round is a shakedown: a practice version"
+    )
+    run.add_argument(
         "--limit-reset",
         dest="limit_reset",
         action="store_true",
@@ -81,8 +100,10 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
     audit.add_argument("--store", type=Path, required=True)
     audit.add_argument("--role", choices=("control",), required=True)
     audit.add_argument("--version", required=True)
-    audit.add_argument("--runs", type=Path, required=True)
-    audit.add_argument("--out", type=Path, required=True)
+    audit.add_argument("--runs", type=Path)
+    audit.add_argument("--out", type=Path)
+    audit.add_argument("--cell", type=Path)
+    audit.add_argument("--shakedown", action="store_true")
     audit.add_argument("--prices", required=True)
     audit.add_argument("--development", action="store_true")
     audit.add_argument(
@@ -99,6 +120,7 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
 def _run(args: argparse.Namespace) -> int:
     import os
     import shutil
+    import traceback
 
     from physgate.evaluation.baseline.runner import (
         BaselineError,
@@ -110,6 +132,7 @@ def _run(args: argparse.Namespace) -> int:
     from physgate.evaluation.per_role.exceptions import PerRoleError
     from physgate.evaluation.per_role.scorers.control import score
     from physgate.orchestrator.install import prepare_install
+    from physgate.orchestrator.run_config import harness_state
 
     out = args.out.resolve()
     install = out.with_name(f"{out.name}.install")
@@ -126,6 +149,7 @@ def _run(args: argparse.Namespace) -> int:
     base_url = os.environ.get("ANTHROPIC_BASE_URL")
     try:
         runs = RunSet.model_validate_json(args.runs.read_bytes())
+        cell = None if args.cell is None else RunSet.model_validate_json(args.cell.read_bytes())
         install_bin = prepare_install(install / "hooks", CHECKOUT)
         record = run_baseline(
             store=args.store.resolve(),
@@ -134,19 +158,26 @@ def _run(args: argparse.Namespace) -> int:
             external=None if args.external is None else args.external.resolve(),
             runs=runs,
             out=out,
-            setup_for=_setup_for(install_bin, base_url),
+            setup_for=_setup_for(install_bin, base_url, harness_state(CHECKOUT)),
             base_url=base_url,
             score=score,
             prices=load_price_sheet(args.prices),
             development=args.development,
             resume=args.resume,
             limit_reset=args.limit_reset,
+            cell=cell,
+            shakedown=args.shakedown,
         )
     except RoundWaits as waits:
         print(json.dumps(waits.printed(), sort_keys=True))
         return waits.exit_code
     except (BaselineError, PerRoleError) as exc:
         print(f"physgate baseline: {exc}", file=sys.stderr)
+        print(refused_line(exc.context))
+        return 1
+    except Exception as exc:  # noqa: BLE001 - said as a refusal by its kind; its words to stderr
+        traceback.print_exc(file=sys.stderr)
+        print(refused_line({"refused_because": "error", "error": type(exc).__name__}))
         return 1
     finally:
         if install.exists():
@@ -155,7 +186,26 @@ def _run(args: argparse.Namespace) -> int:
     return 0
 
 
-def _setup_for(install_bin: Path, base_url: str | None) -> Any:  # noqa: ANN401 - a SetupFor
+def refused_line(context: dict[str, str]) -> str:
+    """The one line a refused or stopped round prints: why, which entry, and whether it had run.
+
+    ``entry`` is the entry by its place in the run set, ``null`` where the refusal names none;
+    ``session_started`` whether a session of it had started in the round.
+    """
+    entry = context.get("entry")
+    return json.dumps(
+        {
+            "format": 1,
+            "status": "refused",
+            "refused_because": context.get("refused_because", "refused"),
+            "entry": int(entry) if entry is not None and entry.isdigit() else None,
+            "session_started": context.get("session_started") == "true",
+        },
+        sort_keys=True,
+    )
+
+
+def _setup_for(install_bin: Path, base_url: str | None, harness: Any) -> Any:  # noqa: ANN401
     """The raw arm's setup for a harness run, from what this machine has and the run recorded."""
     import os
 
@@ -188,6 +238,7 @@ def _setup_for(install_bin: Path, base_url: str | None) -> Any:  # noqa: ANN401 
                 else measure(python.path, probe=probe_interpreter, harness=CHECKOUT)
             ),
             base_url=base_url,
+            harness=harness,
         )
 
     return setup_for
@@ -198,36 +249,47 @@ def _audit(args: argparse.Namespace) -> int:
     import secrets
 
     from physgate.evaluation.baseline.audit import (
+        AuditError,
         HarnessCell,
         audit_harness,
         audit_raw,
         printed,
         write_detail,
     )
-    from physgate.evaluation.baseline.runner import BASELINE_DIR, BaselineError, RunSet
+    from physgate.evaluation.baseline.runner import BASELINE_DIR, RunSet
     from physgate.evaluation.observe.cost import load_price_sheet
-    from physgate.evaluation.per_role.exceptions import PerRoleError
     from physgate.evaluation.per_role.scorers.control import score
     from physgate.evaluation.tiers.store import withheld_root
 
     store = args.store.resolve()
     try:
+        if (args.out is None) != (args.runs is None):
+            msg = "a baseline round is audited from its directory and its run set, both"
+            raise AuditError(msg, refused_because="round_half_named")  # noqa: TRY301
+        if args.out is None and not args.harness:
+            msg = "nothing to audit: name a baseline round, a tier of the harness arm, or both"
+            raise AuditError(msg, refused_because="nothing_to_audit")  # noqa: TRY301
         prices = load_price_sheet(args.prices)
-        found = audit_raw(
-            store=store,
-            role=args.role,
-            version=args.version,
-            runs=RunSet.model_validate_json(args.runs.read_bytes()),
-            out=args.out.resolve(),
-            prices=prices,
-            score=score,
-            base_url=os.environ.get("ANTHROPIC_BASE_URL"),
-            development=args.development,
-        )
+        found = []
+        if args.out is not None:
+            cell = None if args.cell is None else RunSet.model_validate_json(args.cell.read_bytes())
+            found += audit_raw(
+                store=store,
+                role=args.role,
+                version=args.version,
+                runs=RunSet.model_validate_json(args.runs.read_bytes()),
+                out=args.out.resolve(),
+                prices=prices,
+                score=score,
+                base_url=os.environ.get("ANTHROPIC_BASE_URL"),
+                development=args.development,
+                cell=cell,
+                shakedown=args.shakedown,
+            )
         cells = []
         for tier, runs, trials in args.harness:
             if tier not in ("visible", "validation", "held_out"):
-                raise BaselineError(f"no tier {tier!r}", refused_because="tier")  # noqa: TRY301
+                raise AuditError(f"no tier {tier!r}", refused_because="tier")  # noqa: TRY301
             cells.append(
                 HarnessCell(tier, RunSet.model_validate_json(Path(runs).read_bytes()), Path(trials))
             )
@@ -245,10 +307,15 @@ def _audit(args: argparse.Namespace) -> int:
                 scratch=scratch,
             )
         digest = write_detail(store, args.role, found)
-    except (PerRoleError, OSError, ValueError) as exc:
+    except Exception as exc:  # noqa: BLE001 - every way the audit cannot be made has one status
         context = getattr(exc, "context", {})
         reason = str(context.get("refused_because", "audit_refused"))
         print(json.dumps({"refused_because": reason, "error": type(exc).__name__}, sort_keys=True))
-        return 2
+        return EXIT_CANNOT_AUDIT
     print(printed(found, digest))
     return 1 if found else 0
+
+
+#: The audit's exit status where it cannot be made: its own, apart from "a record differs" (1)
+#: and from the command line refused (2).
+EXIT_CANNOT_AUDIT = 3

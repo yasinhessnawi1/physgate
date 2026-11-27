@@ -45,7 +45,7 @@ from physgate.orchestrator.events import (  # noqa: E402
 )
 from physgate.orchestrator.protocols import Usage  # noqa: E402
 from physgate.orchestrator.review_root_record import record_review_root  # noqa: E402
-from physgate.orchestrator.run_config import RunConfig  # noqa: E402
+from physgate.orchestrator.run_config import HarnessState, RunConfig  # noqa: E402
 from physgate.oslayer.probe import Present  # noqa: E402
 
 EXAMPLES = Path(__file__).parents[4] / "src/physgate/orchestrator/examples"
@@ -58,6 +58,8 @@ PRICES = "2026-10-16"
 #: measures the binary it runs, so the harness runs record the build the raw session is given.
 BINARY = Path(__file__).resolve()
 BUILT = measure(str(BINARY))
+#: The checkout every stand-in harness run recorded, and the round's sessions run from.
+CHECKOUT = HarnessState(commit="c" * 40, clean=True, uncommitted_sha256=None)
 #: The pins a stand-in check record names.
 CHECK_PINS = {
     "model": "claude-sonnet-5",
@@ -233,7 +235,7 @@ def config(task: Task, made: StandInStore, **changes: Any) -> RunConfig:  # noqa
         claude_version="2.1.301",
         endpoint="default",
         reportable=True,
-        harness={"commit": "c" * 40, "clean": True, "uncommitted_sha256": None},
+        harness=CHECKOUT.model_dump(mode="json"),
         git_binary=None,
         # As the command records them: the bytes it measured, and the account by its name and
         # the fingerprint of the credential it was given.
@@ -303,6 +305,7 @@ def setup_for(config: RunConfig, role: Role) -> RawSetup:
         os_layer=LAYER,
         role_python=None,
         base_url=None,
+        harness=CHECKOUT,
     )
 
 

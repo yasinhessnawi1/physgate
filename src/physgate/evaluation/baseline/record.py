@@ -160,6 +160,10 @@ class BaselineRecord(_Frozen):
     development: bool
     harness_runs: Count
     counts: dict[SourceTier, TierCounts]
+    #: Set where the round ran on a practice version, which it did only when told it was a
+    #: shakedown: such a round is no baseline of any measurement. Left out otherwise, so every
+    #: record keeps its bytes.
+    practice: Literal[True] | None = Field(default=None, exclude_if=lambda v: v is None)
 
     @model_validator(mode="after")
     def _one_source_and_its_tiers(self) -> BaselineRecord:

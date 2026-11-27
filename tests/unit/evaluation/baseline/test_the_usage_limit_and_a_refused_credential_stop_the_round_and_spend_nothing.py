@@ -216,7 +216,7 @@ def test_a_start_after_the_reset_runs_the_session_again_and_spends_no_re_run(
     assert record.counts["visible"].passed == 1
     assert (record.counts["visible"].trials, record.counts["visible"].unscored) == (1, 0)
     assert slept == [], "the limit is no machine end: no delay, no one more go"
-    assert _kinds(out) == ["round", "started", "limit", "started", "recorded"]
+    assert _kinds(out) == ["round", "started", "limit", "started", "moving", "recorded"]
     assert _ledger(out)[3]["limit_reset"] == "waited"
     assert json.loads((out / ROUND_RECORD).read_text())["status"] == "done"
 
@@ -418,6 +418,7 @@ def test_the_limit_then_a_refused_credential_each_wait_and_the_trial_then_runs(
         "started",
         "credential",
         "started",
+        "moving",
         "recorded",
     ]
 
@@ -449,31 +450,38 @@ def test_a_start_again_on_other_inputs_is_refused(tmp_path: Path, store: StandIn
     assert refused.context["refused_because"] == "inputs_changed"
 
 
-def test_a_round_that_ended_is_not_started_again(tmp_path: Path, store: StandInStore) -> None:
+def test_a_round_that_ended_started_again_gives_its_record_and_runs_nothing(
+    tmp_path: Path, store: StandInStore
+) -> None:
     out, runs = tmp_path / "round", _one(tmp_path, store)
-    _start(store, runs, out, StandInArm(), at=BEFORE)
-    refused = _refused(store, runs, out, StandInArm(), at=BEFORE, resume=True)
-    assert refused.context["refused_because"] == "round_ended"
+    first = _start(store, runs, out, StandInArm(), at=BEFORE)
+    before = _snapshot(out, store.store)
+    arm = StandInArm()
+    again = _start(store, runs, out, arm, at=BEFORE, resume=True)
+    assert again == first and arm.calls == []
+    assert _snapshot(out, store.store) == before
 
 
-def test_an_entry_the_round_stopped_on_for_another_cause_waits_for_a_rule_not_set_yet(
+def test_an_entry_the_round_stopped_on_for_a_cause_is_never_run_again_in_its_round(
     tmp_path: Path, store: StandInStore
 ) -> None:
     out, runs = tmp_path / "round", _one(tmp_path, store)
     arm = StandInArm(answered={1: "claude-other"})
-    assert "differs from the harness run" in str(_refused(store, runs, out, arm, at=BEFORE))
-    refused = _refused(store, runs, out, StandInArm(), at=BEFORE, resume=True)
-    assert "not set yet" in str(refused)
-    assert refused.context["refused_because"] == "rule_not_set_yet"
-
-
-def test_a_harness_trial_that_gives_no_cap_waits_for_a_rule_not_set_yet(
-    tmp_path: Path, store: StandInStore
-) -> None:
-    run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store, ended=False)
-    refused = _refused(store, run_set((run, 0)), tmp_path / "round", StandInArm(), at=BEFORE)
-    assert "not set yet" in str(refused)
-    assert refused.context["refused_because"] == "cap_rule_not_set_yet"
+    stopped = _refused(store, runs, out, arm, at=BEFORE)
+    assert "differs from the harness run" in str(stopped)
+    assert stopped.context["refused_because"] == "pair_differs"
+    assert stopped.context["session_started"] == "true"
+    assert _ledger(out)[-1] == {
+        "kind": "stopped",
+        "index": 0,
+        "session": 1,
+        "because": "pair",
+        "fields": ["answered_by"],
+    }
+    again = StandInArm()
+    refused = _refused(store, runs, out, again, at=BEFORE, resume=True)
+    assert refused.context["refused_because"] == "entry_stopped"
+    assert refused.context["because"] == "pair" and again.calls == []
 
 
 # -- the command -----------------------------------------------------------------------------------

@@ -5,7 +5,8 @@ counted trial takes (the refusals of a measured run, the placement beneath a run
 canary scans, the held-out exclusions, the baseline round, the report) runs once without
 touching a real tier. :func:`build_practice_store` writes that store.
 
-**Its tasks are practice tasks**, written here and labelled so in every brief: six control
+**Its tasks are practice tasks**, written here, and the version says so in its manifest
+(:attr:`.manifest.TierSet.practice`), the field every counting reader holds: six control
 tasks, one plant family (a second-order plant with one unstable pole, ``1 / (s^2 + a s - b)``,
 each task its own ``a`` and ``b``), adapted in kind from a published benchmark's second-order
 unstable category, with three specifications composing three requirements. Each is held to the
@@ -56,8 +57,9 @@ SEED = 20261124
 CHECK_MODEL = "claude-sonnet-5"
 #: The kept session the stand-in check record names: there was none.
 NO_SESSION = "practice-no-check-session"
-#: What every practice brief begins with.
-LABEL = "PRACTICE TASK, for a shakedown only; never a measured task."
+#: How every practice brief names where its answer goes: the real briefs' words, verbatim
+#: (:mod:`.per_role.controleval`), so a shakedown's sessions are told what a measured one is.
+ANSWER_SAID = "write the controller to the file `answer.json` in the directory you work in"
 
 
 class PracticeError(PerRoleError):
@@ -67,11 +69,14 @@ class PracticeError(PerRoleError):
 def practice_task(number: int) -> dict[str, Any]:
     """Practice task ``number`` (from 0), as its ``task.json`` holds it."""
     a, b = PLANTS[number]
+    # No word of the brief says it is practice: a session told its task is not measured may
+    # work less, and a shakedown's wall clocks are what the time rule is set from. The id and the
+    # manifest say it, where no session reads.
     brief = (
-        f"{LABEL} The plant is G(s) = 1 / (s^2 + {a} s - {b}), with one unstable pole. Design "
-        "a linear controller for unity negative feedback around it that makes the closed loop "
-        "stable, settles a unit step in under 5 s and overshoots it by under 60 percent. Write "
-        "the controller as a transfer function to answer.json in the directory you work in."
+        f"The plant is G(s) = 1 / (s^2 + {a} s - {b}), with one unstable pole. Design a linear "
+        "controller for unity negative feedback around it that makes the closed loop stable, "
+        "settles a unit step in under 5 s and overshoots it by under 60 percent. Answer: "
+        f"{ANSWER_SAID}, as a transfer function."
     )
     return {
         "id": f"control.practice_{number:02d}",
@@ -179,6 +184,7 @@ def build_practice_store(
         provenance=provenance,
         retire=pool,
         per_tier=PER_TIER,
+        practice=True,
     )
     held = _held_out_digests(store, manifest)
     answer = {
