@@ -931,7 +931,7 @@ SAYS_PREFIX = (
     "sys.path.insert(0, 'modules/control')\n"
     "import law\n"
     "print('gain', law.gain(), 'bytecode off', sys.flags.dont_write_bytecode,"
-    " 'prefix', sys.pycache_prefix)\n"
+    " 'prefix', sys.pycache_prefix, 'version', sys.version_info[:2])\n"
 )
 
 
@@ -944,7 +944,11 @@ def test_an_interpreter_with_no_cache_prefix_writes_no_bytecode_beside_what_it_i
     # would cache beside each source, and only the variable the session is given keeps it from
     # doing so. The same script started with -E, which ignores the environment, writes it.
     worktree = Path(os.path.realpath(layout.worktree))
-    interpreter = sys.executable
+    # The tests' own interpreter, by the name the session's search path finds it under: its
+    # directory is last on that path, and its path lies in the harness's checkout, which a
+    # session's command may not name. The script says which interpreter ran it.
+    interpreter = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    assert not os.path.exists(f"/usr/bin/{interpreter}"), "the system's Python would run first"
     steps = [
         tool("Write", file_path=f"{worktree}/modules/control/law.py", content=LAW),
         tool("Write", file_path=f"{worktree}/modules/power/run.py", content=SAYS_PREFIX),
@@ -964,7 +968,8 @@ def test_an_interpreter_with_no_cache_prefix_writes_no_bytecode_beside_what_it_i
     run = run_session(layout, steps, layer=True)
     told = run["told"]
     assert isinstance(told, list)
-    assert "gain 2 bytecode off 1 prefix None" in str(told[2]), told
+    version = f"version {tuple(sys.version_info[:2])}"
+    assert f"gain 2 bytecode off 1 prefix None {version}" in str(told[2]), told
     assert "__pycache__" not in str(told[3]), told[3]
     # The control: the same interpreter, told nothing by the environment, caches beside law.py.
     assert "gain 2 bytecode off 0 prefix None" in str(told[4]), told
