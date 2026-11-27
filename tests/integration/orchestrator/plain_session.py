@@ -182,7 +182,7 @@ def run_session(  # noqa: PLR0913 - one session, with everything it is given
         )
         session_env.update(env or {})
         if subscription:
-            write_login(work / "config", DUMMY_OAUTH_TOKEN)
+            write_login(work / "config", DUMMY_OAUTH_TOKEN, place="role_session")
         argv = [
             binary,
             "-p",

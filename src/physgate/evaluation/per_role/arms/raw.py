@@ -99,6 +99,7 @@ from physgate.orchestrator.run_config import (
     harness_root,
 )
 from physgate.orchestrator.session_files import FileRefused, read_beneath
+from physgate.orchestrator.stop_signals import CredentialSite, credential_places
 from physgate.orchestrator.tool_environment import (
     changed_while_running,
     forbidden_places,
@@ -643,7 +644,10 @@ def _install(
     (sdir / "config").mkdir(mode=0o700, exist_ok=True)
     helper: list[str] = []
     if setup.credential.mode == "api_key":
-        helper = ["--api-key-helper", str(write_key_helper(state, setup.credential.secret))]
+        helper = [
+            "--api-key-helper",
+            str(write_key_helper(state, setup.credential.secret, place="raw_session")),
+        ]
     argv = [
         str(setup.install_bin),
         "hooks",
@@ -719,7 +723,7 @@ def _install(
         msg = "the hook installer refused the raw session"
         raise RawArmError(msg, stderr=done.stderr[-600:])
     if setup.credential.mode == "subscription":
-        write_login(sdir / "config", setup.credential.secret)
+        write_login(sdir / "config", setup.credential.secret, place="raw_session")
     installed: dict[str, Any] = json.loads(done.stdout)
     return installed
 
@@ -1065,10 +1069,14 @@ def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> No
         RawArmError: any part of the cleanup failed.
     """
     errors: list[str] = []
-    try:
-        remove_secrets(sdir / "state", sdir / "config")
-    except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
-        errors.append(repr(exc))
+    # Found as every clean-up after a kill finds a credential's place (``credential_places``):
+    # the trial's place, whose own directory ``sdir`` is.
+    sites = [site for site in credential_places(work.parent) if site.config.parent == sdir]
+    for site in sites or [CredentialSite.of("raw_session", sdir)]:
+        try:
+            remove_secrets(site.state, site.config)
+        except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
+            errors.append(repr(exc))
     try:
         remove_sentinel_records(sdir / "state")
     except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below

@@ -1765,7 +1765,7 @@ def call(
     )
     system_before = system_managed_facts()
     if credential.mode == "subscription":
-        write_login(workdir / "config", credential.secret)
+        write_login(workdir / "config", credential.secret, place="plan_call")
     # Read only after the call ended on its own: one stopped at its clock may have left a
     # process that writes the log again, so nothing of it is read then.
     observed: ObservedTraffic | None = None

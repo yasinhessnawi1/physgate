@@ -1814,7 +1814,7 @@ class ClaudeDispatcher:
         state.mkdir(parents=True)
         helper: list[str] = []
         if self._credential.mode == "api_key":
-            key_helper = write_key_helper(state, self._credential.secret)
+            key_helper = write_key_helper(state, self._credential.secret, place="role_session")
             helper = ["--api-key-helper", str(key_helper)]
         reverted, refused = session_protected_roots(
             self._run, self._store_root, worktree, self._install_bin.parent.parent
@@ -1971,7 +1971,7 @@ class ClaudeDispatcher:
             msg = "the hook layer's installer refused the session"
             raise InvocationError(msg, stderr=done.stderr[-600:])
         if self._credential.mode == "subscription":
-            write_login(sdir / "config", self._credential.secret)
+            write_login(sdir / "config", self._credential.secret, place="role_session")
         return Installed.model_validate_json(done.stdout)
 
     @staticmethod

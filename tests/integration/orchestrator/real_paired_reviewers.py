@@ -740,7 +740,7 @@ def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
         sdir = root / "preflight" / role
         (sdir / "home").mkdir(parents=True)
         config_dir = sdir / "config"
-        write_login(config_dir, token)
+        write_login(config_dir, token, place="review_session")
         env = isolated_env(
             home=sdir / "home",
             config_dir=config_dir,

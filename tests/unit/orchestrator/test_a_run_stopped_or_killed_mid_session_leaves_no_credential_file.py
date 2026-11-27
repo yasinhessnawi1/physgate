@@ -370,8 +370,8 @@ def test_a_written_credential_is_removed_by_a_stop_until_its_session_s_end_remov
     tmp_path: Path,
 ) -> None:
     state, config = _session_dirs(tmp_path / "sessions" / "a")
-    write_login(config, DUMMY)
-    write_key_helper(state, DUMMY)
+    write_login(config, DUMMY, place="role_session")
+    write_key_helper(state, DUMMY, place="role_session")
     (config / "debug.txt").write_text("a debug log may hold it\n")
     remove_held_secrets()
     assert credential_files(tmp_path) == []
@@ -388,8 +388,8 @@ def test_one_session_s_unreachable_directory_leaves_the_other_s_files_removed(
 ) -> None:
     state_a, config_a = _session_dirs(tmp_path / "sessions" / "a")
     state_b, config_b = _session_dirs(tmp_path / "sessions" / "b")
-    write_login(config_a, DUMMY)
-    write_login(config_b, DUMMY)
+    write_login(config_a, DUMMY, place="role_session")
+    write_login(config_b, DUMMY, place="role_session")
     # The first session's configuration directory is now a link: it is never followed.
     config_a.rename(tmp_path / "moved")
     config_a.symlink_to(tmp_path / "moved")
@@ -663,7 +663,7 @@ def test_a_second_command_on_a_driven_run_leaves_a_login_written_before_its_spaw
     _state, config = _session_dirs(run_dir / "sessions" / session_id)
     # The window: the driving run has written the session's login file, and no process names
     # the session's id yet, since it is not spawned.
-    write_login(config, DUMMY)
+    write_login(config, DUMMY, place="role_session")
     holder = LockHolder(run_dir)
     try:
         assert _command(tmp_path, run_dir) != 0
@@ -712,7 +712,7 @@ def test_the_binary_s_messaging_keys_go_with_the_login_file(
     run_dir = tmp_path / "run"
     session_id = str(uuid.uuid4())
     state, config = _session_dirs(run_dir / "sessions" / session_id)
-    write_login(config, DUMMY)
+    write_login(config, DUMMY, place="role_session")
     keys = config / "sessions"
     keys.mkdir()
     for name in (f"4242.{DIGEST}.key", f"4242.{DIGEST}.key.tmp.9f3c", f"77.{DIGEST}.key"):
@@ -763,7 +763,7 @@ def test_a_resume_removes_this_run_s_reviewer_credentials_and_no_other_s(
         sdir = reviews / review_id / "session"
         _session_dirs(sdir)
         (sdir / dispatch.OWNER_NAME).write_text(json.dumps({"run_id": run_id}))
-        write_login(sdir / "config", DUMMY)
+        write_login(sdir / "config", DUMMY, place="review_session")
         return review_id, sdir / "config" / LOGIN_FILE
 
     _gone, gone_login = review("run-a")
@@ -817,7 +817,7 @@ def test_the_sweep_removes_nothing_when_the_lock_is_refused(
     monkeypatch.setattr(credentials, "_held", {})
     run_dir = tmp_path / "run"
     _state, config = _session_dirs(run_dir / "sessions" / str(uuid.uuid4()))
-    write_login(config, DUMMY)
+    write_login(config, DUMMY, place="role_session")
     _refuse_locks(monkeypatch)
     assert stop_signals.remove_left_credentials(run_dir) == ()
     assert credential_files(run_dir) == [str(config / LOGIN_FILE)]
