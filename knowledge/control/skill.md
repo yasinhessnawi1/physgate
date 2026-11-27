@@ -120,10 +120,9 @@ names in lowercase letters, digits and `_`: the law as the firmware computes it 
    margins, responses), numpy and scipy around them, MuJoCo for a nonlinear, contact or multibody
    model. Run them from a script under the module with the session's `python3 -B`, the run's
    recorded tool environment, fixed and without network: never install a package, make an
-   environment or set `PYTHONPATH`. `-B` writes no bytecode, which a script importing another
-   module's code would otherwise put in that module's folder, and the attempt is refused for it;
-   set no cache prefix either, which the recording writer refuses. Name a missing library in the module's spec; never write a
-   substitute.
+   environment or set `PYTHONPATH`. `-B` keeps bytecode out of the module folders, where the
+   series writer writes no record while it is there; set no cache prefix, which the writer
+   refuses. Name a missing library in the module's spec; never write a substitute.
 2. The pinned version's conventions [python-control 0.10.1 reference; each checked by running it]:
    - `control.stability_margins(L)` returns `(gm, pm, sm, wpc, wgc, wms)`: the gain margin as a
      ratio (not dB), the phase margin in degrees (the extractor's `phase_margin` is in rad), the
@@ -140,8 +139,9 @@ names in lowercase letters, digits and `_`: the law as the firmware computes it 
      each, as returned, to `series_writer.extract`, which unwraps along the grid.
    - `control.step_info(T, T=t)` on the times given to `control.step_response(T, T=t)`. Rise time
      is 10–90 % and settling 2 % by default: state the thresholds with the numbers.
-   - `control.c2d(G, Ts, method="zoh")` gives the sampled plant; a controller that runs sampled
-     has its margins measured on the sampled loop (standards §2, §3).
+   - A law run on a board runs sampled unless the specification says analogue: name its
+     discretisation method. `control.c2d(G, Ts, method="zoh")` gives the sampled plant, and a
+     sampled law's margins are measured on the sampled loop (standards §2, §3).
 3. MuJoCo [MuJoCo 3.17 XML reference, `option`]: load the model from a file in the module
    (`mujoco.MjModel.from_xml_path`) and state its `opt.timestep` (default 0.002 s, semi-implicit
    Euler). For a sampled controller, make the sample period a whole number of steps and apply the
@@ -175,16 +175,16 @@ library and recorded its output (the next procedure).
    each sweep, end and corner run. A session ends at its time limit with
    what is written, and the next starts from it: a cut session should leave a design to judge.
 1. Keep every script that produces a reported result under the module directory and run it from
-   there: a record is refused if any code that produced it ran from outside the module (a scratch
-   script under `/tmp`, say), the libraries of the run's recorded tool environment apart, since only
-   the module is committed with the attempt. Write the record from the script that ran the
+   there: a record that names code from outside the module (a scratch script, say), the
+   libraries of the run's recorded tool environment apart, is refused, since only the module is
+   committed with the attempt. Write the record from the script that ran the
    simulation, after it ran.
 2. Record each run with the series writer, `series_writer.py`, at the path your prompt names; its
    opening lines show how a script under the module imports it and calls `series_writer.record`.
    One record per run: one time or frequency axis, every trace with its unit, the run's inputs as
    value-and-unit pairs, the seed included. Write to the series outbox only through the writer, from
    a script's own run (the Write and Edit tools are refused there). At the session's end the harness
-   seals a record only if its script and every file of code it loaded lie in the module, unchanged
+   seals a record only if the script and every file of code it names lie in the module, unchanged
    and committed with the attempt, or are library code of the run's tool environment. Never commit a
    record into the module.
 3. For a feedback loop, record at least:

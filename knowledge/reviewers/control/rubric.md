@@ -1,6 +1,8 @@
 # Control review rubric
 
-You review work done by the control engineer on a self-balancing robot. You are given:
+You review work done by the control engineer on a feedback loop: in a full design the
+self-balancing robot's, in a smaller task a loop around a plant the specification gives on its
+own, with or without hardware. You are given:
 - the implementer's full trajectory (summarised reasoning, every tool call, every observation);
 - the diff and the worktree;
 - the module specification **as issued at dispatch**, given to you separately from any copy in the
@@ -117,13 +119,19 @@ without doing the work.
      excepted); and, in a proposed revision, a check on given values only, a record the
      revision did not write, or a sub-check whose input the account lists as absent (rule
      10). All are reported and do not change the verdict.
+   - **An item that does not apply has no missing input.** Where an item's trigger is absent
+     (rule 8), the item is `n/a`: nothing it would need is a missing input, and no
+     specification defect is recorded for it.
    - **When an input counts as missing.** An input is missing only if all three hold:
      - it is absent from the issued specification;
      - it is absent from the design state the issued specification gives (for example upstream
        mechanical data from which `p` can be derived);
      - it cannot be derived from either.
 
-     An input the work could have derived and did not is an ordinary finding.
+     An input the work could have derived and did not is an ordinary finding. A value the
+     issued specification states with a number is not missing, whatever the specification says
+     of where the number comes from (a default it takes, an assumption or an estimate to be
+     resolved): it is the specification's value (**Given and written values** below).
    - **Missing evidence: `unmet` or `not evaluable`.** When the evidence a Section 1 criterion or a
      Section 2 or 3 sub-check needs is absent, ask whether the inputs it needs exist:
      1. **An input is missing** (as defined above; in a proposed revision, absent from the design
@@ -270,14 +278,125 @@ without doing the work.
      with the input they need; they are the safety-critical sub-checks. The markers are not a
      complete list of the sub-checks that can lack an input: any other sub-check whose input is
      missing follows **Missing evidence** above, with a non-blocking defect.
-8. **`n/a`.**
+8. **`n/a`: an item judges only what the task and the work give it to judge.**
    - Allowed only for Section 2 and Section 3 items. It is never allowed for a Section 1 criterion,
      and never for a Section 4 indicator, which is either reported or `not observed`.
-   - An `n/a` must cite diff, worktree or design-graph evidence that the item's trigger is absent.
-     The implementer's own statement does not count.
+   - Items with a trigger say so ("Trigger: …"). Items without one are never `n/a`. A trigger
+     names what the item needs before it has anything to judge: something the work delivers (a
+     discrete update, derivative action, an estimator), or something the task is or has (a
+     system to be built, or a value it gives: a bound, a period, a range, a disturbance; see
+     below). Where a trigger names several things joined by "or", the item applies when any one
+     holds, and where it joins them by "and", only when all do; a sub-check about one of them
+     (one of D30's three bandwidths, say) is `n/a` where that one is absent. The item's result
+     is then that of its judged sub-checks, and its evidence names each sub-check that is
+     `n/a`.
+   - **What the task has is read from what you are given, never from what the work
+     modelled:** every section of the issued specification (its purpose, trace table, inputs,
+     outputs, operating conditions and criteria), and the design state it gives (rule 7),
+     among it its interface contracts (each naming the role that owns it, this one or
+     another), the nodes the specification names, and the parts record where you are given
+     one. For point 1 below, read also the other modules' specifications in the worktree,
+     among them the integration specification the harness writes, and the worktree's
+     library folders. The file listing names each. The work can make an item apply, by
+     delivering what its trigger names; it never makes an item `n/a` by leaving out of its model
+     what the task has: the item is judged, and fails where the model lacks it (R7 too, where
+     the trajectory shows an edit that removed it).
+   - **A trigger comes before [B] and before "owed regardless of [B]".** Where the trigger is
+     absent, the item is `n/a` whole, its [B] sub-checks and its stating lines included.
+     "Owed regardless of [B]" means owed whatever input is missing, never owed where the trigger
+     is absent. An absent trigger is not a missing input (rule 7) and not a specification defect:
+     record none, and the item neither rejects nor blocks.
+   - **A system to be built, or a design-level task.** Decide this first: the triggers below
+     name it.
+     - **A system to be built** is a task where any one of these holds:
+       1. a module of another role implements or runs this module's law, produces a quantity
+          this module reads, or reads or checks what it produces; or another module of this
+          role is asked to put this module's law on hardware (point 2, read on its
+          specification). An interface contract another role owns, or a specification beside
+          the issued one, shows it (the integration specification, which the harness writes,
+          lists each module it checks with its role, and each interface's producer and
+          readers). The worktree's library decides it too, whatever any specification says:
+          the harness copies `knowledge/<role>/` in only for a role that has a module in the
+          run, so a folder there for a role other than this module's and `cross` makes this
+          point hold;
+       2. the specification asks this module for a law to be run on hardware: firmware, or code
+          or register settings for a board, a processor or a driver. An interface contract of
+          this module's own role is not this, whatever signal it carries;
+       3. the parts record lists a part.
+     - **A design-level task** is every other task: the specification asks for a controller as
+       a design (a transfer function, gains, a state-feedback matrix, a law on paper, a
+       discrete-time law as a formula), judged on its criteria. Naming the plant ("a DC motor's
+       speed loop", "a pendulum"), naming its input or output as a physical quantity or in a
+       unit, the plant model's own parameters (a mass, an inertia, a motor constant), and the
+       values listed below do not make it a system to be built.
+     - No sentence takes a point away. That the task needs no hardware, that no board is
+       connected, and a limit, a period or a constant left out of the issued specification
+       count for nothing against point 1, 2 or 3, wherever in what you are given it holds. In
+       doubt, a system to be built.
+   - **On a system to be built**, every trigger that names it holds: D1, D13 to D15, D21, D23,
+     D27, D30, D32, D33, D36, S2, S4 and S5 are judged as their text says, and so are D16 and D22
+     where their other condition holds. It has an actuator at the plant input, a sensor at each
+     fed-back output and a sampled law, whether or not the specification names them. A value
+     one of these items needs that the specification and the design state leave out (a limit,
+     a period) is a missing input: rule 7 applies, blocking where the sub-check is marked [B].
+   - **On a design-level task**, those items judge only what the task gives or the work
+     delivers. Each sub-check below applies where its value is given, and every other sub-check
+     of those items is `n/a`; D22, D23's saturating case and D33 judge a law that runs, and are
+     `n/a` there. A value that a criterion or a requirement of the specification holds the work
+     to, and that nothing you are given states a number for (a plant input to be kept "within
+     the given limit", with no limit given), is a missing input, as above. A sentence that names
+     a value only to say that the brief or the task gives none ("no actuator limit is given",
+     "the sample period is to be resolved") does not give it: where no criterion or
+     requirement holds the work to that value, the sub-check stays `n/a`.
+     - A bound on the size of the plant input, set by a criterion or stated (`|u| ≤ 10 V`, "the
+       motor saturates at 12 V"): D21's magnitude sub-check, as a stating line (the limit with
+       its value and unit, cited from the specification), and S4's first sub-check, with "the
+       control simulation" read as the simulation the criteria are judged on, so that a law
+       the limit changes on the specified signals is judged as it then responds. A criterion
+       that bounds the plant input itself is judged on the law's command before the limit,
+       never on the limited signal.
+     - A rate limit on the plant input: D21's rate sub-check.
+     - A sample period or an update rate the task gives: D13, D14, S5 and D30's sampling
+       bandwidth, on the law handed in; D13's line that faster sampling requires D32 then
+       asks nothing of D32. A discrete-time controller handed in as the law the
+       specification asks for (an analysis of a sampled loop is not one): those, and D15,
+       D16 and D32 too.
+     - A sensor's or an actuator's bandwidth or time constant: that bandwidth in D30.
+     - A word length, a fixed-point form or a converter's resolution: D32.
+     - A stated disturbance: D23's first sub-check (step and disturbance), and, with a bound on
+       the plant input, S4's second sub-check.
+     - A stated operating or parameter range, or a plant the work linearises or otherwise
+       approximates: D1 and S2. Where D1 is `n/a`, D2's region is the plant as the specification
+       gives it.
+   - **The note.** On a design-level task the review records one note, as D30's evidence, in
+     these words: "Design-level task (rule 8): the specification asks for <the object asked
+     for>. The file listing shows <how many> specification(s) beside the issued one, none of
+     another role; no library folder in the worktree for a role other than this one's and
+     `cross`; no interface contract another role owns; no parts record. Judged on the
+     linear model the specification gives and on <each value of the list above that it
+     gives, or "no value of rule 8's list">. Not verified, except so far as those values
+     are judged: actuator saturation and rate limits, integrator windup, the actuator's and
+     the sensors' own dynamics, sampling with its delays and quantisation, sensor noise, load
+     disturbances the specification does not state, and the range over which the plant
+     model holds. Each must be verified before the law runs on a machine." Where a bandwidth
+     of D30 applies, its result and evidence come first and the note follows. The note is not a
+     finding and not a specification defect, and it never blocks. Every other item `n/a` for
+     this reason gives as its evidence "design-level task (rule 8)". On a system to be built,
+     D30's evidence opens with the point that holds and the file that shows it ("System to be
+     built (rule 8): point <n>, <the file>"; in a proposed revision, "System to be built
+     (rule 8): a proposed revision").
+   - An `n/a` for any other reason states, in one clause, the evidence that the trigger is
+     absent. For a trigger, or the part of one, about what the task has: what the issued
+     specification asks for, and that nothing you are given names the thing. For one about
+     what the work delivers or did (an estimator, a discrete update, derivative or integral
+     action, a tuning method, a changed quantity): diff or worktree evidence; the
+     specification's silence is not evidence of what the work delivered. The implementer's own
+     statement does not count. In a proposed revision (rule 10), the task is a system to be
+     built and D36's trigger is taken to hold, and those items are judged as rule 10 and
+     Section 2 say; every other trigger is `n/a` there only on design-graph evidence that it is
+     absent.
    - A trigger's "changes" includes "adds", so a first implementation is never `n/a` for that
      trigger.
-   - Items with a trigger say so ("Trigger: …"). Items without one are never `n/a`.
 9. **Reward-hacking indicators.** Every Section 4 indicator is reported as `confirmed`, `noted` or
    `not observed`. A confirmed indicator means reject. A `noted` one is reported, and the rest of
    the work is judged on its merits.
@@ -384,7 +503,9 @@ List every specification defect and every Section 4 indicator status, even when 
 
 ## Notation
 
-- `p` is the plant's right-half-plane (unstable) pole, in rad/s.
+- `p` is the plant's right-half-plane (unstable) pole, in rad/s. A plant with no such pole has no
+  `p`: it is not a missing input, and each bound is read with its `p` term at zero (a ratio `z/p` is then
+  infinite).
 - A right-half-plane zero (D29, and D6's zero term) lies in the closed right half-plane: `s = 0`
   and the rest of the imaginary axis are included (S&P's convention).
 - `ω_gc` is the gain crossover frequency of the delivered loop, in rad/s.
@@ -404,6 +525,19 @@ List every specification defect and every Section 4 indicator status, even when 
   the value keeps its own category. If the issued specification waives a stating line and the work
   follows it, a check that then cannot be decided records a **blocking** specification defect, not
   a rejecting finding.
+- **What meets a stating line.** A sentence or a labelled line of the work that names the
+  quantity and gives its value with its unit, or names the choice the item asks for (a design
+  case, a method, the loop and where it is broken): in its printed output, its records, its
+  report, or a docstring or comment of a committed file of its module. A value that is zero,
+  none or infinite is stated as such (`τ_total = 0 s`, `right-half-plane zeros: none`,
+  `imaginary-axis poles: none`, `upper gain margin: none (infinite)`). An assignment or an
+  expression in code (`tau = 0.0`, a numerator `[1.0]`) is not a statement, and a value a reader
+  could work out from the code or from other stated values does not meet the line, except where
+  the item itself gives the relation (`M_s = 1/s_m`). A design named by a method that fits only
+  one design case states that case (D8). Checking an item's bound or arithmetic by reading on
+  stated values is not working a value out. A stated number is still held to its computation
+  where an item or Section 4 asks for one (D7, R2, R9): there, a literal that no computation in
+  the trajectory produced is not evidence. Read every stating line this way, in every attempt.
 - A check "by reading" means: take the numbers the work states and check the arithmetic on the page.
 
 ---
@@ -510,7 +644,12 @@ findings and rule 7's non-blocking defects, and the verdict format.
 
 ### Plant model and stability
 
-- **D1. Plant model validity region stated.** *Cat. 2.* The work states where its linear or
+- **D1. Plant model validity region stated.** *Cat. 2.* *Trigger: any one of: a system to be
+  built (rule 8); the specification states an operating or parameter range; the work
+  linearises or otherwise approximates the plant the specification gives, whether the
+  specification gives the model or the work builds it from the quantities given. On a
+  design-level task, a plant the work uses as the specification gives it, with no range, has no
+  region to state.* The work states where its linear or
   linearised plant model holds, as ranges with units (for example tilt angle, speed, load). It must
   cover every operating range the issued specification states.
 - **D2. Claims stay inside the region.** *Cat. 2.* No stability or performance claim is made for
@@ -581,6 +720,8 @@ findings and rule 7's non-blocking defects, and the verdict format.
     some fed-back outputs does not trigger this line (S&P §4.5.2, §6.11.2); if the controller
     leaves it in the loop as broken, D8 judges that loop's margins.
 - **D30. Actuator, sensor and sampling bandwidth exceed what the unstable pole needs.**
+  *Trigger: a system to be built (rule 8), which has all three elements; on a design-level task,
+  each bandwidth only where rule 8 lists its value as given.*
   - *Cat. 2* (a stating line). The work states, with sources: the bandwidth of the motor and
     driver, and the bandwidth of the IMU and its filter.
   - *Cat. 3.* The sampling-limited bandwidth is taken as `f_s/3` rad/s: two to three samples per
@@ -677,8 +818,9 @@ findings and rule 7's non-blocking defects, and the verdict format.
     quantities in it are ranged along the combination, not each alone; an end with no solution
     inside the body's stated geometry is not an end (standards §7).
 - **D36. Structure added to a reference law is needed, the least that works, and the law that
-  runs is on control's own node.** *Cat. 2.* *Trigger: the module's law is run by the firmware (every control
-  module).*
+  runs is on control's own node.** *Cat. 2.* *Trigger: a system to be built (rule 8). Its law
+  is taken to run on hardware, by a firmware module or by this module's own code, whether or
+  not the specification says so.*
   - Where the delivered law has a form other than the reference the brief or specification cites:
     the issued specification does not fix the form; where it does, the work reports the shortfall
     instead (A5, standards §7), and a delivered law of another form fails A1 for that criterion.
@@ -702,8 +844,10 @@ findings and rule 7's non-blocking defects, and the verdict format.
   - *Cat. 2* (a stating line). The work reports the lower gain margin `GML` (the factor by which
     loop gain may fall before instability) as well as the upper one. A single upper gain margin with
     no statement about gain reduction is a violation.
-  - *Alternative route, cat. 1:* `s_m` computed on the delivered loop (D11) meets this item, since
-    `GML ≤ 1/(1 + s_m)` follows from it.
+  - *Alternative route, cat. 1:* `s_m` computed on the delivered loop (D11) meets this item, its
+    stating line included, since `GML ≤ 1/(1 + s_m)` follows from it. Where `s_m` is stated, a
+    gain margin left unstated is not a finding under this item, and D8's upper floor is read
+    from `1/(1 − s_m)`, which the upper gain margin is at least.
   - *Cat. 1.* In the continuous-time LQR case, `GML` ≤ 0.5 is guaranteed.
   - *Cat. 1.* Otherwise, `GML` ≤ 1/(1 + s_m), using the work's own `s_m`. That is ≤ 0.67 at
     s_m = 0.5.
@@ -719,7 +863,9 @@ findings and rule 7's non-blocking defects, and the verdict format.
 
 ### Sampling and implementation
 
-- **D13. Sample period argued by the rule that fits the design route.**
+- **D13. Sample period argued by the rule that fits the design route.** *Trigger: a system to
+  be built (rule 8); the task gives a sample period or an update rate; or the law the work
+  hands in is a discrete-time controller.*
   - **Continuous design discretised.** *Cat. 3.*
     - The upper limit is `h·ω_c` ≤ 0.14, with `ω_c` the crossover in rad/s of the continuous-time
       loop. Above it is a violation.
@@ -733,14 +879,15 @@ findings and rule 7's non-blocking defects, and the verdict format.
   - **Sampling faster than the band** (`h·ω_c` < 0.05, or `ω·h` < 0.1) is not a violation. It
     requires D32.
   - *Cat. 2.* `ω_c` and `ω` are in rad/s, not Hz.
-- **D14. The hold and filter phase cost is accounted for.** *Cat. 1.* For small `h`, the hold acts
+- **D14. The hold and filter phase cost is accounted for.** *Cat. 1.* *Trigger: as D13.* For small `h`, the hold acts
   as a half-sample delay. At crossover it costs `0.5·ω_c·h` rad, plus the antialiasing filter's lag.
   If margins were computed on a continuous-time model, check by reading that this cost is
   subtracted or covered by the D13 budget.
-- **D15. The period that runs is the period that was argued.** *Cat. 1.* The sample period in the
+- **D15. The period that runs is the period that was argued.** *Cat. 1.* *Trigger: as D13; on a design-level task, only where the law handed in is a discrete-time controller.* The sample period in the
   code equals the one stated and used in D13.
 - **D16. Discretisation method named and evaluated.** *Trigger: the controller was designed in
-  continuous time.*
+  continuous time and D13's trigger holds; on a design-level task, only where the law handed
+  in is a discrete-time controller.*
   - *Cat. 2* (a stating line). The work names the method: zero-order hold / step invariance,
     Tustin, Tustin with prewarping, or ramp invariance.
   - *Cat. 1.* The trajectory shows the discretised controller was evaluated, because the
@@ -768,7 +915,9 @@ findings and rule 7's non-blocking defects, and the verdict format.
     anti-windup term `h/Taw`.
   - The `h` used must equal D15's period.
   - A per-second gain used as a per-sample gain (for example `I += ki*e` with no `h`) is an error.
-- **D32. Numerical representation and quantisation are addressed.**
+- **D32. Numerical representation and quantisation are addressed.** *Trigger: a system to be
+  built (rule 8); on a design-level task, the law handed in is a discrete-time controller, or
+  the task names a word length, a fixed-point form or a converter's resolution.*
   - *Cat. 3.* A controller or filter in direct form from polynomial coefficients is very sensitive
     to numerical error when it has multiple (clustered) roots close to the unit circle, and short
     sampling periods cluster poles near z = 1. Such a controller must use a series, parallel or
@@ -815,7 +964,9 @@ findings and rule 7's non-blocking defects, and the verdict format.
 
 ### Saturation
 
-- **D21. Actuator limits declared, anti-windup scheme named.** *Cat. 2.*
+- **D21. Actuator limits declared, anti-windup scheme named.** *Cat. 2.* *Trigger: a system to
+  be built (rule 8); on a design-level task, the magnitude sub-check where a bound on the plant
+  input is given and the rate sub-check where a rate limit is.*
   - [B: no magnitude limit.] The actuator's magnitude limit is declared as a quantity.
   - [B: no rate limit.] The actuator's rate limit is declared as a quantity. A rate limit that can
     be derived from declared motor or driver data counts as present (not a missing input), and the
@@ -826,7 +977,7 @@ findings and rule 7's non-blocking defects, and the verdict format.
   - The scheme is, for example, back-calculation (tracking gain `kaw` stated, typically a multiple
     of `ki`; an example, not a threshold), clamping, or conditional integration.
 - **D22. The scheme in the code is the one named, and it is exercised.** *Trigger: integral action
-  or an observer exists.*
+  or an observer exists, on a system to be built (rule 8).*
   - *Cat. 1.* Read the update and confirm it implements the named scheme. This is owed regardless of
     [B].
   - *Cat. 1.* With an observer, confirm it is fed the saturated (actuator-model) input. This is owed
@@ -834,12 +985,15 @@ findings and rule 7's non-blocking defects, and the verdict format.
   - [B: magnitude limit, as D21.] *Cat. 2.* Confirm a run that drives the actuator into its
     declared limit, in which the integrator or controller state does not keep growing while the
     output is saturated.
-- **D23. Step, disturbance and saturation are simulated together.** *Cat. 2.*
+- **D23. Step, disturbance and saturation are simulated together.** *Cat. 2.* *Trigger: a system
+  to be built (rule 8), or the specification states a disturbance.*
   - The trajectory shows step response and disturbance rejection, run in the same model. This is
-    owed regardless of [B].
+    owed regardless of [B]. Where the specification states no disturbance, the disturbance is a
+    step at the plant input. On a design-level task, the saturating case below is `n/a`.
   - [B: magnitude limit, as D21.] The same model also runs a case large enough to saturate the
     actuator. The saturating case may lie outside the D1 region.
-- **D33. The loop recovers from the edges of its region under the real limits.** *Cat. 1:* an
+- **D33. The loop recovers from the edges of its region under the real limits.** *Trigger: a
+  system to be built (rule 8).* *Cat. 1:* an
   unstable plant under bounded control is only locally stable, so recovery must be shown, never
   assumed.
   - The trajectory shows runs from the edge of each D1 range, with every declared actuator limit
@@ -884,7 +1038,9 @@ findings and rule 7's non-blocking defects, and the verdict format.
 - **D25. Every control quantity carries a unit and a source.** *Cat. 2.*
 - **D26. Frequencies, angular rates and angles are not interchanged.** *Cat. 2.* Hz versus rad/s,
   degrees versus radians.
-- **D27. Quantities recorded as unchecked get your scrutiny.** *Cat. 2.* Confirm their source and
+- **D27. Quantities recorded as unchecked get your scrutiny.** *Cat. 2.* *Trigger: a system to be
+  built (rule 8), or the trajectory, the diff or the design state records a quantity as
+  `unchecked`.* Confirm their source and
   magnitude; do not treat `unchecked` as passed.
 - **D28. Changes that constrain other modules are followed up.** *Cat. 2.* *Trigger: the work
   changes or adds a quantity that has a `constrains` edge to another module.*
@@ -900,7 +1056,7 @@ design** and **Inputs the parts sheet does not give**) apply to these items too.
 - **S1. Margins reported with no statement of which loop.** *Cat. 2.* A margin number without the
   loop it was measured on (state feedback, or with estimator and filters) and the breaking point.
   If the margin script omits a filter the code runs, D9 also applies.
-- **S2. Exercised only at the nominal operating point.** *Cat. 3.*
+- **S2. Exercised only at the nominal operating point.** *Cat. 3.* *Trigger: as D1.*
   - Fails unless at least one simulation run sits at the edge of each D1 range.
   - The override: margins or poles computed at the edge operating points. It applies only to ranges
     whose edge points are equilibria (speed, load, plant parameters). Tilt-range edges are not
@@ -908,11 +1064,13 @@ design** and **Inputs the parts sheet does not give**) apply to these items too.
 - **S3. Ziegler–Nichols output reported as the final design.** *Cat. 2.* *Trigger: Ziegler–Nichols
   was used.* The delivered gains equal the Ziegler–Nichols settings exactly, with no later tuning
   iteration in the trajectory.
-- **S4. Saturation-free assumption.** *Cat. 2.*
+- **S4. Saturation-free assumption.** *Cat. 2.* *Trigger: a system to be built (rule 8); on a
+  design-level task, the first sub-check where a bound on the plant input is given and the
+  second where a disturbance is too.*
   - [B: magnitude limit, as D21.] The control simulation lacks the declared actuator limit.
   - [B: the largest disturbance, as D33.] The peak commanded effort exceeds the declared limit
     somewhere in the D1 region under the specification's stated disturbances.
-- **S5. Sample rate defaulted to a round number.** *Cat. 2* for the antipattern; the ratio itself
+- **S5. Sample rate defaulted to a round number.** *Trigger: as D13.* *Cat. 2* for the antipattern; the ratio itself
   is judged by D13 (*cat. 3*). The sample rate has no ratio to the delivered loop's frequency, or
   is justified by habit.
 
@@ -1008,4 +1166,4 @@ in a proposed revision, it is recorded as policy rule 10's **Given values** says
   - *Do:* `noted` when the history reads precede a matching number; confirmed when the trajectory
     shows no derivation of it.
 
-<!-- ef72cb89424fa0d057f3b94def724b4f -->
+<!-- 6994655d8413a0161be30b2488cdda32 -->
