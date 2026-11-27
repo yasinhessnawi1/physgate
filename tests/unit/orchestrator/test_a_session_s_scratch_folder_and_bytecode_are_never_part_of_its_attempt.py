@@ -21,6 +21,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 import pytest
 
@@ -451,7 +452,7 @@ def test_a_directory_that_cannot_be_listed_is_recorded_and_refuses_the_attempt(
     assert not cleared.complete  # type: ignore[attr-defined]
     assert [p for p, _ in cleared.refused] == [f"{MODULE}/locked"]  # type: ignore[attr-defined]
     # The end clearing not complete: the attempt is refused in closed words before its gate.
-    series = SessionSeries(**{"left_out_incomplete": True})
+    series = SessionSeries(left_out_incomplete=True)
     graph = run.run_dir / "graph"
     graph.mkdir(parents=True, exist_ok=True)
     check = GitChangeChecker(run, graph, {SUBTASK: MODULE}).check(
@@ -495,7 +496,7 @@ def test_bytecode_the_run_branch_tracks_is_kept_and_a_change_to_it_left_out(
 
 
 def test_a_module_directory_with_a_bytecode_part_is_refused_at_the_plan_check() -> None:
-    node = {
+    node: dict[str, Any] = {
         "id": "drivetrain.motor",
         "kind": "interface",
         "domain": "electrical",

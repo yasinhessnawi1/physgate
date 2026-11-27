@@ -21,7 +21,10 @@ import os
 import stat
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 import test_a_session_s_hooks_never_fork_the_run_s_own_records as base
@@ -66,7 +69,7 @@ def test_every_session_s_environment_tells_its_python_to_write_no_bytecode(versi
 
 def test_each_kind_of_session_takes_its_environment_from_that_one_function() -> None:
     """Role sessions, the raw arm's sessions, reviewers and the decomposition call alike."""
-    spawners = {
+    spawners: dict[ModuleType, Callable[..., Any]] = {
         dispatch: dispatch.ClaudeDispatcher._run_session,
         raw: raw._session,
         reviewers: reviewers.ClaudeReviewer._spawn,
@@ -83,7 +86,7 @@ def test_a_run_records_that_its_sessions_python_writes_no_bytecode() -> None:
     field = RunConfig.model_fields.get("python_bytecode")
     assert field is not None and field.is_required()
     config = make_config()
-    assert config.python_bytecode == "not_written"  # type: ignore[attr-defined]
+    assert config.python_bytecode == "not_written"
     assert b'"python_bytecode":"not_written"' in config.canonical_bytes()
 
 
@@ -95,7 +98,7 @@ def test_a_run_recorded_before_the_field_reads_as_writing_bytecode_and_keeps_its
     path = tmp_path / "run.json"
     path.write_bytes(before.canonical_bytes())
     read = load_run_config(path)
-    assert read.python_bytecode == "written"  # type: ignore[attr-defined]
+    assert read.python_bytecode == "written"
     assert read.sha256() == before.sha256()
 
 
