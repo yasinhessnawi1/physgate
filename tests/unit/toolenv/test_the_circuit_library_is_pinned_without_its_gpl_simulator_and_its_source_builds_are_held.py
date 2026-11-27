@@ -261,7 +261,10 @@ CHARDET = (
 
 
 def _accepted(site: Path) -> dict[str, Any]:
-    accepted = getattr(_provision(), "licences_accepted", lambda _site: {"no such function": {}})
+    missing: dict[str, Any] = {"no such function": {}}
+    accepted: Callable[[Path], object] = getattr(
+        _provision(), "licences_accepted", lambda _site: missing
+    )
     found = accepted(site)
     assert isinstance(found, dict)
     return found
