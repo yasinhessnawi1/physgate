@@ -9,7 +9,8 @@
    "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
    "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
-   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py"
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",
@@ -21,6 +22,7 @@
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
   ],
@@ -38,7 +40,8 @@
    "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
    "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
-   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py"
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",
@@ -50,6 +53,7 @@
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
   ],
@@ -67,7 +71,8 @@
    "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
    "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
-   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py"
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",
@@ -79,6 +84,7 @@
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
   ],
@@ -96,7 +102,8 @@
    "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
    "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
-   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py"
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",
@@ -108,6 +115,7 @@
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
   ],
@@ -125,7 +133,8 @@
    "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
    "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
-   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py"
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",
@@ -137,6 +146,7 @@
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
   ],
@@ -154,7 +164,8 @@
    "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
    "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
-   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py"
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",
@@ -166,6 +177,7 @@
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
   ],
@@ -183,7 +195,8 @@
    "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
    "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
-   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py"
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",
@@ -195,6 +208,7 @@
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
   ],
@@ -212,7 +226,8 @@
    "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
    "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
-   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py"
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",
@@ -224,6 +239,7 @@
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
   ],
@@ -241,7 +257,8 @@
    "tests/unit/orchestrator/test_a_review_killed_between_its_token_lines_is_read_again_at_the_resume.py",
    "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
    "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
-   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py"
+   "tests/unit/evaluation/harness_round/test_a_reviewed_trial_gives_the_cost_s_figure_and_a_held_out_one_is_scored.py",
+   "tests/unit/orchestrator/test_a_reviewed_run_s_log_leaves_no_session_open.py"
   ],
   "data": [
    "tests/unit/evaluation/harness_round/round_rig.py",
@@ -253,6 +270,7 @@
    "tests/unit/orchestrator/orch_helpers.py",
    "tests/unit/orchestrator/left_session.py",
    "tests/unit/orchestrator/accounted.py",
+   "tests/unit/orchestrator/a_reviewed_run_s_log.jsonl",
    "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
    "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py"
   ],
