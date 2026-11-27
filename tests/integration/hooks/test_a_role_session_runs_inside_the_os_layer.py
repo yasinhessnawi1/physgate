@@ -944,11 +944,12 @@ def test_an_interpreter_with_no_cache_prefix_writes_no_bytecode_beside_what_it_i
     # would cache beside each source, and only the variable the session is given keeps it from
     # doing so. The same script started with -E, which ignores the environment, writes it.
     worktree = Path(os.path.realpath(layout.worktree))
-    # The tests' own interpreter, by the name the session's search path finds it under: its
-    # directory is last on that path, and its path lies in the harness's checkout, which a
-    # session's command may not name. The script says which interpreter ran it.
+    # An interpreter of the tests' version, by the name the session's search path finds it under
+    # (a command may not name the harness's checkout, where the tests' own lies): on macOS the
+    # tests' own, whose directory is last on that path; elsewhere it may be the system's. The
+    # script says which version ran it and that it keeps no cache prefix, which is what the row
+    # needs.
     interpreter = f"python{sys.version_info.major}.{sys.version_info.minor}"
-    assert not os.path.exists(f"/usr/bin/{interpreter}"), "the system's Python would run first"
     steps = [
         tool("Write", file_path=f"{worktree}/modules/control/law.py", content=LAW),
         tool("Write", file_path=f"{worktree}/modules/power/run.py", content=SAYS_PREFIX),

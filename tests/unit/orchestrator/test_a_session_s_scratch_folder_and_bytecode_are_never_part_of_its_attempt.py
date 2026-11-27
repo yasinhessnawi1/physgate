@@ -460,6 +460,8 @@ def test_a_directory_that_cannot_be_listed_is_recorded_and_refuses_the_attempt(
     )
     assert check.refused_by == "series"
     assert check.reason == getattr(apply_module, "LEFT_OUT_INCOMPLETE", None)
+    # The words name what the session is to change, a directory no one can list among it.
+    assert "leave every directory listable" in str(check.reason), check.reason
 
 
 def test_a_commit_that_stages_nothing_holds_the_head_s_tree_whatever_the_worktree_holds(

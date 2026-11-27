@@ -493,8 +493,9 @@ def _committed_as(repo: Path, commit: str, path: str, blob: str, pinned: GitDir)
 #: Why an attempt whose session's end clearing was not complete is refused, in closed words:
 #: what stayed may still be bytecode that runs in place of a source, and it is never merged.
 LEFT_OUT_INCOMPLETE = (
-    "the session left bytecode or its scratch folder in the worktree that could not all be "
-    "recorded and removed when it ended, so the attempt is refused; remove them and run again"
+    "the session left bytecode, its scratch folder or a directory that cannot be listed in the "
+    "worktree, and what it left could not all be recorded and removed when it ended, so the "
+    "attempt is refused; leave every directory listable, remove the rest and run again"
 )
 
 
