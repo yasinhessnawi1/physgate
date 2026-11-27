@@ -1439,8 +1439,9 @@ def install(
         # environment among them: an interpreter's and a compiler's temporary files are made in
         # the session's own directory, and the shell hook reads ``$TMPDIR`` in a command's word as
         # that directory. Inside the OS layer the binary points its sandboxed commands at a
-        # directory beneath it (measured on 2.1.301 and 2.1.322).
-        spawn_env["TMPDIR"] = own_temp
+        # directory beneath it (measured on 2.1.301 and 2.1.322). Where it really is: a tool that
+        # writes a path relative to the place it resolves writes the one its TMPDIR names.
+        spawn_env["TMPDIR"] = os.path.realpath(own_temp)
     if request.profile in OWN_TEMP_PROFILES:
         # No command goes to the background, by any route the binary offers (asked for, past its
         # timeout, or on its own): its output would be left in the session's own temporary

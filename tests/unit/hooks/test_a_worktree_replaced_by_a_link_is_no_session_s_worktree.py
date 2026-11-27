@@ -22,10 +22,11 @@ import os
 from pathlib import Path
 
 import pytest
-from test_a_file_tool_writes_only_in_the_session_s_worktree import installed
+from test_a_file_tool_writes_only_in_the_session_s_worktree import SID, installed
 
-from physgate.hooks import runtime
+from physgate.hooks import runtime, sentinel
 from physgate.hooks.config import SessionConfig
+from physgate.hooks.lean import parse_input
 
 KINDS = ("role-in-the-layer", "role-hooks-only", "raw-trial", "raw-outside-a-round")
 TARGETS = ("another run", "a review packet", "the operator's home", "another module's worktree")
@@ -146,3 +147,65 @@ def test_a_configuration_written_before_the_identity_still_reads_and_holds_nothi
     earlier = SessionConfig.model_validate_json(json.dumps(raw))
     assert earlier.worktree_identity is None
     assert not runtime.worktree_moved(earlier)
+
+
+@pytest.mark.parametrize("to", TARGETS)
+def test_the_sentinel_puts_nothing_back_through_a_link_made_after_the_call_was_checked(
+    to: str, outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A swap between the entry point's check and the sentinel's put-back: the sentinel opens the
+    # worktree itself, no link followed, holds it to its identity, and writes only relative to
+    # it. Here the protected entries it would put back are gone from the moved worktree's place.
+    s = installed("role-hooks-only", outside_tmp, monkeypatch)
+    worktree = s.worktree
+    target, _ = _target(s, to)
+    before = _tree(target)
+    os.rename(worktree, worktree.parent / "moved-away")
+    os.symlink(target, worktree)
+    stdin = json.dumps(
+        {
+            "session_id": SID,
+            "cwd": str(worktree),
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Read",
+            "tool_input": {"file_path": str(worktree / "x")},
+        }
+    )
+    decision = sentinel.check(parse_input(stdin), s.hooks.config)
+    assert not decision.allow
+    assert sentinel.WORKTREE_NOT_HELD in decision.reason, decision.reason
+    assert _tree(target) == before
+
+
+def test_a_parent_swapped_for_a_link_to_a_tree_with_a_directory_of_that_name_is_refused(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    s = installed("role-hooks-only", outside_tmp, monkeypatch)
+    worktree = s.worktree
+    parent = worktree.parent
+    decoy = outside_tmp / "decoy" / parent.name
+    (decoy / worktree.name).mkdir(parents=True)
+    (decoy / worktree.name / "x.txt").write_text("a\n")
+    os.rename(parent, parent.with_name(parent.name + "-moved"))
+    os.symlink(decoy, parent)
+    code, said, _ = s.hooks.call(
+        "PreToolUse", tool_name="Read", tool_input={"file_path": str(worktree / "x.txt")}
+    )
+    assert code != 0 and runtime.WORKTREE_MOVED in said, said
+
+
+def test_the_same_directory_reached_through_a_linked_parent_is_still_the_worktree(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The parent renamed away and a link to it left at its path: the worktree's path still leads
+    # to the very directory recorded, so its own files read and write there, and nothing else is
+    # reached that the session could not reach before.
+    s = installed("role-hooks-only", outside_tmp, monkeypatch)
+    worktree = s.worktree
+    parent = worktree.parent
+    moved = parent.with_name(parent.name + "-moved")
+    os.rename(parent, moved)
+    os.symlink(moved, parent)
+    code, said, _ = s.hooks.write("Write", str(worktree / "kept.txt"))
+    assert code == 0, said
+    assert not runtime.worktree_moved(s.hooks.config)

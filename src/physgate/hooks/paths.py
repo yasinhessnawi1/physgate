@@ -428,22 +428,38 @@ def _own_writing(path: str, place: str) -> bool:
     places = [p.rstrip("/") for p in _spellings(place)]
     spelt = [p for p in places if _under(path, p)]
     resolved = os.path.realpath(path)
+    # Normalised too: a walk of the spelling as written stops at the first part that does not
+    # exist, so ``missing/../link/x`` would never ask whether ``link`` is a link.
+    normal = os.path.normpath(path)
     if not spelt or not any(_under(resolved, p) for p in places):
         return False
-    for held in spelt:
-        current = held
-        for part in path[len(held) :].split("/"):
-            if not part:
-                continue
-            current = os.path.join(current, part)
-            try:
-                st = os.lstat(current)
-            except FileNotFoundError:
-                break
-            except OSError:
+    if not any(_under(normal, p) for p in places):
+        return False
+    for spelling in dict.fromkeys((path, normal)):
+        for held in (p for p in places if _under(spelling, p)):
+            if not _no_link_beneath(held, spelling):
                 return False
-            if stat.S_ISLNK(st.st_mode):
-                return False
+    return True
+
+
+def _no_link_beneath(held: str, spelling: str) -> bool:
+    """Whether no existing part of ``spelling`` beneath ``held`` is a link, or cannot be looked at.
+
+    The walk ends at the first part that does not exist: nothing beneath it exists either.
+    """
+    current = held
+    for part in spelling[len(held) :].split("/"):
+        if not part:
+            continue
+        current = os.path.join(current, part)
+        try:
+            st = os.lstat(current)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        if stat.S_ISLNK(st.st_mode):
+            return False
     return True
 
 
