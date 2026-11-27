@@ -253,6 +253,88 @@ def test_uv_copies_downloads_python_only_on_request_and_reads_none_of_the_machin
     )
 
 
+def _fake_uv(folder: Path, says: str, status: int = 0) -> Path:
+    """A program named ``uv`` that answers ``--version`` with ``says``."""
+    folder.mkdir(parents=True, exist_ok=True)
+    uv = folder / "uv"
+    uv.write_text(f"#!/bin/sh\necho '{says}'\nexit {status}\n", encoding="utf-8")
+    uv.chmod(0o755)
+    return uv
+
+
+@pytest.mark.parametrize(
+    ("says", "status", "named"),
+    [
+        # The uv earlier environments on a laptop were built with, and the last release before
+        # the one that holds the lock's build constraints.
+        ("uv 0.6.9 (3d9460278 2025-03-20)", 0, "0.6.9"),
+        ("uv 0.6.10 (f2a2d982b 2025-03-25)", 0, "0.6.10"),
+        ("uv 0.5.31", 0, "0.5.31"),
+        ("not a version", 0, "not a version"),
+        ("uv 0.12.17", 2, "uv 0.12.17"),
+    ],
+)
+def test_a_uv_that_does_not_hold_the_lock_s_build_constraints_is_refused_naming_the_one_needed(
+    tmp_path: Path, says: str, status: int, named: str
+) -> None:
+    provision = _provision()
+    uv = _fake_uv(tmp_path / "bin", says, status)
+    with pytest.raises(provision.ProvisionError) as raised:
+        provision.require_uv(str(uv))
+    words = str(raised.value)
+    assert named in words
+    assert str(uv) in words
+    # The version needed, why, and how to have it without a system-wide install.
+    assert "uv 0.6.11 or later" in words
+    assert "build constraints" in words
+    assert "uv pip install uv==" in words
+
+
+@pytest.mark.parametrize(
+    ("says", "named"),
+    [
+        ("uv 0.6.11 (0632e24d1 2025-03-30)", "0.6.11"),
+        ("uv 0.12.17 (635500036 2026-09-18 aarch64-apple-darwin)", "0.12.17"),
+        ("uv 1.0.0", "1.0.0"),
+    ],
+)
+def test_a_uv_from_the_one_that_holds_the_build_constraints_on_is_taken(
+    tmp_path: Path, says: str, named: str
+) -> None:
+    provision = _provision()
+    assert provision.require_uv(str(_fake_uv(tmp_path / "bin", says))) == named
+
+
+def test_provisioning_refuses_an_older_uv_on_the_search_path_before_it_makes_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provision = _provision()
+    _fake_uv(tmp_path / "bin", "uv 0.6.9 (3d9460278 2025-03-20)")
+    monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}:/usr/bin:/bin")
+    dest, cache = tmp_path / "env", tmp_path / "cache"
+    raised = None
+    try:
+        provision.provision(dest, cache, pins={})
+    except Exception as exc:  # noqa: BLE001 - a wrong kind must fail the assertion below
+        raised = exc
+    assert isinstance(raised, provision.ProvisionError), raised
+    assert "0.6.9" in str(raised)
+    assert "0.6.11" in str(raised)
+    assert not dest.exists()
+    assert not cache.exists()
+
+
+def test_the_linux_workflow_s_uv_is_past_the_floor_and_the_one_the_script_names() -> None:
+    provision = _provision()
+    workflow = (REPO / ".github" / "workflows" / "tool-environment.yml").read_text(encoding="utf-8")
+    found = re.search(r"setup-uv@[0-9a-f]{40}.*\n\s+with:\n\s+version: \"([0-9.]+)\"", workflow)
+    assert found, "the workflow names no uv version"
+    version = found.group(1)
+    assert tuple(int(part) for part in version.split(".")) >= provision.UV_FLOOR
+    script = (TOOLENV / "provision.py").read_text(encoding="utf-8")
+    assert f"uv pip install uv=={version}" in script
+
+
 def test_the_server_s_packages_are_installed_from_the_lock_with_no_script_and_nothing_optional(
     tmp_path: Path,
 ) -> None:
