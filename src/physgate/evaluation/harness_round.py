@@ -110,11 +110,14 @@ tiers' beneath the withheld root; one combined run set of every tier beneath the
 for ``physgate baseline run``; the round's record beneath the withheld root (the version, the
 check record's and the parameters' digests, the protected tiers' digests, every trial's seed,
 run, total and outcome, the superseded and set-aside runs, the pins the runs share, the
-register's head before and after, and how many of each tier's trials give the baseline no cap);
+register's head before and after, and how many of each tier's trials give the baseline no figure);
 and in the output directory a copy of it with counts and digests only: of a protected tier, how
-many trials it has and how many are assembled, and nothing else. A complete round some of whose
-trials give no cap ends ``done_without_caps`` (exit 3): the baseline's plan refuses its combined
-set until a cap rule for such a trial exists. It writes no line of the register.
+many trials it has and how many are assembled, and nothing else. A trial that gives no figure is
+stated so in one recorded form, ``no_figure`` (why, read from the run's own records, and the
+refusal in words), and never blocks its pair: the cap rule takes the largest figure among the
+same task's other trials, else the middle figure of the cell. So a complete round ends ``done``
+wherever a trial of the same tier gives a figure, and ``done_without_caps`` (exit 3) only where a
+tier has a no-figure trial and no figure at all. It writes no line of the register.
 """
 
 from __future__ import annotations
@@ -185,10 +188,20 @@ from physgate.orchestrator.common import utc_now, utc_stamp
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decomposition_review import stop_left_review
 from physgate.orchestrator.design_rounds import journal_spend, rounds_on_the_limit
-from physgate.orchestrator.events import Event, Halted, Resumed, parse_events
+from physgate.orchestrator.events import (
+    Event,
+    Halted,
+    LeftoverRead,
+    Resumed,
+    SessionEnded,
+    SessionSpawned,
+    TokensUsed,
+    parse_events,
+)
 from physgate.orchestrator.exceptions import OrchestratorError, RunStateError
 from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
 from physgate.orchestrator.record import RunRecord
+from physgate.orchestrator.replay import replay
 from physgate.orchestrator.review_root_record import RECORD_NAME as REVIEW_ROOT_RECORD
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.orchestrator.stop_signals import remove_left_credentials
@@ -243,8 +256,8 @@ Status = Literal["done", "done_without_caps", "waiting_for_limit", "waiting_for_
 #: The status the command exits with while the round waits for a person: a refused credential
 #: to replace, or a trial's directory a restart naming the trial sets aside.
 EXIT_WAITING_FOR_A_PERSON = 77
-#: The status the command exits with once every trial is assembled but some give the baseline no
-#: cap: its plan refuses the combined set until a cap rule for such a trial exists.
+#: The status the command exits with once every trial is assembled but a tier with a trial that
+#: gives no figure has no figure at all: the cap rule has nothing to give such a trial's pair.
 EXIT_DONE_WITHOUT_CAPS = 3
 #: The cause a refused credential is recorded under, as a halt's reason and a call's cause.
 CREDENTIAL_REFUSED = "credential_refused"
@@ -1223,8 +1236,7 @@ def _go(
                 context["index"] = str(stopped_at.index)
             raise RoundError(msg, **context) from None
         raise
-    capped = all(line["harness_total"] is not None for _, line in _assembled(ctx))
-    return "done" if capped else "done_without_caps"
+    return "done_without_caps" if _no_cap_in_the_cell(ctx) else "done"
 
 
 # The lock and the pins. ---------------------------------------------------------------------
@@ -2290,8 +2302,10 @@ def _assemble(ctx: _Round, planned: _Planned, attempt: int, events: list[Event])
     try:
         total: int | None = harness_total(run_dir)
         no_total = None
+        no_figure = None
     except ComparisonError as exc:
         total, no_total = None, str(exc)
+        no_figure = {"because": _no_figure_because(run_dir, done.unscored), "detail": no_total}
     ctx.add(
         {
             "kind": "assembled",
@@ -2306,8 +2320,58 @@ def _assemble(ctx: _Round, planned: _Planned, attempt: int, events: list[Event])
             "record": record.model_dump(mode="json"),
             "harness_total": total,
             "no_total": no_total,
+            "no_figure": no_figure,
         }
     )
+
+
+#: Why a harness trial gives the raw arm no figure, read from its own records, never from the
+#: refusal's words: its log cannot be read; the machine ended it after its one more go; a
+#: session was read without a result to check it against (or never ended); it stands where a
+#: resume continues it, or has not ended; it ended at its decomposition with no role session.
+NoFigure = Literal["log_unreadable", "unscored", "leftover_unread", "stuck", "no_role_session"]
+
+
+def _no_figure_because(run_dir: Path, unscored: bool) -> NoFigure:
+    """Why the trial's run gives no figure, the first of :data:`NoFigure` its records show."""
+    data, events = _events(run_dir)
+    if events is None or not data:
+        return "log_unreadable"
+    try:
+        state = replay(events)
+    except OrchestratorError:
+        return "log_unreadable"
+    if unscored:
+        return "unscored"
+    spawned = {e.session_id for e in events if isinstance(e, SessionSpawned)}
+    ended = {e.session_id for e in events if isinstance(e, SessionEnded | LeftoverRead)}
+    if (
+        spawned - ended
+        or any(isinstance(e, TokensUsed) and e.partial for e in events)
+        or any(isinstance(e, LeftoverRead) and not e.complete for e in events)
+    ):
+        return "leftover_unread"
+    step = state.next_step().kind
+    if step not in ENDED_STEPS or (step == "halted" and state.halt_resumable()):
+        return "stuck"
+    return "no_role_session"
+
+
+def _no_cap_in_the_cell(ctx: _Round) -> list[str]:
+    """The tiers with a trial that gives no figure where no trial of the tier gives one.
+
+    For such a trial the cap rule has nothing to take (the largest figure among the task's other
+    trials, else the middle figure of the cell): the round ends ``done_without_caps``. Where a
+    trial of the tier gives a figure, the rule gives every no-figure trial of it a cap, and the
+    round ends ``done``, the no-figure trials stated.
+    """
+    assembled = _assembled(ctx)
+    tiers = []
+    for tier in VERSION_TIERS:
+        totals = [x["harness_total"] for p, x in assembled if p.tier == tier]
+        if None in totals and all(total is None for total in totals):
+            tiers.append(tier)
+    return tiers
 
 
 # What the round writes. ---------------------------------------------------------------------
@@ -2415,6 +2479,7 @@ def _audit(ctx: _Round) -> dict[str, Any]:
                 "excluded": line["record"].get("reason"),
                 "harness_total": line["harness_total"],
                 "no_total": line["no_total"],
+                "no_figure": line.get("no_figure"),
                 # Each second draw of the trial's plan, with its cause and spend.
                 "superseded_count": len(gone),
                 "superseded": gone,
@@ -2437,6 +2502,10 @@ def _audit(ctx: _Round) -> dict[str, Any]:
         "pins": _pins(ctx),
         "trials": trials,
         "no_cap": _no_cap(ctx, header["inputs"]["tiers"]),
+        # The same count, by the name the cap rule reads it under; and the tiers where no trial
+        # gives a figure, so the rule can give none of them a cap.
+        "no_figure": _no_cap(ctx, header["inputs"]["tiers"]),
+        "no_cap_in_the_cell": _no_cap_in_the_cell(ctx),
         "superseded": every("superseded", _SUPERSEDED),
         "left": every("left", _LEFT),
         "credential_refused": every("credential", ("index", "attempt", "run_id", "tokens", "by")),
@@ -2494,6 +2563,7 @@ def _summary(ctx: _Round, *, done: bool) -> dict[str, Any]:
         "credential_refused": seen("credential"),
         "usage_limit": seen("limit"),
         "no_cap": _no_cap(ctx, (VISIBLE,)),
+        "no_figure": _no_cap(ctx, (VISIBLE,)),
         "register_before": header["register_before"],
         "register_after": next(
             (x["register_after"] for x in ctx.lines if x["kind"] == "ended"), None

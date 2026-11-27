@@ -33,9 +33,10 @@ tasks of each named tier in the round's order: a shakedown, whose run sets the c
 refuses as not covering their tier.
 
 It prints one JSON line of counts and digests, never a task, and writes the same into ``O``. Exit
-0 once every trial is assembled; 3 once every trial is assembled but some give the baseline no cap
-(its plan refuses the combined set until a cap rule for such a trial exists); 75 while the round
-waits for the account's usage limit; 77 while it waits for a person (a refused credential to
+0 once every trial is assembled, a trial that gives no figure stated as ``no_figure`` (the cap
+rule gives its pair the largest figure among the task's other trials, else the cell's middle one);
+3 once every trial is assembled but a tier with such a trial has no figure at all; 75 while the
+round waits for the account's usage limit; 77 while it waits for a person (a refused credential to
 replace, or a trial's directory to set aside); 1 with ``refused_because`` and the reason in words
 when it is refused or stopped. 75 and 77 are states, not waits: the command returns at once, and
 its line's ``waiting`` names the trial and why, and for the limit ``resume_after`` (the instant
