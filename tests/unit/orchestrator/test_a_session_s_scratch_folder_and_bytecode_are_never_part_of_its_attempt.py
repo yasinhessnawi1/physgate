@@ -30,6 +30,7 @@ from physgate.orchestrator import apply as apply_module
 from physgate.orchestrator.apply import GitChangeChecker
 from physgate.orchestrator.decompose import Plan, plan_problems
 from physgate.orchestrator.dispatch import role_prompt
+from physgate.orchestrator.exceptions import GitError
 from physgate.orchestrator.git import diff_text, merge_base
 from physgate.orchestrator.merge import RunGit, commit_attempt, write_scope_violations
 from physgate.orchestrator.ports import SessionRequest
@@ -663,10 +664,34 @@ def test_a_directory_moved_to_the_worktree_s_path_is_not_cleared_and_its_clearin
     held = os.lstat(worktree)
     os.rename(worktree, worktree.parent / "moved-away")
     os.rename(victim, worktree)
-    cleared = left_out.clear_left_out(worktree, repo=run.repo)
+    cleared = left_out.clear_left_out(worktree, repo=run.repo, identity=(held.st_dev, held.st_ino))
     assert _left(worktree) == before, (
         "the clearing emptied a directory moved to the worktree's path"
     )
     assert not cleared.complete
     assert cleared.scratch == () and cleared.bytecode == (), "another directory's files recorded"
-    del held
+    # Nor is anything committed there: the commit is refused in words, the other branch unmoved.
+    if swap == "another module's worktree":
+        tip = _git(run.repo, "rev-parse", "other-1")
+        with pytest.raises(GitError, match="no longer the directory the session was given"):
+            commit_attempt(
+                worktree, SUBTASK, 1, "s-1", repo=run.repo, identity=(held.st_dev, held.st_ino)
+            )
+        assert _git(run.repo, "rev-parse", "other-1") == tip
+    assert _left(worktree) == before
+
+
+def test_the_worktree_s_identity_is_read_from_its_session_s_configuration(tmp_path: Path) -> None:
+    from physgate.orchestrator.dispatch import installed_identity
+
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"worktree_identity": {"device": 7, "inode": 9}}))
+    assert installed_identity(config) == (7, 9)
+    config.write_text(json.dumps({"profile": "role"}))
+    assert installed_identity(config) is None
+    # A configuration that cannot be read holds the worktree to no directory at all.
+    config.write_text("{")
+    assert installed_identity(config) == (-1, -1)
+    assert not left_out.worktree_held(tmp_path, (-1, -1))
+    st = os.lstat(tmp_path)
+    assert left_out.worktree_held(tmp_path, (st.st_dev, st.st_ino))

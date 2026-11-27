@@ -104,11 +104,13 @@ from physgate.orchestrator.invocation import (
 )
 from physgate.orchestrator.left_out import (
     SCRATCH_DIR,
+    WORKTREE_NOT_HELD,
     Beside,
     Concerns,
     LeftOut,
     clear_left_out,
     end_series,
+    worktree_held,
 )
 from physgate.orchestrator.managed import (
     ObservedTraffic,
@@ -1309,6 +1311,20 @@ def write_record(parent: Path, name: str, record: dict[str, Any], file: str) -> 
         os.close(top)
 
 
+def installed_identity(config: Path) -> tuple[int, int] | None:
+    """The worktree's device and inode the installer recorded in a session's configuration.
+
+    ``None`` where none is recorded (the worktree did not exist at the install). A configuration
+    that cannot be read names an identity no directory has: nothing is then held to be the
+    worktree, and the harness writes nothing in it.
+    """
+    try:
+        recorded = json.loads(config.read_text()).get("worktree_identity")
+        return (int(recorded["device"]), int(recorded["inode"])) if recorded else None
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return (-1, -1)
+
+
 #: Where a session's own stream, scanned as written, showed what it may not: the harness's mark
 #: in the session's own directory, written before the stream is redacted (every session is
 #: refused that directory, so none can write it or take it away).
@@ -2502,6 +2518,11 @@ class ClaudeDispatcher:
             if self._config.tool_environment is not None and self._tool_environment_scan is not None
             else None
         )
+        # The worktree the harness's own writes after the session act on (the sweep, the series,
+        # the clearing, the commit), held to the identity its installer recorded: a directory moved
+        # to its path, or a link left there, is never written in, and the attempt is refused.
+        identity = installed_identity(Path(installed.config))
+        held = worktree_held(worktree, identity)
         if (
             ended is None
             or unconfirmed is not None
@@ -2510,6 +2531,7 @@ class ClaudeDispatcher:
             or linked
             or unread is not None
             or tools_changed is not None
+            or not held
         ):
             settled = {
                 "left_running": list(ended.left_running) if ended is not None else [],
@@ -2519,12 +2541,15 @@ class ClaudeDispatcher:
                 "held_record_names": linked,
                 "protected_unread": unread,
                 "tool_environment_changed": tools_changed,
+                "worktree_not_held": None if held else WORKTREE_NOT_HELD,
             }
             # Beside the end record, not in it: a resume still finds the session unended,
             # stops and checks it again, and reads what it spent.
             write_record(sdir.parent, sdir.name, settled, "after_stop.json")
             msg = (
-                "the session's stop is not confirmed, or the sentinel's check after it "
+                f"{WORKTREE_NOT_HELD}; no git call follows on this attempt"
+                if not held
+                else "the session's stop is not confirmed, or the sentinel's check after it "
                 "failed; no git call follows on this attempt"
                 if tools_changed is None
                 else f"{tools_changed}; no git call follows on this attempt"
@@ -2625,7 +2650,9 @@ class ClaudeDispatcher:
         # the session's own home or temporary directory, marks that record not vouched for. The
         # attempt is not refused for it.
         beside = Beside(series.records)
-        cleared = self._clear_left_out(worktree, sdir, LEFT_OUT_NAME, concerns=beside)
+        cleared = self._clear_left_out(
+            worktree, sdir, LEFT_OUT_NAME, concerns=beside, identity=identity
+        )
         series = end_series(series, cleared, beside, own=(sdir / "home", own_temp))
         commit = (
             commit_attempt(
@@ -2638,6 +2665,7 @@ class ClaudeDispatcher:
                 # What the clearing could not look below cannot be staged safely either: the
                 # attempt keeps a commit that stages nothing, and is refused for that clearing.
                 stage=cleared.complete,
+                identity=identity,
             )
             if end.outcome == "completed"
             else None
@@ -2693,10 +2721,20 @@ class ClaudeDispatcher:
         )
 
     def _clear_left_out(
-        self, worktree: Path, sdir: Path, name: str, concerns: Concerns | None = None
+        self,
+        worktree: Path,
+        sdir: Path,
+        name: str,
+        concerns: Concerns | None = None,
+        identity: tuple[int, int] | None = None,
     ) -> LeftOut:
-        """Clear the worktree of what is never part of an attempt; record it in ``sdir``."""
-        cleared = clear_left_out(worktree, repo=self._run.repo, concerns=concerns)
+        """Clear the worktree of what is never part of an attempt; record it in ``sdir``.
+
+        ``identity`` holds the clearing to the worktree its session was installed in.
+        """
+        cleared = clear_left_out(
+            worktree, repo=self._run.repo, concerns=concerns, identity=identity
+        )
         (sdir / name).write_text(cleared.model_dump_json())
         return cleared
 
