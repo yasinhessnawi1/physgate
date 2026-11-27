@@ -66,6 +66,9 @@ APPROVED = {
             # How a plan learns the environment, the motor's reversal current, the full-pack stall
             # current, and the law as a file.
             ("final_v12", "2206039364abd97d238e0131cc8fb8de3fb5ca6847f2e701f8cd41470c992b04", 59),
+            # Hardware and range items apply only where the task has them, read from the whole
+            # specification; what meets a stating line is said once.
+            ("final_v13", "e0e0f79f26827cd366de38e391615da3f8774ecbacb3423919581957b42517b7", 59),
         ),
         ("A", "D", "S", "R"),
     ),
