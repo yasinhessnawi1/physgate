@@ -6,15 +6,18 @@ runs; a store a split left unclean; a version the role does not have,
 or that the register marks exposed, or that has no record of its blind check; a run root that is
 not registered, that is not spelt as the disk spells it, or beneath which the core would refuse a
 trial's review root (a telltale word in its path, a checkout around it); parameters that are not
-reportable, that leave a protected place of the store open, or that do not look for every
+reportable, that pin a model to any role but the round's one (the roles named) or ask which parts
+a person has, that leave a protected place of the store open, or that do not look for every
 canary; parameters of any tier whose trials are not withheld from one another (the core's rule:
 every registered run root of the store withheld whole, nothing else, every root spelt as on
 disk); a target whose worktree is not clean, or whose top holds a run's configuration. A held-out
-task the check flagged is never run. The command says the refusal as one JSON line and exits 1.
+task the check flagged is never run, and a round on its one role's parameters records its
+inputs and pins as it did. The command says the refusal as one JSON line and exits 1.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -29,8 +32,9 @@ import pytest
 from round_rig import SCORED, Rig, make_rig
 
 from physgate.cli import main
-from physgate.evaluation.harness_round import RoundError, run_round
+from physgate.evaluation.harness_round import HARNESS_ROUNDS, LEDGER, RoundError, run_round
 from physgate.evaluation.tiers import exposure
+from physgate.evaluation.tiers.checks import check_path
 from physgate.evaluation.tiers.exposure import add_run_root, mark_exposed, run_roots
 from physgate.evaluation.tiers.store import (
     BASELINE_DIR,
@@ -160,6 +164,97 @@ def test_a_round_is_refused_with_parameters_that_do_not_look_for_every_canary(
     rig = make_rig(tmp_path)
     _params(rig, lambda fields: fields.update(held_out_canaries=fields["held_out_canaries"][1:]))
     assert _refused(rig) == "canaries_not_looked_for"
+
+
+def _roles(rig: Rig, roles: list[str]) -> None:
+    def pin(fields: dict[str, Any]) -> None:
+        model = fields["models"]["roles"]["control"]
+        fields["models"] = {**fields["models"], "roles": dict.fromkeys(roles, model)}
+
+    _params(rig, pin)
+
+
+@pytest.mark.parametrize(
+    "roles",
+    [
+        ["control", "mechanical"],
+        ["control", "integration"],
+        ["control", "electrical", "firmware", "mechanical"],
+        ["firmware"],
+        [],
+    ],
+)
+def test_a_round_is_refused_with_parameters_that_pin_any_role_but_its_own_naming_them(
+    tmp_path: Path, roles: list[str]
+) -> None:
+    """Another design role is given a module and its review reads a system to be built."""
+    rig = make_rig(tmp_path)
+    _roles(rig, roles)
+    driver = rig.driver()
+    with pytest.raises(RoundError) as refused:
+        run_round(rig.inputs(), driver=driver, scorer=_score, sleep=lambda _: None)
+    assert refused.value.context["refused_because"] == "params_roles_not_the_round_s"
+    assert refused.value.context["roles"] == (", ".join(sorted(roles)) or "none")
+    assert driver.decomposed == [] and driver.drives == []
+    assert not (rig.root / "out").exists()
+    assert list(rig.run_root.iterdir()) == []
+
+
+@pytest.mark.parametrize("models", [None, {"decomposition": "x"}, {"roles": ["control"]}])
+def test_a_round_whose_parameters_pin_their_roles_otherwise_than_as_an_object_is_refused(
+    tmp_path: Path, models: object
+) -> None:
+    rig = make_rig(tmp_path)
+    _params(rig, lambda fields: fields.update(models=models))
+    assert _refused(rig) == "params_unreadable"
+
+
+@pytest.mark.parametrize("asked", ["on", None, "OFF"])
+def test_a_round_is_refused_with_parameters_that_ask_which_parts_a_person_has(
+    tmp_path: Path, asked: str | None
+) -> None:
+    rig = make_rig(tmp_path)
+    _params(rig, lambda fields: fields.update(parts_on_hand=asked))
+    assert _refused(rig) == "params_ask_about_parts"
+
+
+def test_a_round_on_its_one_role_s_parameters_records_its_inputs_and_pins_as_it_did(
+    tmp_path: Path,
+) -> None:
+    """What the ledger's first line holds is spelt out here: a resume is held to its digest."""
+    rig = make_rig(tmp_path)
+    driver = rig.driver()
+    status, summary = run_round(rig.inputs(), driver=driver, scorer=_score, sleep=lambda _: None)
+    assert status in {"done", "done_without_caps"}
+    place = withheld_root(rig.made.store, "control") / HARNESS_ROUNDS / str(summary["round"])
+    first = json.loads((place / LEDGER).read_bytes().splitlines()[0])
+    check = check_path(rig.made.store, "control", rig.made.version)
+    prices = rig.inputs().prices
+    head = subprocess.run(
+        ["git", "-C", str(rig.target), "rev-parse", "HEAD"],  # noqa: S607 - the test's own git
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert first["inputs"] == {
+        "store": os.path.realpath(rig.made.store),
+        "role": "control",
+        "version": rig.made.version,
+        "tiers": ["visible"],
+        "trials": 2,
+        "tasks": 1,
+        "seed_base": 100,
+        "params_sha256": hashlib.sha256(rig.params.read_bytes()).hexdigest(),
+        "run_root": os.path.realpath(rig.run_root),
+        "target_from": os.path.realpath(rig.target),
+        "target_head": head,
+        "install": os.path.realpath(rig.root / "install"),
+        "prices": prices.sheet.date,
+        "prices_sha256": prices.sha256,
+        "check_sha256": hashlib.sha256(check.read_bytes()).hexdigest(),
+    }
+    assert first["pins"] == driver.pins(rig.inputs())
+    assert len(driver.decomposed) == 2
 
 
 def test_a_round_is_refused_with_a_target_whose_worktree_is_not_clean(tmp_path: Path) -> None:

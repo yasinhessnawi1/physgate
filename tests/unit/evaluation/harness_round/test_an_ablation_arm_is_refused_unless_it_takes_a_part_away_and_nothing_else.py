@@ -115,6 +115,23 @@ def test_an_arm_s_parameters_that_differ_in_anything_else_are_refused_naming_the
     assert refused.context["field"] == name
 
 
+@pytest.mark.parametrize("name", ["models", "parts_on_hand"])
+def test_an_arm_s_parameters_that_pin_another_role_or_ask_about_parts_are_refused_so(
+    tmp_path: Path, name: str
+) -> None:
+    """The round's one role and its parts unasked hold of the arm as of the reportable run."""
+    rig = make_rig(tmp_path)
+    given = json.loads(rig.params.read_bytes())
+    model = given["models"]["roles"]["control"]
+    other: Any = {
+        "models": {**given["models"], "roles": {"control": model, "mechanical": model}},
+        "parts_on_hand": "on",
+    }[name]
+    refused = _refused(rig, Ablation(ARM, rig.arm_params(**{name: other})))
+    assert refused.context["refused_because"] == "ablation_params_differ"
+    assert refused.context["field"] == name
+
+
 def test_a_field_only_one_of_the_two_names_is_a_difference(tmp_path: Path) -> None:
     rig = make_rig(tmp_path)
     path = rig.arm_params()

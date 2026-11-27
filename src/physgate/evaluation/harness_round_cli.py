@@ -12,8 +12,10 @@ tier's run set and records into the new directory ``O``, and everything of a pro
 the combined run set, the ledger and the round's record beneath the role's withheld root. The
 parameters ``P`` of a round of any tier name in ``withheld_whole`` every registered run root of
 the store and nothing else, as the core's rule holds every measured run, or the round is refused
-before anything is made; ``R`` is given as its real path, spelt as the disk spells it, and holds
-no word in its path that would tell a reviewer what it reads, since each trial reviews beneath it.
+before anything is made; so is ``P`` (or ``A``) pinning a model to any role but ``--role``, or
+naming ``parts_on_hand`` other than ``off``; ``R`` is given as its real path, spelt as the disk
+spells it, and holds no word in its path that would tell a reviewer what it reads, since each
+trial reviews beneath it.
 
 ``--resume`` goes on with the round ``O`` names, given the same inputs, on the same code, client
 and tools: a killed round resumes its killed run and repeats no trial. ``--limit-reset`` is the
