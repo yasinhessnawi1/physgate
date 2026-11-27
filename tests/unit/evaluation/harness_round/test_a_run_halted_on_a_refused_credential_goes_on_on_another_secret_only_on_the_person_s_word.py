@@ -191,7 +191,12 @@ def test_the_command_driver_gives_the_resume_the_command_s_own_word(
     from physgate.evaluation.harness_round import CommandDriver, Drive
 
     said: list[list[str]] = []
-    monkeypatch.setattr(CommandDriver, "_main", lambda self, argv, log: said.append(argv) or 0)
+
+    def main(_self: Any, argv: list[str], _log: Path) -> int:  # noqa: ANN401
+        said.append(argv)
+        return 0
+
+    monkeypatch.setattr(CommandDriver, "_main", main)
 
     def drive(*, resume: bool, replaced: bool) -> list[str]:
         CommandDriver().drive(

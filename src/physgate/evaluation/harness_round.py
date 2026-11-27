@@ -2576,7 +2576,7 @@ def _no_cap_in_the_cell(ctx: _Round) -> list[str]:
     round ends ``done``, the no-figure trials stated.
     """
     assembled = _assembled(ctx)
-    tiers = []
+    tiers: list[str] = []
     for tier in VERSION_TIERS:
         totals = [x["harness_total"] for p, x in assembled if p.tier == tier]
         if None in totals and all(total is None for total in totals):

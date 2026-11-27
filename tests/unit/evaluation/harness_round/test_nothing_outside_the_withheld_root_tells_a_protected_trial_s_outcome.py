@@ -53,7 +53,7 @@ def _round(rig: Rig, driver: StandInDriver) -> tuple[str, dict[str, Any]]:
 def _visible(rig: Rig) -> dict[str, Any]:
     """The output directory, file by file, and the round's summary in it, less the rig's own."""
     out = rig.root / "out"
-    files = {p.name: p.read_bytes() for p in sorted(out.iterdir())}
+    files = {str(p.relative_to(out)): p.read_bytes() for p in sorted(out.rglob("*")) if p.is_file()}
     summary = json.loads(files.pop(ROUND_RECORD))
     return {"files": files, "summary": {k: v for k, v in summary.items() if k not in PER_RIG}}
 
@@ -76,9 +76,12 @@ def test_the_output_directory_and_the_summary_are_the_same_however_a_protected_t
     _, second = _round(other, other.driver(**ended))
     seen = _visible(other)
     # The visible tier's own records differ by their rig's paths only; the rest is the same.
-    seen["files"] = {k: v for k, v in seen["files"].items() if not k.startswith("visible.")}
+    # So do its trials' one-entry sets and sheets, which name only the visible tier's places.
     shown = _visible(passed)
-    shown["files"] = {k: v for k, v in shown["files"].items() if not k.startswith("visible.")}
+    assert sorted(seen["files"]) == sorted(shown["files"])
+    own = ("visible.", "trials/")
+    seen["files"] = {k: v for k, v in seen["files"].items() if not k.startswith(own)}
+    shown["files"] = {k: v for k, v in shown["files"].items() if not k.startswith(own)}
     assert seen == shown
     assert _printed(second) == _printed(first)
 
