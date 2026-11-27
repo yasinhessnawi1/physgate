@@ -3,7 +3,7 @@
 ``physgate harness-round --store S --role control --version V --tier visible [--tier
 validation --tier held_out] --trials K --seed-base B --params P --run-root R --target-from T
 --install I --prices DATE --out O [--tasks N] [--resume] [--limit-reset] [--set-aside I]
-[--credential-replaced]`` runs
+[--credential-replaced] [--order-seed S] [--only PLACE]`` runs
 one harness trial per task and trial of the named tiers, in a fixed order, each a run decomposed
 and driven by this process on a fresh clone of ``T`` inside its own run directory beneath the
 registered run root ``R`` (:mod:`physgate.evaluation.harness_round`). It writes the visible
@@ -31,6 +31,17 @@ resume line and prints them; the round's record names them per trial. Without it
 a refused credential resumes only on the secret it began on. ``--tasks N`` runs the first ``N``
 tasks of each named tier in the round's order: a shakedown, whose run sets the counting rule
 refuses as not covering their tier.
+
+``--order-seed S`` runs one cell (one ``--tier``) in the registered order: the cell's (id digest,
+trial) pairs sorted and shuffled once by ``random.Random("S:order:<role>_<tier>")``, trial ``n``
+of a task seeded ``B + n``. ``--only PLACE`` takes on that one place of the round's order (the first
+not yet assembled; one already assembled is only said again), stops once it is assembled, and
+writes its one-entry run set ``trials/<PLACE>.runs.json`` and its sheet ``<PLACE>.trial.json``
+(in ``O`` for the visible tier, beneath the withheld root for a protected one), as every trial's
+are written once it is assembled. Its line's ``trial`` names the set and ``raw_pair``: ``now``
+(exit 0) or ``at_cell_end`` (exit 3: the trial gives no figure, and its raw pair runs once the
+cell's last harness trial is assembled). Status ``trial_assembled`` while later places remain; the
+call that assembles the last place ends the round as a whole call does.
 
 It prints one JSON line of counts and digests, never a task, and writes the same into ``O``. Exit
 0 once every trial is assembled, a trial that gives no figure stated as ``no_figure`` (the cap
@@ -77,6 +88,24 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
     run.add_argument("--prices", required=True, help="the dated price sheet the runs are priced at")
     run.add_argument("--out", type=Path, required=True)
     run.add_argument("--tasks", type=int, help="the first N tasks of each tier: a shakedown")
+    run.add_argument(
+        "--order-seed",
+        dest="order_seed",
+        type=int,
+        help=(
+            "run one cell (one tier) in the registered order: its (id digest, trial) pairs "
+            "shuffled once by this seed, trial n of a task seeded SEED_BASE + n"
+        ),
+    )
+    run.add_argument(
+        "--only",
+        type=int,
+        metavar="PLACE",
+        help=(
+            "take on only this place of the round's order (the first not yet assembled), stop "
+            "once it is assembled, and write its one-entry run set"
+        ),
+    )
     run.add_argument("--resume", action="store_true", help="go on with the round OUT names")
     run.add_argument(
         "--limit-reset",
@@ -136,6 +165,8 @@ def _run(args: argparse.Namespace) -> int:
     from physgate.evaluation.per_role.exceptions import PerRoleError
     from physgate.orchestrator.waiting import EXIT_WAITING_FOR_LIMIT
 
+    if args.only is not None and args.only < 0:
+        return _refused("counts", "a place of the order is counted from 0")
     if args.trials < 1 or (args.tasks is not None and args.tasks < 1):
         return _refused("counts", "a round runs at least one trial of at least one task")
     if len(set(args.tiers)) != len(args.tiers):
@@ -156,6 +187,7 @@ def _run(args: argparse.Namespace) -> int:
             prices=load_price_sheet(args.prices),
             out=args.out.resolve(),
             tasks=args.tasks,
+            order_seed=args.order_seed,
         )
         status, summary = run_round(
             inputs,
@@ -165,6 +197,7 @@ def _run(args: argparse.Namespace) -> int:
             limit_reset=args.limit_reset,
             set_aside=args.set_aside,
             credential_replaced=args.credential_replaced,
+            only=args.only,
         )
     except RoundError as exc:
         return _refused(exc.context.get("refused_because", "refused"), str(exc))
@@ -176,4 +209,8 @@ def _run(args: argparse.Namespace) -> int:
         return EXIT_WAITING_FOR_A_PERSON
     if status == "done_without_caps":
         return EXIT_DONE_WITHOUT_CAPS
+    if status == "trial_assembled":
+        # The named trial gives its raw pair no figure: the pair runs at the cell's end.
+        no_figure = summary.get("trial", {}).get("raw_pair") == "at_cell_end"
+        return EXIT_DONE_WITHOUT_CAPS if no_figure else 0
     return EXIT_WAITING_FOR_LIMIT if status == "waiting_for_limit" else 0

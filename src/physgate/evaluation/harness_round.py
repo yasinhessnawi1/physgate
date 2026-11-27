@@ -127,6 +127,7 @@ import fcntl
 import hashlib
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -139,6 +140,7 @@ from typing import Any, Literal, Protocol, get_args
 
 from physgate.evaluation.baseline.record import VERSION_TIERS
 from physgate.evaluation.baseline.runner import RunSet
+from physgate.evaluation.harness_round_reruns import reason_field, rerun_cause
 from physgate.evaluation.observe.compare import DRIFT
 from physgate.evaluation.observe.cost import DatedSheet, price_run
 from physgate.evaluation.observe.manifest import manifest_id_of, read_run_events
@@ -252,7 +254,9 @@ Tier = Literal["visible", "validation", "held_out"]
 #: How a round left off: every trial assembled (and whether every one gives the baseline its
 #: cap), waiting for the account's usage limit, or waiting for a person (a refused credential
 #: to replace, or a word on a trial's directory).
-Status = Literal["done", "done_without_caps", "waiting_for_limit", "waiting_for_a_person"]
+Status = Literal[
+    "done", "done_without_caps", "trial_assembled", "waiting_for_limit", "waiting_for_a_person"
+]
 #: The status the command exits with while the round waits for a person: a refused credential
 #: to replace, or a trial's directory a restart naming the trial sets aside.
 EXIT_WAITING_FOR_A_PERSON = 77
@@ -633,6 +637,10 @@ class Inputs:
     out: Path
     #: The first so many tasks of each named tier, in the round's order; ``None`` for all.
     tasks: int | None = None
+    #: The order's seed, for the registered order of one cell: its (id digest, trial) pairs
+    #: sorted and shuffled once by ``random.Random("<seed>:order:<suite>")``, trial ``n`` of a task
+    #: seeded ``seed base + n``; ``None`` for the driver's own order.
+    order_seed: int | None = None
 
 
 def _refuse(reason: str, msg: str, **context: str) -> RoundError:
@@ -924,6 +932,8 @@ class _Planned:
 
 
 def _order(inputs: Inputs, found: _Version, flagged: frozenset[str]) -> list[_Planned]:
+    if inputs.order_seed is not None:
+        return _registered_order(inputs, found, flagged)
     order: list[_Planned] = []
     for tier in VERSION_TIERS:
         if tier not in inputs.tiers:
@@ -936,6 +946,38 @@ def _order(inputs: Inputs, found: _Version, flagged: frozenset[str]) -> list[_Pl
                 index = len(order)
                 order.append(_Planned(index, tier, brief, trial, inputs.seed_base + index))
     return order
+
+
+def _registered_order(inputs: Inputs, found: _Version, flagged: frozenset[str]) -> list[_Planned]:
+    """The registered order of one cell: every (task, trial) pair, shuffled once by a seed string.
+
+    The cell's pairs (a held-out task the check flagged left out) are sorted by the task's id
+    digest and the trial, then shuffled once by ``random.Random("<order seed>:order:<suite>")``,
+    the suite being ``<role>_<tier>``; trial ``n`` of a task is seeded ``seed base + n``, whatever
+    its place. One cell a round: its order, and the raw trial run right after each harness
+    trial, are the cell's.
+
+    Raises:
+        RoundError: more than one tier named.
+    """
+    if len(inputs.tiers) != 1:
+        msg = "a round in the registered order runs one cell: name one tier"
+        raise _refuse("order_one_cell", msg)
+    (tier,) = inputs.tiers
+    tasks = {
+        b: t for b, t in found.tasks[tier].items() if not (tier == "held_out" and b in flagged)
+    }
+    digests = sorted((id_digest(task.id), brief) for brief, task in tasks.items())
+    if inputs.tasks is not None:
+        digests = digests[: inputs.tasks]
+    pairs = sorted(
+        (digest, trial, brief) for digest, brief in digests for trial in range(inputs.trials)
+    )
+    random.Random(f"{inputs.order_seed}:order:{inputs.role}_{tier}").shuffle(pairs)
+    return [
+        _Planned(index, tier, brief, trial, inputs.seed_base + trial)
+        for index, (_digest, trial, brief) in enumerate(pairs)
+    ]
 
 
 def _inputs_record(inputs: Inputs, target_head: str, check_sha256: str) -> dict[str, Any]:
@@ -956,12 +998,15 @@ def _inputs_record(inputs: Inputs, target_head: str, check_sha256: str) -> dict[
         "prices": inputs.prices.sheet.date,
         "prices_sha256": inputs.prices.sha256,
         "check_sha256": check_sha256,
+        # Only where it is given, so a round in the driver's own order is held as it always was.
+        **({} if inputs.order_seed is None else {"order_seed": inputs.order_seed}),
     }
 
 
 #: The ledger's lines that close a trial's attempt without assembling it: superseded (its one
-#: more go, or a person's word), set aside with nothing in it, a refused credential, the limit.
-CLOSING = ("superseded", "left", "credential", "limit")
+#: more go, or a person's word), set aside with nothing in it, a refused credential, the limit,
+#: and a draw whose records say its answer is not to be trusted (run once more).
+CLOSING = ("superseded", "left", "credential", "limit", "excluded")
 
 
 @dataclass
@@ -989,6 +1034,8 @@ class _Round:
     #: Why the round stands waiting, for a person or for the usage limit, for what it prints and
     #: writes in the output directory; ``None`` while it does not.
     waiting: dict[str, Any] | None = None
+    #: The one trial a call that names a place of the order assembled, as its sheet says it.
+    trial: dict[str, Any] | None = None
     #: What this process has done to each run, so a step that moves nothing is not taken twice.
     acted: set[tuple[Any, ...]] = field(default_factory=set)
 
@@ -1045,6 +1092,7 @@ def run_round(
     limit_reset: bool = False,
     set_aside: int | None = None,
     credential_replaced: bool = False,
+    only: int | None = None,
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], datetime] = utc_now,
 ) -> tuple[Status, dict[str, Any]]:
@@ -1058,7 +1106,11 @@ def run_round(
     round stands stopped at was replaced with another secret: the trial's halted run is resumed
     with that word (``physgate resume --credential-replaced``), which records both fingerprints;
     given to a round that stands at no refused credential, it is refused before anything is
-    made. ``now`` is the clock a limit's wait is read against.
+    made. ``only`` names one place of the round's order: the round takes that trial on until it
+    is assembled (or waits) and stops there, ``trial_assembled``, its one-entry run set written,
+    so a raw trial can run right after it; only the first place not yet assembled may be named,
+    or one already assembled (which only says it again). ``now`` is the clock a limit's wait is
+    read against.
 
     Raises:
         RoundError: the round is refused, or stopped at a step it names; nothing of a task.
@@ -1126,7 +1178,7 @@ def run_round(
             order=order,
             tasks={b: t for tier in found.tasks.values() for b, t in tier.items()},
         )
-        words = _Words(limit_reset, set_aside, credential_replaced)
+        words = _Words(limit_reset, set_aside, credential_replaced, only)
         status = _go(ctx, found, given, pins, dead, lock, claimed, words)
     except BaseException as exc:
         # A process that ends as it should leaves no pid behind; a kill leaves its own.
@@ -1143,6 +1195,8 @@ class _Words:
     limit_reset: bool = False
     set_aside: int | None = None
     credential_replaced: bool = False
+    #: The one place of the order this call takes on, or ``None`` for every trial.
+    only: int | None = None
 
 
 def _go(
@@ -1210,7 +1264,7 @@ def _go(
         _claim(lock)
         claimed[0] = True
         (ctx.place / "logs").mkdir(mode=0o700, exist_ok=True)
-        for planned in ctx.order:
+        for planned in _these(ctx, words.only):
             current[0] = planned
             status = _trial(ctx, planned)
             if status == "waiting_for_limit":
@@ -1219,7 +1273,15 @@ def _go(
                 # Said where a wrapper reads it, as well as printed: which trial, and until when.
                 _write_whole(inputs.out / ROUND_RECORD, canonical_json(_summary(ctx, done=False)))
                 return status
+            _one_entry(ctx, planned)
         current[0] = None
+        if words.only is not None:
+            # One trial of the order, named: assembled, its set written, and said where it lies
+            # and whether its raw pair runs now; the round goes on later, unless it was the last.
+            ctx.trial = _sheet(ctx, ctx.order[words.only])
+            if len(_assembled(ctx)) < len(ctx.order):
+                _write_whole(inputs.out / ROUND_RECORD, canonical_json(_summary(ctx, done=False)))
+                return "trial_assembled"
         _outputs(ctx)
     except RoundError:
         raise
@@ -1237,6 +1299,67 @@ def _go(
             raise RoundError(msg, **context) from None
         raise
     return "done_without_caps" if _no_cap_in_the_cell(ctx) else "done"
+
+
+def _these(ctx: _Round, only: int | None) -> list[_Planned]:
+    """The trials this call takes on: every one in order, or the one place it names.
+
+    Raises:
+        RoundError: the place is not in the order, or an earlier place is not yet assembled.
+    """
+    if only is None:
+        return ctx.order
+    if not 0 <= only < len(ctx.order):
+        raise _refuse(
+            "only_not_in_the_order", "the round's order has no such place", only=str(only)
+        )
+    first = next((p.index for p in ctx.order if not ctx.of(p.index, "assembled")), None)
+    if not ctx.of(only, "assembled") and only != first:
+        msg = "only the first place of the order not yet assembled may be taken on"
+        raise _refuse("only_out_of_order", msg, only=str(only), first=str(first))
+    return [ctx.order[only]]
+
+
+#: Beneath the round's directory (a protected tier) or its output directory (the visible tier):
+#: each trial's one-entry run set and its sheet, written once the trial is assembled.
+TRIALS = "trials"
+
+
+def _sheet(ctx: _Round, planned: _Planned) -> dict[str, Any]:
+    """What a raw trial's rule reads of an assembled harness trial: never an outcome or a score."""
+    line = next(x for x in ctx.lines if x["kind"] == "assembled" and x["index"] == planned.index)
+    excluded = line["record"].get("reason") if line["outcome"] == "excluded" else None
+    where = ctx.inputs.out if planned.tier == VISIBLE else ctx.place
+    return {
+        "format": 1,
+        "round": ctx.round_id,
+        "index": planned.index,
+        "tier": planned.tier,
+        "suite": f"{ctx.inputs.role}_{planned.tier}",
+        "trial": planned.trial,
+        "seed": planned.seed,
+        "attempt": line["attempt"],
+        "run_id": line["run_id"],
+        "run_dir": line["run_dir"],
+        "harness_total": line["harness_total"],
+        "no_figure": line.get("no_figure"),
+        "raw_pair": "now" if line["harness_total"] is not None else "at_cell_end",
+        "rerun_of": line.get("rerun_of"),
+        "excluded": excluded,
+        "class": None if excluded is None else rerun_cause(excluded, "harness"),
+        "runs": str(where / TRIALS / f"{planned.index:04d}.runs.json"),
+    }
+
+
+def _one_entry(ctx: _Round, planned: _Planned) -> None:
+    """Write the assembled trial's one-entry run set and its sheet; the same bytes again after."""
+    sheet = _sheet(ctx, planned)
+    trials = Path(sheet["runs"]).parent
+    trials.mkdir(mode=0o700, exist_ok=True)
+    entry = {"run_dir": sheet["run_dir"], "trial": planned.trial}
+    runs = RunSet.model_validate_json(json.dumps({"format": 1, "trials": [entry]}))
+    _write_whole(Path(sheet["runs"]), runs.model_dump_json().encode())
+    _write_whole(trials / f"{planned.index:04d}.trial.json", canonical_json(sheet))
 
 
 # The lock and the pins. ---------------------------------------------------------------------
@@ -1672,7 +1795,7 @@ def _stopped_for_a_person_at(ctx: _Round) -> int | None:
         # A run halted on a refused credential: a person resumes it on the credential put right,
         # or sets its directory aside and the trial is decomposed afresh, spending nothing.
         return i
-    if state == "spent" and ctx.of(i, "superseded"):
+    if state == "spent" and _once_more_taken(ctx, i):
         return i
     if state == "free" and any(x["attempt"] != last for x in ctx.of(i, "left")):
         return i
@@ -1725,6 +1848,17 @@ def _machine_halts(events: Sequence[Event]) -> int:
         if isinstance(e, Halted)
         and e.reason in INFRASTRUCTURE_HALTS
         and e.reason not in (CREDENTIAL_REFUSED, USAGE_LIMIT)
+    )
+
+
+def _once_more_taken(ctx: _Round, i: int) -> bool:
+    """Whether the trial's one more go of the machine's rule is spent.
+
+    One per trial, across its draws: a fresh decomposition superseded a directory, or a draw run
+    again after an exclusion had spent it (its own superseded line, or its run's one resume).
+    """
+    return bool(ctx.of(i, "superseded")) or any(
+        x.get("once_more_spent") for x in ctx.of(i, "excluded")
     )
 
 
@@ -1858,7 +1992,7 @@ def _trial(ctx: _Round, planned: _Planned) -> Status | None:
             if status is not None:
                 return status
             continue
-        past: dict[str, str] = {}
+        past: dict[str, Any] = {}
         if last is not None and closing is not None:
             kind = closing["kind"]
             if kind == "credential" and _touched(ctx, i, last):
@@ -1871,6 +2005,8 @@ def _trial(ctx: _Round, planned: _Planned) -> Status | None:
                 past = {"limit_reset": how}
             if kind == "superseded" and closing.get("by", "rule") == "rule":
                 ctx.sleep(float(closing["delay_s"]))
+            if kind == "excluded":
+                past = {"after_exclusion": last}
         attempt = 1 if last is None else last + 1
         ctx.add(
             {
@@ -1923,7 +2059,7 @@ def _step(ctx: _Round, planned: _Planned, attempt: int) -> Status | None:
         ctx.acted.add(("driven", i, attempt))
         return _drive(ctx, planned, attempt, "drive", resume=not fresh)
     halt = machine_end(events)
-    once_more_taken = bool(ctx.of(i, "superseded"))
+    once_more_taken = _once_more_taken(ctx, i)
     spent = TokenAccount.from_events(events).total().total()
     if halt is not None and halt.reason == "decomposition_failed":
         cause = decomposition_cause(halt)
@@ -2086,7 +2222,7 @@ def _superseded_without_a_run(
         line = {"kind": "credential", "index": i, "attempt": attempt}
         ctx.add({**line, "run_id": ctx.run_id(i, attempt), "tokens": tokens})
         return None
-    if ctx.of(i, "superseded") and ctx.set_aside_for != i:
+    if _once_more_taken(ctx, i) and ctx.set_aside_for != i:
         return _wait_for_a_person(
             ctx,
             planned,
@@ -2096,7 +2232,7 @@ def _superseded_without_a_run(
             tokens=tokens,
             fix_first=_a_person_fixes(cause),
         )
-    by = "operator" if ctx.of(i, "superseded") else "rule"
+    by = "operator" if _once_more_taken(ctx, i) else "rule"
     if by == "operator":
         ctx.set_aside_for = None
     ctx.add(
@@ -2306,6 +2442,41 @@ def _assemble(ctx: _Round, planned: _Planned, attempt: int, events: list[Event])
     except ComparisonError as exc:
         total, no_total = None, str(exc)
         no_figure = {"because": _no_figure_because(run_dir, done.unscored), "detail": no_total}
+    earlier = ctx.of(i, "excluded")
+    if (
+        isinstance(record, ExcludedTrial)
+        and rerun_cause(record.reason, "harness") == "untrusted"
+        and not earlier
+    ):
+        # Not to be trusted, by the reason's field alone, before anyone reads a score: the trial
+        # is run once more into a fresh directory with the same seed; this draw is kept where it
+        # lies for the exposure scan, named here with its spend, in no run set and no cap.
+        ctx.add(
+            {
+                "kind": "excluded",
+                "index": i,
+                "attempt": attempt,
+                "run_id": config.run_id,
+                "run_dir": str(run_dir),
+                "field": reason_field(record.reason),
+                "reason": record.reason,
+                "tokens": TokenAccount.from_events(events).total().total(),
+                "harness_total": total,
+                "once_more_spent": bool(ctx.of(i, "superseded")) or _machine_halts(events) > 0,
+                "held": _held(run_dir),
+                "by": "rule",
+            }
+        )
+        return
+    rerun = (
+        {}
+        if not earlier
+        else {
+            "rerun_of": {
+                key: earlier[-1][key] for key in ("attempt", "run_id", "run_dir", "field", "reason")
+            }
+        }
+    )
     ctx.add(
         {
             "kind": "assembled",
@@ -2321,6 +2492,7 @@ def _assemble(ctx: _Round, planned: _Planned, attempt: int, events: list[Event])
             "harness_total": total,
             "no_total": no_total,
             "no_figure": no_figure,
+            **rerun,
         }
     )
 
@@ -2439,6 +2611,19 @@ def _pins(ctx: _Round) -> dict[str, Any]:
 #: What the round's record names of each decomposition it superseded, and of each it set aside.
 _SUPERSEDED = ("index", "attempt", "run_id", "cause", "tokens", "by", "from_run", "held")
 _LEFT = ("index", "attempt", "run_id", "why", "held", "by")
+_EXCLUDED = (
+    "index",
+    "attempt",
+    "run_id",
+    "run_dir",
+    "field",
+    "reason",
+    "tokens",
+    "harness_total",
+    "once_more_spent",
+    "held",
+    "by",
+)
 
 
 def _named(line: dict[str, Any], keys: Sequence[str]) -> dict[str, Any]:
@@ -2480,6 +2665,7 @@ def _audit(ctx: _Round) -> dict[str, Any]:
                 "harness_total": line["harness_total"],
                 "no_total": line["no_total"],
                 "no_figure": line.get("no_figure"),
+                "rerun_of": line.get("rerun_of"),
                 # Each second draw of the trial's plan, with its cause and spend.
                 "superseded_count": len(gone),
                 "superseded": gone,
@@ -2508,6 +2694,7 @@ def _audit(ctx: _Round) -> dict[str, Any]:
         "no_cap_in_the_cell": _no_cap_in_the_cell(ctx),
         "superseded": every("superseded", _SUPERSEDED),
         "left": every("left", _LEFT),
+        "excluded_runs": every("excluded", _EXCLUDED),
         "credential_refused": every("credential", ("index", "attempt", "run_id", "tokens", "by")),
         "usage_limit": every("limit", ("index", "attempt", "run_id", "tokens")),
         "lock_taken_over": every("lock_taken_over", ("pid",)),
@@ -2560,6 +2747,7 @@ def _summary(ctx: _Round, *, done: bool) -> dict[str, Any]:
         "tiers": tiers,
         "superseded": seen("superseded"),
         "left": seen("left"),
+        "excluded_runs": seen("excluded"),
         "credential_refused": seen("credential"),
         "usage_limit": seen("limit"),
         "no_cap": _no_cap(ctx, (VISIBLE,)),
@@ -2571,4 +2759,7 @@ def _summary(ctx: _Round, *, done: bool) -> dict[str, Any]:
     }
     if ctx.waiting is not None and not done:
         summary["waiting"] = ctx.waiting
+    if ctx.trial is not None:
+        # The one trial a call named: where its set lies and whether its raw pair runs now.
+        summary["trial"] = {k: ctx.trial[k] for k in ("index", "runs", "raw_pair")}
     return summary
