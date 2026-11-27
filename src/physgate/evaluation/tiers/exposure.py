@@ -16,11 +16,17 @@ never reads as one with nothing exposed. Both logs are made empty, with their he
 version is written (:func:`start_logs`), so once a role holds a version, a log, a head or the
 withheld root that is gone refuses too (``register_missing``): it was removed. Readers take the
 writers' lock shared. **A stated limit:** whoever can write the withheld root can shorten a log
-and write its head again to match; the place is the hold against that.
+and write its head again to match; the place is the hold against that. The same holds for the
+kept scans beside the register (``scans/``, below): a result written there under a stream's key
+makes that stream read as the result says, to the register, until a command on its directory
+scans the bytes itself (which never reads a kept result). They are not chained or digested as
+the logs are; the place alone holds them, the same place, which no session of a run on the role
+reads or writes.
 
 The register's lines name a version by its id and its protected tiers' digests, and a key that
 is a digest (of the incident's run and offset, or of the record's place): never a task id, a
-brief, a canary or an outcome. A hand mark carries the person who made it and why.
+brief, a canary or an outcome. A hand mark, and a settle, carries the person who made it, why
+and when; a settle also says, for a person, the path of the directory it settles.
 
 - **exposure:** a ``held_out_read`` incident in the event log of a run under one of the role's
   run roots; a raw-arm record, under the run roots or beneath the withheld root's baseline
@@ -43,17 +49,25 @@ brief, a canary or an outcome. A hand mark carries the person who made it and wh
   in it is read. Its review's exposure is found without a command on it: in the file the next
   command writes once it has scanned the review's streams; in the review's record no command
   has scanned yet, whose streams are scanned now by the next command's own scan of their
-  unredacted bytes, read only; or in the round journal's end line of an exposed review, which is
+  unredacted bytes, read only, or whose record says the live review's own scan showed one (said
+  before that review redacted its stream); or in the round journal's end line of an exposed
+  review, which is
   all a kill after that line and before the opening's incident leaves (read for a run too, where
   its log holds no incident). The versions it marks are named by the held-out tiers' digests the
   decomposition recorded before its review, exactly: none where it recorded that it named no
   held-out tier, or none of this role's. One that recorded none (made before the record existed)
   marks every version of the role, and only on evidence that something showed. A review stream
-  that is gone is an exposure where tiers were recorded; a record, a journal or a stream that is
-  there and cannot be read refuses, by its kind and naming no path, as do a stream gone where no
-  tiers were recorded and a process table that cannot say whether the review still runs. A
-  person who has looked at such a directory settles it by hand (:func:`mark_exposed` with
-  ``settles``): from then on what of it cannot be read is passed over.
+  that is gone is an exposure where tiers were recorded, whatever another stream of the same
+  review was refused for; a record, a journal or a stream that is there and cannot be read
+  refuses, by its kind (every kind its streams were refused for) and naming no path, as do a
+  stream gone where no tiers were recorded and a process table that cannot say whether the
+  review still runs. A person who has looked at such a directory settles it by hand
+  (:func:`settle_directory`, a line of its own that marks no version): from then on what of it
+  cannot be read is passed over.
+- **settle:** a directory under the run roots that the register refused, settled by a person
+  who looked at it, named by its identity (:func:`settle_directory`). It marks no version. Its
+  path, as given and as resolved then, is beside the key for a person to read; only the key
+  settles.
 - **authoring:** a read of the tiers by their author or their blind check. Never an exposure.
 - **measurement:** one scoring of a protected tier whose result anyone sees.
 
@@ -62,8 +76,8 @@ recorded, and every incident and record the run roots hold now, recorded or not.
 writes no line. It keeps only what its scan of a finished review's stream came to, beneath the
 withheld root beside the register (``scans/``, one small file per stream's bytes, written apart
 and renamed), so that a finished directory's streams are scanned once; a kept result that does
-not read is scanned again. The three writers (:func:`record_scan`, :func:`mark_exposed`,
-:func:`add_run_root`) append, each under a lock.
+not read is scanned again. The four writers (:func:`record_scan`, :func:`mark_exposed`,
+:func:`settle_directory`, :func:`add_run_root`) append, each under a lock.
 
 **A measured run's version** is the one whose tasks hold the run's brief, found by its digest
 as a baseline round finds a harness run's task. A run withholds every version's protected
@@ -154,6 +168,8 @@ _PREFIX = 8
 Key = Sha256
 Date = Annotated[str, StringConstraints(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")]
 Text = Annotated[str, StringConstraints(min_length=1, max_length=500)]
+#: A path said for a person who reads the register, never one anything is matched by.
+SaidPath = Annotated[str, StringConstraints(min_length=1, max_length=4096)]
 
 
 class ExposureError(PerRoleError):
@@ -218,8 +234,32 @@ class RunRoot(_Line):
     path: Annotated[str, StringConstraints(min_length=2, max_length=4096, pattern=r"^/")]
 
 
-RegisterLine = Annotated[Exposure | Authoring | Measurement, Field(discriminator="kind")]
-_REGISTER_LINE: TypeAdapter[Exposure | Authoring | Measurement] = TypeAdapter(RegisterLine)
+class Settle(_Line):
+    """A directory under the run roots that a person has looked at: it marks no version.
+
+    It names the directory by its identity (:func:`_settle_key`, a digest: never its path),
+    with who settled it, why and when. From then on, while the directory is the one that was
+    looked at, what of it cannot be read is passed over, and what it shows is still read
+    (:func:`settle_directory`). A version it may have shown is marked by hand apart.
+
+    Beside the key, the directory's path as the person gave it and as it resolved then, for a
+    person who reads the register to find which directory it was. Only the key settles: nothing
+    is ever matched by a path, so a path changed by hand, or a directory later made at it, is
+    settled by neither. A line written before the paths were recorded holds neither.
+    """
+
+    kind: Literal["settle"]
+    key: Key
+    by: Text
+    reason: Text
+    date: Date
+    given_path: SaidPath | None = None
+    resolved_path: SaidPath | None = None
+
+
+AnyLine = Exposure | Authoring | Measurement | Settle
+RegisterLine = Annotated[AnyLine, Field(discriminator="kind")]
+_REGISTER_LINE: TypeAdapter[AnyLine] = TypeAdapter(RegisterLine)
 
 
 class _Head(_Frozen):
@@ -533,7 +573,7 @@ def _append(
         os.close(fd)
 
 
-def register_lines(store: Path, role: Role) -> list[Exposure | Authoring | Measurement]:
+def register_lines(store: Path, role: Role) -> list[AnyLine]:
     """Every line of the role's register, held to its head.
 
     Raises:
@@ -788,16 +828,25 @@ def _params_print(directory: Path) -> str:
     return f"{kind}:{info.st_dev}:{info.st_ino}:{info.st_size}:{info.st_mtime_ns}:{read}"
 
 
+class _SettleableError(ExposureError):
+    """A refusal of a place beneath the run roots that a person's settle passes over."""
+
+
+#: The command a refusal a settle passes over names, as a person types it.
+SETTLE_COMMAND = (
+    "physgate tiers settle --withheld <root> --directory <directory> --by <name> --reason <why>"
+)
+
+
 def _unreadable(what: str, *, also: str = "") -> ExposureError:
     """A refusal of a place beneath the run roots, said by its kind, with what a person does."""
     msg = (
         f"{what}, so what it holds cannot be ruled out. A person finds it beneath the run roots, "
-        "looks at it, and marks by hand the versions it may have shown, naming it: "
-        "physgate tiers mark-exposed --withheld <root> --version <version> --by <name> "
-        "--reason <why> --settles <directory>. From then on what of it cannot be read is passed "
-        f"over, and what it shows is still read{also}"
+        f"looks at it, and settles it: {SETTLE_COMMAND}. A settle marks no version: each "
+        "version it may have shown is marked by hand apart (physgate tiers mark-exposed). From "
+        f"then on what of it cannot be read is passed over, and what it shows is still read{also}"
     )
-    return _refuse("register_unreadable", msg)
+    return _SettleableError(msg, refused_because="register_unreadable")
 
 
 def _absolute(value: object) -> str | None:
@@ -1036,6 +1085,10 @@ def _reading(
             what = "a decomposition's review record under the run roots cannot be read"
             raise _unreadable(what) from exc
         record = None
+    if record is not None and record.shown:
+        # Its live review's scan showed a canary and said so before the redaction: whatever its
+        # streams read now, it is an exposure.
+        sessions.add(record.session_id)
     if record is not None and record.session_id not in sessions:
         try:
             running: bool | None = is_session(record.pid, record.started, record.session_id)
@@ -1049,33 +1102,40 @@ def _reading(
             running = None
         if running is not None:
             shown, refused = _scanned(record, running=running, withheld=withheld)
-            if shown or (refused == "absent" and digests is not None):
-                # A stream that is gone is never read as one that showed nothing.
+            if shown or ("absent" in refused and digests is not None):
+                # A stream that is gone is never read as one that showed nothing, whatever
+                # another stream of the same review was refused for.
                 sessions.add(record.session_id)
-            elif refused is not None and not settles:
-                said = review.STREAM_REFUSALS[refused]
-                if refused == "absent":
+            elif refused and not settles:
+                kinds = [review.STREAM_REFUSALS[kind] for kind in refused]
+                said = " and ".join(kinds)
+                if "absent" in refused:
                     said += (
                         ", and the decomposition recorded no held-out tiers, so which versions it "
                         "may have shown cannot be told"
                     )
-                raise _unreadable(f"a decomposition's review stream under the run roots is {said}")
+                what = f"a decomposition's review stream under the run roots is {said}"
+                raise _unreadable(what)
     return [Finding(_review_key(directory, one), "incident", marked) for one in sorted(sessions)]
 
 
-def _scanned(record: Any, *, running: bool, withheld: Path) -> tuple[bool, str | None]:  # noqa: ANN401
-    """Whether a stream of the review shows a canary; and why the first one not read was not.
+def _scanned(record: Any, *, running: bool, withheld: Path) -> tuple[bool, tuple[str, ...]]:  # noqa: ANN401
+    """Whether a stream of the review shows a canary; and why each one not read was not.
 
-    A finished session's stream is scanned once: what its scan came to is kept beside the
-    register (:func:`_keep_scan`), named by a digest of the stream's bytes, its size and the
-    canaries looked for, and read back in place of a scan of the same bytes.
+    Every stream's refusal is kept, each kind once in the order the streams come: one gone
+    behind one that is a link is still gone. A finished session's stream is scanned once: what
+    its scan came to is kept beside the register (:func:`_keep_scan`), named by a digest of the
+    stream's bytes, its size and the canaries looked for, and read back in place of a scan of
+    the same bytes.
     """
     from physgate.orchestrator import decomposition_review as review
 
-    refused: str | None = None
+    refused: list[str] = []
     for read in review.read_review_streams(record):
         if read.data is None:
-            refused = refused or read.refused
+            kind = read.refused or "file"
+            if kind not in refused:
+                refused.append(kind)
             continue
         key = None if running else _scan_key(read.data, record.canaries)
         shown = None if key is None else _kept_scan(withheld, key)
@@ -1084,8 +1144,8 @@ def _scanned(record: Any, *, running: bool, withheld: Path) -> tuple[bool, str |
             if key is not None:
                 _keep_scan(withheld, key, shown=shown)
         if shown:
-            return True, None
-    return False, refused
+            return True, tuple(refused)
+    return False, tuple(refused)
 
 
 def _scan_key(data: bytes, canaries: Iterable[str]) -> str:
@@ -1235,7 +1295,10 @@ class Survey:
 
 
 def _settled(store: Path, role: Role) -> frozenset[str]:
-    """The keys of the hand marks in the role's register: those that settle a directory among them.
+    """The keys of the directories the role's register holds settled.
+
+    A settle line's; and every hand mark's, since a hand mark settled a directory before a
+    settle was a line of its own, so a register written then reads as it did.
 
     Raises:
         ExposureError: the register refuses as read.
@@ -1243,7 +1306,7 @@ def _settled(store: Path, role: Role) -> frozenset[str]:
     return frozenset(
         line.key
         for line in register_lines(store, role)
-        if line.kind == "exposure" and line.source == "hand"
+        if line.kind == "settle" or (line.kind == "exposure" and line.source == "hand")
     )
 
 
@@ -1394,22 +1457,11 @@ def _today() -> str:
     return datetime.now(UTC).date().isoformat()
 
 
-def mark_exposed(
-    store: Path, role: Role, version: str, *, by: str, reason: str, settles: Path | None = None
-) -> None:
-    """Mark ``version`` exposed by hand: a person opened it, which no hook sees.
-
-    ``settles``: a directory beneath the run roots the register refuses because a record or a
-    stream of it cannot be read, which the person has looked at. The mark's key is then a digest
-    of that directory's identity and of the parameters record in it (:func:`_settle_key`; the
-    line names no path), and from then on, while both hold, what of the directory cannot be read
-    is passed over; what it shows is still read. Another directory at the same path, or a later
-    decomposition into it, is not settled. A person marks each version it may have shown, each
-    with the directory named.
+def _who_and_why(by: str, reason: str) -> None:
+    """Refuse a hand line that names no person, or no reason of more than one word.
 
     Raises:
-        ExposureError: no person or no reason of more than one word is given, the version
-            is not one of the role's, or ``settles`` is no directory.
+        ExposureError: as said.
     """
     if not by.strip():
         raise _refuse("hand_mark_names_no_one", "a hand mark names the person who makes it")
@@ -1418,21 +1470,28 @@ def mark_exposed(
         raise _refuse("hand_mark_too_long", msg)
     if len(reason.split()) < FEWEST_REASON_WORDS:
         raise _refuse("hand_mark_without_a_reason", "a hand mark says why, in more than a word")
+
+
+def mark_exposed(store: Path, role: Role, version: str, *, by: str, reason: str) -> None:
+    """Mark ``version`` exposed by hand: a person opened it, which no hook sees.
+
+    A directory the register refuses is settled apart (:func:`settle_directory`), which marks no
+    version; a person who judges it may have shown one marks that version here.
+
+    Raises:
+        ExposureError: no person or no reason of more than one word is given, or the version
+            is not one of the role's.
+    """
+    _who_and_why(by, reason)
     known = versions(store, role)
     if version not in known:
         msg = f"the role has no version {version[:_PREFIX]}"
         raise _refuse("version_unknown", msg)
     date = _today()
-    key = _digest(f"hand\0{version}\0{by}\0{reason}\0{date}".encode())
-    if settles is not None:
-        if settles.is_symlink() or not settles.is_dir():
-            msg = "what a hand mark settles is a directory of its own beneath the run roots"
-            raise _refuse("hand_mark_settles_no_directory", msg)
-        key = _settle_key(settles)
     payload = {
         "kind": "exposure",
         "source": "hand",
-        "key": key,
+        "key": _digest(f"hand\0{version}\0{by}\0{reason}\0{date}".encode()),
         "by": by.strip(),
         "reason": reason.strip(),
         "date": date,
@@ -1445,6 +1504,99 @@ def mark_exposed(
         msg = "the hand mark is not a line the register holds"
         raise _refuse("hand_mark_not_a_line", msg) from exc
     _append(withheld_root(store, role), REGISTER, [payload])
+
+
+def _refusal_of(
+    directory: Path, known: Mapping[str, TierSet], settled: frozenset[str], withheld: Path
+) -> ExposureError | None:
+    """What the register's read of ``directory`` alone refuses, given ``settled``; ``None``.
+
+    Read as the walk reads it where it meets it: a run's directory by its configuration, log and
+    journal; one with no run configuration by its parameters record, and then its review.
+    """
+    walk = _Walk(runs=[], records=[], settled=settled)
+    try:
+        if os.path.isfile(directory / RUN_RECORD) and not os.path.islink(directory / RUN_RECORD):
+            _run_findings(directory, known, settled)
+        elif os.path.lexists(directory / PARAMS_RECORD) and _own(directory, walk) is not None:
+            _decomposition_findings(directory, known, settled, withheld)
+    except ExposureError as exc:
+        return exc
+    return None
+
+
+def _for_a_person(path: str) -> str:
+    """``path`` as a register line can hold it: a name the disk does not spell in UTF-8 escaped."""
+    return path.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
+def settle_directory(
+    store: Path, role: Role, directory: Path, *, by: str, reason: str, given: str | None = None
+) -> None:
+    """Settle by hand a directory under the run roots that the register refuses: a person looked.
+
+    One line of its own (:class:`Settle`): the directory's identity, who, why and when, and for a
+    person who reads the register its path, as given (``given``, the words the person typed;
+    ``directory`` where none are) and as it resolved then. It marks no version. From then on,
+    while the directory is the one that was looked at (its identity and the parameters record in
+    it, :func:`_settle_key`), what of it cannot be read is passed over; what it shows is still
+    read. Another directory made at the same path, a copy, or a later decomposition into it is
+    not settled: the path recorded is never what settles. A version the person judges it may
+    have shown is marked by hand apart (:func:`mark_exposed`).
+
+    Refused for a directory that is not one (a link, or not there), one that lies outside every
+    run root of the role (or is a run root itself), and one the register refuses nothing for, or
+    for nothing a settle passes over (its read is told by its kind, so a settle that would pass
+    over nothing is never recorded).
+
+    Raises:
+        ExposureError: as said; or the register, the run roots or the version cannot be read.
+    """
+    _refuse_inside_a_session()
+    _who_and_why(by, reason)
+    if directory.is_symlink() or not directory.is_dir():
+        msg = "what a settle names is a directory of its own beneath the run roots"
+        raise _refuse("settle_names_no_directory", msg)
+    real = Path(os.path.realpath(directory))
+    if not any(real != root and real.is_relative_to(root) for root in run_roots(store, role)):
+        msg = (
+            "what a settle names lies beneath one of the role's run roots, and is not one: no "
+            "other directory is ever read by the register"
+        )
+        raise _refuse("settle_outside_the_run_roots", msg)
+    key = _settle_key(real)
+    known = versions(store, role)
+    withheld = withheld_root(store, role)
+    # As the register reads it now (settled already, it refuses nothing), and with this settle.
+    settled = _settled(store, role)
+    before = _refusal_of(real, known, settled, withheld)
+    after = _refusal_of(real, known, settled | {key}, withheld)
+    why = None
+    if before is None:
+        why = "the register refuses nothing in this directory"
+    elif not isinstance(before, _SettleableError):
+        why = f"what the register refuses here is no refusal a settle passes over: {before}"
+    elif after is not None:
+        why = f"settled, the register would still refuse it: {after}"
+    if why is not None:
+        msg = f"{why}; a settle is recorded only for a directory it makes readable"
+        raise _refuse("settle_refuses_nothing", msg)
+    payload = {
+        "kind": "settle",
+        "key": key,
+        "by": by.strip(),
+        "reason": reason.strip(),
+        "date": _today(),
+        # Said for a person; the key alone settles.
+        "given_path": _for_a_person(str(directory) if given is None else given),
+        "resolved_path": _for_a_person(str(real)),
+    }
+    try:
+        Settle.model_validate({**payload, "n": 0, "prev": _ZERO})
+    except ValidationError as exc:
+        msg = "the settle is not a line the register holds"
+        raise _refuse("hand_mark_not_a_line", msg) from exc
+    _append(withheld, REGISTER, [payload])
 
 
 def record_measurement(store: Path, role: Role, version: str, *, measured: str, key: str) -> int:
@@ -1557,6 +1709,44 @@ def add_run_root(store: Path, role: Role, root: Path) -> bool:
     return True
 
 
+#: How deep a round's prepared target may go beneath it: its clone lies three beneath the run root
+#: (``<round>/<iiii>-<n>/target``), and the walk refuses a directory deeper than
+#: :data:`MOST_DEPTH` beneath the root.
+PREPARED_TARGET_DEPTH = MOST_DEPTH - 3
+
+
+def prepared_target_refusal(target: Path) -> tuple[str, str] | None:
+    """Why a round's prepared target would make the register refuse, or read what is no record.
+
+    A trial's directory, prepared with its target's clone and not yet opened by its
+    decomposition's parameters record, is walked whole, clone and all: a directory nested deeper
+    than :data:`PREPARED_TARGET_DEPTH` beneath the target then refuses every reader of the
+    register, a measured trial's own ``decompose`` among them; and a file named as a run's, a
+    raw trial's or a decomposition's record anywhere in it is read as that record. A launch calls
+    this on the round's target before the round starts. ``None`` where neither holds; the reason
+    and its words otherwise (the record's place beneath the target is said, never its content).
+    """
+    from physgate.orchestrator.decompose import records_in
+
+    try:
+        deepest, found = records_in(target)
+    except OSError as exc:
+        return "target_unreadable", f"the target cannot be looked into whole: {exc}"
+    if deepest > PREPARED_TARGET_DEPTH:
+        return "target_too_deep", (
+            f"the target holds directories {deepest} deep beneath it, more than "
+            f"{PREPARED_TARGET_DEPTH}: a trial prepared with its clone, read before its "
+            "decomposition's first record, is walked whole, and the register refuses every reader"
+        )
+    if found is not None:
+        return "target_holds_a_record", (
+            f"the target holds {found}, which the register reads as a run's, a raw trial's or a "
+            "decomposition's record wherever it meets one: in a trial prepared and not yet "
+            "opened it would be read as one"
+        )
+    return None
+
+
 def _resolved(entry: str) -> Path:
     return Path(entry).resolve(strict=False)
 
@@ -1662,7 +1852,7 @@ def results_refusal(store: Path, role: Role, version: str) -> tuple[str, str] | 
         return "version_unknown", f"the role has no version {version[:_PREFIX]}"
     said = version[:_PREFIX]
     for line in register_lines(store, role):
-        if line.version == version and line.kind == "measurement":
+        if line.kind == "measurement" and line.version == version:
             return "version_measured", (
                 f"the register holds a measurement of the version {said}: what its check leaves "
                 "out would be chosen after a result of it exists"

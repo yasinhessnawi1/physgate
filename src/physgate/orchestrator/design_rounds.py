@@ -51,6 +51,7 @@ from physgate.orchestrator.decompose import (
 from physgate.orchestrator.decomposition_review import (
     record_held_out,
     review_over,
+    review_showed,
     review_spawned,
 )
 from physgate.orchestrator.endings import (
@@ -86,7 +87,7 @@ from physgate.orchestrator.exceptions import (
     RunStateError,
 )
 from physgate.orchestrator.plan import plan_bytes, plan_sha256
-from physgate.orchestrator.ports import RecordsSpawns
+from physgate.orchestrator.ports import RecordsShown, RecordsSpawns
 from physgate.orchestrator.protocols import MessageUsage, PlanReviewer, PlanUnderReview
 from physgate.orchestrator.queue import STREAM_NAME, plan_parts, round_parts
 from physgate.orchestrator.record import (
@@ -813,6 +814,10 @@ def decompose_in_rounds(
         reviewing[0].record_spawns(
             review_spawned(run_dir, review_root=review_root, canaries=config.held_out_canaries)
         )
+    if isinstance(reviewing[0], RecordsShown):
+        # What the review's own scan showed is made durable before its stream is redacted, beside
+        # its record: a kill before the round's end line then leaves it for every later reader.
+        reviewing[0].record_shown(review_showed(run_dir))
     last = replans(config.design_review) + 1
     earlier: list[EarlierRound] = []
     proposals: list[Proposal] = []
