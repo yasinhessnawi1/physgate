@@ -17,9 +17,11 @@ taken away. Read here, on the pinned release:
 - nothing is written into either root, and in the test's own folder nothing outside the
   session's temporary directory, its home and the module.
 - at commit, the three exports are regenerated from the committed schematic inside the tool
-  containment (bubblewrap on Linux): an honest set passes, a hand-edited clean report and stale
-  exports are refused, a project file that silences a rule changes nothing in the report, and
-  a schematic that draws on a sub-sheet is refused in words that say so.
+  containment (bubblewrap on Linux, a generated profile on macOS): an honest set passes, a
+  hand-edited clean report and stale exports are refused, a project file that silences a rule
+  changes nothing in the report, and a schematic that draws on a sub-sheet is refused in words
+  that say so. On macOS the profile lets the command read the system TLS library's settings
+  file, which kicad-cli's start needs, and no other of the system's settings.
 
 ``PHYSGATE_KICAD_ROOT`` and ``PHYSGATE_TOOL_ENVIRONMENT`` name the two provisioned roots
 (``toolenv/provision.py --dest ... --kicad-dest ...``) at this commit; without both, the rows
@@ -606,6 +608,30 @@ def test_a_schematic_that_draws_on_a_sub_sheet_is_refused_in_words_at_commit(
     refusal = _held(session, base, _commit(repo, "sub-sheet"))
     assert refusal is not None
     assert "sub-sheet" in refusal.reason  # type: ignore[attr-defined]
+
+
+def test_inside_the_wrapper_a_program_that_starts_the_tls_library_ends(tmp_path: Path) -> None:
+    # kicad-cli starts the system TLS library at every start, through curl; on macOS, denied its
+    # settings file, the library ends the program from inside that start and KiCad's exit
+    # handler spins for ever. The system's curl starts the same library the same way, with no
+    # KiCad: denied the file, it ends with an error. Linux's library reads no settings file it
+    # does not find, and the Linux wrapper holds none.
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    wrapper = regeneration.wrapper_on(os.environ.get("PATH", "")) if LINUX else None
+    run = regeneration.contained_runner(platform=sys.platform, bwrap=wrapper, withheld=lambda: ())
+    work = Path(os.path.realpath(tmp_path)) / "work"
+    work.mkdir()
+    plain = {"PATH": "/usr/bin:/bin"}
+    curl = "/usr/bin/curl"
+    assert os.path.isfile(curl), f"this machine has no {curl}"
+    assert run([curl, "--version"], work, plain, 30.0, ())[0] == 0
+    if LINUX:
+        return
+    settings = regeneration.MACOS_TLS_CONFIGURATION
+    assert run(["/bin/cat", settings], work, plain, 30.0, ())[0] == 0
+    # And no other of the system's settings: the file alone is read.
+    assert os.path.isfile("/private/etc/hosts")
+    assert run(["/bin/cat", "/private/etc/hosts"], work, plain, 30.0, ())[0] != 0
 
 
 @pytest.mark.skipif(not LINUX, reason="the wrapper that ends a whole tree is Linux's bubblewrap")
