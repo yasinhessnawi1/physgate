@@ -39,8 +39,9 @@ waits for the account's usage limit; 77 while it waits for a person (a refused c
 replace, or a trial's directory to set aside); 1 with ``refused_because`` and the reason in words
 when it is refused or stopped. 75 and 77 are states, not waits: the command returns at once, and
 its line's ``waiting`` names the trial and why, and for the limit ``resume_after`` (the instant
-after which it goes on with no word) and ``word_helps``. A wrapper sleeps until ``resume_after``
-between turns, and never puts ``--limit-reset`` in a loop: each word given before the reset makes
+after which it goes on with no word: never an instant already past, where the reset passed before
+it was read the floor from now, marked ``floor``) and ``word_helps``. A wrapper sleeps until
+``resume_after`` between turns, and never puts ``--limit-reset`` in a loop: each word given before the reset makes
 one more call, clone and directory. A person's word given to a round that waits for none is
 refused.
 

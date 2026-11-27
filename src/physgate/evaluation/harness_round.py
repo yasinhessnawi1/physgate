@@ -130,7 +130,7 @@ import sys
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, Protocol, get_args
 
@@ -181,7 +181,7 @@ from physgate.evaluation.tiers.task import (
     parse_task,
 )
 from physgate.orchestrator.accounting import TokenAccount
-from physgate.orchestrator.common import utc_now
+from physgate.orchestrator.common import utc_now, utc_stamp
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decomposition_review import stop_left_review
 from physgate.orchestrator.design_rounds import journal_spend, rounds_on_the_limit
@@ -192,7 +192,7 @@ from physgate.orchestrator.record import RunRecord
 from physgate.orchestrator.review_root_record import RECORD_NAME as REVIEW_ROOT_RECORD
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.orchestrator.stop_signals import remove_left_credentials
-from physgate.orchestrator.usage_limit import UsageLimit, resume_after, resume_refusal
+from physgate.orchestrator.usage_limit import UsageLimit, resume_after, resume_refusal, stamped
 from physgate.orchestrator.waiting import EXIT_WAITING_FOR_LIMIT, limit_wait
 from physgate.reviewers.exceptions import ReviewRootError
 from physgate.reviewers.places import require_review_root, review_root_path
@@ -250,6 +250,11 @@ EXIT_DONE_WITHOUT_CAPS = 3
 CREDENTIAL_REFUSED = "credential_refused"
 #: The cause the account's usage limit is recorded under, as a halt's reason and a call's cause.
 USAGE_LIMIT = "usage_limit"
+#: The least a round waiting for the usage limit says to wait: where the instant after which it
+#: goes on is already past (the reset the client gave passed before the halt was read) or none
+#: was read, the command says this long from now, so a wrapper that sleeps until the instant it
+#: is told never starts again at once against an account that still refuses.
+LIMIT_WAIT_FLOOR = timedelta(minutes=5)
 #: The cause of a decomposition that spent its call and left no run, where no void is recorded.
 KILLED = "killed"
 #: The scorer: the task and the answer's path; the score.
@@ -1195,6 +1200,8 @@ def _go(
         for planned in ctx.order:
             current[0] = planned
             status = _trial(ctx, planned)
+            if status == "waiting_for_limit":
+                _said_wait(ctx, planned)
             if status in ("waiting_for_limit", "waiting_for_a_person"):
                 # Said where a wrapper reads it, as well as printed: which trial, and until when.
                 _write_whole(inputs.out / ROUND_RECORD, canonical_json(_summary(ctx, done=False)))
@@ -1741,6 +1748,26 @@ def _limit_holds(ctx: _Round, planned: _Planned, run_dir: Path, *, word: bool) -
         "word_helps": limit_wait(run_dir, now, limit_reset=True) is None,
     }
     return True
+
+
+def _said_wait(ctx: _Round, planned: _Planned) -> None:
+    """Make sure the round's wait for the limit says a trial and an instant still to come.
+
+    A wait whose instant is already past, or that names none (the drive exited waiting where
+    the core, read now, would already resume), says :data:`LIMIT_WAIT_FLOOR` from now instead,
+    and that it is the floor; one to come is said as read.
+    """
+    now = ctx.now()
+    waiting = ctx.waiting or {
+        "index": planned.index,
+        "why": USAGE_LIMIT,
+        "resume_after": None,
+        "word_helps": False,
+    }
+    after = waiting.get("resume_after")
+    if after is None or stamped(after) <= now:
+        waiting = {**waiting, "resume_after": utc_stamp(now + LIMIT_WAIT_FLOOR), "floor": True}
+    ctx.waiting = waiting
 
 
 def _past_the_limit(
