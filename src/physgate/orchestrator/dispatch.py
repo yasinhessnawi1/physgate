@@ -2571,6 +2571,9 @@ class ClaudeDispatcher:
                 session_id,
                 repo=self._run.repo,
                 replaces=self._superseded(worktree, request),
+                # What the clearing could not look below cannot be staged safely either: the
+                # attempt keeps a commit that stages nothing, and is refused for that clearing.
+                stage=cleared.complete,
             )
             if end.outcome == "completed"
             else None

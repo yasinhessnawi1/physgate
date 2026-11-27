@@ -250,6 +250,41 @@
     ]
   },
   {
+    "name": "an_incomplete_clearing_still_stages",
+    "file": "src/physgate/orchestrator/dispatch.py",
+    "old": "                stage=cleared.complete,\n",
+    "new": "                stage=True,\n",
+    "tests": [
+      "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_session_s_hooks_never_fork_the_run_s_own_records.py"
+    ]
+  },
+  {
+    "name": "a_commit_that_stages_nothing_still_walks",
+    "file": "src/physgate/orchestrator/git.py",
+    "old": "    if stage:\n        nested = nested_git(worktree)\n",
+    "new": "    if True:\n        nested = nested_git(worktree)\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "a_commit_that_stages_nothing_takes_the_index",
+    "file": "src/physgate/orchestrator/git.py",
+    "old": "    how: tuple[str, ...] = () if stage else (\"--only\",)\n",
+    "new": "    how: tuple[str, ...] = ()\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
     "name": "baseline_last",
     "file": "src/physgate/orchestrator/left_out.py",
     "old": "",

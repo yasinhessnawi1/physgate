@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import stat
 import subprocess
 import sys
@@ -29,9 +30,12 @@ from test_a_session_s_hooks_never_fork_the_run_s_own_records import MODEL, SESSI
 
 from physgate.evaluation.per_role.arms import raw
 from physgate.orchestrator import decompose, dispatch, invocation
+from physgate.orchestrator.apply import LEFT_OUT_INCOMPLETE, GitChangeChecker
 from physgate.orchestrator.dispatch import ClaudeDispatcher
+from physgate.orchestrator.exceptions import GitError
 from physgate.orchestrator.git import merge_base
 from physgate.orchestrator.invocation import isolated_env
+from physgate.orchestrator.ports import SessionReport
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.reviewers import claude as reviewers
 from physgate.series.seal import AttemptBytecode, AttemptSeries, Bytecode
@@ -171,6 +175,78 @@ def test_a_role_session_finds_the_variable_and_leaves_nothing_of_scratch_or_byte
     assert [b.path for b in planted] == ["elsewhere/__pycache__/base.cpython-312.pyc"]
     assert planted[0].sha256 is not None and planted[0].length
     assert report.series.bytecode_found == len(report.series.bytecode)
+
+
+#: Inserted the same way: the stand-in leaves a directory outside its module that no one can list.
+LOCKS = r"""
+if MODE == "locked":
+    os.makedirs("elsewhere/locked", exist_ok=True)
+    os.chmod("elsewhere/locked", 0)
+"""
+
+
+class LockedRun(Run):
+    """The rig's run, its stand-in leaving a directory that cannot be listed."""
+
+    def __init__(self, tmp_path: Path) -> None:
+        super().__init__(tmp_path, "locked")
+        marker = 'os.makedirs("modules/power", exist_ok=True)'
+        prelude = f"FLAGS = {str(self.flags)!r}\nMODE = 'locked'\nMODEL_NAME = {MODEL!r}\n"
+        self.binary.write_text(
+            f"#!{sys.executable}\n{prelude}{SESSION.replace(marker, LOCKS + marker, 1)}"
+        )
+        self.binary.chmod(self.binary.stat().st_mode | stat.S_IXUSR)
+
+
+def _unlock(root: Path) -> None:
+    """Let the row's directory be removed again: what the stand-in locked, wherever it lies."""
+    for directory, names, _files in os.walk(root):
+        for name in names:
+            if name == "locked":
+                (Path(directory) / name).chmod(0o700)
+
+
+def test_a_directory_left_that_cannot_be_listed_refuses_the_attempt_and_stops_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    run = LockedRun(tmp_path)
+    dispatcher: ClaudeDispatcher = run.dispatcher(monkeypatch)
+    try:
+        try:
+            ran: object = dispatcher.run(run.request(), run.spawned)
+        except GitError as exc:
+            ran = exc
+        # The session's end raises nothing: before, the commit's walk raised on the directory.
+        assert isinstance(ran, SessionReport), ran
+        report = ran
+        # The session's end clearing could not look below it, so it says so.
+        assert report.series.left_out_incomplete, report.series
+        ended = json.loads((run.session_dir() / "left_out.json").read_text())
+        assert [path for path, _ in ended["refused"]] == ["elsewhere/locked"]
+        # The attempt still has its commit, which stages nothing the session left, and the change
+        # check refuses it in closed words before its gate.
+        commit = report.attempt_commit
+        assert commit is not None, report.end
+        repo = run.run.repo
+        since = merge_base(repo, run.run.run_branch, commit)
+        changed = subprocess.run(
+            ["git", "diff", "--name-only", since, commit],
+            cwd=repo,
+            env=base.GITENV,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        assert changed == []
+        graph = run.run.run_dir / "graph"
+        graph.mkdir(parents=True, exist_ok=True)
+        check = GitChangeChecker(run.run, graph, {"s1": "modules/power"}).check(
+            "s1", commit, "electrical", series=report.series
+        )
+        assert check.refused_by == "series"
+        assert check.reason == LEFT_OUT_INCOMPLETE
+    finally:
+        _unlock(tmp_path)
 
 
 def test_the_review_s_series_listing_names_each_bytecode_file_a_session_left(

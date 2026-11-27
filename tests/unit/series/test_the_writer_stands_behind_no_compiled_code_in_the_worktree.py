@@ -69,7 +69,11 @@ def test_a_compiled_file_beside_its_source_refuses_the_record(tmp_path: Path) ->
     source.with_suffix(".pyc").write_bytes(_planted_pyc(source))
     done = run(write_script(base))
     assert done.returncode != 0
-    assert "compiled code lies at modules/control/helper.pyc" in done.stderr.replace("\n", " ")
+    said = done.stderr.replace("\n", " ")
+    assert "compiled code lies at modules/control/helper.pyc" in said
+    # What the session is to do, since an interpreter started with -E or -I writes such files.
+    assert "remove that compiled file and run the script again" in said, said
+    assert "not with -E or -I" in said, said
     assert _outbox(base) == []
 
 

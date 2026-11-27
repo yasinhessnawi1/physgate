@@ -923,3 +923,51 @@ def test_a_python_import_across_modules_leaves_the_attempt_s_commit_clean(
     assert (worktree / "modules" / "control" / "__pycache__").is_dir(), told[4]
     assert _committed(layout) == ["modules/control/law.py", "modules/power/run.py"]
     assert not (worktree / "modules" / "control" / "__pycache__").exists()
+
+
+#: The helper, saying also where its interpreter keeps a cache: ``None`` is beside each source.
+SAYS_PREFIX = (
+    "import sys\n"
+    "sys.path.insert(0, 'modules/control')\n"
+    "import law\n"
+    "print('gain', law.gain(), 'bytecode off', sys.flags.dont_write_bytecode,"
+    " 'prefix', sys.pycache_prefix)\n"
+)
+
+
+@pytest.mark.usefixtures("layer")
+def test_an_interpreter_with_no_cache_prefix_writes_no_bytecode_beside_what_it_imports(
+    layout: Layout,
+) -> None:
+    # The system's Python on macOS keeps a cache prefix of its own, so a row on it would find no
+    # bytecode in the worktree whatever the session was told. This interpreter has none: it
+    # would cache beside each source, and only the variable the session is given keeps it from
+    # doing so. The same script started with -E, which ignores the environment, writes it.
+    worktree = Path(os.path.realpath(layout.worktree))
+    interpreter = sys.executable
+    steps = [
+        tool("Write", file_path=f"{worktree}/modules/control/law.py", content=LAW),
+        tool("Write", file_path=f"{worktree}/modules/power/run.py", content=SAYS_PREFIX),
+        tool(
+            "Bash",
+            command=f"cd {worktree} && {interpreter} modules/power/run.py",
+            description="run",
+        ),
+        tool("Bash", command=f"cd {worktree} && ls modules/control", description="list"),
+        tool(
+            "Bash",
+            command=f"cd {worktree} && {interpreter} -E modules/power/run.py",
+            description="run ignoring the environment",
+        ),
+        tool("Bash", command=f"cd {worktree} && ls modules/control", description="list again"),
+    ]
+    run = run_session(layout, steps, layer=True)
+    told = run["told"]
+    assert isinstance(told, list)
+    assert "gain 2 bytecode off 1 prefix None" in str(told[2]), told
+    assert "__pycache__" not in str(told[3]), told[3]
+    # The control: the same interpreter, told nothing by the environment, caches beside law.py.
+    assert "gain 2 bytecode off 0 prefix None" in str(told[4]), told
+    assert "__pycache__" in str(told[5]), told[5]
+    assert _committed(layout) == ["modules/control/law.py", "modules/power/run.py"]
+    assert not (worktree / "modules" / "control" / "__pycache__").exists()

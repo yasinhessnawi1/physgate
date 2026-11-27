@@ -85,8 +85,9 @@ def test_a_run_recorded_before_the_flag_reads_as_off_with_its_digest_unchanged(
     assert loaded.parts_on_hand == "off"
     assert loaded.sha256() == config.sha256()
     # The digest of this configuration as recorded before the flag existed, with the search tool
-    # offered, as every run recorded before that field existed reads.
-    plain = make_config(harness=CLEAN_HARNESS, tool_search="offered")
+    # offered and its sessions' Python writing bytecode, as every run recorded before those
+    # fields existed reads.
+    plain = make_config(harness=CLEAN_HARNESS, tool_search="offered", python_bytecode="written")
     assert plain.sha256() == "c1f3ab6192f60f8c1a81549b0386a23895b0e3984fe596557e3d7583befdb6d3"
 
 

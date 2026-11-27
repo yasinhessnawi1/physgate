@@ -227,6 +227,7 @@ def commit_attempt(
     *,
     repo: Path,
     replaces: str | None = None,
+    stage: bool = True,
 ) -> str:
     """The orchestrator's commit of whatever a session left in its worktree.
 
@@ -238,6 +239,10 @@ def commit_attempt(
     The session's scratch folder and bytecode are never part of the attempt
     (:mod:`~physgate.orchestrator.left_out`): removed from the worktree first, and left out of
     what is staged, so the commit holds neither even where a removal failed.
+
+    ``stage`` off is for a session whose end clearing was not complete (a directory that cannot
+    be listed among what it left): the commit stages nothing and holds the head's tree, so the
+    attempt still has its commit, and its change check refuses it in fixed words.
     """
     message = attempt_message(subtask_id, attempt, session_id)
     clear_left_out(worktree, repo=repo)
@@ -248,6 +253,7 @@ def commit_attempt(
         common=common_dir(repo),
         replaces=replaces,
         leave_out=LEFT_OUT_OF_THE_COMMIT,
+        stage=stage,
     )
 
 

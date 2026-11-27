@@ -1010,6 +1010,7 @@ def commit_all(
     common: Path | None = None,
     replaces: str | None = None,
     leave_out: tuple[str, ...] = (),
+    stage: bool = True,
 ) -> str:
     """Stage everything in ``worktree`` and commit it, even if nothing changed.
 
@@ -1029,26 +1030,32 @@ def commit_all(
     ``replaces`` is the commit at the head the new one takes the place of, on its parent; it is
     refused unless the head is still that commit. ``leave_out`` are exclude pathspecs: what they
     match is not staged, so the commit holds it as the head did.
+
+    ``stage`` off stages nothing and commits the head's tree, disregarding the index
+    (``--only`` with no path): for a worktree whose contents cannot all be checked, whose
+    attempt is refused all the same. Nothing is then staged, so no nested repository is opened,
+    and the worktree is not walked.
     """
     admin = verified_git_dir(worktree, linked=linked, common=common)
-    nested = nested_git(worktree)
-    if nested is not None:
-        msg = "the worktree holds a git repository of its own, which staging would open"
-        raise GitError(msg, cwd=str(worktree), path=str(nested))
-    git(worktree, "add", "--all", *(("--", *leave_out) if leave_out else ()), git_dir=admin)
-    amend: tuple[str, ...] = ()
+    if stage:
+        nested = nested_git(worktree)
+        if nested is not None:
+            msg = "the worktree holds a git repository of its own, which staging would open"
+            raise GitError(msg, cwd=str(worktree), path=str(nested))
+        git(worktree, "add", "--all", *(("--", *leave_out) if leave_out else ()), git_dir=admin)
+    how: tuple[str, ...] = () if stage else ("--only",)
     if replaces is not None:
         head = git(worktree, "rev-parse", "--verify", "HEAD^{commit}", git_dir=admin).strip()
         if head != replaces:
             msg = "the commit to be replaced is no longer the worktree's head"
             raise GitError(msg, cwd=str(worktree), head=head, replaces=replaces)
-        amend = ("--amend", "--reset-author")
+        how += ("--amend", "--reset-author")
     git(
         worktree,
         "commit",
         "--quiet",
         "--allow-empty",
-        *amend,
+        *how,
         "--file",
         "-",
         stdin=message,

@@ -505,7 +505,9 @@ def _compiled_in_place(base: str) -> str | None:
                 return (
                     f"compiled code lies at {_shown(place, base)}, where the interpreter reads it "
                     f"in place of {shown}'s source, so that source may not be the code that ran; "
-                    "remove it and run the script again, with bytecode off"
+                    "remove that compiled file and run the script again with the plain python3 "
+                    "the session is given, or python3 -B, and not with -E or -I, which ignore "
+                    "the variable that keeps it from writing compiled files"
                 )
     return None
 

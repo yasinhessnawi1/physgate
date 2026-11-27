@@ -461,6 +461,26 @@ def test_a_directory_that_cannot_be_listed_is_recorded_and_refuses_the_attempt(
     assert check.reason == getattr(apply_module, "LEFT_OUT_INCOMPLETE", None)
 
 
+def test_a_commit_that_stages_nothing_holds_the_head_s_tree_whatever_the_worktree_holds(
+    tmp_path: Path,
+) -> None:
+    # The commit of a session whose end clearing was not complete: nothing it left is staged,
+    # not even what it staged itself, and a directory no one can list does not stop the commit.
+    run, worktree = _run(tmp_path)
+    _write(worktree, {f"{MODULE}/a.py": "x = 2\n", "elsewhere/locked/x.py": "y = 1\n"})
+    _git(worktree, "add", f"{MODULE}/a.py")
+    locked = worktree / "elsewhere" / "locked"
+    locked.chmod(0o000)
+    try:
+        made: object = commit_attempt(worktree, SUBTASK, 1, "session-1", repo=run.repo, stage=False)
+    except Exception as exc:  # noqa: BLE001 - the row asserts on what it got
+        made = exc
+    finally:
+        locked.chmod(0o700)
+    assert isinstance(made, str), made
+    assert _changed(run, made) == []
+
+
 def test_bytecode_the_run_branch_tracks_is_kept_and_a_change_to_it_left_out(
     tmp_path: Path,
 ) -> None:
