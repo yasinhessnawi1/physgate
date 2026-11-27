@@ -22,6 +22,7 @@ running for real is the integration rows'.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -124,6 +125,65 @@ def test_on_macos_every_withheld_place_is_denied_to_every_read(
         i for i, line in enumerate(lines) if os.path.realpath(inside) in line and "deny" in line
     )
     assert denied > allowed
+
+
+def test_on_macos_the_command_reads_the_tls_library_s_settings_and_nothing_else_of_etc(
+    tmp_path: Path, started: Started
+) -> None:
+    # Denied, the system TLS library ends kicad-cli from inside its start, and the program's
+    # own exit handler then spins for ever: the integration rows' regeneration never ended.
+    root, inside, beside = _places(tmp_path)
+    _run("darwin", tmp_path, [str(inside), str(beside)], [str(root)])
+    (profile,) = started.profiles
+    settings = regeneration.MACOS_TLS_CONFIGURATION
+    assert settings == "/private/etc/ssl/openssl.cnf"
+    reads = next(line for line in profile.splitlines() if line.startswith("(allow file-read* "))
+    assert f'(subpath "{settings}")' in reads, reads
+    etc = sorted(set(re.findall(r'"(/private/etc/[^"]*)"', profile)))
+    assert etc == ["/private/etc/localtime", settings], etc
+    runs = next(line for line in profile.splitlines() if line.startswith("(allow process-exec "))
+    assert settings not in runs
+    _run("linux", tmp_path, [str(inside), str(beside)], [str(root)])
+    assert "openssl" not in " ".join(started.commands[-1])
+
+
+def test_a_withheld_place_that_holds_the_tls_library_s_settings_refuses_on_macos(
+    tmp_path: Path, started: Started
+) -> None:
+    root, _inside, _beside = _places(tmp_path)
+    with pytest.raises(ContainmentError) as caught:
+        _run("darwin", tmp_path, ["/private/etc/ssl"], [str(root)])
+    assert str(caught.value) == regeneration.UNCONTAINED
+    assert started.commands == []
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_the_command_s_own_folder_inside_a_place_withheld_from_sessions_is_still_its_own(
+    platform: str, tmp_path: Path, started: Started
+) -> None:
+    # The harness keeps its temporary files in a place every session is withheld, and the
+    # command's folder is made there: withheld too, it is the one place opened again.
+    harness = tmp_path / "harness-temps"
+    work = harness / "physgate-derived-x"
+    work.mkdir(parents=True)
+    root = tmp_path / "tools"
+    root.mkdir()
+    run = regeneration.contained_runner(
+        platform=platform, bwrap=BWRAP, withheld=lambda: (str(harness),)
+    )
+    run([str(root / "python"), "-I", "-c", "pass"], work, {}, 5.0, [str(root)])
+    (command,) = started.commands
+    own = os.path.realpath(work)
+    if platform == "darwin":
+        lines = started.profiles[-1].splitlines()
+        denied = next(i for i, line in enumerate(lines) if line.startswith("(deny file-read*"))
+        assert lines[-1] == f'(allow file-read* (subpath "{own}"))', lines[-1]
+        assert denied < len(lines) - 1
+        assert any(line.startswith("(allow file-write*") and own in line for line in lines)
+    else:
+        pairs = list(zip(command, command[1:], strict=False))
+        assert ("--bind", own) in pairs, command
+        assert ("--tmpfs", os.path.realpath(harness)) not in pairs, command
 
 
 @pytest.mark.parametrize("platform", ["linux", "darwin"])

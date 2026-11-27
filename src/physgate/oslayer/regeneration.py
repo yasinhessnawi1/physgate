@@ -8,7 +8,8 @@ The change check reads only the first: what the command wrote is under the contr
 it ran, so nothing of it is quoted where a session, a reviewer or a person reads. It names no
 tool: the argument list is the record's.
 
-The command reads only the recorded roots (and the system's own places), writes only the folder
+The command reads only the recorded roots (and the system's own places; on macOS the system TLS
+library's settings file too, :data:`MACOS_TLS_CONFIGURATION`), writes only the folder
 made for the call, and has no network: on Linux bubblewrap, on macOS ``sandbox-exec`` with a
 profile generated for the call and written outside that folder. It is withheld, each whole, every
 place it is given as withheld (the dispatcher's, at least what every role session of the run is
@@ -69,6 +70,17 @@ from physgate.oslayer.policy import board_devices
 
 #: The Linux wrapper, by name; found on the search path's absolute folders only.
 WRAPPER = "bwrap"
+#: The one file of the system's configuration the command reads on macOS, beside the system's
+#: libraries: the system TLS library's own settings (LibreSSL), read when a program starts that
+#: library. KiCad's command line starts it at every start, through curl, before it reads its
+#: arguments. Denied, the library ends the program from inside that start, and KiCad's handler
+#: at the end then spins for ever on the lock that start still holds: the command never ends and
+#: every schematic's exports would be refused as timed out. A session's own commands read it
+#: (their layer denies reads by name, and names none of the system's settings); the command reads
+#: it and nothing else beneath ``/private/etc`` but the clock. A read root, so a withheld place
+#: that holds it refuses the call as a root inside one would. Linux's library reads no settings
+#: file it does not find, and the Linux wrapper is left as it is.
+MACOS_TLS_CONFIGURATION = "/private/etc/ssl/openssl.cnf"
 #: The most of a regeneration's error stream that is kept: its end.
 MAX_SAID_BYTES = 4096
 #: The most a regeneration may write to its error stream; past it, it is ended and refused.
@@ -190,7 +202,7 @@ def contained_runner(
                         devices=board_devices(platform),
                         command=argv[0],
                         exec_roots=roots,
-                        read_roots=roots,
+                        read_roots=(*roots, MACOS_TLS_CONFIGURATION),
                     )
                 except ContainmentError:
                     raise ContainmentError(UNCONTAINED) from None

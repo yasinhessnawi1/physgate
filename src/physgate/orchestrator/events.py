@@ -2275,6 +2275,20 @@ class WorktreeRemoved(_Event):
     detail: NonEmptyStr | None
 
 
+class CredentialReplaced(BaseModel):
+    """A person's word that a run halted on a refused credential goes on on another secret.
+
+    Given on the command line: the fingerprint the run drew on before, the one it draws on now,
+    and who said it.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    was: Annotated[str, Field(pattern=r"^[0-9a-f]{12}$")]
+    now: Annotated[str, Field(pattern=r"^[0-9a-f]{12}$")]
+    by: NonEmptyStr
+
+
 class Resumed(_Event):
     """A process took the run over from one that stopped, at a checkpoint of the attempt.
 
@@ -2289,6 +2303,9 @@ class Resumed(_Event):
     #: The operator who said on the command line that the account's usage limit has reset, for a
     #: resume of a run waiting on a limit whose reset could not be read.
     limit_reset_by: NonEmptyStr | None = None
+    #: The person's word that the run, halted on a refused credential, goes on on another secret:
+    #: both fingerprints and who said it. From this line on the run draws on the new one.
+    credential_replaced: CredentialReplaced | None = None
 
     @model_serializer(mode="wrap")
     def _omit_no_word(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -2296,6 +2313,8 @@ class Resumed(_Event):
         data: dict[str, Any] = handler(self)
         if self.limit_reset_by is None:
             data.pop("limit_reset_by", None)
+        if self.credential_replaced is None:
+            data.pop("credential_replaced", None)
         return data
 
 

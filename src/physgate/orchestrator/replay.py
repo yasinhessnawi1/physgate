@@ -220,7 +220,8 @@ class AttemptState:
     review: ReviewRan | None = None
     #: The review stage's line under ``reviewers: off``: no reviewer ran, and none was asked.
     skipped: ReviewSkipped | None = None
-    #: A review that was not a verdict: retried once for infrastructure, otherwise final.
+    #: A review that was not a verdict: retried for infrastructure (at once, then along the run's
+    #: ladder, then the run halts), otherwise final.
     unavailable: list[ReviewUnavailable] = field(default_factory=list)
     rejected: AttemptRejected | None = None
     merged: Merged | None = None
@@ -990,8 +991,13 @@ class RunState:
             open_ = now.cursor == "review" and now.review is None
             self._expect(open_ and now.unavailable_final is None, "an unavailable review")
             self._expect(self.reviewers != "off", "a review under reviewers: off")
+            # A review the machine ended is retried at once and then along the run's ladder, so
+            # more than one retry line is a machine end's; any other cause is never retried twice.
             retried = any(u.retry for u in now.unavailable)
-            self._expect(not (event.retry and retried), "a second retry of a review")
+            machine = event.cause == "infrastructure"
+            self._expect(
+                not (event.retry and retried and not machine), "a second retry of a review"
+            )
             now.unavailable.append(event)
             if now.unavailable_final is not None:
                 self._ended(sub, now)
