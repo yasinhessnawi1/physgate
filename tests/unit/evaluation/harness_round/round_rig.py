@@ -84,6 +84,7 @@ from physgate.orchestrator.exceptions import (  # noqa: E402
     LimitNotResetError,
     ModelSeparationError,
     OrchestratorError,
+    ReviewUnavailableError,
     RunConfigError,
     RunStateError,
 )
@@ -319,8 +320,9 @@ class StandInDriver:
     #: the decompositions killed once the call wrote its stream; killed during the review, the
     #: review's session left running (and its stream holding ``review_shows`` where given); whose
     #: review errs (``invocation_error`` or ``model_separation``, a void; an invocation error with
-    #: ``review_shows`` given after its session wrote it and ended); whose run cannot be started (a
-    #: void after the round's end line).
+    #: ``review_shows`` given after its session wrote it and ended; ``credential_refused``, the
+    #: review's session ended by a refused credential, which a mode that holds the plan ends void
+    #: on); whose run cannot be started (a void after the round's end line).
     killed_after_call: set[int] = field(default_factory=set)
     killed_in_review: set[int] = field(default_factory=set)
     review_shows: str | None = None
@@ -641,6 +643,24 @@ class PlanReview:
         if error == "model_separation":
             msg = "a reviewer may not run on the designer's model"
             raise ModelSeparationError(msg)
+        if error == "credential_refused":
+            # The review's session ended on an API error the credential's refusal gave: no verdict
+            # and the instrument's, as the reviewer reads it, with the session's own cause beside.
+            spent = Usage(
+                input_tokens=3,
+                output_tokens=0,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            )
+            msg = "the session ended with credential_refused"
+            raise ReviewUnavailableError(
+                msg,
+                cause="infrastructure",
+                session_id=session_id,
+                reviewer_model=PLAN_REVIEWER,
+                usage=(MessageUsage(message_id=f"r{self.n}", usage=spent),),
+                session_cause="credential_refused",
+            )
         usage = Usage(
             input_tokens=5,
             output_tokens=5,
@@ -722,6 +742,15 @@ class Rig:
         }
         fields.update(changes)
         return Inputs(**fields)
+
+    def arm_params(self, name: str = "reviewers_off", **changes: Any) -> Path:  # noqa: ANN401
+        """An ablation arm's parameters: the round's, as an ablation run with its reviewers off."""
+        fields: dict[str, Any] = json.loads(self.params.read_bytes())
+        fields.update(ablation=True, reportable=False, reviewers="off")
+        fields.update(changes)
+        path = self.root / f"params.{name}.json"
+        path.write_text(json.dumps(fields))
+        return path
 
     def task(self, tier: str = "visible") -> Task:
         """The first task of ``tier`` in the round's order: by its brief's digest."""

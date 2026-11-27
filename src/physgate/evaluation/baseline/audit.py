@@ -115,6 +115,7 @@ KINDS = (
     "control",
     "gate",
     "review",
+    "ablation",
     "count",
     "sessions",
     "answered_by",
@@ -131,6 +132,9 @@ FIELD_KINDS = {
     "control": "control",
     "gate": "gate",
     "review": "review",
+    # An ablation trial's mark, read again from its run's own configuration: a record that
+    # lost it, or a measured trial's that gained one, differs by it.
+    "ablation": "ablation",
 }
 
 Arm = Literal["raw", "harness"]

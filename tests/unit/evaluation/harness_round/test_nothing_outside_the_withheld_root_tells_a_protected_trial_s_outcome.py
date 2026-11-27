@@ -111,7 +111,7 @@ def test_one_protected_place_taken_on_alone_tells_nothing_of_how_it_ended(
     shown, seen = _visible(passed), _visible(other)
     for said in (first, second, shown["summary"], seen["summary"]):
         said["trial"] = {k: v for k, v in said["trial"].items() if k != "runs"}
-        assert said["trial"] == {"index": 0}
+        assert said["trial"] == {"arm": "harness", "index": 0}
     assert seen == shown
     assert _printed(second) == _printed(first)
 
