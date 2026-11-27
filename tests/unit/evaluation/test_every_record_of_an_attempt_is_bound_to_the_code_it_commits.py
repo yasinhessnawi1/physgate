@@ -5,7 +5,7 @@ loaded. The change check holds each of those files to the attempt commit: commit
 exactly the path the record names, as a regular file, with the bytes the record was collected
 with. That holds for every record of the attempt, a record sealed by a session that ended for
 infrastructure included, and for loaded code as for the script: code the attempt does not
-commit (ignored, or never added) cannot stand behind a curve. A loaded file changed after the
+commit (ignored, or never added) is not code a record may name. A loaded file changed after the
 record was written refuses the record when it is collected.
 
 A record whose module code changed, or was deleted or renamed, after it was written is

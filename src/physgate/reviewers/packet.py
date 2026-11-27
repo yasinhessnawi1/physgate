@@ -41,10 +41,14 @@ The export and the diff leave out the attempt's disputes (``orchestrator.dispute
 dispute is a role's position for a person to arbitrate, recorded on the run's log, and the
 reviewer judges the work without another session's free text in it.
 - ``series-NN-of-MM.md``: for an attempt that sealed or discarded simulation records
-  or named one from a graph quantity, the harness's listing of them
-  (``series.summary``): each record summarised from its own samples, read back held to
-  its seal; each discarded record by its name, reason and seal, as no evidence; and each
-  quantity's check against the record it names. Absent for an attempt with none.
+  or named one from a graph quantity, or whose sessions' ends found bytecode or a scratch
+  folder's files, the harness's listing of them (``series.summary``): what a record claims
+  about the code behind it (the files its session's own process reported, a process that was
+  the session's, with no re-run of the script by the harness); each record summarised from its
+  own samples, read back held to its seal, and marked not vouched for where compiled code lay
+  beside a file it names; each discarded record by its name, reason and seal, as no evidence;
+  the bytecode and the scratch folder's files by path and digest; and each quantity's check
+  against the record it names. Absent for an attempt with none.
 - ``spec_as_issued.md``: the module specification exactly as the decomposition
   issued it, read from the commit that issued it. The attempt can edit its own
   specification, and the worktree's copy then says what the attempt made it say;
@@ -1618,15 +1622,16 @@ def _series_listing(artefact: Artefact) -> bytes | None:
     """The attempt's series listing, or ``None`` for an attempt with no records and no checks.
 
     A record a session discarded counts: an attempt whose only record was discarded is given
-    the listing, so its reviewer is shown that record as no evidence. So does bytecode a session
-    left in its worktree: the reviewer is shown each file by its path and digest.
+    the listing, so its reviewer is shown that record as no evidence. So does bytecode a session's
+    end found, and what a session left in its scratch folder: the reviewer is shown each file by
+    its path and digest.
 
     Raises:
         PacketError: a record is gone or is not what was sealed when its session ended.
     """
     series = artefact.series
     if series is None or not (
-        series.records or series.checks or series.discarded or series.bytecode
+        series.records or series.checks or series.discarded or series.bytecode or series.scratch
     ):
         return None
     try:

@@ -133,7 +133,14 @@ def _series(run_dir: Path) -> AttemptSeries:
 def test_the_listing_keeps_every_byte_it_had(tmp_path: Path) -> None:
     written = summary.listing(_series(tmp_path))
     assert written.count(b"\n## ") == len(_records()), "a listing of fewer records proves less"
-    assert written == GOLDEN.read_bytes()
+    # One paragraph is new since the golden was written: what a record claims about the code
+    # behind it, said once under the count of records. Every other byte is as it was.
+    limits = getattr(summary, "LIMITS", None)
+    assert limits is not None, "the listing says nowhere what a record claims"
+    golden = GOLDEN.read_bytes()
+    count = b"\nRecords sealed: 4.\n\n"
+    assert golden.count(count) == 1
+    assert written == golden.replace(count, count + limits.encode() + b"\n")
 
 
 def test_the_reader_names_its_identifier_patterns_publicly_and_unchanged() -> None:

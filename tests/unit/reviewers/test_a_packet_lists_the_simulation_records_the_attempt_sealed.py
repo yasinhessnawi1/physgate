@@ -42,7 +42,16 @@ from physgate.reviewers.packet import (
 )
 from physgate.reviewers.rubric import Rubric, evaluation_words
 from physgate.series.reader import record_path
-from physgate.series.seal import AttemptRecord, AttemptSeries, SealedRecord, SeriesCheck
+from physgate.series.seal import (
+    AttemptBytecode,
+    AttemptRecord,
+    AttemptScratch,
+    AttemptSeries,
+    Bytecode,
+    ScratchFile,
+    SealedRecord,
+    SeriesCheck,
+)
 
 RUBRIC = Rubric(
     role="control", text=PLACEHOLDER, sha256=hashlib.sha256(PLACEHOLDER.encode()).hexdigest()
@@ -413,3 +422,72 @@ def test_an_attempt_with_no_discarded_record_keeps_its_listing_and_packet_bytes(
     )
     assert again.series_sha256 == packet.series_sha256
     assert joined_parts(read_again, again.series_parts).decode() == text
+
+
+# ── what the session's end found, in front of the reviewer ───────────────────
+
+CACHED = "modules/control/__pycache__/plant.cpython-312.pyc"
+
+
+def test_an_attempt_whose_session_left_bytecode_alone_is_given_the_listing(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    attempt = make_attempt(tmp_path, stream())
+    left = AttemptBytecode(
+        session_id="sess-1",
+        found=1,
+        files=(Bytecode(path=CACHED, sha256="a" * 64, length=3),),
+    )
+    series = AttemptSeries(run_dir=str(run_dir), subtask_id="s1", attempt=1, bytecode=(left,))
+    packet, read = _build(tmp_path, artefact_of(attempt, series=series), attempt)
+    assert packet.series_parts and packet.series_sha256 is not None
+    text = joined_parts(read, packet.series_parts).decode()
+    assert f'- "{CACHED}": sha256 {"a" * 64}, 3 bytes\n' in text
+    assert str(read / packet.series_parts[0].name) in packet.required_reading
+    check_parts(packet, repo=attempt.worktree, base_commit=attempt.spec_commit)
+
+
+def test_a_record_with_bytecode_beside_its_code_is_shown_not_vouched_for(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    attempt = make_attempt(tmp_path, stream())
+    sealed = _series(run_dir, _record("step_nominal"), _record("edge_01", group="edge_runs"))
+    left = AttemptBytecode(
+        session_id="sess-1",
+        found=1,
+        files=(Bytecode(path=CACHED, sha256="a" * 64, length=3, records=("step_nominal",)),),
+    )
+    series = sealed.model_copy(update={"bytecode": (left,)})
+    packet, read = _build(tmp_path, artefact_of(attempt, series=series), attempt)
+    text = joined_parts(read, packet.series_parts).decode()
+    marked = text[text.index("## step_nominal\n") :]
+    marked = marked[: marked.index("\n## ") if "\n## " in marked else None]
+    assert "- NOT VOUCHED FOR: compiled code lay where the interpreter reads it" in marked
+    assert f'  - "{CACHED}": sha256 {"a" * 64}, 3 bytes\n' in marked
+    unmarked = text[text.index("## edge_01\n") : text.index("## step_nominal\n")]
+    assert "NOT VOUCHED" not in unmarked
+    # The claim and its limit, once, in words a reviewer cannot take for a proof of what ran.
+    assert text.count("the harness has not re-run the script") == 1
+    assert "is refused when it is written" not in text
+    check_parts(packet, repo=attempt.worktree, base_commit=attempt.spec_commit)
+
+
+def test_an_attempt_whose_session_left_its_scratch_folder_alone_is_given_the_listing(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    attempt = make_attempt(tmp_path, stream())
+    left = AttemptScratch(
+        session_id="sess-1",
+        found=2,
+        files=(
+            ScratchFile(path=".physgate/scratch/run_it.py", kind="file", length=9, sha256="c" * 64),
+            ScratchFile(path=".physgate/scratch/link", kind="link"),
+        ),
+    )
+    series = AttemptSeries(run_dir=str(run_dir), subtask_id="s1", attempt=1, scratch=(left,))
+    packet, read = _build(tmp_path, artefact_of(attempt, series=series), attempt)
+    text = joined_parts(read, packet.series_parts).decode()
+    assert "# The scratch folder" in text and "Entries found: 2." in text
+    assert f'- ".physgate/scratch/run_it.py": sha256 {"c" * 64}, 9 bytes\n' in text
+    assert '- ".physgate/scratch/link": a link\n' in text
+    check_parts(packet, repo=attempt.worktree, base_commit=attempt.spec_commit)

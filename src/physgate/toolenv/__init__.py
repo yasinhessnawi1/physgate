@@ -9,5 +9,5 @@ session never runs on an environment other than the one the run recorded (:mod:`
 
 What this package owns: the record, the measure, the comparison. What it does not own: building
 the environment (a provisioning step outside every session), putting it on a session's path (the
-dispatcher), or deciding what code may stand behind a sealed record (the series collector).
+dispatcher), or deciding what code a sealed record may name (the series collector).
 """

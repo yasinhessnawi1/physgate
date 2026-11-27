@@ -301,6 +301,7 @@ from physgate.series.seal import (
     AttemptBytecode,
     AttemptDiscard,
     AttemptRecord,
+    AttemptScratch,
     AttemptSeries,
     SeriesCheck,
 )
@@ -4612,17 +4613,32 @@ class Loop:
             for entry in session.series.discarded
             if entry.sha256 is not None or entry.name == OVERFLOW_NAME
         )
-        # What any session of the attempt left as bytecode, found at its end: shown, never kept.
+        # What any session of the attempt left as bytecode, found at its end: shown, never kept;
+        # with it, why none of that session's records is vouched for, where its end says so.
         bytecode = tuple(
             AttemptBytecode(
                 session_id=session.session_id,
                 found=max(session.series.bytecode_found, len(session.series.bytecode)),
                 files=session.series.bytecode,
+                not_vouched=session.series.not_vouched,
             )
             for session in ended
-            if session.series.bytecode or session.series.bytecode_found
+            if session.series.bytecode
+            or session.series.bytecode_found
+            or session.series.not_vouched is not None
         )
-        if not entries and not checks and not discarded and not bytecode:
+        # What any session left in its scratch folder, recorded before it was emptied.
+        scratch = tuple(
+            AttemptScratch(
+                session_id=session.session_id,
+                found=max(session.series.scratch_found, len(session.series.scratch)),
+                files=session.series.scratch,
+                cut=session.series.scratch_cut,
+            )
+            for session in ended
+            if session.series.scratch or session.series.scratch_found
+        )
+        if not entries and not checks and not discarded and not bytecode and not scratch:
             return None
         return AttemptSeries(
             run_dir=str(self.run_dir),
@@ -4632,6 +4648,7 @@ class Loop:
             checks=checks,
             discarded=discarded,
             bytecode=bytecode,
+            scratch=scratch,
         )
 
     def _sealed_hold(self, sessions: list[SessionEnded]) -> bool:

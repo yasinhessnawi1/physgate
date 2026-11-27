@@ -539,7 +539,7 @@ def _series_refusal(
                 reason = (
                     f"the record {record.record_id} names {code.path} as code its script loaded, "
                     "and the attempt did not commit that file with the bytes the record was "
-                    "collected with; code the attempt does not commit cannot stand behind a curve"
+                    "collected with; a record may name only code the attempt commits"
                 )
                 return reason, record.record_id
     return None

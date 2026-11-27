@@ -96,26 +96,56 @@ class SetAside(_Frozen):
         return self
 
 
-class Bytecode(_Frozen):
-    """A compiled file the session left in its worktree, found at its end and then removed.
+RecordId = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
 
-    By a printable form of its path, with the digest and length of its bytes (``None`` where
-    they could not be read: a link, a file too large to read whole, one gone). An interpreter
-    runs such a file in place of its source, so it is evidence of what may have run, not litter;
-    the bytes are not kept.
+
+class Bytecode(_Frozen):
+    """A compiled file found when the session ended, in its worktree or in its own places.
+
+    In the worktree it is then removed; beneath a cache prefix in a directory of the session's
+    own (an absolute path), it is left where it lies. By a printable form of its path, with the
+    digest and length of its bytes (``None`` where they could not be read: a link, a file too
+    large to read whole, one gone). An interpreter runs such a file in place of its source, so it
+    is evidence of what may have run, not litter; the bytes are not kept.
     """
 
     path: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
     sha256: Sha256 | None = None
     length: Annotated[int, Field(ge=0)] | None = None
+    #: The session's sealed records this file lay beside: where the interpreter reads compiled
+    #: code in place of the source of a file the record names, or of the series writer. Each is
+    #: then not vouched for (:data:`NOT_VOUCHED`). Left out of a dump where there is none.
+    records: Annotated[tuple[RecordId, ...], Field(max_length=MAX_ENTRIES)] = Field(
+        default=(), exclude_if=lambda v: not v
+    )
+
+
+#: How a record with bytecode beside a file it names is marked, wherever it is shown.
+NOT_VOUCHED = "not vouched for"
+
+
+class ScratchFile(_Frozen):
+    """One entry the scratch folder held when it was emptied, recorded before it was removed.
+
+    By a printable form of its path in the worktree, what it was (a regular file, a link or
+    another kind; a directory is not an entry), and for a regular file its length and the
+    digest of its bytes (``None`` where they were not read: past the byte bound, or unreadable).
+    """
+
+    path: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    kind: Literal["file", "link", "other"]
+    length: Annotated[int, Field(ge=0)] | None = None
+    sha256: Sha256 | None = None
 
 
 class SessionSeries(_Frozen):
     """Everything one session left in its outbox: sealed, refused or discarded.
 
-    And the bytecode found in its worktree at its end (``bytecode``, the first
-    :data:`MAX_ENTRIES`, and ``bytecode_found``, how many in all): both left out of a dump where
-    there was none, so every end line before them is recorded exactly as it was.
+    And the bytecode found at its end (``bytecode``: the first :data:`MAX_ENTRIES`, every file
+    that marks a record among them; ``bytecode_found``, how many in all), why every one of its
+    records is not vouched for where that is so (``not_vouched``), and what its scratch folder
+    held when it was emptied (``scratch``, ``scratch_found``, ``scratch_cut``): each left out of
+    a dump where there was none, so every end line before them is recorded exactly as it was.
     """
 
     records: Annotated[tuple[SealedRecord, ...], Field(max_length=MAX_ENTRIES)] = ()
@@ -128,6 +158,19 @@ class SessionSeries(_Frozen):
     #: Whether the clearing at the session's end left something it could not record or remove;
     #: the change check then refuses the attempt (left out of a dump when ``False``).
     left_out_incomplete: bool = Field(default=False, exclude_if=lambda v: not v)
+    #: Why none of the session's sealed records is vouched for, where the look for bytecode
+    #: beside them could not be made whole (left out of a dump when ``None``).
+    not_vouched: Annotated[str, StringConstraints(min_length=1, max_length=500)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    scratch: Annotated[tuple[ScratchFile, ...], Field(max_length=MAX_ENTRIES)] = Field(
+        default=(), exclude_if=lambda v: not v
+    )
+    scratch_found: Annotated[int, Field(ge=0)] = Field(default=0, exclude_if=lambda v: v == 0)
+    #: Where the scratch folder's record stopped at a bound, the bound in words.
+    scratch_cut: Annotated[str, StringConstraints(min_length=1, max_length=500)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
 
 class SeriesCheck(_Frozen):
@@ -174,11 +217,22 @@ class AttemptDiscard(_Frozen):
 
 
 class AttemptBytecode(_Frozen):
-    """Bytecode one of the attempt's sessions left in its worktree, as its end line lists it."""
+    """Bytecode found when one of the attempt's sessions ended, as its end line lists it."""
 
     session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
     found: Annotated[int, Field(ge=0)]
     files: tuple[Bytecode, ...]
+    #: Why none of that session's records is vouched for, where its end line says so.
+    not_vouched: str | None = Field(default=None, exclude_if=lambda v: v is None)
+
+
+class AttemptScratch(_Frozen):
+    """What one of the attempt's sessions left in its scratch folder, as its end line lists it."""
+
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    found: Annotated[int, Field(ge=0)]
+    files: tuple[ScratchFile, ...]
+    cut: str | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class AttemptSeries(_Frozen):
@@ -199,5 +253,20 @@ class AttemptSeries(_Frozen):
     #: Left out of a dump when empty, so an attempt that discarded no record is recorded
     #: exactly as before.
     discarded: tuple[AttemptDiscard, ...] = Field(default=(), exclude_if=lambda v: not v)
-    #: Each session that left bytecode in the worktree, with what it left; left out when none.
+    #: Each session whose end found bytecode, with what it found; left out when none.
     bytecode: tuple[AttemptBytecode, ...] = Field(default=(), exclude_if=lambda v: not v)
+    #: Each session that left files in its scratch folder, with what they were; left out when none.
+    scratch: tuple[AttemptScratch, ...] = Field(default=(), exclude_if=lambda v: not v)
+
+    def not_vouched(self, session_id: str, record_id: str) -> tuple[str | None, list[Bytecode]]:
+        """Why the record ``record_id`` of ``session_id`` is not vouched for, and the files why.
+
+        Read from what that session's end found: the reason that covers all its records, if
+        any, and every bytecode file it lists beside this record. ``(None, [])`` for a record
+        that is not marked.
+        """
+        for held in self.bytecode:
+            if held.session_id == session_id:
+                beside = [b for b in held.files if record_id in b.records]
+                return held.not_vouched, beside
+        return None, []

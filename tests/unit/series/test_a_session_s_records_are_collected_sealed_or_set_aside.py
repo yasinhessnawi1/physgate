@@ -59,7 +59,7 @@ def _written(base: Path, *, writer_cache: bool = False, **kwargs: str) -> Path:
 
     The script runs with no bytecode written, as every session's does; the cache is then made
     as an interpreter that writes bytecode would have made it when the script imported the
-    writer (the writer stands behind no other module's cache).
+    writer (the writer itself writes no record beside another module's cache).
     """
     done = run(write_script(base, **kwargs))
     assert done.returncode == 0, done.stderr
@@ -519,29 +519,29 @@ def test_collecting_changes_nothing_in_the_worktree_but_the_outbox(
     before = {
         str(p.relative_to(base)): p.read_bytes()
         for p in base.rglob("*")
-        if p.is_file() and _outbox(base) not in p.parents and cache not in p.parents
+        if p.is_file() and _outbox(base) not in p.parents
     }
     assert any(cache.iterdir())
     _collect(base, run_dir)
     after = {str(p.relative_to(base)): p.read_bytes() for p in base.rglob("*") if p.is_file()}
+    # The writer's own cache included: it is evidence for the session's end clearing, which
+    # records it by its digest, and never the collector's to discard.
     assert after == before
-    assert not cache.exists()
 
 
-def test_only_the_writer_s_own_cache_is_removed_and_each_file_is_listed(
+def test_the_writer_s_own_cache_is_left_for_the_end_clearing_never_discarded_unrecorded(
     tmp_path: Path, run_dir: Path
 ) -> None:
     base = worktree(tmp_path)
     _written(base, writer_cache=True)
     cache = base / CACHE
     (cache / "planted.cpython-312.pyc").write_bytes(b"not the writer's")
-    (cache / "series_writer.cpython-399.pyc").mkdir()
     series = _collect(base, run_dir)
-    assert len(_caches(series)) == 1
-    assert sorted(p.name for p in cache.iterdir()) == [
-        "planted.cpython-312.pyc",
-        "series_writer.cpython-399.pyc",
-    ]
+    assert _caches(series) == []
+    (written,) = [p for p in cache.iterdir() if p.name.startswith("series_writer.")]
+    assert sorted(p.name for p in cache.iterdir()) == sorted(
+        ["planted.cpython-312.pyc", written.name]
+    )
 
 
 def test_a_cache_directory_that_is_a_link_is_left_as_it_is(tmp_path: Path, run_dir: Path) -> None:
