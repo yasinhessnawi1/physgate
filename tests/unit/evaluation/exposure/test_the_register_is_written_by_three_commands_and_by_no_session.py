@@ -196,6 +196,7 @@ def test_a_settle_keeps_the_path_as_typed_and_as_resolved_and_the_status_lists_i
     (line,) = api(f"{EXPOSURE}.register_lines")(made.store, "control")
     assert (line.given_path, line.resolved_path) == (typed, str(directory.resolve()))
     _, status = _tiers(capsys, "status", "--store", str(made.store))
+    assert len(status["settles"]) == 1, status
     (listed,) = status["settles"]
     assert listed["role"] == "control" and listed["key"] == line.key, listed
     assert (listed["given_path"], listed["resolved_path"]) == (typed, str(directory.resolve()))
