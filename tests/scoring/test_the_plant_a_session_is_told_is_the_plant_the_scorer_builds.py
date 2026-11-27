@@ -44,7 +44,7 @@ TASKS: list[Task] = [
             _m("plant_den_1", 0.7, "s**2"),
             _m("plant_den_2", 1e-3, "s"),
             _m("plant_den_3", 0, "1"),
-            _m("plant_gain", 12.5, "1"),
+            _m("plant_gain", 1 / 7, "1"),
             _m("plant_delay", 0.02, "s"),
         ]
     ),
@@ -71,6 +71,11 @@ def test_the_issued_plant_read_back_is_the_scorer_s_plant_bit_for_bit(task: Task
     plant = Plant(task)
     assert _polynomial(text, "N") == plant.num
     assert _polynomial(text, "D") == plant.den
+    # Each coefficient's own line, as well as the polynomial it makes.
+    names = sorted(m.name for m in task.inputs if m.name.startswith(("plant_num_", "plant_den_")))
+    listed = {name: _value(text, name) for name in names}
+    assert [listed[f"plant_num_{i}"] for i in range(len(plant.num))] == plant.num
+    assert [listed[f"plant_den_{i}"] for i in range(len(plant.den))] == plant.den
     assert _value(text, "plant_gain") == plant.gain
     assert _value(text, "plant_delay") == plant.delay
     told = ct.tf(
