@@ -1336,6 +1336,9 @@ def _sheet(ctx: _Round, planned: _Planned) -> dict[str, Any]:
         "index": planned.index,
         "tier": planned.tier,
         "suite": f"{ctx.inputs.role}_{planned.tier}",
+        # The arm the trial is of: every trial of this driver's is the harness as measured; an
+        # arm with a part taken away would name itself here, and never take a raw pair.
+        "arm": "harness",
         "trial": planned.trial,
         "seed": planned.seed,
         "attempt": line["attempt"],
