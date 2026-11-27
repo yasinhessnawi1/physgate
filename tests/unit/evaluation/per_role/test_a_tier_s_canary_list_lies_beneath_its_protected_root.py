@@ -88,7 +88,9 @@ def test_a_session_is_refused_the_split_s_canary_list_on_every_route(
     found = _lists(base)
     assert found, "the split wrote no canary list"
     config = _config(base, profile, held, validation)
-    policy = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/var/tmp/pgs/0123456789")
+    policy = sandbox_policy(
+        config, home=str(base / "outside" / "home"), temp_dir="/var/tmp/pgs/0123456789"
+    )
     deny_read = policy.settings["sandbox"]["filesystem"]["denyRead"]
     wt = str(base / "wt")
     for listed in found:

@@ -215,7 +215,9 @@ def _row(base: Path, config: SessionConfig, profile: str, path: str) -> str:
             _decide(shell_paths, config, wt, **bash, tool_input={"command": f"cat {path}"}),
             _decide(shell_paths, config, wt, **bash, tool_input={"command": f"echo x > {path}"}),
         ]
-        fs = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/var/tmp/pgs/0123456789")
+        fs = sandbox_policy(
+            config, home=str(base / "outside" / "home"), temp_dir="/var/tmp/pgs/0123456789"
+        )
         filesystem = fs.settings["sandbox"]["filesystem"]
         cells += [_under(path, filesystem["denyRead"]), _under(path, filesystem["denyWrite"])]
     cells.append(_watch(config, path))

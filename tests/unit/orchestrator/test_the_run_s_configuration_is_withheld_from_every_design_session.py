@@ -98,7 +98,9 @@ def test_the_os_layer_denies_every_read_of_the_run_s_configuration(
     base: Path, profile: str
 ) -> None:
     config, _, run_json = _session(base, profile)
-    policy = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/var/tmp/pgs/0123456789")
+    policy = sandbox_policy(
+        config, home=str(base / "outside" / "home"), temp_dir="/var/tmp/pgs/0123456789"
+    )
     deny = policy.settings["sandbox"]["filesystem"]["denyRead"]
     assert any(str(run_json) == d or str(run_json).startswith(d.rstrip("/") + "/") for d in deny), (
         deny
@@ -270,9 +272,9 @@ def test_no_file_a_role_session_could_read_after_one_session_holds_a_canary_or_a
     names = {path.name for path in holding}
     # Not vacuous: the records that name the canaries, and the tier itself, are found.
     assert {"run.json", "review_session.json", "params.json", "scenario.json"} <= names, names
-    deny = sandbox_policy(config, home=str(sdir / "home"), temp_dir="/var/tmp/pgs/0123456789").settings[
-        "sandbox"
-    ]["filesystem"]["denyRead"]
+    deny = sandbox_policy(
+        config, home=str(sdir / "home"), temp_dir="/var/tmp/pgs/0123456789"
+    ).settings["sandbox"]["filesystem"]["denyRead"]
     for path in holding:
         assert paths.protection(str(path), str(worktree), config, writing=False) is not None, path
         command = parse(f"cat {path}")[0]

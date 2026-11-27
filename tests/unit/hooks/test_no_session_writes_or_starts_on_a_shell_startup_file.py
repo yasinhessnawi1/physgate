@@ -93,9 +93,9 @@ def test_a_startup_file_in_the_home_is_refused_on_every_route(
         "tool_name": "Edit",
         "tool_input": {"file_path": target, "old_string": "a", "new_string": "b"},
     }
-    filesystem = sandbox_policy(config, home=str(home), temp_dir="/var/tmp/pgs/0123456789").settings["sandbox"][
-        "filesystem"
-    ]
+    filesystem = sandbox_policy(
+        config, home=str(home), temp_dir="/var/tmp/pgs/0123456789"
+    ).settings["sandbox"]["filesystem"]
     watched = [r.watch for r in config.protected_roots if r.path == target]
     routes = {
         "the Write tool": _refused(paths, config, **write),
@@ -139,9 +139,9 @@ def test_the_home_itself_stays_writable_and_an_ordinary_file_there_is_no_root(
     assert not _refused(
         shell_paths, config, tool_name="Bash", tool_input={"command": f"echo x > {ordinary}"}
     )
-    filesystem = sandbox_policy(config, home=str(home), temp_dir="/var/tmp/pgs/0123456789").settings["sandbox"][
-        "filesystem"
-    ]
+    filesystem = sandbox_policy(
+        config, home=str(home), temp_dir="/var/tmp/pgs/0123456789"
+    ).settings["sandbox"]["filesystem"]
     assert str(home) in filesystem["allowWrite"]
     assert str(home) not in filesystem["denyWrite"]
     startup = [p for p in filesystem["denyWrite"] if Path(p).parent == home]
@@ -235,9 +235,9 @@ def test_each_held_directory_is_write_denied_as_it_stands(
     install(request, REGISTRY)
     home = Path(request.user_home)
     config = build_config(request, current_installation())
-    filesystem = sandbox_policy(config, home=str(home), temp_dir="/var/tmp/pgs/0123456789").settings["sandbox"][
-        "filesystem"
-    ]
+    filesystem = sandbox_policy(
+        config, home=str(home), temp_dir="/var/tmp/pgs/0123456789"
+    ).settings["sandbox"]["filesystem"]
     for name in HELD:
         assert (home / name).is_dir(), name
         assert str(home / name) in filesystem["denyWrite"], name
