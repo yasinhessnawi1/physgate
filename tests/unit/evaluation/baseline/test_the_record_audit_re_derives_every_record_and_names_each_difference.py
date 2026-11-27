@@ -343,8 +343,10 @@ def test_every_kind_the_audit_names_is_caught_by_some_row() -> None:
 
 
 #: The kinds only a harness record carries, caught by the harness half's own rows
-#: (``harness_round/test_the_record_audit_derives_a_harness_round_s_records_again.py``).
-HARNESS_ONLY = ("gate", "review")
+#: (``harness_round/test_the_record_audit_derives_a_harness_round_s_records_again.py``; an
+#: ablation trial's mark by
+#: ``harness_round/test_an_ablation_trial_s_record_says_so_and_no_measured_reader_takes_it.py``).
+HARNESS_ONLY = ("gate", "review", "ablation")
 
 
 def test_a_visible_difference_is_said_by_kind_and_place(tmp_path: Path) -> None:

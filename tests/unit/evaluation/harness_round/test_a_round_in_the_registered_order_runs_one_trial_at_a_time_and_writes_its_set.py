@@ -111,7 +111,12 @@ def test_one_place_is_taken_on_alone_and_its_one_entry_set_is_written_at_once(
     assert sheet["raw_pair"] == "now" and sheet["no_figure"] is None
     assert sheet["arm"] == "harness"
     assert "outcome" not in sheet and "score" not in json.dumps(sheet)
-    assert summary["trial"] == {"index": 0, "runs": sheet["runs"], "raw_pair": "now"}
+    assert summary["trial"] == {
+        "arm": "harness",
+        "index": 0,
+        "runs": sheet["runs"],
+        "raw_pair": "now",
+    }
     assert not (rig.root / "out" / "visible.runs.json").exists(), "the round has not ended"
 
 
