@@ -238,5 +238,17 @@
       "tests/unit/hooks/test_install_writes_the_sessions_settings_file.py",
       "tests/unit/orchestrator/orch_helpers.py"
     ]
+  },
+  {
+    "name": "the_values_check_counts_no_leak_in_what_a_session_is_given",
+    "file": "src/physgate/evaluation/tiers/issued_check.py",
+    "old": "                counts[\"issued_leaks\"] += text_leaks(issued, each)\n",
+    "new": "                counts[\"issued_leaks\"] += text_leaks(task.brief, each)\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_values_check_counts_what_a_version_s_tasks_leave_a_session_without.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
   }
 ]

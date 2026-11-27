@@ -31,7 +31,13 @@ The counts, for each tier:
   task bounds the controller's peak output, the one metric that uses it);
 - ``brief_names_a_defaulted_value``: of those, tasks whose brief writes the defaulted value's
   name, by its name. Such a brief names a value the task never gives: the issued text says what
-  the scorer takes for it, and the task stays as it was written.
+  the scorer takes for it, and the task stays as it was written;
+- ``issued_leaks``: tasks whose issued text states a number of the task's passing reference
+  answer, by the tier's own leak rule (:func:`.per_role.leaks.text_leaks`, the rule the split
+  holds a brief to), now held to what a session reads; and ``issued_leak_unchecked``, tasks the
+  rule could not be held to (their good reference cannot be read). On a sound tier both are 0:
+  the values are the plant's, and the reference is a controller. The tier's own check and its
+  records are not changed.
 
 What it does not count: a unit a brief writes beside a value. A brief's units are words beside
 numbers, and no rule here tells a unit from the word after a number soundly, so the issued text
@@ -46,6 +52,7 @@ from pathlib import Path
 from typing import Any
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
+from physgate.evaluation.per_role.leaks import text_leaks
 from physgate.evaluation.per_role.metrics import ACTUATOR_LIMIT, REFERENCE_STEP
 from physgate.evaluation.per_role.plant import (
     DEFAULTS,
@@ -56,7 +63,7 @@ from physgate.evaluation.per_role.plant import (
     bounds_actuator_peak,
 )
 from physgate.evaluation.tiers.issued import issued_text
-from physgate.evaluation.tiers.task import Role, Task, parse_task
+from physgate.evaluation.tiers.task import LoadedTask, Role, Task, load_task
 
 #: The tiers of a version, in the order they are counted.
 TIERS = ("visible", "validation", "held_out")
@@ -125,22 +132,30 @@ def _defaults(task: Task) -> set[str]:
     return used - {m.name for m in task.inputs}
 
 
-def _tier_counts(tasks: list[Task]) -> dict[str, Any]:
+def _tier_counts(loaded: list[LoadedTask]) -> dict[str, Any]:
     counts: dict[str, Any] = {
-        "tasks": len(tasks),
+        "tasks": len(loaded),
         "not_issuable": 0,
         "names_no_input": 0,
         "symbol_without_value": {"brief": 0, "issued": 0},
         "given_without_value": {"brief": 0, "issued": 0},
         "relies_on_default": dict.fromkeys(DEFAULTS, 0),
         "brief_names_a_defaulted_value": dict.fromkeys(DEFAULTS, 0),
+        "issued_leaks": 0,
+        "issued_leak_unchecked": 0,
     }
-    for task in tasks:
+    for each in loaded:
+        task = each.task
         try:
             issued: str | None = issued_text(task)
         except PerRoleError:
             issued = None
             counts["not_issuable"] += 1
+        if issued is not None:
+            try:
+                counts["issued_leaks"] += text_leaks(issued, each)
+            except Exception:  # noqa: BLE001 - a check that cannot run is counted, never passed
+                counts["issued_leak_unchecked"] += 1
         symbols = _symbols(task.brief)
         if not symbols:
             counts["names_no_input"] += 1
@@ -182,7 +197,7 @@ def value_counts(store: Path, role: Role, version: str) -> dict[str, Any]:
         here = directory / tier
         try:
             entries = sorted(p for p in here.iterdir() if p.is_dir() and not p.is_symlink())
-            tasks = [parse_task((entry / "task.json").read_bytes()) for entry in entries]
+            tasks = [load_task(entry) for entry in entries]
         except (OSError, PerRoleError):
             # The error may name a task; only its tier is said.
             msg = f"a task of the {tier} tier cannot be read"

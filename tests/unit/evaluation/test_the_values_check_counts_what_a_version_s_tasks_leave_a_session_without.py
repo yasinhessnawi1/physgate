@@ -107,11 +107,21 @@ ONE_COPY: dict[str, Any] = {
     "given_without_value": {"brief": 1, "issued": 0},
     "relies_on_default": {"plant_gain": 2, "plant_delay": 8, "reference_step": 1},
     "brief_names_a_defaulted_value": {"plant_gain": 2, "plant_delay": 0, "reference_step": 0},
+    "issued_leaks": 0,
+    "issued_leak_unchecked": 0,
 }
+#: A passing reference as a search finds one: a controller whose numbers no plant repeats.
+GOOD = controller(
+    gain={"value": 37.25, "unit": "1"},
+    num=[{"value": 1.0, "unit": "s"}, {"value": 0.8125, "unit": "1"}],
+    den=[{"value": 1.0, "unit": "s"}, {"value": 0.0, "unit": "1"}],
+)
 
 
 def _store(
-    root: Path, kinds: list[tuple[str, list[dict[str, Any]], bool]] = KINDS
+    root: Path,
+    kinds: list[tuple[str, list[dict[str, Any]], bool]] = KINDS,
+    good: dict[str, Any] = GOOD,
 ) -> tuple[Path, str]:
     store = root.resolve() / "store"
     pool = store / "control" / "withheld" / "pool"
@@ -124,7 +134,7 @@ def _store(
             write_task_dir(
                 pool / str(fields["id"]),
                 fields,
-                {"good": (controller(), None), "bad_slow": (controller(), "settling")},
+                {"good": (good, None), "bad_slow": (controller(), "settling")},
             )
             n += 1
         del copy
@@ -198,6 +208,17 @@ def test_a_task_the_scorer_cannot_read_is_counted_as_not_issuable(tmp_path: Path
     total = _summed(value_counts(store, "control", version)["tiers"])
     assert total["not_issuable"] == 24
     assert total["symbol_without_value"] == {"brief": 24, "issued": 0}
+
+
+@pytest.mark.parametrize(("coefficient", "leaks"), [(0.8125, 24), (0.8126, 0)])
+def test_a_task_whose_values_repeat_its_passing_reference_s_numbers_is_counted_as_leaking(
+    tmp_path: Path, coefficient: float, leaks: int
+) -> None:
+    """The brief states no number of the reference; the value a session is now given does."""
+    brief = "Case {n}. Hold the arm: G(s) = 1 / (s^2 + plant_den_1 s + plant_den_2)."
+    store, version = _store(tmp_path, [(brief, _second(1, coefficient, 3), False)])
+    total = _summed(value_counts(store, "control", version)["tiers"])
+    assert (total["issued_leaks"], total["issued_leak_unchecked"]) == (leaks, 0)
 
 
 def _files(root: Path) -> dict[str, bytes]:
