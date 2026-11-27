@@ -12,16 +12,19 @@ figure.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 import round_rig
+from observe_rig import SPAWN_STARTED
 from round_rig import SCORED, make_rig
 
 from physgate.evaluation.harness_round import run_round
 from physgate.orchestrator.events import Halted, ReviewUnavailable, read_events
 from physgate.orchestrator.exceptions import ReviewUnavailableError
+from physgate.orchestrator.ports import SpawnHook
 
 
 def _scorer(_task: Any, _answer: Path) -> dict[str, Any]:  # noqa: ANN401
@@ -29,14 +32,23 @@ def _scorer(_task: Any, _answer: Path) -> dict[str, Any]:  # noqa: ANN401
 
 
 class _EndedReviewer:
-    """A module's reviewer whose session ends the same way at every call."""
+    """A module's reviewer whose session ends the same way at every call.
+
+    Each call's session is spawned on the run's log first, as the real reviewer's is.
+    """
 
     def __init__(self, model: str, cause: str, session_cause: str | None) -> None:
         self.model, self.cause, self.session_cause = model, cause, session_cause
         self.calls = 0
+        self.hook: SpawnHook | None = None
+
+    def record_spawns(self, hook: SpawnHook) -> None:
+        self.hook = hook
 
     def review(self, artefact: Any) -> Any:  # noqa: ANN401
         self.calls += 1
+        if self.hook is not None:
+            self.hook(f"rev-ended-{self.calls}", os.getpid(), SPAWN_STARTED)
         raise ReviewUnavailableError(
             f"the session ended with {self.session_cause or self.cause}",
             cause=self.cause,  # type: ignore[arg-type]
@@ -52,7 +64,7 @@ def _round(
     rig = make_rig(tmp_path)
     made: list[_EndedReviewer] = []
 
-    def reviewer(model: str = "x", ids: str = "r") -> _EndedReviewer:  # noqa: ARG001
+    def reviewer(model: str = "x", **_rig: Any) -> _EndedReviewer:  # noqa: ANN401
         made.append(_EndedReviewer(model, cause, session_cause))
         return made[-1]
 

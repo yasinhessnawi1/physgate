@@ -38,6 +38,7 @@ from physgate.orchestrator.events import (
     LeftoverRead,
     RunStarted,
     SessionSpawned,
+    StageEntered,
     SubtaskPlanned,
     TokensUsed,
 )
@@ -481,10 +482,56 @@ def _unended(log: EventLog) -> None:
     log.append(SessionSpawned(**log.envelope(), session_id="role-2", pid=7, started="x"))
 
 
+def _review_spawned(log: EventLog, session_id: str) -> None:
+    """A module review's session spawned, as the loop records it at the review stage."""
+    log.append(
+        SubtaskPlanned(
+            **log.envelope(),
+            subtask_id="s",
+            spec_path="specs/s.md",
+            assigned_role="control",
+            module_dir="modules/s",
+        )
+    )
+    log.append(StageEntered(**log.envelope(), subtask_id="s", attempt=1, stage="review"))
+    log.append(SessionSpawned(**log.envelope(), session_id=session_id, pid=7, started="x"))
+
+
+def _review_left_open(log: EventLog) -> None:
+    # Killed during the review: its spawn, and no line the loop writes once a review is back.
+    _review_spawned(log, "rev-open")
+
+
+def _review_cut_in_its_tokens(log: EventLog) -> None:
+    # Killed between the review's token lines: the rest of its spend is on no record, and no
+    # verdict, reason or halt follows them.
+    _review_spawned(log, "rev-cut")
+    log.append(
+        TokensUsed(
+            **log.envelope(),
+            attribution="reviewer:rev-cut",
+            message_id="r1",
+            usage=_usage(1, 1, 1, 1),
+        )
+    )
+
+
 @pytest.mark.parametrize(
     ("spend", "says"),
-    [(_partial, "partial"), (_incomplete, "incomplete"), (_unended, "never ended")],
-    ids=["partial usage", "incomplete leftover", "spawned, never ended"],
+    [
+        (_partial, "partial"),
+        (_incomplete, "incomplete"),
+        (_unended, "never ended"),
+        (_review_left_open, "never ended"),
+        (_review_cut_in_its_tokens, "never ended"),
+    ],
+    ids=[
+        "partial usage",
+        "incomplete leftover",
+        "spawned, never ended",
+        "a review killed before it was back",
+        "a review killed between its token lines",
+    ],
 )
 def test_a_harness_total_that_cannot_count_every_token_is_refused(
     tmp_path: Path, spend: Callable[[EventLog], None], says: str
@@ -494,6 +541,38 @@ def test_a_harness_total_that_cannot_count_every_token_is_refused(
         harness_total(run)
     with pytest.raises(ComparisonError, match=says):
         differences(run, _raw_dir(tmp_path), role="control", task=TASK)
+
+
+@pytest.mark.parametrize(
+    ("spend", "named"),
+    [
+        (_unended, "session of a kind no end rule knows (spawned before any stage) role-2"),
+        (_review_left_open, "module review rev-open"),
+        (_review_cut_in_its_tokens, "module review rev-cut"),
+    ],
+    ids=["no stage before it", "a review left open", "a review cut in its tokens"],
+)
+def test_a_session_left_open_is_named_by_its_kind_in_the_refusal(
+    tmp_path: Path, spend: Callable[[EventLog], None], named: str
+) -> None:
+    with pytest.raises(ComparisonError) as refused:
+        harness_total(_harness_run(tmp_path, spend=spend))
+    assert refused.value.context["sessions"] == named
+
+
+def test_a_plan_review_whose_spawn_s_record_is_still_there_is_a_session_left_open(
+    tmp_path: Path,
+) -> None:
+    """The plan's review is spawned beside the decomposition's rounds, never on the run's log."""
+    run = _harness_run(tmp_path)
+    left = run / "decomposition" / "review_session.json"
+    left.parent.mkdir()
+    left.write_text(json.dumps({"session_id": "plan-rev-1"}))
+    with pytest.raises(ComparisonError, match="never ended") as refused:
+        harness_total(run)
+    assert refused.value.context["sessions"] == "plan review plan-rev-1"
+    left.unlink()
+    assert harness_total(run) == 1000
 
 
 def test_a_harness_log_that_ends_in_a_cut_off_line_is_refused(tmp_path: Path) -> None:
