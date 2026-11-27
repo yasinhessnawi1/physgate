@@ -182,7 +182,7 @@ def _review(
     monkeypatch.setattr(claude, "read_captured", captured)
     monkeypatch.setattr(claude, "compaction_line", lambda *a, **k: None)
     monkeypatch.setattr(claude, "read_in_full", lambda *a: True)
-    monkeypatch.setattr(claude, "write_key_helper", lambda state, key: None)
+    monkeypatch.setattr(claude, "write_key_helper", lambda state, key, place: None)
     monkeypatch.setattr(
         claude,
         "compactions_seen",

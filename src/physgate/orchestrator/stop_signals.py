@@ -372,11 +372,14 @@ def _plan_calls(root: Path, _review_root: Path | None) -> list[CredentialSite]:
     ]
 
 
+#: The name of a raw trial's place in its trial's directory (``evaluation.tiers.store.PLACE``,
+#: held equal by a row, not imported: the core imports nothing of the tiers).
+RAW_PLACE = "place"
+
+
 def _raw_place(root: Path, _review_root: Path | None) -> list[CredentialSite]:
     """A raw trial's place, ``root`` being the trial's directory."""
-    from physgate.evaluation.tiers.store import PLACE
-
-    sdir = root / PLACE / "session"
+    sdir = root / RAW_PLACE / "session"
     if not sdir.is_dir():
         return []
     try:

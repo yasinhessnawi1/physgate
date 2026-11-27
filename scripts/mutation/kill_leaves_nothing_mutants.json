@@ -1,0 +1,775 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py",
+      "tests/unit/evaluation/per_role/test_the_raw_arm_says_it_saw_no_canary_only_when_it_looked_for_one.py",
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py",
+      "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py",
+      "tests/unit/orchestrator/test_a_left_review_s_credential_goes_first_and_no_refusal_hides_an_exposure.py",
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
+      "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/oslayer/test_a_sandboxed_command_s_mktemp_and_diff_write_only_its_own_temporary_directory.py",
+      "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py",
+      "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+    ]
+  },
+  {
+    "name": "the_finder_knows_no_decomposition_call",
+    "file": "src/physgate/orchestrator/stop_signals.py",
+    "old": "    \"plan_call\": _plan_calls,\n",
+    "new": "    \"plan_call\": lambda root, review: [],\n",
+    "tests": [
+      "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_finder_misses_a_later_round",
+    "file": "src/physgate/orchestrator/stop_signals.py",
+    "old": "        if name == \"round\" and number.isdigit() and int(number) > 1:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "a_retry_directory_is_not_visited",
+    "file": "src/physgate/orchestrator/stop_signals.py",
+    "old": "    calls = [where for k in rounds for where in (round_dir(root, k), retry_dir(root, k))]\n",
+    "new": "    calls = [round_dir(root, k) for k in rounds]\n",
+    "tests": [
+      "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "a_planner_a_kill_left_running_is_not_stopped",
+    "file": "src/physgate/orchestrator/stop_signals.py",
+    "old": "        for pid in processes_naming(str(settings)):\n            stop_tree(pid, started_at(pid))\n",
+    "new": "        for pid in ():\n            stop_tree(pid, started_at(pid))\n",
+    "tests": [
+      "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_plan_s_review_is_found_by_its_owner_alone",
+    "file": "src/physgate/orchestrator/stop_signals.py",
+    "old": "    if record is not None:\n        found.append(",
+    "new": "    if False:\n        found.append(",
+    "tests": [
+      "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "a_writer_writes_in_a_kind_of_place_no_finder_knows",
+    "file": "src/physgate/orchestrator/credentials.py",
+    "old": "    if place not in CREDENTIAL_PLACES:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "decompose_sweeps_nothing_first",
+    "file": "src/physgate/orchestrator/cli.py",
+    "old": "    remove_left_credentials(\n        args.run_dir.resolve(), None if review_root is None else review_root_path(review_root)\n    )\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_resume_scans_after_it_redacts",
+    "file": "src/physgate/orchestrator/dispatch.py",
+    "old": "        before = {\n            sdir: self._scanned_before_redaction(\n                sdir, self._streams_of(sdir, reviews, events), kind\n            )\n            for sdir, _sid, _pid, _killed, _stopped, kind, _written in found\n        }\n",
+    "new": "        before = {sdir: (None, None) for sdir, *_ in found}\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+    ]
+  },
+  {
+    "name": "the_resume_reads_no_mark",
+    "file": "src/physgate/orchestrator/dispatch.py",
+    "old": "        marked_held, marked_material = read_shown(sdir)\n",
+    "new": "        marked_held, marked_material = False, False\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+    ]
+  },
+  {
+    "name": "a_mark_that_cannot_be_read_says_nothing",
+    "file": "src/physgate/orchestrator/dispatch.py",
+    "old": "    except (OSError, ValueError, KeyError, TypeError):\n        return True, True\n",
+    "new": "    except (OSError, ValueError, KeyError, TypeError):\n        return False, False\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+    ]
+  },
+  {
+    "name": "a_review_marks_nothing_before_its_redaction",
+    "file": "src/physgate/reviewers/claude.py",
+    "old": "        if showed:\n            mark_shown(sdir, held_out=True)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_raw_arm_scans_after_its_scrub",
+    "file": "src/physgate/evaluation/per_role/arms/raw.py",
+    "old": "    if canaries and stdout in streams:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/per_role/test_the_raw_arm_says_it_saw_no_canary_only_when_it_looked_for_one.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_source_s_directory_is_not_looked_at",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "        found += _working_files(source, head)\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "a_tracked_file_s_bytes_are_not_compared",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "            if written is None or written[0] != mode or _blob_id(written[1], len(oid)) != oid:\n",
+    "new": "            if written is None or written[0] != mode:\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "a_tracked_file_gone_is_not_counted",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "    changed += len(set(tracked) - present)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "an_alternates_file_is_followed",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "INDIRECTIONS = (\"commondir\", \"objects/info/alternates\", \"objects/info/http-alternates\")\n",
+    "new": "INDIRECTIONS = (\"commondir\",)\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "a_refs_directory_that_is_a_link_is_followed",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "    for name in (\"refs\", \"packed-refs\", \"HEAD\", \"objects\"):\n",
+    "new": "    for name in ():\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_round_s_target_is_judged_by_git_status",
+    "file": "src/physgate/evaluation/harness_round.py",
+    "old": "    head, found = source_state(target)\n",
+    "new": "    head, found = source_state(target)\n    import subprocess as _s\n    _s.run(['git', '-C', str(target), 'status', '--porcelain'], capture_output=True)\n",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "an_unlistable_folder_is_passed_over",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "        except OSError:\n            yield directory, ()\n            continue\n",
+    "new": "        except OSError:\n            continue\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_store_is_refused_whole",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "        *(role_root(store, role) for role in get_args(Role)),\n",
+    "new": "        store,\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k21_a_review_root_s_record_is_no_run_material",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "        \"baseline.json\",\n        \"review_root.json\",\n",
+    "new": "        \"baseline.json\",\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k22_a_linked_worktree_of_the_source_is_no_finding",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "    if linked:\n",
+    "new": "    if linked and False:\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k23_a_run_that_withholds_one_root_withholds_them_all",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "            if not registered <= named:\n",
+    "new": "            if not (registered & named):\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k24_a_walk_cut_short_is_no_finding",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "        if budget[0] < 0:\n            yield top, None\n            return\n",
+    "new": "        if budget[0] < 0:\n            return\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k25_the_standing_review_root_is_walked_as_any_place",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "        standing_root(home),\n",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k26_the_machine_s_other_places_are_not_walked",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "    places = [home, *MACHINE_PLACES, *also]\n",
+    "new": "    places = [home, *also]\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k27_a_reference_that_is_no_branch_is_no_finding_unless_a_tag",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "        if not name.startswith(\"refs/heads/\"):\n            found.append(Finding(\"source_reference\",",
+    "new": "        if name.startswith(\"refs/tags/\"):\n            found.append(Finding(\"source_reference\",",
+    "tests": [
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "a_settle_does_not_look_beneath",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "        _require_no_run_beneath(real)\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+    ]
+  },
+  {
+    "name": "the_settle_s_look_is_skipped_for_anything_at_the_run_record_s_name",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "    if not _is_run(real) and _params_torn(real):\n",
+    "new": "    if not os.path.lexists(real / RUN_RECORD) and _params_torn(real):\n",
+    "tests": [
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+    ]
+  },
+  {
+    "name": "k29_a_settle_that_would_still_refuse_is_recorded",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "    elif after is not None:\n        why = f\"settled, the register would still refuse it: {after}\"\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+    ]
+  },
+  {
+    "name": "a_root_outside_the_worktree_is_put_back_by_its_path",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "    anchors: dict[str, list[Any]] = base.get(\"anchors\") or {}\n",
+    "new": "    anchors: dict[str, list[Any]] = {}\n",
+    "tests": [
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "the_anchor_is_held_to_no_identity",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "        if (st.st_dev, st.st_ino) != (device, inode):\n            raise OSError(errno.ESTALE, \"the directory is not the one recorded\")\n",
+    "new": "",
+    "tests": [
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "k11_the_sentinel_holds_whatever_directory_it_opened",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "        if (st.st_dev, st.st_ino) != (identity.device, identity.inode):\n            raise OSError(errno.ESTALE, \"the worktree is not the directory recorded\")\n",
+    "new": "",
+    "tests": [
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "k14_the_put_back_goes_by_path_once_the_worktree_is_held",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "        groups.append((inside, _Here(config.worktree if held is not None else None), held))\n",
+    "new": "        groups.append((inside, _Here(None), held))\n",
+    "tests": [
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "k09_the_worktree_is_looked_at_through_a_link",
+    "file": "src/physgate/hooks/runtime.py",
+    "old": "        st = os.lstat(config.worktree)\n",
+    "new": "        st = os.stat(config.worktree)\n",
+    "tests": [
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "k51_a_gone_worktree_is_no_moved_worktree",
+    "file": "src/physgate/hooks/runtime.py",
+    "old": "    except OSError:\n        return True\n",
+    "new": "    except OSError:\n        return False\n",
+    "tests": [
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "the_clearing_is_held_to_no_identity",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "    if not worktree_held(worktree, identity):\n        found.stays(\".\", WORKTREE_NOT_HELD)\n        return found.done()\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_commit_is_made_wherever_the_path_leads",
+    "file": "src/physgate/orchestrator/merge.py",
+    "old": "    if not worktree_held(worktree, identity):\n        raise GitError(WORKTREE_NOT_HELD, worktree=str(worktree))\n",
+    "new": "",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "an_unreadable_configuration_holds_the_worktree_to_nothing",
+    "file": "src/physgate/orchestrator/dispatch.py",
+    "old": "    except (OSError, ValueError, TypeError, KeyError, AttributeError):\n        return (-1, -1)\n",
+    "new": "    except (OSError, ValueError, TypeError, KeyError, AttributeError):\n        return None\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_refusal_says_code_there_is_never_a_record",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "    \"when the session ends, each file recorded by name and digest for the review; a record that \"\n    \"names code in it is refused.\"\n",
+    "new": "    \"when the session ends; nothing computed by code there is accepted as a record.\"\n",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "k02_a_file_tool_reads_the_harness_s_place",
+    "file": "src/physgate/hooks/paths.py",
+    "old": "                        SHARED_TEMP_REASON,\n                        HARNESS_TEMPS_REASON,\n",
+    "new": "                        SHARED_TEMP_REASON,\n",
+    "tests": [
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py"
+    ]
+  },
+  {
+    "name": "k03_the_change_check_s_store_is_made_in_the_default_temporary_directory",
+    "file": "src/physgate/orchestrator/git.py",
+    "old": "store = tempfile.mkdtemp(prefix=\"physgate-git-store-\", dir=harness_temp_dir())",
+    "new": "store = tempfile.mkdtemp(prefix=\"physgate-git-store-\")",
+    "tests": [
+      "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k04_the_review_s_store_is_made_in_the_default_temporary_directory",
+    "file": "src/physgate/reviewers/packet.py",
+    "old": "store = tempfile.mkdtemp(prefix=\"physgate-review-store-\", dir=harness_temp_dir())",
+    "new": "store = tempfile.mkdtemp(prefix=\"physgate-review-store-\")",
+    "tests": [
+      "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k05_a_parent_open_to_others_is_taken",
+    "file": "src/physgate/oslayer/harness_temp.py",
+    "old": "if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:",
+    "new": "if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():",
+    "tests": [
+      "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k06_a_forked_child_uses_its_parent_s_directory",
+    "file": "src/physgate/oslayer/harness_temp.py",
+    "old": "    key = (os.getpid(), root)\n",
+    "new": "    key = (0, root)\n",
+    "tests": [
+      "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k07_the_regeneration_s_profile_is_made_in_the_default_temporary_directory",
+    "file": "src/physgate/oslayer/regeneration.py",
+    "old": "                profiles = tempfile.mkdtemp(\n                    prefix=\"physgate-derived-profile-\", dir=harness_temp_dir()\n                )\n",
+    "new": "                profiles = tempfile.mkdtemp(prefix=\"physgate-derived-profile-\")\n",
+    "tests": [
+      "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k08_the_tier_scan_s_scratch_is_made_in_the_default_temporary_directory",
+    "file": "src/physgate/evaluation/tiers/exposure.py",
+    "old": "with tempfile.TemporaryDirectory(prefix=\"pg-tier-scan-\", dir=harness_temp_dir()) as scratch:",
+    "new": "with tempfile.TemporaryDirectory(prefix=\"pg-tier-scan-\") as scratch:",
+    "tests": [
+      "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k17_every_own_place_is_written_in_a_shared_directory",
+    "file": "src/physgate/hooks/settings.py",
+    "old": "            carved = tuple(sorted({p for p in _own_writes(request) if _inside(p, path)}))\n",
+    "new": "            carved = tuple(sorted({p for p in _own_places(request) if _inside(p, path)}))\n",
+    "tests": [
+      "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k19_diff_copies_no_operand",
+    "file": "src/physgate/oslayer/reaper_install.py",
+    "old": "     {{ [ \"$arg\" != \"-\" ] && [ -e \"$arg\" ] && [ ! -f \"$arg\" ] && [ ! -d \"$arg\" ]; }}; then",
+    "new": "     false; then",
+    "tests": [
+      "tests/unit/oslayer/test_a_sandboxed_command_s_mktemp_and_diff_write_only_its_own_temporary_directory.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k35_another_session_s_record_is_marked_shown",
+    "file": "src/physgate/orchestrator/decomposition_review.py",
+    "old": "        if record.get(\"session_id\") == session_id:\n            _synced(path, json.dumps({**record, \"shown\": True}).encode())\n",
+    "new": "        _synced(path, json.dumps({**record, \"shown\": True}).encode())\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_left_review_s_credential_goes_first_and_no_refusal_hides_an_exposure.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+    ]
+  },
+  {
+    "name": "k39_the_look_s_bound_is_never_reached",
+    "file": "src/physgate/orchestrator/left_out.py",
+    "old": "                        if looked > MAX_LOOKED:\n",
+    "new": "                        if False and looked > MAX_LOOKED:\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "k43_the_record_s_mark_is_read_from_the_first_session",
+    "file": "src/physgate/series/seal.py",
+    "old": "            if held.session_id == session_id:\n                beside",
+    "new": "            if True:\n                beside",
+    "tests": [
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ]
+  },
+  {
+    "name": "k46_a_pycache_directory_inside_the_module_is_in_scope",
+    "file": "src/physgate/orchestrator/merge.py",
+    "old": "                if path.name.casefold().endswith(\".pyc\") or any(\n                    part.casefold() == \"__pycache__\" for part in path.parts[len(module.parts) :]\n                ):\n",
+    "new": "                if path.name.casefold().endswith(\".pyc\"):\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "k48_a_look_into_a_target_follows_a_link",
+    "file": "src/physgate/orchestrator/decompose.py",
+    "old": "            if entry.is_dir(follow_symlinks=False):\n                stack.append((Path(entry.path), depth + 1))\n",
+    "new": "            if entry.is_dir():\n                stack.append((Path(entry.path), depth + 1))\n",
+    "tests": [
+      "tests/unit/orchestrator/test_a_left_review_s_credential_goes_first_and_no_refusal_hides_an_exposure.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+    ]
+  },
+  {
+    "name": "k49_a_review_root_given_inside_may_hold_hidden_names",
+    "file": "src/physgate/orchestrator/decompose.py",
+    "old": "    if held:\n        msg = (\n            \"the review root given inside the run directory already holds something",
+    "new": "    if [h for h in held if not h.startswith(\".\")]:\n        msg = (\n            \"the review root given inside the run directory already holds something",
+    "tests": [
+      "tests/unit/orchestrator/test_a_left_review_s_credential_goes_first_and_no_refusal_hides_an_exposure.py"
+    ],
+    "data": [
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/evaluation/launch_check.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_a_harness_round_is_refused_before_its_first_trial.py",
+      "tests/unit/evaluation/per_role/test_the_raw_arm_says_it_saw_no_canary_only_when_it_looked_for_one.py",
+      "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
+      "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py",
+      "tests/unit/orchestrator/test_a_killed_run_records_its_exposure_once_whichever_window_it_died_in.py",
+      "tests/unit/orchestrator/test_a_left_review_s_credential_goes_first_and_no_refusal_hides_an_exposure.py",
+      "tests/unit/orchestrator/test_a_sealed_record_claims_only_what_the_session_s_end_can_hold.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
+      "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py",
+      "tests/unit/oslayer/test_a_sandboxed_command_s_mktemp_and_diff_write_only_its_own_temporary_directory.py",
+      "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py",
+      "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
+      "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
+      "tests/unit/orchestrator/test_a_review_s_exposure_is_found_again_after_a_kill_past_its_end_record.py",
+      "tests/unit/orchestrator/test_a_review_session_a_killed_decompose_left_is_stopped_by_the_next_command.py",
+      "tests/unit/orchestrator/test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest.py",
+      "tests/unit/orchestrator/test_a_session_s_findings_are_on_the_record_before_it_is_ended.py",
+      "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py",
+      "tests/unit/orchestrator/test_decompose_reviews_the_plan_before_it_writes_anything.py",
+      "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"
+    ]
+  }
+]

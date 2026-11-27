@@ -278,3 +278,9 @@ def test_decompose_holds_its_directory_s_lock_around_its_calls_and_its_review() 
     assert len(held) == 1, "decompose holds no lock on its directory"
     inside = {getattr(n.func, "id", None) for n in ast.walk(held[0]) if isinstance(n, ast.Call)}
     assert {"decompose_in_rounds", "_plan_reviewer"} <= inside, inside
+
+
+def test_the_finder_names_a_raw_trial_s_place_as_the_store_does() -> None:
+    from physgate.evaluation.tiers.store import PLACE
+
+    assert stop_signals.RAW_PLACE == PLACE
