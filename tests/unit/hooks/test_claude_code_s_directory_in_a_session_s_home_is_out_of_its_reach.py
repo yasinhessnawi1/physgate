@@ -58,7 +58,7 @@ def _config(
         user_home=str(home or _home(base)),
         token_ceiling=40960,
         read_roots=(str(base / "run"),) if profile == "reviewer" else (),
-        os_layer_temp_dir="/tmp/pg-1" if layer else None,
+        os_layer_temp_dir="/var/tmp/pgs/0123456789" if layer else None,
     )
     # Built as the spawner builds it, whose own home is another place; the hooks then run
     # with the scratch home as theirs (the fixture below), as a session's hooks do.
@@ -180,7 +180,7 @@ def test_no_command_that_names_it_runs_whether_it_writes_or_only_reads(
 @pytest.mark.parametrize("profile", ("role", "baseline"))
 def test_the_os_layer_is_told_to_deny_it_both_ways(base: Path, profile: str) -> None:
     config = _config(base, profile)
-    policy = sandbox_policy(config, home=str(_home(base)), temp_dir="/tmp/pg-1")
+    policy = sandbox_policy(config, home=str(_home(base)), temp_dir="/var/tmp/pgs/0123456789")
     filesystem: dict[str, Any] = policy.settings["sandbox"]["filesystem"]
     target = str(_home(base) / ".claude")
     assert target in filesystem["denyRead"]

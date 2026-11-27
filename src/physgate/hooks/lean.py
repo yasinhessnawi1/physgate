@@ -204,7 +204,28 @@ _CONFIG_FIELDS = (
 #: Left out of the written configuration of every session but a reviewer whose run allows
 #: compaction (the first two) and a session inside the OS layer (the third), so every other
 #: configuration keeps its bytes.
-_OPTIONAL_CONFIG_FIELDS = ("after_compaction", "compaction_note", "os_layer")
+_OPTIONAL_CONFIG_FIELDS = ("after_compaction", "compaction_note", "os_layer", "worktree_identity")
+
+
+def _count(value: object, where: str) -> int:
+    # Strict: a boolean is not an integer and a float is not one either.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise _fail(where, "must be an integer")
+    if value < 0:
+        raise _fail(where, "must be greater than or equal to 0")
+    return value
+
+
+class LeanIdentity:
+    """A worktree's device and inode, as the schema's ``WorktreeIdentity`` holds them."""
+
+    __slots__ = ("device", "inode")
+
+    def __init__(self, raw: object, where: str) -> None:
+        """Validate the identity."""
+        data = _object(raw, where, ("device", "inode"))
+        self.device: int = _count(data["device"], f"{where}.device")
+        self.inode: int = _count(data["inode"], f"{where}.inode")
 
 
 def _note(value: object, where: str) -> str:
@@ -267,6 +288,11 @@ class LeanConfig:
         )
         self.survivor_reaper: bool = _bool(data["survivor_reaper"], "survivor_reaper")
         self.os_layer: bool = _bool(data.get("os_layer", False), "os_layer")
+        #: The worktree's device and inode at the install, or ``None`` (a configuration written
+        #: before the field, or for a worktree not made yet).
+        self.worktree_identity: LeanIdentity | None = _optional(
+            data.get("worktree_identity"), "worktree_identity", LeanIdentity
+        )
         self.after_compaction: tuple[str, ...] = _strings(
             data.get("after_compaction", []), "after_compaction", _absolute
         )

@@ -14,6 +14,11 @@
 # It is shell, not Python, because the case it exists for is the Python side
 # failing to start at all.
 umask 077
+# The hook's own input and answer are never kept where the session's commands write: the session's
+# environment names its own temporary directory as TMPDIR, which they write, so the files are made
+# where the system's default is (a hook runs outside the sandbox, and no sandboxed command writes
+# there).
+unset TMPDIR
 W="$1"
 shift
 tmp_in=$(mktemp) || exit 2

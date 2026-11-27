@@ -66,6 +66,7 @@ from physgate.oslayer.containment import (
     bwrap_args,
     seatbelt_profile,
 )
+from physgate.oslayer.harness_temp import harness_temp_dir
 from physgate.oslayer.policy import board_devices
 
 #: The Linux wrapper, by name; found on the search path's absolute folders only.
@@ -206,7 +207,11 @@ def contained_runner(
                     )
                 except ContainmentError:
                     raise ContainmentError(UNCONTAINED) from None
-                profiles = tempfile.mkdtemp(prefix="physgate-derived-profile-")
+                # In the harness's own place: in a shared one a session could rewrite the profile
+                # between its write and the wrapper reading it.
+                profiles = tempfile.mkdtemp(
+                    prefix="physgate-derived-profile-", dir=harness_temp_dir()
+                )
                 profile = Path(profiles) / "regenerate.sb"
                 profile.write_text(rules, encoding="utf-8")
                 command = [SANDBOX_EXEC, "-f", str(profile), *argv]

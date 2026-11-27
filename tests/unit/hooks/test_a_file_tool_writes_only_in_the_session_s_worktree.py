@@ -59,6 +59,9 @@ try:
 except ImportError:  # the code before the scratch folder existed: the row fails on its words
     left_out = None  # type: ignore[assignment]
 
+#: The machine's own shared temporary directories: their refusal is one of the rows here.
+pytestmark = pytest.mark.machine_temps
+
 SID = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
 REVIEW_ID = "7d0c5e1a-3b2f-4c6d-8e9f-0a1b2c3d4e5f"
 #: Named to the installer, never made: the session's own temporary directory and another's.
@@ -89,6 +92,8 @@ SESSIONS = "the run's session directories"
 HELD_OUT = "held-out evaluation tier"
 WITHHELD_WHOLE = "withheld from this session whole"
 CLAUDE_TEMP = "every Claude Code session of this user"
+SHARED_TEMP = "write temporary files in this session's own temporary directory, which $TMPDIR"
+HARNESS_TEMPS = "where the harness keeps its own temporary files"
 OWN_TEMPS = "where each session keeps its own temporary files"
 TWO_NAMES = paths.HARD_LINKED
 HOME_CLAUDE = "Claude Code's own directory in this session's home"
@@ -547,11 +552,24 @@ def outside_targets(s: SimpleNamespace) -> list[tuple[str, str, dict[str, str]]]
             str(lay.store / "control" / "withheld" / "pool" / "task.json"),
             dict.fromkeys(RAW, HELD_OUT),
         ),
-        ("/tmp, a new file", "/tmp/never-made-by-the-row.txt", {}),
+        (
+            "/tmp, a new file",
+            "/tmp/never-made-by-the-row.txt",
+            {k: SHARED_TEMP for k in (*ROLE, *RAW)},
+        ),
         ("/var/tmp, a new file", "/var/tmp/never-made-by-the-row.txt", {}),
         *(
-            ("a shared temporary directory, a new file", f"{d}/never-made-by-the-row.txt", {})
+            (
+                "a shared temporary directory, a new file",
+                f"{d}/never-made-by-the-row.txt",
+                {k: SHARED_TEMP for k in (*ROLE, *RAW)},
+            )
             for d in shared_temp_dirs()
+        ),
+        (
+            "the place the harness keeps its own temporary files",
+            "/var/tmp/pgh/0123456789/physgate-git-store-x/config",
+            {k: HARNESS_TEMPS for k in (*ROLE, *RAW)},
         ),
         (
             "Claude Code's shared temporary directory",
@@ -780,9 +798,105 @@ def test_a_shell_command_s_word_outside_the_worktree_is_not_judged_by_this_rule(
             claude_config_dir=str(tmp_path / "o" / "cfg"),
             user_home=str(tmp_path / "o" / "home"),
             token_ceiling=1000,
+            # pytest's directory lies in a shared temporary one, which has rows of its own.
+            shared_temps=(),
         ),
         current_installation(),
     )
     elsewhere = str(tmp_path / "elsewhere" / "build.log")
     assert paths.protection(elsewhere, str(worktree), config, writing=True, shell=True) is None
     assert paths.protection(elsewhere, str(worktree), config, writing=True) is None
+
+
+def test_a_link_beyond_a_missing_part_and_a_dot_dot_is_still_seen(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The walk of the spelling as written stops at the first part that does not exist: the
+    # normalised spelling is walked too, so ``missing/../link/x`` meets ``link`` as a link, here
+    # in a run with no root withheld whole around the worktree (whose exception is asked apart).
+    s = installed("role-hooks-only", outside_tmp, monkeypatch)
+    _write(s.worktree / "modules" / "control" / "plant.py", "a\n")
+    (s.worktree / "inner").symlink_to(s.worktree / "modules" / "control")
+    for path in (
+        str(s.worktree / "missing" / ".." / "inner" / "plant.py"),
+        str(s.worktree / "missing" / ".." / "inner" / "new.py"),
+    ):
+        for tool in WRITERS:
+            code, said, _ = s.hooks.write(tool, path)
+            assert code != 0 and OUTSIDE in said, (tool, path, said)
+
+
+@pytest.mark.parametrize("kind", ["role-hooks-only", "raw-outside-a-round"])
+def test_a_link_out_beyond_a_missing_part_is_refused_by_the_walk_alone(
+    kind: str, outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # ``worktree/missing/../<link to a directory outside>/new``: the resolved spelling lies outside
+    # as well, so with the walk's normalised spelling taken away the resolved test refuses it, and
+    # with the resolved test taken away the walk does.
+    s = installed(kind, outside_tmp, monkeypatch)
+    (s.worktree / "out").symlink_to(s.lay.home / "notes")
+    path = str(s.worktree / "missing" / ".." / "out" / "new.txt")
+    for tool in WRITERS:
+        code, said, _ = s.hooks.write(tool, path)
+        assert code != 0 and OUTSIDE in said, (tool, said)
+    assert not (s.lay.home / "notes" / "new.txt").exists()
+    from physgate.hooks.paths import _no_link_beneath
+
+    assert not _no_link_beneath(str(s.worktree), os.path.normpath(path))
+
+
+@pytest.mark.parametrize("kind", ["role-hooks-only", "raw-outside-a-round"])
+def test_the_worktree_spelt_through_a_linked_parent_is_not_its_own_spelling(
+    kind: str, outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A spelling that resolves into the worktree but is not the worktree's own: an allowance is
+    # held to the worktree as it is spelt, not to whatever reaches it.
+    s = installed(kind, outside_tmp, monkeypatch)
+    alias = s.lay.home / "alias"
+    alias.symlink_to(s.worktree.parent)
+    path = str(alias / s.worktree.name / "new.txt")
+    assert os.path.realpath(path).startswith(os.path.realpath(s.worktree))
+    for tool in WRITERS:
+        code, said, _ = s.hooks.write(tool, path)
+        assert code != 0 and OUTSIDE in said, (tool, said)
+
+
+def test_a_part_that_cannot_be_looked_at_is_taken_as_a_link(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A name past the system's 255 bytes cannot be looked at (the system answers with an error
+    # that is not "no such file"): the write is refused, never taken as a part not there yet.
+    s = installed("role-hooks-only", outside_tmp, monkeypatch)
+    path = str(s.worktree / ("n" * 300) / "x.txt")
+    for tool in WRITERS:
+        code, said, _ = s.hooks.write(tool, path)
+        assert code != 0 and OUTSIDE in said, (tool, said)
+
+
+@pytest.mark.parametrize(
+    ("where", "target"),
+    [("modules", "../../x.txt"), ("home-notes", "new.txt"), ("home-notes", "existing.txt")],
+)
+def test_a_relative_target_is_read_from_the_call_s_working_directory(
+    where: str, target: str, outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Where the call's working directory is not the worktree, a relative target lands there: it
+    # is refused where that lies outside, never read as if it were the worktree's own.
+    s = installed("role-hooks-only", outside_tmp, monkeypatch)
+    cwd = s.worktree / "modules" if where == "modules" else s.lay.home / "notes"
+    cwd.mkdir(parents=True, exist_ok=True)
+    argv = shlex.split(s.hooks.commands["PreToolUse"])[7:]
+    for tool in WRITERS:
+        stdin = json.dumps(
+            {
+                "session_id": SID,
+                "cwd": str(cwd),
+                "hook_event_name": "PreToolUse",
+                "tool_name": tool,
+                "tool_input": tool_input(tool, target),
+            }
+        )
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = runtime.main(argv, stdin, REGISTRY)
+        assert code != 0 and OUTSIDE in err.getvalue(), (tool, err.getvalue())

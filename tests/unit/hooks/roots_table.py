@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 from physgate.hooks.config import SessionConfig
-from physgate.hooks.reasons import SESSION_TEMPS_REASON
+from physgate.hooks.reasons import HARNESS_TEMPS_REASON, SESSION_TEMPS_REASON
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 
 
@@ -44,6 +44,8 @@ def config(base: Path) -> SessionConfig:
         # The table as at the branch point: the machine's shared Claude Code directory is the
         # subject of its own rows.
         shared_claude_temp=(),
+        # And the machine's shared temporary directories, which are the subject of their own rows.
+        shared_temps=(),
     )
     return build_config(request, current_installation())
 
@@ -53,9 +55,9 @@ def table(base: Path) -> list[dict[str, object]]:
     installation = current_installation()
     out: list[dict[str, object]] = []
     for r in config(base).protected_roots:
-        if r.reason == SESSION_TEMPS_REASON:
-            # The parent of every session's own temporary directory: placed by the machine, and
-            # the subject of its own rows.
+        if r.reason in (SESSION_TEMPS_REASON, HARNESS_TEMPS_REASON):
+            # The parent of every session's own temporary directory, and of every harness
+            # process's: placed by the machine, and the subject of their own rows.
             continue
         path = r.path
         named = (

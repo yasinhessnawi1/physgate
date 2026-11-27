@@ -195,7 +195,7 @@ def test_the_os_layer_s_policy_is_the_one_under_skills_on(base: Path, hooks: str
     for arm in ("on", "off"):
         config = _config(base / arm, arm, hooks)
         home = str(base / arm / "outside" / "home")
-        policy = sandbox_policy(config, home=home, temp_dir="/tmp/pg-sk")
+        policy = sandbox_policy(config, home=home, temp_dir="/var/tmp/pgs/0123456789")
         policies.append(_spelled(policy.settings, base / arm))
     assert policies[1] == policies[0], f"skills: off changes the OS layer (hooks: {hooks})"
 

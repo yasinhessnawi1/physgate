@@ -78,6 +78,7 @@ from physgate.orchestrator.exports import EXPORTS_DIR, SHOWN_IN_FULL, cap_of, su
 from physgate.orchestrator.git import GitDir, changes_between, git, git_blob
 from physgate.orchestrator.session_files import FileRefused, read_beneath
 from physgate.oslayer.containment import ContainmentError
+from physgate.oslayer.harness_temp import harness_temp_dir
 from physgate.oslayer.regeneration import RegenerationBoundError
 from physgate.toolenv.exceptions import ToolEnvironmentError
 from physgate.toolenv.record import ToolEnvironment
@@ -524,8 +525,12 @@ def _regenerated(  # noqa: PLR0913 - the one call's parts
     # Named where it really is: a program may write a path relative to the place it resolves,
     # so a folder named through a link (macOS's temporary directory is beneath ``/var``, a link
     # to ``/private/var``) puts the folder's own path into an export made again, and an honest
-    # set would never match what was committed.
-    work = Path(os.path.realpath(tempfile.mkdtemp(prefix="physgate-derived-")))
+    # set would never match what was committed. In the harness's own temporary place, where no
+    # session reads or writes: in a shared one a session running beside it could put or replace a
+    # product before the comparison.
+    work = Path(
+        os.path.realpath(tempfile.mkdtemp(prefix="physgate-derived-", dir=harness_temp_dir()))
+    )
     try:
         placed = work / "module"
         target = placed / PurePosixPath(source).relative_to(module)

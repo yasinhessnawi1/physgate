@@ -177,7 +177,6 @@ def sandbox_policy(
     home: str,
     temp_dir: str,
     readable: tuple[str, ...] = (),
-    shared_temp: tuple[str, ...] = (),
     claude_temp: tuple[str, ...] = (),
     network: Literal["open", "none"] = "open",
     exists: Callable[[str], bool] = os.path.lexists,
@@ -189,10 +188,12 @@ def sandbox_policy(
     ``network`` set to ``none`` refuses the session's shell commands every remote host and
     every service on the machine's loopback (:data:`OFFLINE`).
     ``readable`` names further places of the session's own its shell commands read,
-    opened again where a read-denied root holds them, as the home is. ``shared_temp`` names
-    the machine's shared temporary directories, writable too, because ordinary commands
-    write there by name (``/tmp``, and on macOS the per-user directory plain ``mktemp``
-    uses); ``claude_temp`` names Claude Code's own temporary directories inside them, which
+    opened again where a read-denied root holds them, as the home is. The machine's shared
+    temporary directories (``/tmp``, and on macOS the per-user directory) are no place a
+    command writes: where the configuration names them, as it does for every role, baseline
+    and reviewer session's, they are denied both ways like any read-denied root, and a command
+    writes its temporary files in the session's own directory, which its ``TMPDIR`` names.
+    ``claude_temp`` names Claude Code's own temporary directories inside them, which
     hold every session of the user's records and are denied both ways. ``platform`` says
     which mechanism enforces the settings, which decides how the series outbox is read-denied.
 
@@ -203,7 +204,7 @@ def sandbox_policy(
     """
     # Where it really is, as the parent of every session's temporary directory is named.
     temp_dir = os.path.realpath(temp_dir)
-    writable = (config.worktree, temp_dir, home, *shared_temp)
+    writable = (config.worktree, temp_dir, home)
     read_denied = _read_denied(config, platform)
     # The one parent of every session's own temporary directory is denied, and the session's
     # own child there opened again: the one read-denied root a temporary directory may lie in.
@@ -246,7 +247,7 @@ def sandbox_policy(
             "autoAllowBashIfSandboxed": True,
             "excludedCommands": [],
             "filesystem": {
-                "allowWrite": _spelled(home, *own_writes, *shared_temp),
+                "allowWrite": _spelled(home, *own_writes),
                 "denyWrite": _spelled(*deny_write, *claude_temp, *devices),
                 "denyRead": _spelled(*read_denied, *claude_temp, *devices),
                 "allowRead": _spelled(*allow_read),
@@ -364,7 +365,8 @@ def _write_denied(
         if below:
             # A root above a writable place (the run's sessions/ above the session's home).
             # Outside every other writable place the OS denies the rest of it already; inside
-            # one (a run directory under the shared /tmp) it is named around that place.
+            # one (a home or temporary directory that holds the root and a place beneath it) it
+            # is named around that place.
             if inside and exists(path):
                 named.update(_around(path, (*exceptions, *below), exists, children))
             continue

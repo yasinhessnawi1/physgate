@@ -25,6 +25,8 @@ the standard library only: the configuration and the event are validated by
 from __future__ import annotations
 
 import json
+import os
+import stat
 import sys
 import time
 from typing import TYPE_CHECKING
@@ -152,6 +154,52 @@ def _log_refusal(config: ConfigView, hook_input: InputView, hook: str, reason: s
     )
 
 
+#: Every call's answer once the worktree's path is no longer the directory the session was
+#: installed in. It names no path: where the path now leads is the session's own doing.
+WORKTREE_MOVED = (
+    "The session's worktree is no longer the directory it was installed in (its path was "
+    "renamed, replaced or made a link), so nothing the hooks would decide holds, and every call "
+    "is refused. Nothing was put back."
+)
+
+
+def worktree_moved(config: ConfigView) -> bool:
+    """Whether the worktree's path is no longer the directory the install recorded.
+
+    The path itself is no link, and it is a directory with the recorded device and inode. A
+    configuration that records none (written before the field, or for a worktree not made yet)
+    holds nothing here.
+    """
+    identity = config.worktree_identity
+    if identity is None:
+        return False
+    try:
+        st = os.lstat(config.worktree)
+    except OSError:
+        return True
+    return (
+        not stat.S_ISDIR(st.st_mode) or st.st_dev != identity.device or st.st_ino != identity.inode
+    )
+
+
+def _log_moved(config: ConfigView, hook_input: InputView) -> None:
+    append_log(
+        config,
+        {
+            "t": time.time(),
+            "session": hook_input.session_id,
+            "agent": hook_input.agent_id,
+            "profile": config.profile,
+            "role": config.role,
+            "event": hook_input.hook_event_name,
+            "tool": hook_input.tool_name,
+            "hook": "worktree",
+            "decision": "refuse",
+            "reason": WORKTREE_MOVED,
+        },
+    )
+
+
 def emit(event: str, decision: Decision) -> int:
     """Write the decision the way Claude Code reads it, and return the exit status."""
     if decision.allow:
@@ -196,7 +244,13 @@ def main(argv: Sequence[str], stdin_text: str, registry: Mapping[str, HookSpec])
         if hook_input.hook_event_name != event:
             msg = f"the hook was wired for {event} but received {hook_input.hook_event_name}"
             raise ValueError(msg)
-        decision = dispatch(specs, hook_input, config)
+        # Before any hook: every rule that opens "the worktree" names it by its path, and the
+        # sentinel puts protected entries back by their paths there.
+        if worktree_moved(config):
+            decision = refuse(WORKTREE_MOVED)
+            _log_moved(config, hook_input)
+        else:
+            decision = dispatch(specs, hook_input, config)
     except BaseException as exc:  # noqa: BLE001 - every failure must become a refusal
         # Anything that escapes a check means no check was made, and Claude Code
         # would run the tool. Refusing is the only safe answer.
