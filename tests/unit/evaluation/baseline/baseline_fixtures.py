@@ -244,6 +244,7 @@ def config(task: Task, made: StandInStore, **changes: Any) -> RunConfig:  # noqa
         network_enforced=True,
         tool_servers=None,
         tool_search="denied",
+        python_bytecode="not_written",
         held_out=list(made.held_out),
         held_out_sha256=[tier_digest(Path(root)) for root in made.held_out],
         held_out_canaries=list(made.canaries),

@@ -88,6 +88,7 @@ from physgate.orchestrator.invocation import (
     require_pinned,
     version_argv,
 )
+from physgate.orchestrator.left_out import BYTECODE_DIR
 from physgate.orchestrator.managed import (
     FlagCache,
     ObservedTraffic,
@@ -352,6 +353,12 @@ def plan_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[str]:
             found.append(
                 f"module {module.name!r} has a directory with a .git component, beneath which "
                 "git records nothing a session writes"
+            )
+        # An attempt's commit leaves out whatever lies beneath a bytecode directory, in any case.
+        if any(part.casefold() == BYTECODE_DIR for part in path.parts):
+            found.append(
+                f"module {module.name!r} has a directory with a {BYTECODE_DIR} component, beneath "
+                "which no attempt commits anything"
             )
         for root, allowed in protected:
             if _overlap(path, root) and not any(_within(path, a) for a in allowed):

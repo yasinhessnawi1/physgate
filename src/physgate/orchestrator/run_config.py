@@ -490,6 +490,11 @@ class RunConfig(_Frozen):
     #: 2.1.322, sends that step's beta flag, so the defaults a run's manifest carries follow it.
     #: ``offered`` for a run recorded before the field existed, which is what its sessions had.
     tool_search: Literal["offered", "denied"]
+    #: Whether its sessions' Python writes bytecode caches, read from the environment every
+    #: session of either arm is spawned with (``invocation.session_python_bytecode``) when the run
+    #: is configured, never from the parameters: ``not_written`` while each is told to write none.
+    #: ``written`` for a run recorded before the field existed, which is what its sessions did.
+    python_bytecode: Literal["written", "not_written"]
     #: The Claude Code binary the run executes, measured when it is configured and again each
     #: time it is driven: the same version string can name other bytes on another platform, or
     #: after a replacement. ``None`` only on a run recorded before the field existed.
@@ -655,9 +660,9 @@ class RunConfig(_Frozen):
         when ``refuse``, ``design_review`` when ``off``, ``parts_on_hand`` and ``review_compaction``
         when ``off``, ``reviewers`` when ``paired``, ``skills`` and ``hooks`` when ``on``,
         ``ablation`` when ``False``, ``tool_environment`` and ``tool_servers`` when ``None``,
-        ``tool_search`` when ``offered``, and ``binary`` and ``account`` when ``None``, so their
-        recorded digests still name them. A run that names a binding always records it, so the
-        binding is part of its manifest id.
+        ``tool_search`` when ``offered``, ``python_bytecode`` when ``written``, and ``binary`` and
+        ``account`` when ``None``, so their recorded digests still name them. A run that names a
+        binding always records it, so the binding is part of its manifest id.
         """
         exclude = set()
         if self.thinking_display == "omitted":
@@ -698,6 +703,8 @@ class RunConfig(_Frozen):
             exclude.add("tool_servers")
         if self.tool_search == "offered":
             exclude.add("tool_search")
+        if self.python_bytecode == "written":
+            exclude.add("python_bytecode")
         if self.parts_on_hand == "off":
             exclude.add("parts_on_hand")
         if self.review_compaction == "off":
@@ -840,6 +847,8 @@ def load_run_config(path: Path) -> RunConfig:
         ("tool_servers", None),
         # Recorded before the field existed: the sessions' settings left the search tool offered.
         ("tool_search", "offered"),
+        # Recorded before the field existed: the sessions' Python wrote its bytecode caches.
+        ("python_bytecode", "written"),
         # Recorded before the field existed: nothing was asked about parts.
         ("parts_on_hand", "off"),
         # Recorded before the field existed: every reviewer ran with compaction switched off.

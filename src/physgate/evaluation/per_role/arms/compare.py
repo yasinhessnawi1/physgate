@@ -188,6 +188,10 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     # installed from, at its own time: a harness run recorded while the tool was offered is no
     # pair for a raw arm whose sessions were denied it.
     "tool_search": "compared",
+    # Whether the sessions' Python wrote bytecode caches. Both arms' sessions are spawned with
+    # the same environment builder, and each records what it told its sessions: a harness run
+    # whose sessions wrote them is no pair for a raw arm whose sessions wrote none.
+    "python_bytecode": "compared",
     # The bytes the harness run executed, by digest and platform build. The raw arm records
     # its binary's version, which is compared, and not the digest of its bytes.
     "binary": "not_compared",
@@ -226,6 +230,7 @@ RAW_PINS = frozenset(
         "model",
         "network",
         "os_layer",
+        "python_bytecode",
         "role_python",
         "thinking_display",
         "tool_environment",
@@ -235,12 +240,14 @@ RAW_PINS = frozenset(
 )
 
 #: What a raw arm's record written before each of these pins existed reads as: the raw arm
-#: was given no tool environment and no tool servers then, and its settings denied the
-#: binary's search tool to no profile. Read so, never rewritten.
+#: was given no tool environment and no tool servers then, its settings denied the binary's
+#: search tool to no profile, and its session's Python wrote bytecode. Read so, never rewritten.
 BEFORE_THE_PIN: dict[str, Any] = {
     "tool_environment": None,
     "tool_servers": None,
     "tool_search": "offered",
+    # Its sessions' Python wrote bytecode caches, as every session did before the pin.
+    "python_bytecode": "written",
     # Left out of a record whose harness run withheld no root whole, as every one before it.
     "withheld_whole": [],
 }
@@ -440,6 +447,7 @@ def _expected(config: RunConfig, role: str, task: Task) -> dict[str, Any]:
         "model": config.models.roles.get(role),
         "network": config.network,
         "os_layer": None if config.os_layer is None else config.os_layer.model_dump(mode="json"),
+        "python_bytecode": config.python_bytecode,
         "role_python": (
             None if config.role_python is None else config.role_python.model_dump(mode="json")
         ),

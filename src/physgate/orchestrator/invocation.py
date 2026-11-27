@@ -19,7 +19,7 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.managed import FLAGS_SETTING, FLAGS_SILENT_VERSIONS, TrafficSettings
@@ -166,6 +166,25 @@ _TRAFFIC_ALLOWED_SWITCHES = (
 )
 
 
+#: What every session's Python is told, on every pin and in both arms of a comparison: write no
+#: bytecode cache. An interpreter caches each module it imports beside the module's source, so a
+#: script importing another module's code left that module's cache in the worktree, outside the
+#: session's own module, and its attempt out of scope. Not a switch of the pin's
+#: (:func:`session_env_settings`): it says nothing of the binary's traffic, and a run records it
+#: as its own field (``RunConfig.python_bytecode``, read from here by
+#: :func:`session_python_bytecode`).
+SESSION_PYTHON = (("PYTHONDONTWRITEBYTECODE", "1"),)
+
+
+def session_python_bytecode() -> Literal["written", "not_written"]:
+    """Whether a session's Python writes bytecode, as a run records it: read from what it is given.
+
+    ``not_written`` while :data:`SESSION_PYTHON` tells every session's interpreter to write none;
+    never from a run's parameters.
+    """
+    return "not_written" if ("PYTHONDONTWRITEBYTECODE", "1") in SESSION_PYTHON else "written"
+
+
 def session_env_settings(claude_version: str) -> dict[str, str]:
     """The switches every session on ``claude_version`` carries, as a run records them.
 
@@ -216,6 +235,8 @@ def isolated_env(
         # Set on every pin, at the binary's own default, so a remote flag cannot move the
         # bound on one tool server's answer; recorded with the run's tool servers.
         "MAX_MCP_OUTPUT_TOKENS": str(MAX_SERVER_OUTPUT_TOKENS),
+        # On every pin: the session's Python writes no bytecode; recorded as the run's own field.
+        **dict(SESSION_PYTHON),
     }
     if base_url:
         env["ANTHROPIC_BASE_URL"] = base_url

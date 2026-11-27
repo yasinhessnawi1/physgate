@@ -45,6 +45,10 @@ VERSION = f"python{sys.version_info[0]}.{sys.version_info[1]}"
 LIBRARY_IMPORT = "import standin_library\nassert standin_library.GAIN == 2.0"
 
 
+#: The flags of a row whose session sets ``PYTHONHOME``, which ``-E`` would ignore.
+NO_E = ("-s", "-B")
+
+
 def _stand_in_environment(tmp_path: Path) -> Path:
     """A directory standing in for a tool environment's library root."""
     root = Path(os.path.realpath(tmp_path)) / "environment"
@@ -62,7 +66,7 @@ def _run(
     *,
     interpreter: str = BASE,
     told: str | None = None,
-    flags: tuple[str, ...] = ("-E", "-s"),
+    flags: tuple[str, ...] = ("-E", "-s", "-B"),
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     base = script.parents[2]
@@ -157,7 +161,9 @@ def test_a_pythonhome_of_the_session_s_own_is_named_its_site_hook_too(tmp_path: 
     home = _session_home(tmp_path)
     script = write_script(base, extra="import control\nassert control.margin() == 'edited'")
     raw = _written(
-        _run(script, told=_told([str(root)]), flags=("-s",), extra_env={"PYTHONHOME": str(home)})
+        _run(
+            script, told=_told([str(root)]), flags=("-s", "-B"), extra_env={"PYTHONHOME": str(home)}
+        )
     )
     loaded = _loaded(raw)
     library = home / "lib" / VERSION
@@ -307,7 +313,9 @@ def test_a_pythonhome_of_the_session_s_own_is_refused_at_collection(
     home = _session_home(tmp_path)
     roots = [BASE_PREFIX, str(root)]
     script = write_script(base, extra="import control\nassert control.margin() == 'edited'")
-    _written(_run(script, told=_told(roots), flags=("-s",), extra_env={"PYTHONHOME": str(home)}))
+    _written(
+        _run(script, told=_told(roots), flags=("-s", "-B"), extra_env={"PYTHONHOME": str(home)})
+    )
     reason = _only_refusal(_collect(base, run_dir, _environment(roots)))
     assert "not the run's tool environment" in reason
     assert str(home) in reason

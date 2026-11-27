@@ -47,6 +47,7 @@ REFUSED = {
     "tool_environment",
     "tool_servers",
     "tool_search",
+    "python_bytecode",
 }
 REPORTED = {
     "gate_mode",
@@ -148,6 +149,9 @@ def _differing(**fields: Any) -> Any:  # noqa: ANN401 - what drifted, or why not
         ("token_ceiling", 100_001),
         ("network", "none"),
         ("held_out_sha256", ("2" * 64,)),
+        # Sessions whose Python wrote bytecode lost attempts to it that sessions writing none
+        # do not: not one comparison.
+        ("python_bytecode", "written"),
     ],
 )
 def test_two_runs_that_differ_on_what_was_asked_or_from_where_are_refused(

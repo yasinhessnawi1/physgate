@@ -297,6 +297,7 @@ from physgate.roles import dispatchable, owners_of, require_registered
 from physgate.series.reader import attempt_records
 from physgate.series.seal import (
     OVERFLOW_NAME,
+    AttemptBytecode,
     AttemptDiscard,
     AttemptRecord,
     AttemptSeries,
@@ -4535,7 +4536,17 @@ class Loop:
             for entry in session.series.discarded
             if entry.sha256 is not None or entry.name == OVERFLOW_NAME
         )
-        if not entries and not checks and not discarded:
+        # What any session of the attempt left as bytecode, found at its end: shown, never kept.
+        bytecode = tuple(
+            AttemptBytecode(
+                session_id=session.session_id,
+                found=max(session.series.bytecode_found, len(session.series.bytecode)),
+                files=session.series.bytecode,
+            )
+            for session in ended
+            if session.series.bytecode or session.series.bytecode_found
+        )
+        if not entries and not checks and not discarded and not bytecode:
             return None
         return AttemptSeries(
             run_dir=str(self.run_dir),
@@ -4544,6 +4555,7 @@ class Loop:
             records=tuple(AttemptRecord(session_id=e.session_id, record=e.record) for e in entries),
             checks=checks,
             discarded=discarded,
+            bytecode=bytecode,
         )
 
     def _sealed_hold(self, sessions: list[SessionEnded]) -> bool:

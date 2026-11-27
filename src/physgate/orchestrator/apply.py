@@ -490,6 +490,15 @@ def _committed_as(repo: Path, commit: str, path: str, blob: str, pinned: GitDir)
     )
 
 
+#: Why an attempt whose session's end clearing was not complete is refused, in closed words:
+#: what stayed may still be bytecode that runs in place of a source, and it is never merged.
+LEFT_OUT_INCOMPLETE = (
+    "the session left bytecode, its scratch folder or a directory that cannot be listed in the "
+    "worktree, and what it left could not all be recorded and removed when it ended, so the "
+    "attempt is refused; leave every directory listable, remove the rest and run again"
+)
+
+
 def _series_refusal(
     repo: Path,
     commit: str,
@@ -506,6 +515,8 @@ def _series_refusal(
     producing process loaded, each at its path in the attempt commit, read through the clean
     object store, with the blob id sealed when its session ended.
     """
+    if series is not None and series.left_out_incomplete:
+        return LEFT_OUT_INCOMPLETE, "left_out"
     if series is not None and series.refused:
         shown = "; ".join(f"{e.name}: {e.reason}" for e in series.refused[:5])
         more = len(series.refused) - 5

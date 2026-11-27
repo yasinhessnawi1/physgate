@@ -10,8 +10,10 @@ through a link, so a role cannot make it move or delete files outside its own ou
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
+import py_compile
 import subprocess
 import sys
 import tempfile
@@ -52,9 +54,20 @@ def _outbox(base: Path) -> Path:
     return base / ".physgate" / "series"
 
 
-def _written(base: Path, **kwargs: str) -> Path:
+def _written(base: Path, *, writer_cache: bool = False, **kwargs: str) -> Path:
+    """Run a script that writes one record; ``writer_cache`` leaves the writer's own cache.
+
+    The script runs with no bytecode written, as every session's does; the cache is then made
+    as an interpreter that writes bytecode would have made it when the script imported the
+    writer (the writer stands behind no other module's cache).
+    """
     done = run(write_script(base, **kwargs))
     assert done.returncode == 0, done.stderr
+    if writer_cache:
+        source = base / ".physgate" / "lib" / "series_writer.py"
+        py_compile.compile(
+            str(source), cfile=importlib.util.cache_from_source(str(source)), doraise=True
+        )
     return Path(done.stdout.strip())
 
 
@@ -156,7 +169,7 @@ def test_a_record_whose_script_ran_from_outside_the_worktree_is_refused(
         " traces=[('p', 'm', [helper.GAIN])])\n"
     )
     done = subprocess.run(
-        [sys.executable, "-E", "-s", str(script)],
+        [sys.executable, "-E", "-s", "-B", str(script)],
         cwd=base,
         capture_output=True,
         text=True,
@@ -501,7 +514,7 @@ def test_collecting_changes_nothing_in_the_worktree_but_the_outbox(
     tmp_path: Path, run_dir: Path
 ) -> None:
     base = worktree(tmp_path)
-    _written(base)
+    _written(base, writer_cache=True)
     cache = base / CACHE
     before = {
         str(p.relative_to(base)): p.read_bytes()
@@ -519,7 +532,7 @@ def test_only_the_writer_s_own_cache_is_removed_and_each_file_is_listed(
     tmp_path: Path, run_dir: Path
 ) -> None:
     base = worktree(tmp_path)
-    _written(base)
+    _written(base, writer_cache=True)
     cache = base / CACHE
     (cache / "planted.cpython-312.pyc").write_bytes(b"not the writer's")
     (cache / "series_writer.cpython-399.pyc").mkdir()

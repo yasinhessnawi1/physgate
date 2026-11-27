@@ -218,6 +218,7 @@ ALLOWED_IMPORTS = {
     "contextlib",
     "errno",
     "hashlib",
+    "importlib",
     "json",
     "math",
     "os",

@@ -84,7 +84,13 @@ def driven(run_dir: Path) -> dict[str, str]:
     run_dir.mkdir(parents=True, exist_ok=True)
     # The search tool offered, as every run recorded before the field existed reads: a run that
     # records it denied (as the sessions' settings now are) is a run the reference never was.
-    overrides = {"harness": CLEAN_HARNESS, "models": MODELS, "tool_search": "offered"}
+    # Its sessions' Python wrote bytecode, as every run recorded before that field existed reads.
+    overrides = {
+        "harness": CLEAN_HARNESS,
+        "models": MODELS,
+        "tool_search": "offered",
+        "python_bytecode": "written",
+    }
     rig = Rig(run_dir, config_overrides=overrides)
     loop = rig.open()
     loop.start(

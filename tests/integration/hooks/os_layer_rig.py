@@ -26,6 +26,7 @@ from hook_session import claude_binary, pinned_version, session_switches
 from physgate.flags import Hooks
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import InstallRequest, install
+from physgate.orchestrator.invocation import SESSION_PYTHON
 from physgate.oslayer.abort import ABORT_PREFIX
 from physgate.oslayer.probe import Present, gather_facts, judge
 from physgate.oslayer.reaper_install import with_canary
@@ -179,6 +180,8 @@ def run_session(
             # result on it was measured under. A measurement may name others, to compare.
             **(session_switches(pinned_version()) if switches is None else switches),
             "CLAUDE_CODE_MAX_RETRIES": "0",
+            # What every session's Python is told, as the spawners' environment builder gives it.
+            **dict(SESSION_PYTHON),
             **installed.spawn_env,
         }
         if not reaper:

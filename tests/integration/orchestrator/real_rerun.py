@@ -165,6 +165,7 @@ def params() -> dict[str, Any]:
         "tool_environment": None,
         "tool_servers": None,
         "tool_search": "denied",
+        "python_bytecode": "not_written",
         "escalation_backend": "rules",
         "queue_decisions": "record",
         # A real run: inside the OS layer, or not at all.

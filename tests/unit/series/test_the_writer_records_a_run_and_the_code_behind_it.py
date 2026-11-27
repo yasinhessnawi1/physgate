@@ -56,7 +56,7 @@ def test_the_record_is_the_same_wherever_the_script_is_run_from(tmp_path: Path) 
     # An id is written once: the record is taken away, as the session's end collects it.
     Path(first.stdout.strip()).unlink()
     again = subprocess.run(
-        [sys.executable, "-E", "-s", "sim.py"],
+        [sys.executable, "-E", "-s", "-B", "sim.py"],
         cwd=script.parent,
         capture_output=True,
         text=True,
@@ -108,7 +108,7 @@ def test_a_process_with_no_script_cannot_write_a_record(tmp_path: Path) -> None:
         " traces=[('p', 'm', [0.0])])"
     )
     done = subprocess.run(
-        [sys.executable, "-E", "-s", "-c", code],
+        [sys.executable, "-E", "-s", "-B", "-c", code],
         cwd=base,
         capture_output=True,
         text=True,

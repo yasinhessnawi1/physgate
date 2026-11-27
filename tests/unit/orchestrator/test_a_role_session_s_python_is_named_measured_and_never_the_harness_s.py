@@ -124,6 +124,7 @@ def test_a_configuration_that_names_none_records_what_it_did_before() -> None:
         "tool_environment": None,
         "tool_servers": None,
         "tool_search": "denied",
+        "python_bytecode": "not_written",
         "parts_on_hand": "off",
         "review_compaction": "off",
     }
@@ -152,6 +153,7 @@ def _params(tmp_path: Path, role_python: object) -> object:
         "tool_environment": None,
         "tool_servers": None,
         "tool_search": "denied",
+        "python_bytecode": "not_written",
         "escalation_backend": "rules",
         "queue_decisions": "record",
         # The machine's layer is not this test's subject: allowed absent, for development.

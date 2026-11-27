@@ -18,7 +18,9 @@ own installation, each with the digest of its bytes now. The interpreter's own s
 of that installation and is not named. Paths inside the worktree are written relative to it;
 anything else is written as it is, absolute, and the orchestrator refuses a record whose
 code ran from anywhere but the module and the interpreter's own installation. Write the
-record after the simulation, from the script that ran it.
+record after the simulation, from the script that ran it. A record is refused here when a
+compiled file lies where the interpreter would have run it in place of a worktree module's
+source: the record names the source, so the source must be what ran.
 
 **On a run's tool environment.** Where the session's environment names the run's recorded
 tool environment (``PHYSGATE_SERIES_ENVIRONMENT``: its roots and its digest), every file of
@@ -65,6 +67,8 @@ from __future__ import annotations
 import contextlib
 import errno
 import hashlib
+import importlib.machinery
+import importlib.util
 import json
 import math
 import os
@@ -465,6 +469,49 @@ def told_environment() -> dict[str, object] | None:
     return {"roots": roots, "sha256": digest}
 
 
+def _compiled_in_place(base: str) -> str | None:
+    """Why the process cannot stand behind the code it loaded from the worktree, or ``None``.
+
+    The interpreter runs a module's compiled file in place of its source whenever the file's
+    header names the source's time and size, and it reads such a file even where it is told to
+    write none; so the source's bytes, which the record names, would not be the code that ran.
+    Every module loaded from the worktree by a loader must have been loaded by the source loader
+    (one with no loader is an object the script made itself, and the script is named), and no
+    compiled file may lie where the interpreter reads one for it: its cache
+    (``importlib.util.cache_from_source``, which follows a cache prefix where one is set) or a
+    ``.pyc`` beside the source. This file itself is left out: it cannot judge its own compiled
+    form, and its directory is the harness's, which no session writes.
+    """
+    own = os.path.realpath(__file__)
+    for module in list(sys.modules.values()):
+        found = getattr(module, "__file__", None)
+        if not isinstance(found, str):
+            continue
+        path = os.path.realpath(found)
+        if path == own or not _under(path, base):
+            continue
+        shown = _shown(path, base)
+        spec = getattr(module, "__spec__", None)
+        loader = getattr(spec, "loader", None) or getattr(module, "__loader__", None)
+        # A module object with no loader was made by the script itself, which the record names.
+        if loader is not None and not isinstance(loader, importlib.machinery.SourceFileLoader):
+            return f"{shown} was not loaded from its source, so its source is not the code that ran"
+        stem, suffix = os.path.splitext(path)
+        places = [stem + ".pyc"]
+        if suffix == ".py":
+            places.insert(0, importlib.util.cache_from_source(path))
+        for place in places:
+            if os.path.lexists(place):
+                return (
+                    f"compiled code lies at {_shown(place, base)}, where the interpreter reads it "
+                    f"in place of {shown}'s source, so that source may not be the code that ran; "
+                    "remove that compiled file and run the script again with the plain python3 "
+                    "the session is given, or python3 -B, and not with -E or -I, which ignore "
+                    "the variable that keeps it from writing compiled files"
+                )
+    return None
+
+
 def producer(base: str) -> dict[str, object]:
     """The code that is producing a record now: the running script, and what it loaded.
 
@@ -476,8 +523,9 @@ def producer(base: str) -> dict[str, object]:
 
     Raises:
         SeriesWriterError: there is no script (an interactive session or ``-c``), more files
-            of code are loaded than a record may name, or the environment was told in a form
-            a record cannot name.
+            of code are loaded than a record may name, the environment was told in a form
+            a record cannot name, or code it loaded from the worktree may not be its source
+            (:func:`_compiled_in_place`).
     """
     main = getattr(sys.modules.get("__main__"), "__file__", None)
     if not main:
@@ -505,6 +553,9 @@ def producer(base: str) -> dict[str, object]:
         if path == script or any(_under(path, root) for root in roots):
             continue
         loaded.add(path)
+    compiled = _compiled_in_place(base)
+    if compiled is not None:
+        raise SeriesWriterError(f"a record cannot stand behind this process: {compiled}")
     script_digest = _digest(script)
     if script_digest is None:
         msg = f"the script {script} is not a regular file now, so its code cannot be named"

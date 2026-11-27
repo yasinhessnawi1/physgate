@@ -1618,13 +1618,16 @@ def _series_listing(artefact: Artefact) -> bytes | None:
     """The attempt's series listing, or ``None`` for an attempt with no records and no checks.
 
     A record a session discarded counts: an attempt whose only record was discarded is given
-    the listing, so its reviewer is shown that record as no evidence.
+    the listing, so its reviewer is shown that record as no evidence. So does bytecode a session
+    left in its worktree: the reviewer is shown each file by its path and digest.
 
     Raises:
         PacketError: a record is gone or is not what was sealed when its session ended.
     """
     series = artefact.series
-    if series is None or not (series.records or series.checks or series.discarded):
+    if series is None or not (
+        series.records or series.checks or series.discarded or series.bytecode
+    ):
         return None
     try:
         return listing(series)

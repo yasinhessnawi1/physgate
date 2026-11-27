@@ -94,6 +94,7 @@ def _config(**changes: Any) -> RunConfig:
         network_enforced=True,
         tool_servers=None,
         tool_search="denied",
+        python_bytecode="not_written",
         # As the command records them: the bytes it measured, and the account by its name
         # and the fingerprint of the credential it was given.
         binary={"sha256": "d" * 64, "platform": "linux-x64"},
@@ -193,6 +194,7 @@ def _pins(**changes: Any) -> dict[str, Any]:
         "tool_environment": None,
         "tool_servers": None,
         "tool_search": "denied",
+        "python_bytecode": "not_written",
     }
     pins.update(changes)
     return pins
@@ -709,6 +711,33 @@ def test_sessions_offered_the_search_tool_are_no_pair_for_sessions_denied_it(
     run = _harness_run(tmp_path, config=_config(tool_search="offered"))
     found = differences(run, _raw_dir(tmp_path), role="control", task=TASK)
     assert found == ["tool_search: the harness ran with 'offered', the raw arm with 'denied'"]
+
+
+def test_sessions_whose_python_wrote_bytecode_are_no_pair_for_sessions_that_wrote_none(
+    tmp_path: Path,
+) -> None:
+    """Each arm records what its sessions' Python was told; arms told otherwise are refused."""
+    run = _harness_run(tmp_path, config=_config(python_bytecode="written"))
+    found = differences(run, _raw_dir(tmp_path), role="control", task=TASK)
+    assert found == [
+        "python_bytecode: the harness ran with 'written', the raw arm with 'not_written'"
+    ]
+
+
+def test_a_raw_record_written_before_the_bytecode_pin_reads_as_bytecode_written(
+    tmp_path: Path,
+) -> None:
+    pins = _pins()
+    del pins["python_bytecode"]
+    found = differences(
+        _harness_run(tmp_path), _raw_dir(tmp_path, pins=pins), role="control", task=TASK
+    )
+    assert found == [
+        "python_bytecode: the harness ran with 'not_written', the raw arm with 'written'"
+    ]
+    (tmp_path / "old").mkdir()
+    old = _harness_run(tmp_path / "old", config=_config(python_bytecode="written"))
+    assert differences(old, _raw_dir(tmp_path / "old", pins=pins), role="control", task=TASK) == []
 
 
 def _before_the_tool_pins() -> dict[str, Any]:
