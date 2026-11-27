@@ -107,7 +107,8 @@ def _review(
         monkeypatch.setattr(claude, "redact", lambda *a: None)
     monkeypatch.setattr(claude, "read_captured", lambda path, data=None: captured)
     if first_read_fails:
-        real_read = claude.read_stream_file
+        from physgate.orchestrator.dispatch import read_stream_file as real_read
+
         reads: list[Path] = []
 
         def once_refused(path: Path) -> bytes:

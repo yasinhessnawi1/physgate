@@ -752,9 +752,9 @@ def test_a_decomposition_s_directory_that_cannot_be_searched_refuses_until_it_ca
     assert SETTLE not in said, said
     # A settle does not pass over it, as the words say: what the read found would be lost with
     # it. So the settle is refused, and nothing is written.
-    with pytest.raises(ExposureError) as refused:
+    with pytest.raises(ExposureError) as settling:
         _settle(tier, directory)
-    assert refused.value.context.get("refused_because") == "settle_refuses_nothing"
+    assert settling.value.context.get("refused_because") == "settle_refuses_nothing"
     assert "cannot be searched" in str(_refused(tier))
     # The act its words name clears it: the directory reads again.
     monkeypatch.setattr(design_rounds, "exposed_reviews", real)

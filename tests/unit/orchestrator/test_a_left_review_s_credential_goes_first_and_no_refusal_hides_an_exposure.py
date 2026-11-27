@@ -23,6 +23,7 @@ import json
 import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -66,13 +67,16 @@ from test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wro
 
 from physgate.evaluation.tiers import exposure  # noqa: E402
 from physgate.evaluation.tiers.exposure import ExposureError  # noqa: E402
+from physgate.evaluation.tiers.store import withheld_root  # noqa: E402
+from physgate.evaluation.tiers.task import Role  # noqa: E402
 from physgate.orchestrator import decomposition_review, dispatch  # noqa: E402
 from physgate.orchestrator.decomposition_review import stop_left_review  # noqa: E402
 from physgate.orchestrator.exceptions import RunStateError  # noqa: E402
+from physgate.orchestrator.protocols import ReviewResult  # noqa: E402
 
 __all__ = ["calls"]  # the fixture, used by name
 
-ROLE = "control"
+ROLE: Role = "control"
 
 
 @pytest.fixture
@@ -233,7 +237,7 @@ class SaysWhatItShowed(Recording):
     def record_shown(self, hook: Callable[[str], None]) -> None:
         self.shown = hook
 
-    def review_plan(self, under: object) -> object:
+    def review_plan(self, under: Any) -> ReviewResult:  # noqa: ANN401
         if self.hook is not None:
             self.hook(*self.spawned)
         stream = self.root / SESSION / "session" / "stdout.jsonl" if self.root else Path()
@@ -298,7 +302,7 @@ def test_a_settle_marks_no_version_and_is_a_line_of_its_own(tier: OnTier) -> Non
     _refused(tier)
     _settle(tier, directory)
     (line,) = _lines(tier)
-    fields = getattr(line, "model_dump", dict)()
+    fields: dict[str, object] = getattr(line, "model_dump", dict)()
     assert fields.get("kind") == "settle" and fields.get("by") == "a person", fields
     assert "version" not in fields and fields.get("date"), fields
     assert exposure.exposure_sources(tier.made.store, ROLE) == {}
@@ -363,7 +367,7 @@ def test_a_register_written_when_a_hand_mark_settled_a_directory_reads_as_it_did
         "held_out": manifest.held_out.sha256,
         "validation": manifest.validation.sha256,
     }
-    exposure._append(exposure.withheld_root(tier.made.store, ROLE), "register", [old])  # noqa: SLF001
+    exposure._append(withheld_root(tier.made.store, ROLE), "register", [old])  # noqa: SLF001
     # It still settles the directory, and still marks its version.
     assert _readable(tier) == frozenset({tier.made.version})
 

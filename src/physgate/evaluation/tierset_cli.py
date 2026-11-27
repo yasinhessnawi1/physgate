@@ -377,7 +377,8 @@ def _check_target(args: argparse.Namespace) -> int:
         reason, words = refused
         print(json.dumps({"refused_because": reason, "error": words}, sort_keys=True))
         return 1
-    said = {"checked": str(path), "deepest_allowed": PREPARED_TARGET_DEPTH}
+    checked: dict[str, Any] = {"checked": str(path), "deepest_allowed": PREPARED_TARGET_DEPTH}
+    said = checked
     print(json.dumps(said, sort_keys=True))
     return 0
 

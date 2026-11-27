@@ -413,12 +413,11 @@ def _stop_and_scan(run_dir: Path, secrets: tuple[str, ...]) -> str | None:
     # read keeps the record, never the credential. A refusal here keeps the record too, and the
     # scan still runs.
     session = record.session_dir
+    removed: str | None = None
     try:
         remove_secrets(session / "state", session / "config")
     except InvocationError as exc:
         removed = f"its credential files could not all be removed ({exc})"
-    else:
-        removed = None
     said += f"; {removed or 'its credential files were removed'}"
     # Every stream its spawns wrote is final, and scanned once, as it was written: before the
     # redaction, which replaces whole a line it cannot read, a line the scan counts as the
