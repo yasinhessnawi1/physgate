@@ -10,6 +10,13 @@ file of trial records, the per-role report's input, and refuses a cell that cann
   arm's), and the set must be exactly the one the round's ledger gives for the tier, in its
   order, the round ended (:func:`.pairs.round_cell`). Its harness records are the ones the round
   assembled.
+- **A cell is its first harness round's.** Another harness round that holds places of the
+  harness as measured of the same tier of the same version, and is no shakedown, is a second run
+  of the cell: the cell is counted from the round that started first, by the start each round's
+  ledger records, and a later round is refused naming the earlier one
+  (``cell_has_an_earlier_round``), so no person counts the round they prefer. Where the order
+  cannot be told (the same start, or a ledger that records no start or no version), each is
+  refused. The first round is gathered as it is: a later round changes nothing of it.
 - **Each pair has one counted raw record.** Each harness trial's raw rounds are found by the pair
   register beneath the withheld root (:mod:`.pairs`), by the harness trial, never by a round's
   name or a set's file name. A record is counted where its round recorded it and no once-more
@@ -33,11 +40,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
 from physgate.evaluation.baseline.pairs import (
+    HarnessRound,
     HarnessRounds,
     PairError,
     baseline_lines,
@@ -150,6 +159,15 @@ def gather(
         msg = "the set given is not the harness round's own set of the tier, in its order"
         raise _refuse("cell_not_the_round_s", msg)
     tier = first.tier
+    earlier = _earlier_rounds(rounds, first.held, version, tier)
+    if earlier:
+        named = ",".join(earlier)
+        msg = (
+            f"the harness round {first.held.round_id} is not the cell's first: the round(s) "
+            f"{named} hold the same tier of the version and started before it, or when cannot be "
+            "told; a cell is counted from its first harness round only"
+        )
+        raise _refuse("cell_has_an_earlier_round", msg, earlier_round=named)
     commits: dict[str | None, str] = {}
     harness: list[TrialRecord] = []
     raw: list[TrialRecord] = []
@@ -187,6 +205,44 @@ def gather(
         harness=tuple(harness),
         raw=tuple(raw),
     )
+
+
+#: How a harness round's ledger records its start: to the second, in UTC.
+_STARTED = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+
+
+def _started(held: HarnessRound) -> str | None:
+    started = held.lines[0].get("started")
+    return started if isinstance(started, str) and _STARTED.fullmatch(started) else None
+
+
+def _of_the_cell(held: HarnessRound, version: str, tier: str) -> bool:
+    """Whether ``held`` holds places of ``tier`` of ``version``, of the harness as measured.
+
+    A ledger that does not say its version is taken to be of it: what cannot be told is refused.
+    """
+    inputs = held.lines[0].get("inputs")
+    if isinstance(inputs, dict):
+        if inputs.get("shakedown") is True:
+            return False
+        if isinstance(inputs.get("version"), str) and inputs["version"] != version:
+            return False
+    return any(p.get("arm") is None and p.get("tier") == tier for p in held.order)
+
+
+def _earlier_rounds(
+    rounds: HarnessRounds, held: HarnessRound, version: str, tier: str
+) -> list[str]:
+    """The other harness rounds of the cell that started before ``held``, or when is not known."""
+    mine = _started(held)
+    found = []
+    for other in rounds.every():
+        if other.round_id == held.round_id or not _of_the_cell(other, version, tier):
+            continue
+        theirs = _started(other)
+        if mine is None or theirs is None or theirs <= mine:
+            found.append(other.round_id)
+    return found
 
 
 def _raw_record(

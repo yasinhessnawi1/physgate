@@ -184,6 +184,10 @@ class HarnessRounds:
         """The harness round ``round_id``."""
         return self._read()[round_id]
 
+    def every(self) -> list[HarnessRound]:
+        """Every harness round of the role, by its id."""
+        return [self._read()[name] for name in sorted(self._read())]
+
     def place_of(self, run_dir: str) -> HarnessPlace | None:
         """The harness round's place that placed the run at ``run_dir``; ``None`` for none."""
         rounds = self._read()
