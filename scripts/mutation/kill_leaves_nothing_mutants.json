@@ -82,6 +82,9 @@
       "tests/unit/series/test_the_shared_summary_keeps_the_review_listing_s_bytes.py",
       "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py",
       "tests/unit/series/writer_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -92,7 +95,10 @@
     "tests": [
       "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "the_finder_misses_a_later_round",
@@ -102,7 +108,10 @@
     "tests": [
       "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_retry_directory_is_not_visited",
@@ -112,7 +121,10 @@
     "tests": [
       "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_planner_a_kill_left_running_is_not_stopped",
@@ -122,7 +134,10 @@
     "tests": [
       "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "the_plan_s_review_is_found_by_its_owner_alone",
@@ -132,7 +147,10 @@
     "tests": [
       "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_writer_writes_in_a_kind_of_place_no_finder_knows",
@@ -142,7 +160,10 @@
     "tests": [
       "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "decompose_sweeps_nothing_first",
@@ -152,7 +173,10 @@
     "tests": [
       "tests/unit/orchestrator/test_every_place_a_session_s_credential_is_written_is_cleared_after_a_kill.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "the_resume_scans_after_it_redacts",
@@ -187,6 +211,9 @@
       "tests/unit/reviewers/rubric_fixture.py",
       "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
       "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -222,6 +249,9 @@
       "tests/unit/reviewers/rubric_fixture.py",
       "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
       "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -257,6 +287,9 @@
       "tests/unit/reviewers/rubric_fixture.py",
       "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
       "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -292,6 +325,9 @@
       "tests/unit/reviewers/packet_fixture.py",
       "tests/unit/reviewers/rubric_fixture.py",
       "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -305,6 +341,9 @@
     "data": [
       "tests/unit/evaluation/per_role/task_fixtures.py",
       "tests/unit/evaluation/per_role/test_the_raw_arm_s_credential_is_handled_as_a_role_session_s.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -315,7 +354,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_tracked_file_s_bytes_are_not_compared",
@@ -325,7 +367,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_tracked_file_gone_is_not_counted",
@@ -335,7 +380,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "an_alternates_file_is_followed",
@@ -345,7 +393,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_refs_directory_that_is_a_link_is_followed",
@@ -355,7 +406,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "the_round_s_target_is_judged_by_git_status",
@@ -391,6 +445,9 @@
       "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -401,7 +458,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "the_store_is_refused_whole",
@@ -411,7 +471,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_review_root_s_record_is_no_run_material",
@@ -421,7 +484,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_linked_worktree_of_the_source_is_no_finding",
@@ -431,7 +497,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_run_that_withholds_one_root_withholds_them_all",
@@ -441,7 +510,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_walk_cut_short_is_no_finding",
@@ -451,7 +523,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "the_standing_review_root_is_walked_as_any_place",
@@ -461,7 +536,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "the_machine_s_other_places_are_not_walked",
@@ -471,7 +549,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_reference_that_is_no_branch_is_no_finding_unless_a_tag",
@@ -481,7 +562,10 @@
     "tests": [
       "tests/unit/evaluation/test_the_launch_check_names_what_a_measured_session_could_read.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_settle_does_not_look_beneath",
@@ -520,6 +604,9 @@
       "tests/unit/reviewers/rubric_fixture.py",
       "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
       "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -559,6 +646,9 @@
       "tests/unit/reviewers/rubric_fixture.py",
       "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
       "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -598,6 +688,9 @@
       "tests/unit/reviewers/rubric_fixture.py",
       "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py",
       "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -612,6 +705,9 @@
       "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
       "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
       "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -626,6 +722,9 @@
       "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
       "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
       "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -640,6 +739,9 @@
       "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
       "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
       "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -654,6 +756,9 @@
       "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
       "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
       "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -668,6 +773,9 @@
       "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
       "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
       "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -682,6 +790,9 @@
       "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
       "tests/unit/hooks/test_a_shared_temporary_directory_is_never_left_open_around_a_session_s_own_places.py",
       "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -700,6 +811,9 @@
       "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
       "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py",
       "tests/unit/series/writer_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -718,6 +832,9 @@
       "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
       "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py",
       "tests/unit/series/writer_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -736,6 +853,9 @@
       "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
       "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py",
       "tests/unit/series/writer_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -749,6 +869,9 @@
     "data": [
       "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
       "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -762,6 +885,9 @@
     "data": [
       "tests/unit/hooks/test_a_file_tool_writes_only_in_the_session_s_worktree.py",
       "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -772,7 +898,10 @@
     "tests": [
       "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "the_review_s_store_is_made_in_the_default_temporary_directory",
@@ -782,7 +911,10 @@
     "tests": [
       "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_parent_open_to_others_is_taken",
@@ -792,7 +924,10 @@
     "tests": [
       "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "a_forked_child_uses_its_parent_s_directory",
@@ -802,7 +937,10 @@
     "tests": [
       "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "the_regeneration_s_profile_is_made_in_the_default_temporary_directory",
@@ -812,7 +950,10 @@
     "tests": [
       "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "the_tier_scan_s_scratch_is_made_in_the_default_temporary_directory",
@@ -822,7 +963,10 @@
     "tests": [
       "tests/unit/oslayer/test_the_harness_keeps_its_temporary_stores_in_a_place_no_session_reaches.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "every_own_place_is_written_in_a_shared_directory",
@@ -837,6 +981,9 @@
       "tests/unit/hooks/test_a_worktree_replaced_by_a_link_is_no_session_s_worktree.py",
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/oslayer/test_the_deny_list_is_the_registry.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -847,7 +994,10 @@
     "tests": [
       "tests/unit/oslayer/test_a_sandboxed_command_s_mktemp_and_diff_write_only_its_own_temporary_directory.py"
     ],
-    "data": []
+    "data": [],
+    "paths": [
+      "knowledge"
+    ]
   },
   {
     "name": "another_session_s_record_is_marked_shown",
@@ -883,6 +1033,9 @@
       "tests/unit/reviewers/packet_fixture.py",
       "tests/unit/reviewers/rubric_fixture.py",
       "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -908,6 +1061,9 @@
       "tests/unit/series/test_a_session_s_records_are_collected_sealed_or_set_aside.py",
       "tests/unit/series/test_the_shared_summary_keeps_the_review_listing_s_bytes.py",
       "tests/unit/series/writer_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -933,6 +1089,9 @@
       "tests/unit/series/test_a_session_s_records_are_collected_sealed_or_set_aside.py",
       "tests/unit/series/test_the_shared_summary_keeps_the_review_listing_s_bytes.py",
       "tests/unit/series/writer_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -951,6 +1110,9 @@
       "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py",
       "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py",
       "tests/unit/series/writer_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -987,6 +1149,9 @@
       "tests/unit/reviewers/packet_fixture.py",
       "tests/unit/reviewers/rubric_fixture.py",
       "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -1023,6 +1188,9 @@
       "tests/unit/reviewers/packet_fixture.py",
       "tests/unit/reviewers/rubric_fixture.py",
       "tests/unit/reviewers/test_a_review_is_a_verdict_only_when_its_session_gives_one.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -1037,6 +1205,9 @@
       "tests/unit/orchestrator/left_session.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -1073,6 +1244,9 @@
       "tests/unit/evaluation/per_role/test_the_two_arms_differ_in_the_harness_alone.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   },
   {
@@ -1158,6 +1332,9 @@
       "tests/unit/series/test_the_shared_summary_keeps_the_review_listing_s_bytes.py",
       "tests/unit/series/test_the_writer_writes_no_record_beside_compiled_code_in_the_worktree.py",
       "tests/unit/series/writer_rig.py"
+    ],
+    "paths": [
+      "knowledge"
     ]
   }
 ]
