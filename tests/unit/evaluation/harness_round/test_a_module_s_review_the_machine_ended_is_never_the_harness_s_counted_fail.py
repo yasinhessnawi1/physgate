@@ -96,8 +96,9 @@ def test_a_review_the_machine_ends_every_time_makes_the_trial_unscored_with_no_f
     # ladder's one, so three review sessions a drive; the round's resume after its delay.
     assert [r.calls for r in made] == [3, 3]
     assert 7.0 in slept
+    # Every try ends on a line of its own, the one each drive halts on too: owed again.
     unavailable = [(e.cause, e.retry) for e in events if isinstance(e, ReviewUnavailable)]
-    assert unavailable == [("infrastructure", True)] * 4
+    assert unavailable == [("infrastructure", True)] * 6
 
 
 def test_a_review_s_refused_credential_stops_the_round_for_a_person(

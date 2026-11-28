@@ -27,6 +27,7 @@ from typing import Any
 import pytest
 import round_rig
 from observe_rig import SPAWN_STARTED
+from observe_rig import Reviewer as RealReviewer
 from round_rig import SCORED, Rig, StandInDriver, make_rig
 
 from physgate.evaluation.harness_round import run_round
@@ -46,8 +47,6 @@ from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.protocols import MessageUsage, Usage
 from physgate.orchestrator.session_ends import ended_by, open_sessions
 from physgate.orchestrator.usage_limit import UsageLimit
-
-RealReviewer = round_rig.Reviewer
 
 
 def _scorer(_task: Any, _answer: Path) -> dict[str, Any]:  # noqa: ANN401
