@@ -27,6 +27,7 @@ from physgate.evaluation.per_role.arms.compare import (
     differences,
     harness_total,
 )
+from physgate.evaluation.tiers.issued import issued_sha256
 from physgate.evaluation.tiers.task import parse_task
 from physgate.hooks.settings import CONFIG_NAME, PROFILE_TOOLS
 from physgate.orchestrator.budget import REPAIR_BUDGET
@@ -82,7 +83,7 @@ def _config(**changes: Any) -> RunConfig:
     params.update(
         run_id="r",
         seed=1,
-        brief_sha256=hashlib.sha256(TASK.brief.encode()).hexdigest(),
+        brief_sha256=issued_sha256(TASK),
         target_head="b" * 40,
         claude_version="2.1.301",
         endpoint="default",
@@ -178,7 +179,7 @@ def _pins(**changes: Any) -> dict[str, Any]:
         "answer": TASK.answer.model_dump(mode="json"),
         "auth": "subscription",
         "bounds": _bounds(),
-        "brief_sha256": hashlib.sha256(TASK.brief.encode()).hexdigest(),
+        "brief_sha256": issued_sha256(TASK),
         "claude_version": "2.1.301",
         "effort": config.effort,
         "endpoint": "default",
@@ -280,6 +281,18 @@ def test_a_harness_run_given_another_brief_is_named(tmp_path: Path) -> None:
         run, _raw_dir(tmp_path, pins=_pins(brief_sha256=other)), role="control", task=TASK
     )
     assert found == ["brief: the harness run was not given this task's brief"]
+
+
+def test_a_pair_given_the_task_s_brief_without_its_values_is_named_as_such(
+    tmp_path: Path,
+) -> None:
+    """Both arms recorded the task's brief alone: they were given less than the task."""
+    alone = hashlib.sha256(TASK.brief.encode()).hexdigest()
+    run = _harness_run(tmp_path, config=_config(brief_sha256=alone))
+    found = differences(
+        run, _raw_dir(tmp_path, pins=_pins(brief_sha256=alone)), role="control", task=TASK
+    )
+    assert found == ["brief: the harness run was given this task's brief without its values"]
 
 
 def test_a_pin_the_comparison_does_not_know_is_named(tmp_path: Path) -> None:

@@ -21,7 +21,6 @@
 from __future__ import annotations
 
 import fcntl
-import hashlib
 import importlib
 import io
 import json
@@ -45,6 +44,7 @@ from exposure_fixtures import (
 )
 
 from physgate.cli import main
+from physgate.evaluation.tiers.issued import issued_sha256
 from physgate.evaluation.tiers.store import withheld_root
 
 EXPOSURE = "physgate.evaluation.tiers.exposure"
@@ -318,7 +318,7 @@ def _raw_record(made: StandInStore, tier: str) -> None:
         "end": "ended",
         "held_out_seen": None,
         "task": task.id,
-        "pins": {"brief_sha256": hashlib.sha256(task.brief.encode()).hexdigest()},
+        "pins": {"brief_sha256": issued_sha256(task)},
         "held_out_sha256": [],
     }
     (trial / "harness" / "raw.json").write_text(json.dumps(record))

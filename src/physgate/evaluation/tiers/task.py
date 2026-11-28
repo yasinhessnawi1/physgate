@@ -161,7 +161,10 @@ class ScorerRef(_Frozen):
 
 
 class Task(_Frozen):
-    """One task: the brief both arms read, the inputs it gives, and the specifications.
+    """One task: its brief, the inputs it gives, and the specifications.
+
+    Both arms are given the same text for it (:func:`.issued.issued_text`): its brief, its
+    inputs as its scorer reads them, and its answer contract.
 
     An own task composes at least two requirements across its headline specifications
     (ARCH-141: feature isolation alone produces a gap without tampering). A held-out or

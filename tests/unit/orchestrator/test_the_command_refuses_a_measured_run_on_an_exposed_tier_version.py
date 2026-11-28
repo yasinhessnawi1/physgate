@@ -7,7 +7,6 @@ through the command as every other requirement's does, before any session is mad
 
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 import sys
@@ -35,6 +34,7 @@ from test_the_physgate_command_starts_and_decides import (  # noqa: E402
 import physgate.evaluation.requirements as evaluation_requirements  # noqa: E402
 from physgate.cli import main  # noqa: E402
 from physgate.evaluation.tiers.heldout import tier_digest  # noqa: E402
+from physgate.evaluation.tiers.issued import issued_sha256, issued_text  # noqa: E402
 from physgate.orchestrator import cli  # noqa: E402
 from physgate.orchestrator.requirements import RunFacts  # noqa: E402
 
@@ -134,7 +134,7 @@ def test_a_new_run_on_an_exposed_version_is_refused_before_anything_is_written(
     held = {name: list(value) for name, value in _held(made).items()}
     params = {**PARAMS, "reportable": True, "os_layer_absent": "refuse", **held}
     args = _decompose(tmp_path, monkeypatch, params)
-    (tmp_path / "brief.md").write_text(made.tasks["visible"][0].brief)
+    (tmp_path / "brief.md").write_text(issued_text(made.tasks["visible"][0]))
     assert main(args) == 2
     error = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
     assert "(version_exposed)" in str(error.get("requirements")), error
@@ -150,7 +150,7 @@ def test_a_recorded_run_on_an_exposed_version_is_refused_before_any_session(
 ) -> None:
     made = _exposed(tmp_path)
     monkeypatch.setattr(cli, "harness_state", lambda _root: CLEAN_HARNESS)
-    brief = hashlib.sha256(made.tasks["visible"][0].brief.encode()).hexdigest()
+    brief = issued_sha256(made.tasks["visible"][0])
     events = _recorded(
         tmp_path,
         reportable=True,
@@ -180,7 +180,7 @@ def _prepared_trial(
     held = {name: list(value) for name, value in _held(made).items()}
     params = {**PARAMS, "reportable": True, "os_layer_absent": "refuse", **held}
     args = _decompose(tmp_path, monkeypatch, params)
-    (tmp_path / "brief.md").write_text(made.tasks["visible"][0].brief)
+    (tmp_path / "brief.md").write_text(issued_text(made.tasks["visible"][0]))
     trial = tmp_path / "runs" / "round-a" / "0000-1"
     trial.mkdir(parents=True)
     given = args[args.index("--target") + 1]

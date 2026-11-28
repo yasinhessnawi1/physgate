@@ -48,6 +48,7 @@ from physgate.evaluation.harness_round import (  # noqa: E402
 from physgate.evaluation.per_role.arms.compare import ENDED_STEPS, harness_total  # noqa: E402
 from physgate.evaluation.per_role.arms.harness import extract, planned_module_dirs  # noqa: E402
 from physgate.evaluation.tiers.exposure import MOST_DEPTH  # noqa: E402
+from physgate.evaluation.tiers.issued import issued_bytes  # noqa: E402
 from physgate.evaluation.tiers.task import parse_task  # noqa: E402
 from physgate.knowledge import loader  # noqa: E402
 from physgate.orchestrator.cli import Registrations  # noqa: E402
@@ -142,7 +143,8 @@ def _run(
     )
     params = run_params(config().model_copy(update={"models": models}))
     (tmp_path / "params.json").write_text(json.dumps(params))
-    (tmp_path / "brief.md").write_bytes(TASK.brief.encode())
+    # The brief file as the harness round writes it: what a session is given for the task.
+    (tmp_path / "brief.md").write_bytes(issued_bytes(TASK))
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
     spec = f"Design the controller the brief asks for. {TASK.brief}"
     plan = {

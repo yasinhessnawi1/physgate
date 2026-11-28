@@ -1,7 +1,8 @@
-"""A protected task reaches its raw session as its brief alone, and its trial rests in the store.
+"""A protected task reaches its raw session as what it gives alone, and its trial rests in store.
 
-The runner opens the validation and held-out tiers' ``task.json`` to give the raw session a
-protected task's brief. Every field of a stand-in task but its brief carries a marker, so a
+The runner opens the validation and held-out tiers' ``task.json`` to give the raw session what a
+session is given for a protected task: its brief, its values and where its answer goes. Every
+field of a stand-in task but those carries a marker, so a
 plain search finds what of a protected task reached a place: the session's prompt, anything the
 round wrote outside the store's withheld places, its output, and every error a protected trial
 raises. A protected trial is made inside the store's protected places and moved only within
@@ -48,6 +49,7 @@ from physgate.evaluation.observe.cost import load_price_sheet
 from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.per_role.arms.raw import RawSetup, held_out_seen
 from physgate.evaluation.per_role.exceptions import TaskFormatError
+from physgate.evaluation.tiers.issued import issued_text
 from physgate.evaluation.tiers.store import (
     WORKING,
     role_root,
@@ -184,9 +186,10 @@ def test_a_protected_task_s_other_fields_reach_neither_its_session_nor_a_visible
 ) -> None:
     """The real raw arm, its session recorded in place of the binary.
 
-    The prompt is the brief, byte for byte; nothing the round wrote outside the withheld places,
-    and nothing it printed, holds a protected task's marker or canary. The marker is found
-    beneath the withheld root, so the search would have found it anywhere.
+    The prompt is what a session is given for the task, byte for byte; nothing the round wrote
+    outside the withheld places, and nothing it printed, holds a protected task's marker or
+    canary. The marker is found beneath the withheld root, so the search would have found it
+    anywhere.
     """
     tasks = [t for tier in ("visible", "validation", "held_out") for t in store.tasks[tier]]
     runs = run_set(*((harness_run(tmp_path / "runs", t, store), 0) for t in tasks))
@@ -196,7 +199,7 @@ def test_a_protected_task_s_other_fields_reach_neither_its_session_nor_a_visible
     out = tmp_path / "round"
     _round(store, runs, out, raw.run_raw)
     forbidden = _forbidden(store)
-    briefs = {t.brief for t in tasks}
+    given = {issued_text(t) for t in tasks}
     assert len(session.given) == len(tasks) == 24
     for (prompt, setup), work in zip(session.given, session.works, strict=True):
         # Every trial's session, protected or visible, works in the store's work root, given
@@ -208,7 +211,7 @@ def test_a_protected_task_s_other_fields_reach_neither_its_session_nor_a_visible
         assert not work.is_relative_to(out)
         assert os.path.realpath(out) in vars(setup).get("held_out_also", ())
         assert setup.held_out == tuple(store.held_out)
-        assert prompt in briefs
+        assert prompt in given
         assert not [m for m in forbidden if m in prompt]
         markers = [m for m in forbidden if m.startswith("zqmark")]
         assert not [m for m in markers if m in repr(setup)]
