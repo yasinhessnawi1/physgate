@@ -220,6 +220,22 @@ def test_a_run_given_no_task_of_the_version_is_refused_before_any_session(
     _refused(store, runs, tmp_path / "round", "no task of this version")
 
 
+@pytest.mark.parametrize("tier", ["visible", "held_out"])
+def test_a_run_given_its_task_s_brief_alone_is_refused_by_its_own_name_before_any_session(
+    tmp_path: Path, store: StandInStore, tier: str
+) -> None:
+    task = store.tasks[tier][0]
+    alone = hashlib.sha256(task.brief.encode()).hexdigest()
+    runs = run_set((harness_run(tmp_path / "runs", task, store, brief_sha256=alone), 0))
+    _refused(
+        store,
+        runs,
+        tmp_path / "round",
+        "brief without its values",
+        because={"refused_because": "given_the_brief_alone"},
+    )
+
+
 def test_a_trial_listed_twice_is_refused_before_any_session(
     tmp_path: Path, store: StandInStore
 ) -> None:

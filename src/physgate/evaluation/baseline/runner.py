@@ -157,6 +157,7 @@ from physgate.evaluation.tiers.base import _Frozen
 from physgate.evaluation.tiers.canaries import store_canaries
 from physgate.evaluation.tiers.checks import CheckRecord, LeftOut, left_out, said
 from physgate.evaluation.tiers.heldout import tier_digest
+from physgate.evaluation.tiers.issued import brief_sha256, given_the_brief_alone, issued_sha256
 from physgate.evaluation.tiers.manifest import TierSet, practice_refusal, read_version
 from physgate.evaluation.tiers.store import (
     BASELINE_DIR as BASELINE_DIR,
@@ -503,7 +504,10 @@ def setup_from_run(
 
 
 def _tasks(directory: Path) -> dict[str, tuple[TierName, Task]]:
-    """Every task of the version at ``directory``, by its brief's digest.
+    """Every task of the version at ``directory``, by the digest a run given it records.
+
+    That is the digest of what a session is given for it (:func:`.tiers.issued.issued_sha256`);
+    two tasks are still held apart by their briefs alone.
 
     Raises:
         BaselineError: a task cannot be read, or two share a brief; counts and the tier only.
@@ -518,18 +522,34 @@ def _tasks(directory: Path) -> dict[str, tuple[TierName, Task]]:
                 # The error may name the task; only its tier is said.
                 msg = f"a task of the {tier} tier cannot be read"
                 raise BaselineError(msg, tier=tier) from exc
-            brief = hashlib.sha256(task.brief.encode()).hexdigest()
-            if brief in found:
+            if brief_sha256(task) in {brief_sha256(t) for _, t in found.values()}:
                 msg = "two tasks of the version share a brief, so a run's task cannot be told"
                 raise BaselineError(msg, tier=tier)
-            found[brief] = (tier, task)
+            found[_issued(task, tier)] = (tier, task)
     return found
+
+
+def _issued(task: Task, tier: str) -> str:
+    """The digest a run given ``task`` records, or the refusal of a task no session can be given.
+
+    Raises:
+        BaselineError: the task gives values its scorer cannot read; only the tier is said.
+    """
+    try:
+        return issued_sha256(task)
+    except PerRoleError:
+        msg = f"a task of the {tier} tier gives values its scorer cannot read"
+        raise BaselineError(msg, tier=tier, refused_because="task_not_issuable") from None
+
+
+def _of(tasks: Mapping[str, tuple[TierName, Task]]) -> list[Task]:
+    return [task for _, task in tasks.values()]
 
 
 def _external_tasks(
     store: Path, role: Role, directory: Path
 ) -> tuple[ExternalSetRecord, dict[str, tuple[TierName, Task]]]:
-    """The external set at ``directory``: its record, and every task by its brief's digest.
+    """The external set at ``directory``: its record, and every task by what a run given it records.
 
     Raises:
         BaselineError: the set holds no task, holds one that is not an external task of the
@@ -550,11 +570,10 @@ def _external_tasks(
             msg = f"the external set holds a task that is not an external one of the {role} role"
             raise BaselineError(msg, external=str(directory), tier=task.tier)
         benchmarks.add(task.source.benchmark)
-        brief = hashlib.sha256(task.brief.encode()).hexdigest()
-        if brief in found:
+        if brief_sha256(task) in {brief_sha256(t) for _, t in found.values()}:
             msg = "two tasks of the external set share a brief, so a run's task cannot be told"
             raise BaselineError(msg, external=str(directory))
-        found[brief] = ("external", task)
+        found[_issued(task, "external")] = ("external", task)
     if not found:
         msg = "the external set holds no task"
         raise BaselineError(msg, external=str(directory))
@@ -659,6 +678,9 @@ def plan(
         _require_withheld(store, role, config, canaries, where)
         reviewed = _require_reviewed_inside(run_dir, where)
         found = tasks.get(config.brief_sha256)
+        if found is None and given_the_brief_alone(config.brief_sha256, _of(tasks)):
+            msg = f"the harness run was given a task of {of_what}'s brief without its values"
+            raise BaselineError(msg, **where, refused_because="given_the_brief_alone")
         if found is None:
             msg = f"the harness run was given no task of {of_what}"
             raise BaselineError(msg, **where)
@@ -934,6 +956,9 @@ def _cell_trials(
             raise BaselineError(msg, cell_entry=str(place), refused_because="cell_ablation")
         brief = config.brief_sha256
         found = tasks.get(brief)
+        if found is None and given_the_brief_alone(brief, _of(tasks)):
+            msg = "a harness trial of the cell was given a task's brief without its values"
+            raise BaselineError(msg, cell_entry=str(place), refused_because="given_the_brief_alone")
         if found is None:
             msg = "a harness trial of the cell was given no task of the round's source"
             raise BaselineError(msg, cell_entry=str(place))

@@ -79,7 +79,11 @@ its decomposition's first record is walked whole by the register, so the target 
 directory nested deeper than five beneath it (``target_too_deep``: the register would refuse
 every reader, the trial's own ``decompose`` among them) and no file named ``run.json``,
 ``raw.json`` or ``params_source.json`` (``target_holds_a_record``: it would be read as a
-record). It reads nothing else and writes nothing; exit 0 when the target passes.
+record); and it holds nothing named ``knowledge``, in any case, at its top, where a
+decomposition copies the planned roles' knowledge (``target_holds_role_knowledge``: a library
+folder the target brought would be read in every run's worktree as another role's). It reads
+nothing else and writes nothing; exit 0 when the target passes. The round driver does not call
+it: the launch does, on the target the round clones from, before the round starts.
 
 ``physgate tiers practice --store S --implementer-model M [--seed N]`` builds, at the new
 directory ``S``, a store holding one version of practice tasks written for a shakedown
@@ -91,6 +95,13 @@ in the evaluation environment, since each task's scorer is run on its references
 it refuses (``evaluation_environment_missing``) and writes nothing. A shakedown on it then
 registers a run root for the store (``physgate tiers add-run-root --withheld
 S/control/withheld --path DIR``) before its harness runs, as every measured run's store needs.
+
+``physgate tiers values-check --store S --role R --version V`` counts, for each tier of the
+version, its tasks by what a session reading them is left without, from the brief alone and from
+what a session is given now (:mod:`physgate.evaluation.tiers.issued_check`): a name of the
+scorer's the brief writes with no value, a value it calls given with none, a value the scorer
+takes by default. It prints one JSON line of counts, never a task id, a brief or a value, and
+writes nothing; a version it cannot read is one ``refused_because`` line with exit 1.
 
 ``physgate tiers probe --withheld W --version V --seed N`` is the isolation probe
 (:mod:`physgate.evaluation.tiers.probe`): for each task of ``V``'s held-out tier and each
@@ -179,6 +190,18 @@ def add_parser(subparsers: Any) -> None:
         "--also", type=Path, action="append", default=[], help="a further place a session reads"
     )
     launch.set_defaults(func=_launch_check)
+    values = commands.add_parser(
+        "values-check",
+        help="count, for each tier of a version, the tasks that leave a session without a value",
+    )
+    values.add_argument("--store", type=Path, required=True)
+    values.add_argument("--role", required=True, choices=_ROLES)
+    values.add_argument("--version", required=True)
+    values.set_defaults(func=_values_check)
+
+
+#: The roles a version is counted for, said where the flag is listed.
+_ROLES = ("control", "firmware", "whole_run")
 
 
 #: What ``--publish`` takes, said where the flag is listed. Kept here, beside the parser, so the
@@ -429,6 +452,20 @@ def _launch_check(args: argparse.Namespace) -> int:
         print(finding.line())
     print(f"launch check: {len(found)} finding(s)" if found else "launch check: nothing found")
     return 1 if found else 0
+
+
+def _values_check(args: argparse.Namespace) -> int:
+    """The counts of one version's tasks by what they leave a session without; one JSON line."""
+    from physgate.evaluation.tiers.issued_check import ValuesCheckError, value_counts
+
+    try:
+        said = value_counts(args.store.resolve(), args.role, args.version)
+    except ValuesCheckError as exc:
+        reason = exc.context.get("refused_because", "refused")
+        print(json.dumps({"refused_because": reason, "error": str(exc)}, sort_keys=True))
+        return 1
+    print(json.dumps(said, sort_keys=True))
+    return 0
 
 
 def _probe(args: argparse.Namespace) -> int:

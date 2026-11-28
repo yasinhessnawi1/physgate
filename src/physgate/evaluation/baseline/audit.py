@@ -80,6 +80,7 @@ from physgate.evaluation.baseline.runner import (
 from physgate.evaluation.observe.cost import DatedSheet
 from physgate.evaluation.per_role.assemble import ExcludedTrial
 from physgate.evaluation.per_role.report import TrialRecord
+from physgate.evaluation.tiers.issued import given_the_brief_alone
 from physgate.evaluation.tiers.store import version_dir, withheld_root
 from physgate.evaluation.tiers.task import PROTECTED_TIERS, Role, Task, canonical_json
 from physgate.orchestrator.dispatch import read_captured
@@ -647,6 +648,13 @@ def _harness_entry(
 ) -> Line:
     """One harness trial's record, derived again into ``here``."""
     config = load_run_config(run_dir / "run.json")
+    if config.brief_sha256 not in tasks:
+        if given_the_brief_alone(config.brief_sha256, [task for _, task in tasks.values()]):
+            msg = "the run was given a task's brief without its values"
+            raise AuditError(msg, refused_because="given_the_brief_alone")
+        msg = "the run was given no task of the round's source"
+        raise AuditError(msg, refused_because="run_not_in_source")
+    # Its tier was held to the cell's before anything was derived (:func:`_a_harness_cell`).
     _, task = tasks[config.brief_sha256]
     here.mkdir(mode=0o700, parents=True)
     return rederive_harness_trial(

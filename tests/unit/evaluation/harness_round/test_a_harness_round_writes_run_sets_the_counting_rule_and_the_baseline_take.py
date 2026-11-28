@@ -26,6 +26,7 @@ from physgate.evaluation.baseline.runner import RunSet, plan
 from physgate.evaluation.harness_round import COMBINED, HARNESS_ROUNDS, ROUND_RECORD, run_round
 from physgate.evaluation.tiers.checks import check_path
 from physgate.evaluation.tiers.exposure import register_lines, run_roots, survey, version_refusal
+from physgate.evaluation.tiers.issued import issued_sha256
 from physgate.evaluation.tiers.measure import census
 from physgate.evaluation.tiers.store import withheld_root
 from physgate.evaluation.tiers.task import id_digest
@@ -88,7 +89,7 @@ def test_each_tier_s_run_set_names_its_own_tier_s_runs_alone(
 ) -> None:
     rig, _, summary, _ = whole
     runs, _ = _set(rig, summary, tier)
-    briefs = {hashlib.sha256(t.brief.encode()).hexdigest(): t.id for t in rig.made.tasks[tier]}
+    briefs = {issued_sha256(t): t.id for t in rig.made.tasks[tier]}
     named = RunSet.model_validate_json(runs.read_bytes())
     given = [load_run_config(Path(e.run_dir) / "run.json").brief_sha256 for e in named.trials]
     assert sorted(given) == sorted(briefs)
@@ -105,20 +106,23 @@ def test_the_baseline_plan_takes_the_combined_run_set_unchanged(
     assert all(p.cap > 0 for p in planned)
 
 
-def test_each_run_was_given_its_task_s_brief_byte_for_byte_and_the_target_s_commit(
+def test_each_run_was_given_what_a_session_is_given_for_its_task_and_the_target_s_commit(
     whole: tuple[Rig, str, dict[str, Any], str],
 ) -> None:
     rig, _, summary, _ = whole
     record = json.loads((_place(rig, summary) / ROUND_RECORD).read_bytes())
     head = record["inputs"]["target_head"]
-    briefs = {
-        hashlib.sha256(t.brief.encode()).hexdigest() for tier in TIERS for t in rig.made.tasks[tier]
+    # The place keeps the task's brief digest; the run records the digest of what it was given.
+    given = {
+        hashlib.sha256(t.brief.encode()).hexdigest(): issued_sha256(t)
+        for tier in TIERS
+        for t in rig.made.tasks[tier]
     }
     for trial in record["trials"]:
         config = load_run_config(Path(trial["run_dir"]) / "run.json")
         brief = _place(rig, summary) / "briefs" / f"{trial['index']:04d}.md"
         assert hashlib.sha256(brief.read_bytes()).hexdigest() == config.brief_sha256
-        assert config.brief_sha256 == trial["brief_sha256"] and config.brief_sha256 in briefs
+        assert config.brief_sha256 == given[trial["brief_sha256"]]
         assert config.target_head == head
         assert config.seed == 100 + trial["index"] and config.run_id == trial["run_id"]
         # The clone and the review root lie inside the run's own directory.
@@ -181,6 +185,7 @@ def _protected_words(rig: Rig) -> set[str]:
         for task in rig.made.tasks[tier]:
             found |= {task.id, id_digest(task.id), task.brief}
             found.add(hashlib.sha256(task.brief.encode()).hexdigest())
+            found.add(issued_sha256(task))
             found.add(task.id.split(".", 1)[1])  # the marker every field of it carries
     return found
 

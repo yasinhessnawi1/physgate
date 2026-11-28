@@ -29,6 +29,7 @@ from physgate.evaluation.harness_round import (
     RoundError,
     run_round,
 )
+from physgate.evaluation.tiers.issued import issued_sha256
 from physgate.evaluation.tiers.store import withheld_root
 from physgate.evaluation.tiers.task import id_digest
 from physgate.orchestrator.run_config import load_run_config
@@ -50,6 +51,18 @@ def _drawn(rig: Rig, tasks: int, trials: int) -> list[tuple[str, int]]:
     pairs = sorted((d, n) for d in digests for n in range(trials))
     random.Random("1124:order:control_visible").shuffle(pairs)
     return pairs
+
+
+def _given(rig: Rig, brief_sha256: str) -> str:
+    """The digest a run given the task of the place ``brief_sha256`` keys records."""
+    import hashlib
+
+    task = next(
+        t
+        for t in rig.made.tasks["visible"]
+        if hashlib.sha256(t.brief.encode()).hexdigest() == brief_sha256
+    )
+    return issued_sha256(task)
 
 
 def _id_of(rig: Rig, brief_sha256: str) -> str:
@@ -150,8 +163,9 @@ def test_the_call_that_assembles_the_last_place_ends_the_round_in_the_order(
     order = _ledger(rig)[0]["order"]
     # The tier's set names each trial by its number within its task, in the round's order.
     assert [e.trial for e in runs.trials] == [p["trial"] for p in order]
+    # The order keeps each place by its task's brief; each run records what it was given.
     briefs = [load_run_config(Path(e.run_dir) / "run.json").brief_sha256 for e in runs.trials]
-    assert briefs == [p["brief_sha256"] for p in order]
+    assert briefs == [_given(rig, p["brief_sha256"]) for p in order]
     assert sorted((p["brief_sha256"], p["trial"]) for p in order) == sorted(
         (b, n) for b in {p["brief_sha256"] for p in order} for n in (0, 1)
     )
