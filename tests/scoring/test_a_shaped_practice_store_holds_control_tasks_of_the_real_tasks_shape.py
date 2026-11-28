@@ -190,7 +190,7 @@ def test_the_tasks_cover_the_real_tasks_shapes(
     peak = next(spec for spec in bounded.specs if spec.metric == "actuator_peak")
     assert not isinstance(peak.bound, tuple)
     assert (peak.op, peak.bound.value, peak.bound.unit) == ("<=", limit.value, limit.unit)
-    # Its gain is a symbol no input gives, as two real tasks' are: the scorer takes it as 1.
+    # Its gain is a symbol no input gives, as some real tasks' are: the scorer takes it as 1.
     assert "plant_gain" in bounded.brief and all(m.name != "plant_gain" for m in bounded.inputs)
 
 
