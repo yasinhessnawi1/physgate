@@ -222,7 +222,7 @@ from physgate.evaluation.tiers.task import (
 )
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.common import utc_now, utc_stamp
-from physgate.orchestrator.credentials import SECRET_VARIABLE
+from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
 from physgate.orchestrator.decomposition_review import stop_left_review
 from physgate.orchestrator.design_rounds import journal_spend, rounds_on_the_limit
 from physgate.orchestrator.events import (
@@ -1365,23 +1365,23 @@ def run_round(
 ) -> tuple[Status, dict[str, Any]]:
     """Run, or go on with, the round ``inputs`` name; how it left off and its counts and digests.
 
-    ``limit_reset`` is a person's word that the account's usage limit reset, for the wait the
-    round stands at, held to the core's rule for a run's (:func:`resume_refusal`); ``set_aside``
-    names the trial the round stands stopped at for a person, whose directory is then set aside on
-    the person's word (a run halted on a refused credential only once its resume on the replaced
-    credential was refused, and once per trial). Either given to a round that stands at no such
-    wait is refused, before anything is made. ``credential_replaced`` is a person's word that the
-    refused credential the round stands stopped at was replaced with another secret: the trial's
-    halted run is resumed with that word (``physgate resume --credential-replaced``), which
-    records both fingerprints; given to a round that stands at no refused credential, it is
-    refused before anything is made. ``only`` names one place of the round's order: the round
-    takes that trial on until it is assembled (or waits) and stops there, ``trial_assembled``, its
-    one-entry run set written, so a raw trial can run right after it; only the first place not
-    yet assembled may be named, or one already assembled (which only says it again). ``now`` is
-    the clock a limit's wait is read against. ``drop`` is a person's word that drops the
-    ablation arm's places not yet assembled, at once and for good: written on the ledger with who
-    and why before anything else is taken on, so the harness's places go on alone; every later
-    start of the round says the same, or is refused.
+    ``limit_reset`` is a person's word that the account's usage limit reset, for the wait the round
+    stands at, held to the core's rule for a run's (:func:`resume_refusal`); ``set_aside`` names the
+    trial the round stands stopped at for a person, whose directory is then set aside on the
+    person's word (a run halted on a refused credential only once its resume on the replaced
+    credential was refused while the run's secret was set, and once per trial). Either given to a
+    round that stands at no such wait is refused, before anything is made. ``credential_replaced``
+    is a person's word that the refused credential the round stands stopped at was replaced with
+    another secret: the trial's halted run is resumed with that word (``physgate resume
+    --credential-replaced``), which records both fingerprints; given to a round that stands at no
+    refused credential, it is refused before anything is made. ``only`` names one place of the
+    round's order: the round takes that trial on until it is assembled (or waits) and stops there,
+    ``trial_assembled``, its one-entry run set written, so a raw trial can run right after it; only
+    the first place not yet assembled may be named, or one already assembled (which only says it
+    again). ``now`` is the clock a limit's wait is read against. ``drop`` is a person's word that
+    drops the ablation arm's places not yet assembled, at once and for good: written on the ledger
+    with who and why before anything else is taken on, so the harness's places go on alone; every
+    later start of the round says the same, or is refused.
 
     Raises:
         RoundError: the round is refused, or stopped at a step it names; nothing of a task.
@@ -2228,8 +2228,8 @@ def _stopped_for_a_person_at(ctx: _Round) -> int | None:
     state = _state(ctx.run_dir(i, last))
     if state == "run" and _halted_on_a_credential(ctx.run_dir(i, last)):
         # A run halted on a refused credential: a person resumes it on the credential put right,
-        # or, only once that resume was refused, sets its directory aside and the trial is
-        # decomposed afresh, spending nothing (:func:`_require_a_refused_resume`).
+        # or, only once that resume was refused with the secret set, sets its directory aside and
+        # the trial is decomposed afresh, spending nothing (:func:`_require_a_refused_resume`).
         return i
     if state == "spent" and _once_more_taken(ctx, i):
         return i
@@ -2564,11 +2564,13 @@ def _step(ctx: _Round, planned: _Planned, attempt: int) -> Status | None:
             return _wait_for_a_person(ctx, planned, attempt, CREDENTIAL_REFUSED)
         ctx.acted.add(("credential", i, attempt))
         replaced = _replaced(ctx, i, attempt)
+        # Read before the drive, as the command reads it: whether its refusal may open a set-aside.
+        present = _secret_present(run_dir)
         try:
             return _drive(ctx, planned, attempt, "resume", resume=True, replaced=replaced)
         except RoundError as exc:
             if exc.context.get("refused_because") == "resume_refused":
-                _resume_refused(ctx, planned, attempt, replaced=replaced)
+                _resume_refused(ctx, planned, attempt, replaced=replaced, present=present)
             raise
     elif halt is not None and halt.reason == USAGE_LIMIT:
         # Never an end: the run is resumed past the limit, however often it met it, once the
@@ -2597,7 +2599,7 @@ def _set_aside_on_a_credential(
     i = planned.index
     _left_behind(ctx, planned, attempt, run_dir)
     ctx.set_aside_for = None
-    refused = _refused_resumes(ctx, i, attempt, replaced=True)
+    refused = _refused_resumes(ctx, i, attempt, replaced=True, present=True)
     ctx.add(
         {
             "kind": "credential",
@@ -2615,18 +2617,42 @@ def _set_aside_on_a_credential(
     return None
 
 
-#: What a refused resume's line names of it: whose, with the person's word or not, the command's
-#: status and words, and when.
-_REFUSED_RESUME = ("index", "attempt", "run_id", "credential_replaced", "status", "why", "at")
+#: What a refused resume's line names of it: whose, with the person's word or not, whether the
+#: run's secret was set where the command reads it, the command's status and words, and when.
+_REFUSED_RESUME = (
+    "index",
+    "attempt",
+    "run_id",
+    "credential_replaced",
+    "secret_present",
+    "status",
+    "why",
+    "at",
+)
 
 
-def _resume_refused(ctx: _Round, planned: _Planned, attempt: int, *, replaced: bool) -> None:
+def _secret_present(run_dir: Path) -> bool:
+    """Whether the run's secret is set in the environment, as the command reads it for a resume.
+
+    Not known (the run's parameters cannot be read) is not set.
+    """
+    try:
+        credential_for(load_run_config(run_dir / "run.json").auth, os.environ)
+    except Exception:  # noqa: BLE001 - not known is not set: no set-aside rests on it
+        return False
+    return True
+
+
+def _resume_refused(
+    ctx: _Round, planned: _Planned, attempt: int, *, replaced: bool, present: bool
+) -> None:
     """Record that the command refused the resume of a run halted on a refused credential.
 
     Written before the round stops on the refusal: which run, whether the person's word that the
-    credential was replaced went with it, the command's exit status, the words it refused with
-    (its last refusal line in the drive's log, beneath the withheld root), and when. A set-aside
-    of the run rests on such a line (:func:`_require_a_refused_resume`).
+    credential was replaced went with it, whether the run's secret was set in the environment the
+    command reads it from (:func:`_secret_present`), the command's exit status, the words it
+    refused with (its last refusal line in the drive's log, beneath the withheld root), and when.
+    A set-aside of the run rests on such a line (:func:`_require_a_refused_resume`).
     """
     i = planned.index
     ctx.add(
@@ -2636,6 +2662,7 @@ def _resume_refused(ctx: _Round, planned: _Planned, attempt: int, *, replaced: b
             "attempt": attempt,
             "run_id": ctx.run_id(i, attempt),
             "credential_replaced": replaced,
+            "secret_present": present,
             "status": REFUSED,
             "why": _refusal_words(_log(ctx, i, attempt, "drive")),
             "at": utc_stamp(ctx.now()),
@@ -2660,17 +2687,20 @@ def _refusal_words(log: Path) -> str | None:
 
 
 def _refused_resumes(
-    ctx: _Round, i: int, attempt: int, *, replaced: bool | None = None
+    ctx: _Round, i: int, attempt: int, *, replaced: bool | None = None, present: bool = False
 ) -> list[dict[str, Any]]:
     """The run's refused resumes on the ledger.
 
     With ``replaced``, only those given (or not given) the person's word that the credential was
-    replaced.
+    replaced; with ``present``, only those tried while the run's secret was set. A line written
+    before lines said whether it was set says nothing of it, and is never one of those.
     """
     return [
         x
         for x in ctx.of(i, "resume_refused")
-        if x["attempt"] == attempt and (replaced is None or x["credential_replaced"] is replaced)
+        if x["attempt"] == attempt
+        and (replaced is None or x["credential_replaced"] is replaced)
+        and (not present or x.get("secret_present") is True)
     ]
 
 
@@ -2678,12 +2708,15 @@ def _require_a_refused_resume(ctx: _Round, i: int) -> None:
     """Refuse a set-aside of a run halted on a refused credential that the rule does not allow.
 
     Only where the run's resume on the replaced credential was tried and refused, which its
-    ``resume_refused`` line records; and once per trial, across its draws (a re-run's draw
-    included). The other directories a person may set aside keep their own rules.
+    ``resume_refused`` line records, tried while the run's secret was set where the command
+    reads it: a resume refused because no secret was set opens nothing, so nobody reaches a fresh
+    plan by unsetting a variable, and a line that does not say whether it was set opens nothing
+    either. Once per trial, across its draws (a re-run's draw included). The other directories a
+    person may set aside keep their own rules.
 
     Raises:
-        RoundError: no refused resume with the person's word is recorded for the run, or the
-            trial already had a run set aside on a refused credential.
+        RoundError: no refused resume with the person's word and the secret set is recorded for
+            the run, or the trial already had a run set aside on a refused credential.
     """
     standing = _standing(ctx)
     if standing is None or standing[0].index != i:
@@ -2692,11 +2725,19 @@ def _require_a_refused_resume(ctx: _Round, i: int) -> None:
     run_dir = ctx.run_dir(i, last)
     if _state(run_dir) != "run" or not _halted_on_a_credential(run_dir):
         return
-    if not _refused_resumes(ctx, i, last, replaced=True):
-        msg = (
-            "the run halted on a refused credential is set aside only where its resume on the "
-            "replaced credential was tried and refused; resume it with the word first"
-        )
+    if not _refused_resumes(ctx, i, last, replaced=True, present=True):
+        if _refused_resumes(ctx, i, last, replaced=True):
+            msg = (
+                "the run halted on a refused credential is set aside only where its resume on "
+                "the replaced credential was refused while the run's secret was set; its resume "
+                "with the word was refused with no secret set, or before the round recorded "
+                "whether one was: set the secret and resume it with the word again"
+            )
+        else:
+            msg = (
+                "the run halted on a refused credential is set aside only where its resume on the "
+                "replaced credential was tried and refused; resume it with the word first"
+            )
         raise _refuse("set_aside_without_a_refused_resume", msg, index=str(i), attempt=str(last))
     if any(x.get("by") == "operator" and x.get("from_run") for x in ctx.of(i, "credential")):
         msg = "the trial already had a run set aside on a refused credential; there is no second"
