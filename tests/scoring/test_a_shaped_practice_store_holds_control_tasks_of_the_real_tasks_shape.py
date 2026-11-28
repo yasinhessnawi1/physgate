@@ -74,7 +74,7 @@ def _every(store: Path, version: str) -> list[LoadedTask]:
 
 def _plant(task: Task, prefix: str) -> list[float]:
     by_name = {m.name: float(m.value) for m in task.inputs}
-    found = []
+    found: list[float] = []
     while f"{prefix}_{len(found)}" in by_name:
         found.append(by_name[f"{prefix}_{len(found)}"])
     return found
