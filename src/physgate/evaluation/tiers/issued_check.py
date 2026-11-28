@@ -46,9 +46,10 @@ The counts, for each tier:
   a value written under one of the scorer's names (the plant's coefficients, its gain and delay,
   the reference step, the actuator limit, given or taken by default); else only a digit of the
   issued block's own names, units, powers and words. The places where a give-away would be come
-  first, so a number is placed as harmless only where every place it lies is harmless. ``issued_leaks_by_kind`` counts the tasks by
-  those places: ``scorer_named_values_only`` (the plant's own numbers: a controller may well
-  place a zero on a plant pole), ``names_units_or_powers_only`` (an artefact of the reading),
+  first, so a number is placed as harmless only where every place it lies is harmless.
+  ``issued_leaks_by_kind`` counts the tasks by those places: ``scorer_named_values_only`` (the
+  plant's own numbers: a controller may well place a zero on a plant pole),
+  ``names_units_or_powers_only`` (an artefact of the reading),
   ``scorer_named_values_and_names_units_or_powers`` (both), and ``unread_input_or_brief`` (some
   number lies in an input the scorer does not read, or in the brief: where a give-away would
   be). ``issued_leaks_all_reference_numbers`` counts the tasks whose text holds every such
