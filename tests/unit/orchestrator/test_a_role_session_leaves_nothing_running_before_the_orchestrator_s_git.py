@@ -48,6 +48,7 @@ from physgate.orchestrator.dispatch import ClaudeDispatcher, Installed
 from physgate.orchestrator.exceptions import InvocationError, OrchestratorError
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import InstallFacts
+from physgate.orchestrator.left_out import WORKTREE_NOT_HELD
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import SessionRequest
 from physgate.orchestrator.processes import started_at
@@ -670,11 +671,11 @@ def test_a_directory_moved_to_the_worktree_s_path_after_its_checks_refuses_the_a
     assert not (session.run.run_dir / "series").exists(), "a record was taken from it"
     assert session.at_first_git is None, "a git call was made on the attempt"
     assert isinstance(stopped.value, InvocationError), stopped.value
-    assert str(stopped.value).startswith(f"{dispatch.WORKTREE_NOT_HELD}; no git call follows")
+    assert str(stopped.value).startswith(f"{WORKTREE_NOT_HELD}; no git call follows")
     (record,) = session.run.run_dir.glob("sessions/*/after_stop.json")
     assert not (record.parent / "ended.json").exists()
     settled = json.loads(record.read_text())
-    assert settled["worktree_not_held"] == dispatch.WORKTREE_NOT_HELD
+    assert settled["worktree_not_held"] == WORKTREE_NOT_HELD
     # Nothing else refused it: the gate on the worktree's identity alone.
     assert settled["stop_unconfirmed"] is None
     assert settled["protected_changed"] == [] and settled["held_record_names"] == []
