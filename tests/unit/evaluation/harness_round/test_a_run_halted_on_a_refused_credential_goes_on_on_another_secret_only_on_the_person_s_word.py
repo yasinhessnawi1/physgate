@@ -8,9 +8,10 @@ that refusal. Started again with the round's ``credential_replaced`` word, the t
 is resumed with the command's own ``--credential-replaced``: the run's resume line records both
 fingerprints and who said it, the run goes on to its end on the new secret, and the round's record
 names the replacement for the trial. The word is refused where the round stands at no refused
-credential, and the command refuses it for a run halted on anything else. A person may instead set
-the halted run's directory aside: it is named on a ``credential`` line as the person's act, and
-the trial is decomposed afresh, spending none of its one more go.
+credential, and the command refuses it for a run halted on anything else. Only where that resume
+on the replaced credential was refused may a person set the halted run's directory aside: it is
+named on a ``credential`` line as the person's act, resting on the refused resume's line, and the
+trial is decomposed afresh, spending none of its one more go.
 
 The driver holds each drive to the run's account exactly as the command does, by the command's
 own functions (``round_rig.StandInDriver.secret``).
@@ -166,10 +167,19 @@ def test_the_command_refuses_the_word_for_a_run_halted_on_anything_else(tmp_path
         require_same_account(config, other, in_effect=account_in_effect(config, []))
 
 
-def test_a_person_may_set_the_halted_run_aside_and_the_trial_is_decomposed_afresh(
+def test_a_person_may_set_the_halted_run_aside_once_its_resume_on_the_replaced_one_was_refused(
     tmp_path: Path,
 ) -> None:
     rig, driver = _halted(tmp_path)
+    # The resume on the replaced credential, with the word: the command refuses it.
+    driver.secret = SECOND
+    driver.refused_drives = {len(driver.drives) + 1}
+    with pytest.raises(RoundError) as refused:
+        _again(rig, driver, credential_replaced=True)
+    assert refused.value.context["refused_because"] == "resume_refused"
+    (line,) = [x for x in _ledger(rig) if x["kind"] == "resume_refused"]
+    assert (line["index"], line["attempt"], line["credential_replaced"]) == (0, 1, True)
+    assert line["status"] == 2 and line["why"] and line["at"].endswith("Z")
     # The fresh decomposition records the secret it is made on, as the command's does; the
     # stand-in's records the parameters' fingerprint, so its drives are not held to it here.
     driver.secret = None
@@ -178,11 +188,19 @@ def test_a_person_may_set_the_halted_run_aside_and_the_trial_is_decomposed_afres
     lines = _ledger(rig)
     (closed,) = [x for x in lines if x["kind"] == "credential"]
     assert (closed["attempt"], closed["by"], closed["from_run"]) == (1, "operator", True)
+    assert closed["after_refused_resume"] == {
+        k: line[k]
+        for k in ("index", "attempt", "run_id", "credential_replaced", "status", "why", "at")
+    }
     assert not [x for x in lines if x["kind"] == "superseded"], "no attempt is spent"
     (assembled,) = [x for x in lines if x["kind"] == "assembled"]
     assert assembled["attempt"] == 2 and assembled["outcome"] == "pass"
     record = _record(rig)
     assert [x["by"] for x in record["credential_refused"]] == ["operator"]
+    assert [x["after_refused_resume"] for x in record["credential_refused"]] == [
+        closed["after_refused_resume"]
+    ]
+    assert [x["why"] for x in record["resume_refused"]] == [line["why"]]
 
 
 def test_the_command_driver_gives_the_resume_the_command_s_own_word(

@@ -76,11 +76,13 @@ from physgate.orchestrator.events import (
     ReviewRan,
     ReviewUnavailable,
     SessionEnded,
+    StageEntered,
     SubtaskPlanned,
     TokensUsed,
 )
 from physgate.orchestrator.protocols import Usage
 from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.session_ends import halted_with
 
 PRICES = Path(__file__).resolve().parent / "prices"
 
@@ -403,6 +405,17 @@ def _model_of(attribution: str, config: RunConfig, events: list[Event]) -> str:
                 # No verdict and no model named: the run's one reviewer model, if it pinned one.
                 msg = "the log does not say which model the plan's review ran on; reviewers differ"
                 return _one_reviewer_model(config, attribution, msg)
+        # A module review's try that ended the run for a while and left no line naming it, only
+        # its tokens and the halt or incident written at once with them (by the shared end
+        # rule): the review of the subtask whose review stage it was taken at, priced at that
+        # subtask's role's reviewer.
+        halted = _halted_review(who, events)
+        if halted is not None:
+            role = _role_of(halted.subtask_id, events)
+            if role is not None and role in config.models.reviewers:
+                return config.models.reviewers[role]
+            msg = "the log does not say which role a halted review was for, and reviewers differ"
+            return _one_reviewer_model(config, attribution, msg)
         # A review whose orchestrator died before it recorded anything: found at the
         # resume, it names no role, so it is priced at the one reviewer model if the
         # run pinned only one.
@@ -424,6 +437,27 @@ def _model_of(attribution: str, config: RunConfig, events: list[Event]) -> str:
     raise ManifestError(msg, attribution=attribution)
 
 
+def _halted_review(session_id: str, events: list[Event]) -> StageEntered | None:
+    """The review stage a module review's try was taken at, where the try ended on the halt.
+
+    Its tokens and then the incident or halt the loop wrote at once with them end it, by the
+    shared rule (:func:`halted_with`), and no line names it; the stage the loop entered last
+    before that halt is the attempt's review. ``None`` where the try ended otherwise, or the
+    stage before the halt is not a review's.
+    """
+    end = halted_with(session_id, events)
+    if end is None:
+        return None
+    at = next(i for i, e in enumerate(events) if e is end)
+    stage = next((e for e in reversed(events[:at]) if isinstance(e, StageEntered)), None)
+    return stage if stage is not None and stage.stage == "review" else None
+
+
+def _role_of(subtask_id: str, events: list[Event]) -> str | None:
+    planned = (e for e in events if isinstance(e, SubtaskPlanned) and e.subtask_id == subtask_id)
+    return next((e.assigned_role for e in planned), None)
+
+
 #: Where a review's tokens go when the log names no subtask for it.
 LEFT_OVER = "(left over)"
 
@@ -435,6 +469,9 @@ def plan_review_label(round_: int) -> str:
 
 def _reviewed_subtask(session_id: str, events: list[Event]) -> str:
     """The subtask a review session judged, as its review line or its unavailable line says.
+
+    A module review's try that ended the run for a while with no such line judged the subtask
+    whose review stage it was taken at (:func:`_halted_review`).
 
     A plan's review judged no subtask: its line is its round's, by the round its line records,
     or, on a line written before rounds were recorded, by its place among the plan's reviews.
@@ -449,7 +486,8 @@ def _reviewed_subtask(session_id: str, events: list[Event]) -> str:
             rounds += 1
             if _plan_review_session(e) == session_id:
                 return plan_review_label(e.round if e.round is not None else rounds)
-    return LEFT_OVER
+    halted = _halted_review(session_id, events)
+    return LEFT_OVER if halted is None else halted.subtask_id
 
 
 def _plus(left: Usage, right: Usage) -> Usage:
