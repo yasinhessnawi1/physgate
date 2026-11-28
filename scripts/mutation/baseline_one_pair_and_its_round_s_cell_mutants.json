@@ -12,7 +12,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -26,7 +34,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -39,7 +55,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -53,7 +77,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -66,7 +98,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -80,7 +120,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -93,7 +141,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -106,7 +162,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -119,7 +183,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -133,7 +205,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -146,7 +226,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -159,7 +247,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -172,7 +268,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -185,7 +289,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -198,7 +310,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -211,7 +331,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -224,7 +352,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -237,7 +373,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -250,7 +394,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -268,7 +420,11 @@
       "tests/unit/evaluation/per_role/harness_rig.py",
       "tests/unit/evaluation/per_role/task_fixtures.py",
       "tests/unit/orchestrator/loop_fakes.py",
-      "tests/unit/orchestrator/orch_helpers.py"
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/evaluation/harness_round/test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_harness.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ],
     "paths": [
       "knowledge"
@@ -289,7 +445,11 @@
       "tests/unit/evaluation/per_role/harness_rig.py",
       "tests/unit/evaluation/per_role/task_fixtures.py",
       "tests/unit/orchestrator/loop_fakes.py",
-      "tests/unit/orchestrator/orch_helpers.py"
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/evaluation/harness_round/test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_harness.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ],
     "paths": [
       "knowledge"
@@ -305,7 +465,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -320,7 +488,15 @@
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
       "tests/unit/evaluation/exposure/exposure_fixtures.py",
       "tests/unit/evaluation/gaps/gap_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -333,7 +509,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -346,7 +530,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -359,7 +551,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -372,7 +572,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -385,7 +593,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -398,7 +614,15 @@
     ],
     "data": [
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
-      "tests/unit/evaluation/per_role/task_fixtures.py"
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ]
   },
   {
@@ -417,7 +641,10 @@
       "tests/unit/evaluation/per_role/task_fixtures.py",
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
-      "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py"
+      "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
     ],
     "paths": [
       "knowledge"

@@ -295,9 +295,7 @@ def test_an_exposure_recorded_after_the_rule_and_before_the_count_is_seen(
     assert _refused(made, "held_out", m) == "version_exposed"
 
 
-def test_runs_made_from_two_harness_commits_are_refused(
-    tmp_path: Path, made: StandInStore
-) -> None:
+def test_runs_made_from_two_harness_commits_are_refused(tmp_path: Path, made: StandInStore) -> None:
     # One commit for every counted trial: a run of another commit is a condition the rest did not
     # share, however small the change.
     m = measured(made, "held_out", tmp_path / "a")
