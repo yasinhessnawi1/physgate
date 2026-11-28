@@ -71,7 +71,15 @@ def test_an_untrusted_draw_is_named_and_the_trial_run_once_more_with_the_same_se
     assert excluded["reason"].startswith("score:")
     assert excluded["tokens"] > 0 and excluded["once_more_spent"] is False
     first, second = (x for x in lines if x["kind"] == "placed")
-    assert first["seed"] == second["seed"] and second["after_exclusion"] == 1
+    assert first["seed"] == second["seed"]
+    # The re-run's placed line is the first's, for its own attempt, naming the draw it follows.
+    assert second == {
+        **first,
+        "attempt": 2,
+        "run_id": first["run_id"][:-1] + "2",
+        "run_dir": first["run_dir"][:-1] + "2",
+        "after_exclusion": 1,
+    }
     assert Path(excluded["run_dir"]).is_dir(), "the draw stays where it lies"
     assembled = [x for x in lines if x["kind"] == "assembled"][-1]
     assert assembled["outcome"] == "pass"

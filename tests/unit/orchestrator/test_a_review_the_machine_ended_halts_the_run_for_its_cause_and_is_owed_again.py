@@ -6,8 +6,10 @@ OS layer that would not start halts it ``os_layer_unavailable``, as a role sessi
 other machine end (a full disk its binary names among them) is retried once at once (as a review
 always was), then once after each delay of the run's retry ladder, and then halts the run
 ``infrastructure_exhausted``. That is one try more than a role session gets. A resume goes on at
-the attempt's checkpoint, the review owed again. A review with no verdict for the reviewer's own
-reasons still goes to a person at once.
+the attempt's checkpoint, the review owed again. Every try ends on a line of its own, the one the
+run halts on too: its ``review_unavailable`` (retried, the machine's cause), written after its
+tokens and just before the halt, so no reader finds a try that spent and has no end. A review
+with no verdict for the reviewer's own reasons still goes to a person at once.
 """
 
 from __future__ import annotations
@@ -86,6 +88,18 @@ def _retries(events: list[Event]) -> list[tuple[str, bool]]:
     return [(e.cause, e.retry) for e in events if isinstance(e, ReviewUnavailable)]
 
 
+def _halting_try(events: list[Event], halt: str, session_id: str) -> ReviewUnavailable:
+    """The line that ends the try the run halted on: after its tokens, just before the halt."""
+    at = next(k for k, e in enumerate(events) if isinstance(e, Halted) and e.reason == halt)
+    line, tokens = events[at - 1], events[at - 2]
+    assert isinstance(line, ReviewUnavailable), "the halting try has no line of its own"
+    assert (line.session_id, line.cause, line.retry) == (session_id, "infrastructure", True)
+    assert line.reviewer_model == "claude-opus-5-5"
+    assert halt in line.detail and "owed again" in line.detail
+    assert isinstance(tokens, TokensUsed) and tokens.attribution == f"reviewer:{session_id}"
+    return line
+
+
 def test_a_refused_credential_halts_the_run_at_once_and_its_review_is_owed_again(
     tmp_path: Path,
 ) -> None:
@@ -93,7 +107,9 @@ def test_a_refused_credential_halts_the_run_at_once_and_its_review_is_owed_again
     events = _run(rig)
     assert len(rig.reviewer.seen) == 1, "a refused credential is never retried"
     assert _halts(events) == ["credential_refused"]
-    assert _retries(events) == [], "no review line: it is not the review's end"
+    # Its line says it is owed again (retried), so the attempt is not sent to a person.
+    assert _retries(events) == [("infrastructure", True)]
+    _halting_try(events, "credential_refused", "rev-down-1")
     assert not [e for e in events if isinstance(e, Escalated | Merged)]
     assert rig.slept == []
     # What the review spent is the reviewer's, as any review's.
@@ -112,8 +128,9 @@ def test_with_no_ladder_a_machine_end_is_retried_once_at_once_then_halts_the_run
     rig = Rig(tmp_path, reviewer=_down(2), delays=())
     events = _run(rig)
     assert len(rig.reviewer.seen) == 2
-    assert _retries(events) == [("infrastructure", True)]
+    assert _retries(events) == [("infrastructure", True)] * 2
     assert _halts(events) == ["infrastructure_exhausted"]
+    _halting_try(events, "infrastructure_exhausted", "rev-down-2")
     assert not [e for e in events if isinstance(e, Escalated | Merged)]
     assert rig.slept == []
     after = _resumed(rig)
@@ -126,9 +143,10 @@ def test_with_a_ladder_of_two_a_machine_end_is_tried_three_times_more_then_halts
     rig = Rig(tmp_path, reviewer=_down(4), delays=(30.0, 60.0))
     events = _run(rig)
     assert len(rig.reviewer.seen) == 4, "the first end, one retry at once, then the ladder's two"
-    assert _retries(events) == [("infrastructure", True)] * 3
+    assert _retries(events) == [("infrastructure", True)] * 4, "each of the four tries' own line"
     assert rig.slept == [30.0, 60.0]
     assert _halts(events) == ["infrastructure_exhausted"]
+    _halting_try(events, "infrastructure_exhausted", "rev-down-4")
     assert not [e for e in events if isinstance(e, Escalated | Merged)]
 
 
@@ -148,7 +166,28 @@ def test_an_os_layer_that_would_not_start_halts_the_run_as_a_role_session_s_end_
     events = _run(rig)
     assert len(rig.reviewer.seen) == 1
     assert _halts(events) == ["os_layer_unavailable"]
+    _halting_try(events, "os_layer_unavailable", "rev-down-1")
     assert not [e for e in events if isinstance(e, Escalated)]
+
+
+def test_the_line_that_ends_a_halting_try_is_no_try_of_the_ladder_after_the_resume(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(tmp_path, reviewer=_down(3), delays=(30.0,))
+    events = _run(rig)
+    _halting_try(events, "infrastructure_exhausted", "rev-down-3")
+    # Resumed, the review is ended twice more by the machine and then passes: the drive's ladder
+    # is whole (the first end, its immediate retry, the ladder's one delay), as the first was.
+    rig.reviewer = _down(2)
+    rig.slept.clear()
+    loop = rig.open()
+    loop.resume()
+    loop.close()
+    after = read_events(rig.run_dir / "events.jsonl")
+    assert len(rig.reviewer.seen) == 3
+    assert rig.slept == [30.0]
+    assert _halts(after) == ["infrastructure_exhausted"]
+    assert [e for e in after if isinstance(e, Merged)]
 
 
 def test_a_full_disk_the_review_s_binary_names_takes_the_ladder_as_any_machine_end(
@@ -157,8 +196,9 @@ def test_a_full_disk_the_review_s_binary_names_takes_the_ladder_as_any_machine_e
     rig = Rig(tmp_path, reviewer=_down(3, "disk_full"), delays=(30.0,))
     events = _run(rig)
     assert len(rig.reviewer.seen) == 3
-    assert _retries(events) == [("infrastructure", True)] * 2
+    assert _retries(events) == [("infrastructure", True)] * 3
     assert _halts(events) == ["infrastructure_exhausted"]
+    _halting_try(events, "infrastructure_exhausted", "rev-down-3")
 
 
 @pytest.mark.parametrize("cause", ["no_verdict", "invalid_verdict", "refused"])

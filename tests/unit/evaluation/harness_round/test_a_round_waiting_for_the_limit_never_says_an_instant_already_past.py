@@ -50,3 +50,28 @@ def test_a_reset_still_to_come_is_said_as_read_with_no_floor(tmp_path: Path) -> 
     assert status == "waiting_for_limit"
     assert summary["waiting"]["resume_after"] == later
     assert "floor" not in summary["waiting"]
+
+
+def test_a_wait_read_with_an_instant_to_come_that_has_passed_when_it_is_said_says_the_floor(
+    tmp_path: Path,
+) -> None:
+    # The wait is read while its reset is still to come, and said once the clock has passed it
+    # (a drive that took that long): the instant said is the floor from the later reading.
+    rig = make_rig(tmp_path)
+    start = datetime.now(UTC)
+    readings = [start, start + timedelta(hours=2)]
+    calls: list[datetime] = []
+
+    def now() -> datetime:
+        calls.append(readings[min(len(calls), len(readings) - 1)])
+        return calls[-1]
+
+    driver = rig.driver(limited={1}, limit_resets_at=utc_stamp(start + timedelta(hours=1)))
+    status, summary = run_round(
+        rig.inputs(trials=1), driver=driver, scorer=_scorer, sleep=lambda _s: None, now=now
+    )
+    assert status == "waiting_for_limit"
+    assert len(calls) >= 2, "the wait was read and said at one instant"
+    waiting = summary["waiting"]
+    assert stamped(waiting["resume_after"]) == calls[-1] + LIMIT_WAIT_FLOOR
+    assert waiting["floor"] is True

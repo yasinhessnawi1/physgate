@@ -10,10 +10,12 @@ before it runs anything:
   review's spawn as it records a role session's, so a resume holds the review's process record to
   it too. A review has no end line of its own. What the loop writes once the review is back names
   it: its tokens and then its verdict (``review_ran``) or why there is none
-  (``review_unavailable``); or, where the review's try ends the run for a while (the usage limit,
-  the machine's retries spent, a refused credential, an OS layer that would not start, held-out
-  material in its stream, a change of managed settings), its tokens and, written at once with
-  them, the incident or the halt. A resume's ``leftover_read`` ends it as it ends a role session.
+  (``review_unavailable``), the try that halts the run with the review owed again (the usage
+  limit, the machine's retries spent, a refused credential, an OS layer that would not start)
+  among them; or, where the review's try ends the run for a while with no such line (held-out
+  material in its stream, a change of managed settings, and every such halt of a log written
+  before those tries had their line), its tokens and, written at once with them, the incident or
+  the halt (:func:`halted_with`). A resume's ``leftover_read`` ends it as it ends a role session.
   A review in its repair resume is spawned again under the same id, so only a line after its last
   spawn ends it.
 - **The plan's review**, beside the decomposition's rounds (``decomposition/review_session.json``),
@@ -86,10 +88,41 @@ def ended_by(session_id: str, events: Sequence[Event]) -> Event | None:
     for i, event in enumerate(after):
         if _names_end(event, session_id):
             return event
-        if isinstance(event, TokensUsed) and event.attribution == f"reviewer:{session_id}":
-            following = after[i + 1] if i + 1 < len(after) else None
-            if isinstance(following, Halted | Incident):
-                return following
+        halt = _halt_with(after, i, session_id)
+        if halt is not None:
+            return halt
+    return None
+
+
+def halted_with(session_id: str, events: Sequence[Event]) -> Halted | Incident | None:
+    """The incident or halt written at once with a review's tokens, where that ends the review.
+
+    Read after the session's last spawn, as :func:`ended_by` reads it; on a log that records no
+    spawn of the session, over the whole log. ``None`` where a line naming the session ends it
+    first, or where nothing does. A reader that must find which review the try was (its subtask,
+    its model) and finds no line naming the session takes it from here.
+    """
+    last = None
+    for i, event in enumerate(events):
+        if isinstance(event, SessionSpawned) and event.session_id == session_id:
+            last = i
+    after = events if last is None else events[last + 1 :]
+    for i, event in enumerate(after):
+        if _names_end(event, session_id):
+            return None
+        halt = _halt_with(after, i, session_id)
+        if halt is not None:
+            return halt
+    return None
+
+
+def _halt_with(events: Sequence[Event], i: int, session_id: str) -> Halted | Incident | None:
+    """The incident or halt right after ``events[i]``, where that line is the review's tokens."""
+    event = events[i]
+    if isinstance(event, TokensUsed) and event.attribution == f"reviewer:{session_id}":
+        following = events[i + 1] if i + 1 < len(events) else None
+        if isinstance(following, Halted | Incident):
+            return following
     return None
 
 

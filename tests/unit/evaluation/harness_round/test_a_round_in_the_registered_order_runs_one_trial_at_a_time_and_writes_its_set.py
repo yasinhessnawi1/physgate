@@ -242,3 +242,32 @@ def test_the_command_takes_the_order_and_the_place_and_exits_by_the_raw_pair(
     said = json.loads(line)
     assert said["status"] == "trial_assembled"
     assert said["trial"]["raw_pair"] == ("now" if code == 0 else "at_cell_end")
+
+
+def test_a_held_out_cell_with_a_flagged_task_is_ordered_as_the_shuffle_of_its_other_tasks(
+    tmp_path: Path,
+) -> None:
+    import hashlib
+
+    # One held-out task is flagged by the version's blind check: it is no trial of the cell, so
+    # the registered order is the shuffle of the other tasks' pairs, never one with it in.
+    rig = make_rig(tmp_path, store={"flagged": (0,)})
+    flagged = id_digest(rig.made.tasks["held_out"][0].id)
+    inputs = rig.inputs(tiers=("held_out",), trials=3, tasks=None, order_seed=1124, seed_base=1)
+    status, _summary = run_round(
+        inputs, driver=rig.driver(), scorer=_score, sleep=lambda _: None, only=0
+    )
+    assert status == "trial_assembled"
+    order = _ledger(rig)[0]["order"]
+    by_brief = {
+        hashlib.sha256(t.brief.encode()).hexdigest(): id_digest(t.id)
+        for t in rig.made.tasks["held_out"]
+    }
+    got = [(by_brief[p["brief_sha256"]], p["trial"]) for p in order]
+    others = sorted(d for d in by_brief.values() if d != flagged)
+    pairs = sorted((d, n) for d in others for n in range(3))
+    random.Random("1124:order:control_held_out").shuffle(pairs)
+    assert got == pairs
+    assert len(order) == 3 * (len(rig.made.tasks["held_out"]) - 1)
+    assert flagged not in {d for d, _n in got}
+    assert all(p["seed"] == p["trial"] + 1 for p in order)

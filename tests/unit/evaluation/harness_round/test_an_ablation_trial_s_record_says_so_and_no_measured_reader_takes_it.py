@@ -174,3 +174,29 @@ def test_the_record_audit_holds_the_mark_to_the_run(ran: Rig, tmp_path: Path) ->
     with pytest.raises(AuditError) as refused:
         audit(out / "visible.trials.jsonl", measured)
     assert refused.value.context["refused_because"] == "not_an_ablation_record"
+
+
+def test_a_record_that_does_not_carry_its_place_s_mark_stops_the_round_record_not_the_arm_s(
+    ran: Rig,
+) -> None:
+    from physgate.evaluation import harness_round  # noqa: PLC0415 - the driver's own writer
+    from physgate.evaluation.harness_round import HARNESS_ROUNDS, RoundError  # noqa: PLC0415
+    from physgate.evaluation.tiers.store import withheld_root  # noqa: PLC0415
+
+    place = next((withheld_root(ran.made.store, "control") / HARNESS_ROUNDS).iterdir())
+    lines = [json.loads(x) for x in _lines(place / "ledger.jsonl")]
+    assembled = [x for x in lines if x["kind"] == "assembled"]
+    arm_places = {p["index"] for p in lines[0]["order"] if p.get("arm") is not None}
+    arm_line = next(x for x in assembled if x["index"] in arm_places)
+    harness_line = next(x for x in assembled if x["index"] not in arm_places)
+    # Each as written: its own place's mark, or none.
+    assert harness_round._record_line(harness_line)
+    assert harness_round._record_line(arm_line, arm=ARM)
+    unmarked = {
+        **arm_line,
+        "record": {k: v for k, v in arm_line["record"].items() if k != "ablation"},
+    }
+    for line, arm in ((unmarked, ARM), (harness_line, ARM), (arm_line, None)):
+        with pytest.raises(RoundError) as refused:
+            harness_round._record_line(line, arm=arm)
+        assert refused.value.context["refused_because"] == "record_not_the_arm_s"
