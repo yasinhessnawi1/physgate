@@ -39,8 +39,8 @@ from physgate.evaluation.tiers import exposure
 from physgate.evaluation.tiers.store import BASELINE_DIR, PLACE, withheld_root
 from physgate.evaluation.tiers.task import Task
 
-#: The session id a real client names its records by, and a canary-free file it writes.
-SESSION_ID = "ae42bd8c-0bbd-41b7-a872-b5512f034641"
+#: A session id, shaped as a real client's, which names its records by it.
+SESSION_ID = "0f0e0d0c-0b0a-4908-8706-050403020100"
 
 
 def _score(_task: Any, _answer: Path) -> dict[str, Any]:  # noqa: ANN401
@@ -149,6 +149,12 @@ def test_the_next_place_starts_once_a_held_out_raw_trial_lies_deep_beneath_the_w
     read = _read(rig)
     assert not isinstance(read, PerRoleError), read.context
     assert rig.made.version not in read
+    # The blind check's look reads the same root: the version has runs, and nothing refuses.
+    try:
+        why = exposure.results_refusal(rig.made.store, "control", rig.made.version)
+    except PerRoleError as exc:
+        why = ("refused", str(exc))
+    assert why is not None and why[0] == "version_has_runs", why
 
 
 def test_a_canary_the_session_showed_while_it_wrote_deep_still_marks_its_version_exposed(
@@ -221,6 +227,18 @@ def test_a_directory_named_as_a_place_with_no_harness_s_beside_it_is_walked(
     place.mkdir(parents=True)
     if beside != "nothing":
         (place.parent / exposure.TRIAL_HARNESS).write_text("")
+    (place / exposure.RAW_RECORD).write_text(json.dumps({"held_out_seen": True}))
+    read = _read(rig)
+    assert not isinstance(read, PerRoleError), read.context
+    assert read.get(rig.made.version) == frozenset({"raw_record"}), read
+
+
+def test_a_run_root_is_walked_into_a_directory_shaped_as_a_trial_s(rig: Rig) -> None:
+    # Only the harness moves raw trials, and only beneath the withheld root: beneath a run root
+    # the same names are walked as any others, and a record in such a place is read.
+    place = rig.run_root / "x" / PLACE
+    (place.parent / exposure.TRIAL_HARNESS).mkdir(parents=True)
+    place.mkdir()
     (place / exposure.RAW_RECORD).write_text(json.dumps({"held_out_seen": True}))
     read = _read(rig)
     assert not isinstance(read, PerRoleError), read.context

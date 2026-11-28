@@ -37,9 +37,9 @@ and when; a settle also says, for a person, the path of the directory it settles
   person at a terminal. Nothing inside a run directory is
   entered or parsed (the harness holds no run inside a run); a directory there that looks like
   a run, and a link to a directory anywhere, leave the root reported as not read whole. Nor is
-  a raw trial's session place entered (beside the harness's directory, where the trial's
-  record lies, which is read): the session shaped it, and its stream was scanned into that
-  record. An
+  a protected raw trial's session place, beneath the withheld root's baseline records, entered
+  (beside the harness's directory, where the trial's record lies, which is read): the session
+  shaped it, and its stream was scanned into that record. An
   incident names no root, so the run's held-out digests name the versions it marks: every
   version of the role whose validation or held-out tier the run recorded. A run or record that
   names none marks every version of the role.
@@ -171,9 +171,10 @@ MOST_TEXT = 500
 #: scratch, so nothing there is parsed.
 NESTED_RUN_PLACES: frozenset[str] = frozenset()
 #: Inside a raw trial's directory, beside the session's own place (``PLACE``): the harness's,
-#: where the trial's raw record lies. A directory holding one is a raw trial's, and the walk does
-#: not enter the place beside it: the session made what is there, as deep as it liked, and its
-#: stream was scanned for the held-out canaries into that record before the trial was moved.
+#: where the trial's raw record lies. Beneath the withheld root's baseline records, a directory
+#: holding one is a raw trial's, and the walk does not enter the place beside it: the session
+#: made what is there, as deep as it liked, and its stream was scanned for the held-out canaries
+#: into that record before the trial was moved.
 TRIAL_HARNESS = "harness"
 _PREFIX = 8
 
@@ -703,12 +704,14 @@ class _Walk:
     settled: frozenset[str] = frozenset()
 
 
-def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
+def _walk(root: Path, walk: _Walk, *, required: bool, trials: bool = False) -> None:
     """Every run directory and raw record beneath ``root``, no link followed, bounded.
 
     Inside a run directory the walk enters only :data:`NESTED_RUN_PLACES` and parses nothing
-    else; inside a raw trial's directory (one holding :data:`TRIAL_HARNESS`) it does not enter
-    the session's place (``PLACE``), and reads the record in the harness's. A directory with no
+    else. Beneath the withheld root's baseline records (``trials``), where the harness alone
+    moves its protected raw trials, inside a raw trial's directory (one holding
+    :data:`TRIAL_HARNESS`) it does not enter the session's place (``PLACE``), and reads the
+    record in the harness's; a run root is walked into every such directory. A directory with no
     run configuration, beneath the root and not the root itself, whose parameters record (the
     first thing a ``decompose`` writes) reads as one is a decomposition's: read by
     :func:`_decomposition_findings`, and walked but for what it put there (:func:`_own`; a
@@ -762,7 +765,9 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
         if not is_run and record is not None and not record.is_dir(follow_symlinks=False):
             walk.records.append(here / RAW_RECORD)
         harness = names.get(TRIAL_HARNESS)
-        trial = not is_run and harness is not None and harness.is_dir(follow_symlinks=False)
+        trial = (
+            trials and not is_run and harness is not None and harness.is_dir(follow_symlinks=False)
+        )
         for entry in listed:
             where = Path(entry.path)
             if entry.is_symlink():
@@ -1344,7 +1349,7 @@ def survey(store: Path, role: Role, roots: Sequence[Path]) -> Survey:
     for root in roots:
         _walk(root, walk, required=True)
     withheld = withheld_root(store, role)
-    _walk(withheld / BASELINE_RECORDS, walk, required=False)
+    _walk(withheld / BASELINE_RECORDS, walk, required=False, trials=True)
     cache: list[Mapping[str, frozenset[str]]] = []
 
     def briefs() -> Mapping[str, frozenset[str]]:
@@ -2008,7 +2013,7 @@ def results_refusal(store: Path, role: Role, version: str) -> tuple[str, str] | 
     walk = _Walk(runs=[], records=[], settled=_settled(store, role))
     for root in run_roots(store, role):
         _walk(root, walk, required=True)
-    _walk(withheld_root(store, role) / BASELINE_RECORDS, walk, required=False)
+    _walk(withheld_root(store, role) / BASELINE_RECORDS, walk, required=False, trials=True)
     if walk.missing or walk.unread:
         return "run_roots_unread", _roots_unread_words(walk, said)
     digests = frozenset({manifest.held_out.sha256, manifest.validation.sha256})
