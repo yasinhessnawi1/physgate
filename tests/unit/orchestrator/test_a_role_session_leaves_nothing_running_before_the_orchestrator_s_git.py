@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import stat
 import subprocess
@@ -44,7 +45,7 @@ from physgate.hooks.settings import InstallRequest, install
 from physgate.orchestrator import dispatch, processes
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher, Installed
-from physgate.orchestrator.exceptions import InvocationError
+from physgate.orchestrator.exceptions import InvocationError, OrchestratorError
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.merge import RunGit, commit_attempt
@@ -615,6 +616,70 @@ def test_a_stop_denied_its_signal_refuses_the_attempt_before_any_git_call(
     finally:
         leftovers += session.pids()
     assert "PermissionError" in settled["stop_unconfirmed"]
+
+
+def _files(top: Path) -> dict[str, bytes]:
+    return {
+        str(p.relative_to(top)): p.read_bytes()
+        for p in sorted(top.rglob("*"))
+        if p.is_file() and not p.is_symlink()
+    }
+
+
+def test_a_directory_moved_to_the_worktree_s_path_after_its_checks_refuses_the_attempt_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Every check of the session passes: the stop is confirmed, the sentinel's check after it
+    # puts nothing back, and every protected path reads as it was recorded. Then another
+    # directory lies at the worktree's path, a copy of it with the protected paths as they were
+    # (two renames, which a session without the OS layer can make). The harness's own writes after
+    # the session (the sweep, the series collection, the clearing, the commit) act on the
+    # directory the installer recorded: the attempt is refused before the first of them, and the
+    # other directory, an outbox record and a scratch note in it, is left exactly as it was.
+    session = Session(tmp_path, "plain", pause=0.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    other = tmp_path / "another-directory"
+    checked = dispatch.check_after_stop
+    swapped: list[tuple[Path, dict[str, bytes]]] = []
+
+    def check_then_swap(
+        check: Any,  # noqa: ANN401
+        session_id: str,
+        cwd: Path,
+        env: dict[str, str],
+        state: Path,
+    ) -> dict[str, Any]:
+        done: dict[str, Any] = checked(check, session_id, cwd, env, state)
+        shutil.copytree(cwd, other, symlinks=True)
+        (other / ".physgate" / "series").mkdir(parents=True, exist_ok=True)
+        (other / ".physgate" / "series" / "r1.json").write_text('{"another": "trial"}\n')
+        (other / ".physgate" / "scratch").mkdir(exist_ok=True)
+        (other / ".physgate" / "scratch" / "note.txt").write_text("another directory's bytes\n")
+        before = _files(other)
+        os.rename(cwd, tmp_path / "moved-away")
+        os.rename(other, cwd)
+        swapped.append((cwd, before))
+        return done
+
+    monkeypatch.setattr(dispatch, "check_after_stop", check_then_swap)
+    # Whatever stops the attempt, what it left in the other directory is read first.
+    with pytest.raises(OrchestratorError) as stopped:
+        dispatcher.run(session.request(), session.spawned)
+    ((worktree, before),) = swapped
+    assert _files(worktree) == before, "the harness wrote in a directory moved to the worktree"
+    assert not (session.run.run_dir / "series").exists(), "a record was taken from it"
+    assert session.at_first_git is None, "a git call was made on the attempt"
+    assert isinstance(stopped.value, InvocationError), stopped.value
+    assert str(stopped.value).startswith(f"{dispatch.WORKTREE_NOT_HELD}; no git call follows")
+    (record,) = session.run.run_dir.glob("sessions/*/after_stop.json")
+    assert not (record.parent / "ended.json").exists()
+    settled = json.loads(record.read_text())
+    assert settled["worktree_not_held"] == dispatch.WORKTREE_NOT_HELD
+    # Nothing else refused it: the gate on the worktree's identity alone.
+    assert settled["stop_unconfirmed"] is None
+    assert settled["protected_changed"] == [] and settled["held_record_names"] == []
+    assert settled["protected_unread"] is None and settled["tool_environment_changed"] is None
+    assert settled["sentinel_after_stop"]["refused"] is None
 
 
 class Died(BaseException):
