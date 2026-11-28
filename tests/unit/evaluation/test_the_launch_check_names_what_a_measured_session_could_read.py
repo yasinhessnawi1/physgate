@@ -12,6 +12,7 @@ import io
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -193,3 +194,300 @@ def test_a_place_deeper_than_any_bound_is_walked_whole(s: SimpleNamespace) -> No
     assert ("run_material_readable", str(deep)) in places
     assert ("run_material_readable", str(left)) in places
     assert "not_established" not in {f.kind for f in found}
+
+
+@pytest.mark.parametrize("how", ["untracked", "ignored", "both"])
+def test_files_the_branch_does_not_hold_in_the_source_s_own_directory_are_counted(
+    s: SimpleNamespace, how: str
+) -> None:
+    # Every session reads the source's own directory, not only what a clone of it holds; what git
+    # ignores is counted with the rest, since no ignore rule keeps a session from reading it.
+    if how in ("untracked", "both"):
+        (s.source / "left.py").write_text("an earlier run's work, never committed\n")
+        (s.source / "notes").mkdir()
+        (s.source / "notes" / "a.txt").write_text("x\n")
+    if how in ("ignored", "both"):
+        (s.source / ".gitignore").write_text(".physgate/\n")
+        _git(s.source, "add", ".gitignore")
+        _git(s.source, "commit", "-q", "-m", "ignore")
+        (s.source / ".physgate").mkdir()
+        (s.source / ".physgate" / "scratch.txt").write_text("a session's leftover\n")
+    code, lines = _check(s)
+    assert code == 1, lines
+    said = [line for line in lines if line.startswith("finding: source_files:")]
+    assert len(said) == 1, lines
+    count = {"untracked": "2 files", "ignored": "1 file", "both": "3 files"}[how]
+    assert f"{count} the branch does not hold" in said[0], said
+    # By kind and count alone: no file's name, nor anything it holds.
+    for word in ("left.py", "a.txt", "scratch.txt", "earlier run", "leftover"):
+        assert word not in "\n".join(lines), lines
+
+
+def test_a_tracked_file_changed_in_the_source_is_counted_and_the_check_writes_nothing_there(
+    s: SimpleNamespace,
+) -> None:
+    (s.source / "README.md").write_text("an earlier run's change\n")
+    index = s.source / ".git" / "index"
+    before = (index.read_bytes(), index.stat().st_mtime_ns)
+    code, lines = _check(s)
+    assert code == 1
+    assert any(
+        line.startswith("finding: source_files:")
+        and "1 file the branch holds, changed or gone" in line
+        for line in lines
+    ), lines
+    assert (index.read_bytes(), index.stat().st_mtime_ns) == before, "the check wrote the index"
+
+
+def test_a_tracked_file_gone_from_the_source_s_directory_is_counted(s: SimpleNamespace) -> None:
+    # Gone is counted as changed is: the directory a session reads no longer holds what the
+    # branch holds, and nothing else stands in its place to be counted instead.
+    (s.source / "README.md").unlink()
+    code, lines = _check(s)
+    assert code == 1, lines
+    said = [line for line in lines if line.startswith("finding: source_files:")]
+    assert len(said) == 1, lines
+    assert "1 file the branch holds, changed or gone" in said[0], said
+    assert "the branch does not hold" not in said[0], said
+
+
+def test_a_review_root_s_record_left_where_a_session_reads_is_named(s: SimpleNamespace) -> None:
+    left = s.home / "old-reviews"
+    left.mkdir()
+    (left / "review_root.json").write_text("{}\n")
+    code, lines = _check(s)
+    assert code == 1
+    assert f"finding: run_material_readable: {left}: it holds review_root.json" in lines
+
+
+def test_a_linked_worktree_of_the_source_is_named(s: SimpleNamespace, outside_tmp: Path) -> None:
+    # Detached: no second branch, so the worktree is the one finding.
+    _git(s.source, "worktree", "add", "-q", "--detach", str(Path(outside_tmp) / "linked"))
+    assert _kinds(s) == {"source_worktrees"}
+
+
+@pytest.mark.parametrize("ref", ["a stash", "a note", "a remote branch"])
+def test_a_reference_that_is_neither_a_branch_nor_a_tag_is_named(
+    s: SimpleNamespace, ref: str
+) -> None:
+    if ref == "a stash":
+        (s.source / "README.md").write_text("changed, then stashed\n")
+        _git(s.source, "stash", "-q")
+        named = "refs/stash"
+    elif ref == "a note":
+        _git(s.source, "notes", "add", "-m", "an earlier run's note")
+        named = "refs/notes/commits"
+    else:
+        _git(s.source, "update-ref", "refs/remotes/origin/main", "HEAD")
+        named = "refs/remotes/origin/main"
+    code, lines = _check(s)
+    assert code == 1
+    assert any(line.endswith(f"it holds {named}") for line in lines), lines
+
+
+def test_a_run_that_withholds_one_of_two_run_roots_is_named(
+    s: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.evaluation import launch_check
+
+    other = s.home / "more-runs"
+    other.mkdir()
+    run = s.runs / "half-run"
+    run.mkdir()
+    (run / "run.json").write_text("{}\n")
+    both = s.runs / "whole-run"
+    both.mkdir()
+    (both / "run.json").write_text("{}\n")
+    named = {str(run): [str(s.runs)], str(both): [str(s.runs), str(other)]}
+    monkeypatch.setattr(
+        "physgate.orchestrator.run_config.load_run_config",
+        lambda path: SimpleNamespace(withheld_whole=named[str(path.parent)]),
+    )
+    registered = {os.path.realpath(s.runs), os.path.realpath(other)}
+    found = launch_check.withholding_findings([s.runs, other], registered)
+    assert [(f.kind, f.place) for f in found] == [("run_not_withholding", str(run))]
+
+
+def test_a_walk_past_its_bound_says_what_it_found_is_not_established(
+    s: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for n in range(20):
+        (s.home / "many" / f"d{n}").mkdir(parents=True)
+    monkeypatch.setattr("physgate.evaluation.launch_check.MAX_ENTRIES", 10)
+    code, lines = _check(s)
+    assert code == 1
+    assert any(line.startswith("finding: not_established:") for line in lines), lines
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists a folder of any mode")
+def test_a_folder_the_walk_cannot_list_is_named_as_not_established(s: SimpleNamespace) -> None:
+    locked = s.home / "locked"
+    (locked / "run-8").mkdir(parents=True)
+    (locked / "run-8" / "run.json").write_text("{}\n")
+    locked.chmod(0)
+    try:
+        code, lines = _check(s)
+    finally:
+        locked.chmod(0o700)
+    assert code == 1
+    assert f"finding: not_established: {locked}: it cannot be listed by this user" in lines, lines
+
+
+def test_material_beneath_the_standing_review_root_is_no_finding(s: SimpleNamespace) -> None:
+    from physgate.reviewers.places import standing_root
+
+    left = standing_root(s.home) / "r0123456789ab"
+    left.mkdir(parents=True)
+    (left / "review_root.json").write_text("{}\n")
+    assert "run_material_readable" not in _kinds(s)
+
+
+def test_run_material_in_the_machine_s_other_place_is_named(
+    s: SimpleNamespace, outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    machine = Path(os.path.realpath(outside_tmp)) / "var-tmp"
+    (machine / "left-run").mkdir(parents=True)
+    (machine / "left-run" / "run.json").write_text("{}\n")
+    monkeypatch.setattr("physgate.evaluation.launch_check.MACHINE_PLACES", (machine,))
+    code, lines = _check(s)
+    assert code == 1
+    assert f"finding: run_material_readable: {machine / 'left-run'}: it holds run.json" in lines
+
+
+def test_a_folder_at_the_store_s_top_outside_every_role_s_root_is_walked(
+    s: SimpleNamespace, outside_tmp: Path
+) -> None:
+    # A measured session is refused its roles' roots in the store, not the store: a stray folder
+    # at its top is read like any other place.
+    stray = s.store / "notes" / "run-6"
+    stray.mkdir(parents=True)
+    (stray / "run.json").write_text("{}\n")
+    code, lines = _check(s)
+    assert code == 1
+    assert f"finding: run_material_readable: {stray}: it holds run.json" in lines, lines
+    # The same, with the store outside the home: walked as a place of its own.
+    away = Path(os.path.realpath(outside_tmp)) / "store-away"
+    s.store.rename(away)
+    s.store = away
+    code, lines = _check(s)
+    assert f"finding: run_material_readable: {away / 'notes' / 'run-6'}: it holds run.json" in lines
+
+
+PROGRAMS = (
+    "a file-system monitor",
+    "a filter driver its .gitattributes names",
+    "a filter driver its info/attributes names",
+    "a diff driver",
+    "a hooks path",
+    "a submodule with a configuration of its own",
+)
+
+
+@pytest.mark.parametrize("program", PROGRAMS)
+def test_no_program_the_source_s_own_configuration_names_runs_when_its_directory_is_listed(
+    s: SimpleNamespace, outside_tmp: Path, program: str
+) -> None:
+    # The source's configuration, attributes and hooks are files a session may have written.
+    base = Path(os.path.realpath(outside_tmp))
+    marker = base / "it-ran"
+    script = base / "program.sh"
+    script.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat\n")
+    script.chmod(0o700)
+    untracked = 1
+    if program == "a file-system monitor":
+        _git(s.source, "config", "core.fsmonitor", str(script))
+    elif program.startswith("a filter driver"):
+        for key in ("clean", "smudge", "process"):
+            _git(s.source, "config", f"filter.evil.{key}", str(script))
+        if "gitattributes" in program:
+            (s.source / ".gitattributes").write_text("* filter=evil\n")
+            untracked = 2
+        else:
+            (s.source / ".git" / "info").mkdir(exist_ok=True)
+            (s.source / ".git" / "info" / "attributes").write_text("* filter=evil\n")
+    elif program == "a diff driver":
+        for key in ("command", "textconv"):
+            _git(s.source, "config", f"diff.evil.{key}", str(script))
+        (s.source / ".git" / "info").mkdir(exist_ok=True)
+        (s.source / ".git" / "info" / "attributes").write_text("* diff=evil\n")
+    elif program == "a hooks path":
+        hooks = base / "hooks"
+        hooks.mkdir()
+        for name in ("post-index-change", "reference-transaction", "post-checkout"):
+            (hooks / name).write_text(f"#!/bin/sh\ntouch '{marker}'\n")
+            (hooks / name).chmod(0o700)
+        _git(s.source, "config", "core.hooksPath", str(hooks))
+    else:
+        inner = base / "inner"
+        inner.mkdir()
+        _git(inner, "init", "-q", "-b", "main")
+        (inner / "x.txt").write_text("x\n")
+        _git(inner, "add", "-A")
+        _git(inner, "commit", "-q", "-m", "inner")
+        _git(
+            s.source,
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            str(inner),
+            "sub",
+        )
+        _git(s.source, "commit", "-q", "-m", "a submodule")
+        _git(s.source, "-C", "sub", "config", "core.fsmonitor", str(script))
+        (s.source / "sub" / "x.txt").write_text("y\n")
+    marker.unlink(missing_ok=True)
+    # Of the same length as it was: only its content tells it changed, which a filter would read.
+    time.sleep(0.01)
+    (s.source / "README.md").write_text("b target\n")
+    (s.source / "left.py").write_text("never committed\n")
+    code, lines = _check(s)
+    assert not marker.exists(), f"{program} the source names ran"
+    said = [line for line in lines if line.startswith("finding: source_files:")]
+    assert len(said) == 1, lines
+    assert f"{untracked} file{'s' if untracked > 1 else ''} the branch does not hold" in said[0]
+    assert "1 file the branch holds, changed or gone" in said[0], said
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [
+        "a linked worktree as the source",
+        "a .git pointer file",
+        "an alternates file to a store that holds more",
+        "a refs directory that is a link",
+    ],
+)
+def test_a_source_whose_git_directory_sends_git_elsewhere_is_refused_as_unread(
+    s: SimpleNamespace, outside_tmp: Path, layout: str
+) -> None:
+    # Wherever git would read references or objects from somewhere the check does not follow,
+    # the two could disagree about what the source holds: the check refuses to say "nothing".
+    base = Path(os.path.realpath(outside_tmp))
+    source = s.source
+    if layout == "a linked worktree as the source":
+        source = base / "linked"
+        _git(s.source, "worktree", "add", "-q", "--detach", str(source))
+    elif layout == "a .git pointer file":
+        moved = base / "moved.git"
+        (s.source / ".git").rename(moved)
+        (s.source / ".git").write_text(f"gitdir: {moved}\n")
+    elif layout == "an alternates file to a store that holds more":
+        other = base / "other"
+        other.mkdir()
+        _git(other, "init", "-q", "-b", "main")
+        (other / "work.py").write_text("another run's work\n")
+        _git(other, "add", "-A")
+        _git(other, "commit", "-q", "-m", "more")
+        alternates = s.source / ".git" / "objects" / "info" / "alternates"
+        alternates.parent.mkdir(parents=True, exist_ok=True)
+        alternates.write_text(f"{other / '.git' / 'objects'}\n")
+    else:
+        refs = s.source / ".git" / "refs"
+        refs.rename(base / "refs-elsewhere")
+        refs.symlink_to(base / "refs-elsewhere")
+    s.source = source
+    code, lines = _check(s)
+    assert code == 1, lines
+    assert any(line.startswith(f"finding: source_indirect: {source}:") for line in lines), lines

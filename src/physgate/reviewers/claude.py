@@ -82,6 +82,7 @@ from physgate.orchestrator.dispatch import (
     Installed,
     compactions_seen,
     harness_protection,
+    mark_shown,
     place_apart,
     read_captured,
     read_in_full,
@@ -904,9 +905,9 @@ class ClaudeReviewer:
     def _credentials(self, sdir: Path) -> None:
         """Put the credential back for a resumed session: it is removed after each one."""
         if self._setup.credential.mode == "subscription":
-            write_login(sdir / "config", self._setup.credential.secret)
+            write_login(sdir / "config", self._setup.credential.secret, place="review_session")
         else:
-            write_key_helper(sdir / "state", self._setup.credential.secret)
+            write_key_helper(sdir / "state", self._setup.credential.secret, place="review_session")
 
     def _conclude(  # noqa: PLR0913 - one session's end, read with everything it was given
         self,
@@ -944,7 +945,11 @@ class ClaudeReviewer:
         except InvocationError:
             written = None
         showed = written is not None and canary_seen(written, canaries) is not None
-        # What the scan saw is made durable before the redaction can replace the line it counted.
+        # What the scan saw is made durable before the redaction can replace the line it counted:
+        # marked in the session's own directory, which a resume of the run reads for a module's
+        # review it finds left (``mark_shown``), and told to the hook (the plan's review's record).
+        if showed:
+            mark_shown(sdir, held_out=True)
         if showed and self._on_shown is not None:
             self._on_shown(session_id)
         redact(stdout, self._setup.credential.secret)
@@ -1143,7 +1148,9 @@ class ClaudeReviewer:
         state.mkdir()
         helper: list[str] = []
         if self._setup.credential.mode == "api_key":
-            helper_path = write_key_helper(state, self._setup.credential.secret)
+            helper_path = write_key_helper(
+                state, self._setup.credential.secret, place="review_session"
+            )
             helper = ["--api-key-helper", str(helper_path)]
         read = Path(packet.read_root)
         reading = [arg for path in packet.required_reading for arg in ("--reading", path)]
@@ -1198,7 +1205,7 @@ class ClaudeReviewer:
             msg = "the hook layer's installer refused the review session"
             raise InvocationError(msg, stderr=done.stderr[-600:])
         if self._setup.credential.mode == "subscription":
-            write_login(sdir / "config", self._setup.credential.secret)
+            write_login(sdir / "config", self._setup.credential.secret, place="review_session")
         return Installed.model_validate_json(done.stdout)
 
     def _spawn(

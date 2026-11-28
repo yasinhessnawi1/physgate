@@ -110,3 +110,18 @@ def test_the_os_layer_refuses_a_worktree_there_and_opens_a_home_there_alone(
     assert str(shared) in fs["denyRead"]
     assert str(shared) not in fs["allowRead"] and str(shared) not in fs["allowWrite"]
     assert str(home) in fs["allowRead"] and str(home) in fs["allowWrite"]
+
+
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_an_own_place_the_session_only_reads_is_not_written_in_a_shared_directory(
+    shared: Path, profile: str
+) -> None:
+    # Its state folder holds the hooks' own records: opened again there for nothing, and never
+    # for a write, as it is nowhere else.
+    config = _config(shared, profile)
+    root = next(r for r in config.protected_roots if r.path == str(shared))
+    state = str(shared / "run" / "sessions" / "s1" / "state")
+    assert state not in root.exceptions, root.exceptions
+    marker = os.path.join(state, "x.json")
+    for shell in (False, True):
+        assert protection(marker, config.worktree, config, writing=True, shell=shell) is not None

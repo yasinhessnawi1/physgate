@@ -278,3 +278,31 @@ def test_a_driven_run_s_reviewers_carry_its_held_out_canaries() -> None:
         library=Path("/h"),
     )
     assert setup.held_out_canaries == (CANARY,)
+
+
+@pytest.mark.parametrize(
+    "after",
+    [b'{"type":"user","message":{"content":"caf\xe9"}}\n', b""],
+    ids=["a line that cannot be read", "a readable canary"],
+)
+def test_a_review_marks_what_its_scan_showed_in_its_own_directory_before_its_redaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, after: bytes
+) -> None:
+    # A module's review has no record of the decomposition's to say so: the mark in its own
+    # session's directory is what a resume of its run reads, once the redaction took the line.
+    from physgate.orchestrator import dispatch
+
+    sdir = tmp_path / "rs" / "review" / "session"
+    real = dispatch.redact
+    marked: list[tuple[bool, bool]] = []
+
+    def redacting(path: Path, secret: str | None) -> None:
+        marked.append(dispatch.read_shown(sdir))
+        real(path, secret)
+
+    monkeypatch.setattr(claude, "redact", redacting)
+    shown = "nothing held out" if after else f"read: <!-- {CANARY} -->"
+    with pytest.raises(HeldOutExposedError):
+        _review(tmp_path, monkeypatch, shown, after=after, redacting=True)
+    assert marked and marked[0] == (True, False), "the redaction ran before the mark"
+    assert dispatch.read_shown(sdir) == (True, False)

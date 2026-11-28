@@ -75,7 +75,12 @@ from physgate.orchestrator.git import (
     utf8_name,
     verified_git_dir,
 )
-from physgate.orchestrator.left_out import LEFT_OUT_OF_THE_COMMIT, clear_left_out
+from physgate.orchestrator.left_out import (
+    LEFT_OUT_OF_THE_COMMIT,
+    WORKTREE_NOT_HELD,
+    clear_left_out,
+    worktree_held,
+)
 from physgate.orchestrator.ports import WorktreeRemoval
 from physgate.orchestrator.protocols import AdmittedExport
 
@@ -234,6 +239,7 @@ def commit_attempt(
     repo: Path,
     replaces: str | None = None,
     stage: bool = True,
+    identity: tuple[int, int] | None = None,
 ) -> str:
     """The orchestrator's commit of whatever a session left in its worktree.
 
@@ -249,10 +255,19 @@ def commit_attempt(
     ``stage`` off is for a session whose end clearing was not complete (a directory that cannot
     be listed among what it left): the commit stages nothing and holds the head's tree, so the
     attempt still has its commit, and its change check refuses it in fixed words.
+
+    ``identity`` is the worktree's device and inode at its session's start: where its path no
+    longer leads to that directory, before the commit or after it, the commit is refused (git
+    names a worktree by its path, so the look after says whether it acted on the session's).
+
+    Raises:
+        GitError: as the commit does; or the worktree's path is not the session's directory.
     """
     message = attempt_message(subtask_id, attempt, session_id)
-    clear_left_out(worktree, repo=repo)
-    return commit_all(
+    clear_left_out(worktree, repo=repo, identity=identity)
+    if not worktree_held(worktree, identity):
+        raise GitError(WORKTREE_NOT_HELD, worktree=str(worktree))
+    made = commit_all(
         worktree,
         message,
         linked=True,
@@ -261,6 +276,9 @@ def commit_attempt(
         leave_out=LEFT_OUT_OF_THE_COMMIT,
         stage=stage,
     )
+    if not worktree_held(worktree, identity):
+        raise GitError(WORKTREE_NOT_HELD, worktree=str(worktree), made=made)
+    return made
 
 
 def write_scope_violations(

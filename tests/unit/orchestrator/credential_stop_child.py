@@ -61,8 +61,8 @@ def main(sdir: Path, fake: Path, *, seeded: bool, on_term: str) -> int:
         vars(stop_signals).update(_group_left=lambda _pgid: True, REAP_S=0.5)
     with on_stop_signals():
         if seeded:
-            write_login(config, DUMMY)
-            write_key_helper(state, DUMMY)
+            write_login(config, DUMMY, place="role_session")
+            write_key_helper(state, DUMMY, place="role_session")
 
         def while_held(pid: int, started: str) -> None:
             record = {"pid": pid, "started": started, "session_id": session_id}

@@ -20,6 +20,16 @@ A run killed outright leaves the files; the next command on the run removes the 
 session nothing runs as any more before anything else (:func:`remove_left_credentials`), its
 reviewers' too, and leaves a running one's alone: the leftovers' stop ends it and removes its
 file, as before. It does so only while no other command drives the run (:func:`driving`).
+
+Where a credential may lie after a kill is found by one function (:func:`credential_places`),
+every kind of place a writer names (``credentials.CredentialPlace``) by the place functions the
+writers write through: a role session's directory, a review session's (a module's review and the
+plan's), each call directory of a decomposition (round one's, its retry's, each later round's and
+its retry's) and a raw trial's place. Every clean-up after a kill clears what it finds: the next
+command on a run or a decomposition's directory, the restart of a round, the raw round's resume.
+A decomposition's call is named on no command line by a session id: it is found running by the
+settings file it is started with, and a call its killed ``decompose`` left running is stopped
+first, since nothing will ever read what it answers.
 """
 
 from __future__ import annotations
@@ -38,13 +48,24 @@ from pathlib import Path
 from types import FrameType
 from typing import Protocol
 
-from physgate.orchestrator.credentials import hold_login, remove_held_secrets, remove_secrets
+from physgate.orchestrator.credentials import (
+    CREDENTIAL_PLACES,
+    KEY_FILE,
+    KEY_HELPER,
+    LOGIN_FILE,
+    CredentialPlace,
+    hold_login,
+    remove_held_secrets,
+    remove_secrets,
+)
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.processes import (
     Proc,
+    processes_naming,
     running_session_ids,
     signal_if_same,
     started_at,
+    stop_tree,
     tree,
 )
 
@@ -279,6 +300,125 @@ def driving(run_dir: Path) -> Iterator[None]:
         os.close(fd)
 
 
+@dataclass(frozen=True)
+class CredentialSite:
+    """One place a session's credential may lie in after a kill, and how its session is named.
+
+    ``state`` and ``config`` are the two directories a session's credential files go in
+    (:func:`~physgate.orchestrator.credentials.remove_secrets`). ``session_id`` is the id its
+    process names on its command line; a decomposition's call names its ``settings`` file instead,
+    and a raw place whose process record cannot be read names neither, and is cleared only by its
+    own round (which knows its session has ended).
+    """
+
+    place: CredentialPlace
+    state: Path
+    config: Path
+    session_id: str | None = None
+    settings: Path | None = None
+
+    @classmethod
+    def of(
+        cls, place: CredentialPlace, sdir: Path, session_id: str | None = None
+    ) -> CredentialSite:
+        """The site whose session's own directory is ``sdir``."""
+        return cls(place, sdir / "state", sdir / "config", session_id)
+
+
+def _role_sessions(root: Path, _review_root: Path | None) -> list[CredentialSite]:
+    try:
+        # A link at a session's name is refused by the removal itself, never followed.
+        found = sorted(p for p in (root / "sessions").iterdir() if p.is_dir())
+    except OSError:
+        return []
+    return [CredentialSite.of("role_session", p, p.name) for p in found]
+
+
+def _review_places(root: Path, review_root: Path | None) -> list[CredentialSite]:
+    # Here, not at the top: decomposition_review imports dispatch, which imports this module.
+    from physgate.orchestrator.decomposition_review import ReviewRecordError, review_record
+
+    found = [
+        CredentialSite.of("review_session", sdir, sid)
+        for sid, sdir in (_review_sessions(root, review_root) if review_root is not None else [])
+    ]
+    # The plan's review, named by the record its decomposition keeps of it: before the opening no
+    # run record names the run its session's owner file names.
+    try:
+        record = review_record(root)
+    except ReviewRecordError:
+        record = None
+    if record is not None:
+        found.append(CredentialSite.of("review_session", record.session_dir, record.session_id))
+    return found
+
+
+def _plan_calls(root: Path, _review_root: Path | None) -> list[CredentialSite]:
+    """Each call directory of the decomposition in ``root``, as its rounds name them."""
+    from physgate.orchestrator.design_rounds import retry_dir, round_dir
+
+    top = round_dir(root, 1)
+    if top.is_symlink() or not top.is_dir():
+        return []
+    rounds = [1]
+    try:
+        listed = sorted(os.listdir(top))
+    except OSError:
+        listed = []  # round one's and its retry's are still visited, by their names
+    for entry in listed:
+        name, _, number = entry.partition("-")
+        if name == "round" and number.isdigit() and int(number) > 1:
+            rounds.append(int(number))
+    calls = [where for k in rounds for where in (round_dir(root, k), retry_dir(root, k))]
+    return [
+        CredentialSite("plan_call", w / "state", w / "config", settings=w / "settings.json")
+        for w in calls
+    ]
+
+
+#: The name of a raw trial's place in its trial's directory (``evaluation.tiers.store.PLACE``,
+#: held equal by a row, not imported: the core imports nothing of the tiers).
+RAW_PLACE = "place"
+
+
+def _raw_place(root: Path, _review_root: Path | None) -> list[CredentialSite]:
+    """A raw trial's place, ``root`` being the trial's directory."""
+    sdir = root / RAW_PLACE / "session"
+    if not sdir.is_dir():
+        return []
+    try:
+        record = json.loads((sdir / "process.json").read_text())
+        session_id = record["session_id"] if isinstance(record["session_id"], str) else None
+    except (OSError, ValueError, KeyError, TypeError):
+        session_id = None
+    return [CredentialSite.of("raw_session", sdir, session_id)]
+
+
+#: How each kind of place is found beneath a root: by the same place functions its writer writes
+#: through. A row holds this to every kind a writer names.
+_FINDERS: dict[CredentialPlace, Callable[[Path, Path | None], list[CredentialSite]]] = {
+    "role_session": _role_sessions,
+    "review_session": _review_places,
+    "plan_call": _plan_calls,
+    "raw_session": _raw_place,
+}
+
+
+def credential_places(root: Path, review_root: Path | None = None) -> tuple[CredentialSite, ...]:
+    """Every place a session's credential may lie in after a kill, of every kind, beneath ``root``.
+
+    ``root`` is a run's directory (a decomposition's included) or a raw trial's; given the run's
+    ``review_root``, this run's review sessions beneath it are found too. Nothing is read but
+    names and the orchestrator's own records of where a session ran.
+    """
+    found: dict[tuple[Path, Path], CredentialSite] = {}
+    for place in CREDENTIAL_PLACES:
+        for site in _FINDERS[place](root, review_root):
+            # A plan's review is named both by its record and, after the opening, by its owner.
+            found.setdefault((site.state, site.config), site)
+    return tuple(found.values())
+
+
 def _review_sessions(run_dir: Path, review_root: Path) -> list[tuple[str, Path]]:
     """This run's reviewer sessions beneath ``review_root``, with their ids, by owner file."""
     # Here, not at the top: dispatch imports this module.
@@ -326,28 +466,51 @@ def remove_left_credentials(run_dir: Path, review_root: Path | None = None) -> t
 
 
 def _sweep(run_dir: Path, review_root: Path | None) -> tuple[str, ...]:
-    try:
-        sessions = [
-            # A link at a session's name is refused by the removal itself, never followed.
-            (p.name, p)
-            for p in sorted((run_dir / "sessions").iterdir())
-            if p.is_dir()
-        ]
-    except OSError:
-        sessions = []
-    if review_root is not None:
-        sessions += _review_sessions(run_dir, review_root)
+    sites = credential_places(run_dir, review_root)
     try:
         running = running_session_ids()
     except OSError:
         return ()
     removed: list[str] = []
-    for session_id, sdir in sessions:
-        if session_id in running:
+    for site in sites:
+        if site.settings is not None:
+            if not _no_planner_runs(site.settings):
+                continue
+            held = any(
+                os.path.lexists(d / n)
+                for d, n in (
+                    (site.config, LOGIN_FILE),
+                    (site.state, KEY_FILE),
+                    (site.state, KEY_HELPER),
+                )
+            )
+            try:
+                remove_secrets(site.state, site.config)
+            except (OSError, InvocationError):
+                continue
+            if held:
+                removed.append(os.path.relpath(site.config.parent, run_dir))
+            continue
+        if site.session_id is None or site.session_id in running:
             continue
         try:
-            remove_secrets(sdir / "state", sdir / "config")
+            remove_secrets(site.state, site.config)
         except (OSError, InvocationError):
             continue
-        removed.append(session_id)
+        removed.append(site.session_id)
     return tuple(removed)
+
+
+def _no_planner_runs(settings: Path) -> bool:
+    """Whether no decomposition's call started with ``settings`` runs now; one that does is stopped.
+
+    Only while this process holds the run's lock exclusively: no ``decompose`` drives the run, so
+    a call still running was left by one killed outright, and its answer is read by nothing. A
+    process table that cannot be read, or a call still alive after its stop, is no answer.
+    """
+    try:
+        for pid in processes_naming(str(settings)):
+            stop_tree(pid, started_at(pid))
+        return not processes_naming(str(settings))
+    except OSError:
+        return False

@@ -163,11 +163,8 @@ def _signal(proc: Proc, sig: int) -> None:
 SESSION_ID_FLAGS = ("--session-id", "--resume")
 
 
-def running_session_ids() -> frozenset[str]:
-    """The session id every running process names on its command line (:data:`SESSION_ID_FLAGS`).
-
-    A session's own command line carries its id, from its held start on. Any process may name
-    an id, so this says only which sessions may be running, never that one is.
+def _command_lines() -> list[tuple[str, str]]:
+    """Every running process's pid and command line, as ``ps`` lists them.
 
     Raises:
         ProcessTableError: ``ps`` could not be run, failed, or listed no process of this one's.
@@ -184,19 +181,45 @@ def running_session_ids() -> frozenset[str]:
     except (OSError, subprocess.SubprocessError) as exc:
         msg = f"ps could not be run: {exc!r}"
         raise ProcessTableError(msg) from exc
-    ids: set[str] = set()
-    pids: set[str] = set()
+    listed: list[tuple[str, str]] = []
     for line in done.stdout.splitlines():
-        words = line.split()
-        if not words:
-            continue
-        pids.add(words[0])
-        pairs = zip(words, words[1:], strict=False)
-        ids.update(after for before, after in pairs if before in SESSION_ID_FLAGS)
-    if done.returncode != 0 or str(os.getpid()) not in pids:
+        pid, _, command = line.strip().partition(" ")
+        if pid:
+            listed.append((pid, command.strip()))
+    if done.returncode != 0 or str(os.getpid()) not in {pid for pid, _ in listed}:
         msg = f"ps exited {done.returncode} and did not list this process"
         raise ProcessTableError(msg)
+    return listed
+
+
+def running_session_ids() -> frozenset[str]:
+    """The session id every running process names on its command line (:data:`SESSION_ID_FLAGS`).
+
+    A session's own command line carries its id, from its held start on. Any process may name
+    an id, so this says only which sessions may be running, never that one is.
+
+    Raises:
+        ProcessTableError: ``ps`` could not be run, failed, or listed no process of this one's.
+    """
+    ids: set[str] = set()
+    for _pid, command in _command_lines():
+        words = command.split()
+        pairs = zip(words, words[1:], strict=False)
+        ids.update(after for before, after in pairs if before in SESSION_ID_FLAGS)
     return frozenset(ids)
+
+
+def processes_naming(word: str) -> list[int]:
+    """Every running process whose command line holds ``word`` as one of its words, by pid.
+
+    For a process the harness started with a path only it names (a decomposition's call is
+    started with its own settings file): any process may name it too, so a caller holds what it
+    finds to more than this.
+
+    Raises:
+        ProcessTableError: ``ps`` could not be run, failed, or listed no process of this one's.
+    """
+    return [int(pid) for pid, command in _command_lines() if word in command.split()]
 
 
 def signal_if_same(proc: Proc, sig: int) -> None:

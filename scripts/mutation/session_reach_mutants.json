@@ -117,8 +117,8 @@
   {
     "name": "the_shared_temporary_directories_are_writable",
     "file": "src/physgate/oslayer/policy.py",
-    "old": "    writable = (config.worktree, temp_dir, home)\n",
-    "new": "    writable = (config.worktree, temp_dir, home, *[r.path for r in config.protected_roots if r.reason.startswith(\"it is a temporary directory every session\")])\n",
+    "old": "                \"allowWrite\": _spelled(home, *own_writes),\n",
+    "new": "                \"allowWrite\": _spelled(home, *own_writes, \"/tmp\"),\n",
     "tests": [
       "tests/unit/oslayer/test_the_deny_list_is_the_registry.py"
     ],

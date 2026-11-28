@@ -226,7 +226,7 @@ def review(
     monkeypatch.setattr(claude, "remove_secrets", lambda *a: None)
     monkeypatch.setattr(claude, "redact", lambda *a: None)
     monkeypatch.setattr(claude, "read_in_full", lambda *a: reading)
-    monkeypatch.setattr(claude, "write_key_helper", lambda state, key: None)
+    monkeypatch.setattr(claude, "write_key_helper", lambda state, key, place: None)
     setup = ReviewerSetup(
         run_id="run-1",
         models={ROLE: MODEL},
