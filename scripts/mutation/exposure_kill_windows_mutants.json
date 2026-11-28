@@ -264,8 +264,8 @@
  {
   "name": "a_parameters_record_is_a_marker_unread",
   "file": "src/physgate/evaluation/tiers/exposure.py",
-  "old": "            params = _record_at(fd, PARAMS_RECORD)\n",
-  "new": "            params = {\"params\": \"/\"}\n",
+  "old": "            params = _record_at(fd, PARAMS_RECORD)\n            if params is not None and _absolute(params.get(\"params\")) is None:\n",
+  "new": "            params = {\"params\": \"/\"}\n            if params is not None and _absolute(params.get(\"params\")) is None:\n",
   "tests": [
    "tests/unit/orchestrator/test_a_decompose_killed_in_its_plan_review_records_the_exposure_on_its_tier_version.py",
    "tests/unit/orchestrator/test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote.py"

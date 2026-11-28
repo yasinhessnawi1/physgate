@@ -779,7 +779,7 @@ def _target_head(target: Path) -> str:
         msg = (
             f"the target's worktree is not clean ({said}); every trial clones one commit, as it "
             f"is; {_ONLY_ITS_COMMIT}: {_what_to_remove(found)}; or make the target afresh, a new "
-            "repository holding that one commit and nothing beside it"
+            "repository whose one commit holds none of that, with nothing beside it"
         )
         raise _refuse("target_not_clean", msg, found=said)
     return head
@@ -799,8 +799,8 @@ def _what_to_remove(found: Sequence[Finding]) -> str:
                 said.append("remove every file its commit does not hold, those git ignores too")
             if CHANGED in f.detail:
                 said.append(
-                    "put every file its commit holds back as committed, byte for byte (one a "
-                    "clean filter would normalise counts as changed) or commit the change"
+                    "put every file its commit holds back as committed, byte for byte (a file "
+                    "whose bytes a clean filter would normalise counts as changed)"
                 )
             if SUBMODULES in f.detail:
                 said.append("remove every submodule, its entry in the commit too")

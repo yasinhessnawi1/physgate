@@ -62,7 +62,7 @@
   {
     "name": "a_killed_session_keeps_its_credential",
     "file": "src/physgate/evaluation/baseline/runner.py",
-    "old": "    if left[\"session\"]:\n        try:\n            clean_left_session(work, setup.credential.secret)\n",
+    "old": "    if left[\"session\"]:\n        try:\n            # Its stream scanned before its scrub: what showed is marked, and read below.\n            clean_left_session(work, setup.credential.secret, tuple(trial.config.held_out_canaries))\n",
     "new": "    if left[\"session\"]:\n        try:\n            pass\n",
     "tests": [
       "tests/unit/evaluation/baseline/test_a_killed_baseline_round_goes_on_from_its_own_files_and_spends_nothing.py"
@@ -549,7 +549,7 @@
   {
     "name": "a_stopped_session_keeps_its_credential",
     "file": "src/physgate/evaluation/baseline/runner.py",
-    "old": "    if (work / \"session\").exists():\n        try:\n            clean_left_session(work, setup.credential.secret)\n",
+    "old": "    if (work / \"session\").exists():\n        try:\n            clean_left_session(work, setup.credential.secret, tuple(trial.config.held_out_canaries))\n",
     "new": "    if (work / \"session\").exists():\n        try:\n            pass\n",
     "tests": [
       "tests/unit/evaluation/baseline/test_a_stop_signal_ends_a_raw_session_cleanly_and_the_next_start_goes_on.py"
