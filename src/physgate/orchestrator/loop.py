@@ -3262,7 +3262,9 @@ class Loop:
         delay of the run's ``infra_retry_delays_s``, and then halts it
         ``infrastructure_exhausted``. That is one try more than a role session gets: a review's
         first retry is immediate, as it always was, and only then is the ladder taken. A resume
-        goes on at the attempt's checkpoint. What every try spent is attributed to the reviewer.
+        goes on at the attempt's checkpoint. What every try spent is attributed to the reviewer,
+        and every try ends on a ``review_unavailable`` line of its own, the one that halts the run
+        too (:meth:`_owed_again`).
         """
         subtask_id, attempt = artefact.subtask_id, artefact.attempt
         retried = False
@@ -3313,6 +3315,7 @@ class Loop:
                     return None  # it ran under other conditions: neither recorded nor retried
                 if exc.usage_limit is not None:
                     who = f"review session {exc.session_id or 'none'}"
+                    self._owed_again(subtask_id, attempt, exc, "usage_limit")
                     self._wait_for_limit(subtask_id, attempt, exc.usage_limit, who, review=True)
                     return None
                 if exc.cause == "infrastructure" and self._review_halts(
@@ -3358,7 +3361,8 @@ class Loop:
         Returns whether it halted: a refused credential or an OS layer that would not start at
         once, as a role session's end; any other machine end (a full disk the review's binary
         named among them, which no volume measured) once the review's one immediate retry and the
-        run's ladder after it are spent. The review stays owed.
+        run's ladder after it are spent. The review stays owed, and its try is ended on its own
+        line before the halt.
         """
         who = f"review session {exc.session_id or 'none'}"
         where = f"subtask {subtask_id} attempt {attempt}"
@@ -3369,6 +3373,7 @@ class Loop:
                 f"{where}: the API refused the {self.config.auth} credential of {who}; replace "
                 f"{variable} and resume (its review is still owed)"
             )
+            self._owed_again(subtask_id, attempt, exc, "credential_refused")
             self._emit(Halted(**self._env(), reason="credential_refused", detail=detail))
             return True
         if cause == "sandbox_unavailable":
@@ -3377,6 +3382,7 @@ class Loop:
                 "without it; repair the sandbox's dependencies and resume (its review is still "
                 "owed)"
             )
+            self._owed_again(subtask_id, attempt, exc, "os_layer_unavailable")
             self._emit(Halted(**self._env(), reason="os_layer_unavailable", detail=detail))
             return True
         if not retried:
@@ -3389,8 +3395,40 @@ class Loop:
             f"{where}: {who} ended with {cause or 'an infrastructure end'} after {tries} "
             "infrastructure retries of its review; resume (its review is still owed)"
         )
+        self._owed_again(subtask_id, attempt, exc, "infrastructure_exhausted")
         self._emit(Halted(**self._env(), reason="infrastructure_exhausted", detail=detail))
         return True
+
+    def _owed_again(
+        self, subtask_id: str, attempt: int, exc: ReviewUnavailableError, halt: str
+    ) -> None:
+        """End the review's try on a line of its own, just before the halt it ends the run with.
+
+        Every try a review spawned ends on the log with a line that names it, whatever ended it:
+        here the machine did, and the run halts with the review owed again, so the line is the
+        ``review_unavailable`` a retried try has (``retry`` true: the review runs again, once the
+        run is resumed), its cause the machine's and its words the halt's. The session-end rule,
+        the cost reader and the assembler then all read the try as closed, its spend the
+        reviewer's and counted once. Written after the ladder's count and before the halt (no
+        line but a resume follows a halt); a resume restarts the attempt at its checkpoint, so
+        the line is never counted as a try of the next drive's ladder.
+        """
+        said = str(exc) or exc.cause
+        self._emit(
+            ReviewUnavailable(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                cause="infrastructure",
+                detail=f"{said}; the run halts {halt}, the review owed again at its resume",
+                retry=True,
+                session_id=exc.session_id,
+                reviewer_model=exc.reviewer_model,
+                spec_defects=exc.spec_defects,
+                managed=exc.managed,
+                compactions=exc.compactions,
+            )
+        )
 
     def _review_held(
         self,

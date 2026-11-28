@@ -703,6 +703,12 @@ def test_a_review_on_the_limit_is_not_retried_queued_or_rejected_and_the_run_wai
     events = _events(tmp_path)
     assert len(rig.reviewer.seen) == 1, "a review is not retried inside the limit's window"
     assert [e for e in events if isinstance(e, ReviewUnavailable) and not e.retry] == []
+    # The try ends on a line of its own, owed again, just before the halt: no reader finds a try
+    # that spent with no end.
+    (owed,) = [e for e in events if isinstance(e, ReviewUnavailable)]
+    assert (owed.session_id, owed.cause, owed.retry) == ("rev-1", "infrastructure", True)
+    assert events.index(owed) == events.index(halt) - 1
+    assert "usage_limit" in owed.detail and "owed again" in owed.detail
     for kind in (EscalationDecided, Escalated, AttemptRejected, ReviewRan):
         assert [e for e in events if isinstance(e, kind)] == []
     spent = [e.attribution for e in events if isinstance(e, TokensUsed)]
