@@ -223,7 +223,7 @@ def test_a_cell_whose_trials_ran_from_two_harness_commits_is_refused_naming_both
     raw = _raw(store, run_set((two, 0)), tmp_path / "b", StandInArm(), setup=from_other)
     assert isinstance(raw, BaselineRecord), raw
     refused = _refused(store, run_set((one, 0), (two, 0)), "harness_commit_differs")
-    assert CHECKOUT.commit in str(refused) and "d" * 40 in str(refused)
+    assert str(CHECKOUT.commit) in str(refused) and "d" * 40 in str(refused)
 
 
 def test_a_protected_cell_s_records_are_written_beneath_the_withheld_root_or_not_at_all(

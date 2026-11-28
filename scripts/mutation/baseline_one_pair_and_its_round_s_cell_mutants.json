@@ -317,8 +317,9 @@
       "tests/unit/evaluation/gaps/test_the_vector_writer_counts_one_look_and_writes_no_id.py"
     ],
     "data": [
-      "tests/unit/evaluation/gaps/gap_fixtures.py",
       "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/gaps/gap_fixtures.py",
       "tests/unit/evaluation/per_role/task_fixtures.py"
     ]
   },
