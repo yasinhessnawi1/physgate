@@ -367,12 +367,20 @@ def harness_record(place: RoundPlace) -> dict[str, Any]:
 
 
 def harness_round_of(
-    made: StandInStore, places: Sequence[RoundPlace], *, round_id: str = "a1b2c3d4e5f60718"
+    made: StandInStore,
+    places: Sequence[RoundPlace],
+    *,
+    round_id: str = "a1b2c3d4e5f60718",
+    started: str = "2026-11-28T10:00:00Z",
+    version: str | None = None,
+    shakedown: bool = False,
 ) -> Path:
     """A harness round's directory beneath the withheld root, its ledger as the driver writes it.
 
-    Every place is placed, each earlier draw excluded and superseded, and each place not left
-    assembled; a round with no place left has ended, its combined run set written. Its directory.
+    Its first line names the version it ran on (``made``'s unless ``version`` is given), whether
+    it is a shakedown, and when it started. Every place is placed, each earlier draw excluded and
+    superseded, and each place not left assembled; a round with no place left has ended, its
+    combined run set written. Its directory.
     """
     from physgate.orchestrator.run_config import load_run_config
 
@@ -391,8 +399,18 @@ def harness_round_of(
         if place.arm is not None:
             line["arm"] = place.arm
         order.append(line)
+    inputs: dict[str, Any] = {"version": made.version if version is None else version}
+    if shakedown:
+        inputs["shakedown"] = True
     lines: list[dict[str, Any]] = [
-        {"kind": "round", "format": 1, "round": round_id, "order": order}
+        {
+            "kind": "round",
+            "format": 1,
+            "round": round_id,
+            "inputs": inputs,
+            "order": order,
+            "started": started,
+        }
     ]
     for index, place in enumerate(places):
         arm = {} if place.arm is None else {"arm": place.arm}

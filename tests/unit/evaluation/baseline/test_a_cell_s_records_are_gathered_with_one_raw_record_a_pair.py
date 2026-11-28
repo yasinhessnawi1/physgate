@@ -19,12 +19,14 @@ import pytest
 from baseline_fixtures import (
     CHECKOUT,
     PRICES,
+    RESET_EPOCH,
     SCORED,
     RoundPlace,
     StandInArm,
     StandInStore,
     copied,
     harness_round_of,
+    harness_run,
     harness_run_spending,
     run_set,
     setup_for,
@@ -33,7 +35,7 @@ from baseline_fixtures import (
 
 from physgate.evaluation.baseline.gather import GatherError, gather, write_gathered
 from physgate.evaluation.baseline.record import BaselineRecord
-from physgate.evaluation.baseline.runner import RunSet, run_baseline
+from physgate.evaluation.baseline.runner import RoundWaits, RunSet, run_baseline
 from physgate.evaluation.observe.cost import load_price_sheet
 from physgate.evaluation.per_role.arms.raw import RawSetup
 from physgate.evaluation.per_role.report import parse_trials
@@ -79,10 +81,28 @@ def _cell(store: StandInStore, root: Path, n: int = 2, **changes: Any) -> list[P
 
 
 def _refused(store: StandInStore, runs: RunSet, because: str) -> GatherError:
-    with pytest.raises(GatherError) as refused:
-        gather(store.store, "control", store.version, runs)
-    assert refused.value.context["refused_because"] == because, refused.value.context
-    return refused.value
+    try:
+        outcome: object = gather(store.store, "control", store.version, runs)
+    except Exception as exc:  # noqa: BLE001 - asserted below: only the gatherer's refusal will do
+        outcome = exc
+    assert isinstance(outcome, GatherError), f"not refused by name: {outcome!r}"
+    assert outcome.context["refused_because"] == because, outcome.context
+    return outcome
+
+
+def _round_id(out: Path) -> str:
+    return str(json.loads((out / "ledger.jsonl").read_text().splitlines()[0])["round"])
+
+
+def _pins_on_disk(out: Path, harness: dict[str, Any] | None) -> None:
+    """The raw round's one session record, its harness checkout written as ``harness``."""
+    (record,) = (out / "work").glob("*/harness/raw.json")
+    fields = json.loads(record.read_text())
+    if harness is None:
+        del fields["pins"]["harness"]
+    else:
+        fields["pins"]["harness"] = harness
+    record.write_text(json.dumps(fields))
 
 
 def test_a_cell_is_gathered_as_its_harness_records_then_one_raw_record_a_pair(
@@ -251,3 +271,107 @@ def test_a_protected_cell_s_records_are_written_beneath_the_withheld_root_or_not
     # Never written over: a second gathering into the same file is refused.
     assert main([*argv, "--out", str(inside)]) == 1
     assert json.loads(capsys.readouterr().out)["refused_because"] == "out_exists"
+
+
+def test_a_harness_record_the_round_kept_as_excluded_refuses_the_cell(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    task = store.tasks["visible"][0]
+    run = harness_run_spending(tmp_path / "runs", task, store, 1500)
+    harness_round_of(store, [RoundPlace(run, 0, task, excluded=True)])
+    refused = _refused(store, run_set((run, 0)), "trial_excluded")
+    assert (refused.context["arm"], refused.context["place"]) == ("harness", "0")
+
+
+def test_a_raw_record_whose_session_names_no_harness_commit_refuses_the_cell(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    (run,) = _cell(store, tmp_path / "runs", 1)
+    out = tmp_path / "raw"
+    assert isinstance(_raw(store, run_set((run, 0)), out, StandInArm()), BaselineRecord)
+    _pins_on_disk(out, None)
+    refused = _refused(store, run_set((run, 0)), "harness_commit_unknown")
+    assert "raw record at place 0" in str(refused)
+
+
+def test_a_raw_record_from_another_commit_than_its_harness_run_refuses_the_cell_naming_both(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    # Both harness runs ran from one commit: only the raw record's own commit tells them apart.
+    runs = _cell(store, tmp_path / "runs")
+    for i, run in enumerate(runs):
+        out = tmp_path / f"raw{i}"
+        assert isinstance(_raw(store, run_set((run, 0)), out, StandInArm()), BaselineRecord)
+    _pins_on_disk(tmp_path / "raw1", {"commit": "d" * 40, "clean": True})
+    refused = _refused(store, run_set(*((r, 0) for r in runs)), "harness_commit_differs")
+    assert str(CHECKOUT.commit) in str(refused) and "d" * 40 in str(refused)
+
+
+def test_a_pair_whose_raw_round_cannot_be_read_as_its_own_refuses_the_cell_naming_it(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    (run,) = _cell(store, tmp_path / "runs", 1)
+    out = tmp_path / "raw"
+    assert isinstance(_raw(store, run_set((run, 0)), out, StandInArm()), BaselineRecord)
+    held = _round_id(out)
+    out.rename(tmp_path / "moved")
+    refused = _refused(store, run_set((run, 0)), "pair_unread")
+    assert (refused.context["earlier_round"], refused.context["place"]) == (held, "0")
+
+
+def test_a_pair_recorded_in_a_raw_round_that_has_not_ended_refuses_the_cell(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    runs = _cell(store, tmp_path / "runs")
+    out = tmp_path / "raw"
+    # The round records its first entry and waits at the usage limit on its second.
+    waits = _raw(store, run_set(*((r, 0) for r in runs)), out, StandInArm(limited={2: RESET_EPOCH}))
+    assert isinstance(waits, RoundWaits), waits
+    refused = _refused(store, run_set(*((r, 0) for r in runs)), "raw_round_not_ended")
+    assert (refused.context["earlier_round"], refused.context["place"]) == (_round_id(out), "0")
+
+
+def test_a_set_holding_a_run_no_harness_round_placed_refuses_the_cell_naming_its_place(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    (run,) = _cell(store, tmp_path / "runs", 1)
+    by_hand = harness_run(tmp_path / "hand", store.tasks["visible"][3], store)
+    refused = _refused(store, run_set((run, 0), (by_hand, 0)), "no_harness_round")
+    assert refused.context["place"] == "1"
+
+
+def _round_of_the_cell(
+    store: StandInStore, root: Path, round_id: str, started: str, **changes: Any
+) -> list[Path]:
+    """A harness round of the first two visible tasks, each place with its one raw record."""
+    tasks = store.tasks["visible"]
+    runs = [harness_run_spending(root, tasks[i], store, 1500 + i) for i in range(2)]
+    places = [RoundPlace(run, 0, tasks[i]) for i, run in enumerate(runs)]
+    harness_round_of(store, places, round_id=round_id, started=started, **changes)
+    for i, run in enumerate(runs):
+        out = root / f"raw{i}"
+        assert isinstance(_raw(store, run_set((run, 0)), out, StandInArm()), BaselineRecord)
+    return runs
+
+
+def test_a_cell_is_gathered_from_its_first_harness_round_and_a_later_one_is_refused_naming_it(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    first = _round_of_the_cell(store, tmp_path / "a", "a1b2c3d4e5f60718", "2026-11-28T10:00:00Z")
+    # Started before it, but neither counts: a shakedown, and a round of another version.
+    _round_of_the_cell(
+        store, tmp_path / "s", "5a5a5a5a5a5a5a5a", "2026-11-27T10:00:00Z", shakedown=True
+    )
+    _round_of_the_cell(
+        store, tmp_path / "v", "7e7e7e7e7e7e7e7e", "2026-11-27T11:00:00Z", version="f" * 64
+    )
+    later = _round_of_the_cell(store, tmp_path / "b", "b1b2c3d4e5f60718", "2026-11-28T11:00:00Z")
+    refused = _refused(store, run_set(*((r, 0) for r in later)), "cell_has_an_earlier_round")
+    assert refused.context["earlier_round"] == "a1b2c3d4e5f60718"
+    assert "a1b2c3d4e5f60718" in str(refused)
+    gathered = gather(store.store, "control", store.version, run_set(*((r, 0) for r in first)))
+    assert gathered.harness_round == "a1b2c3d4e5f60718"
+    # Two rounds of the cell whose order cannot be told: neither is gathered.
+    _round_of_the_cell(store, tmp_path / "c", "c1b2c3d4e5f60718", "2026-11-28T10:00:00Z")
+    refused = _refused(store, run_set(*((r, 0) for r in first)), "cell_has_an_earlier_round")
+    assert refused.context["earlier_round"] == "c1b2c3d4e5f60718"

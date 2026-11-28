@@ -298,5 +298,17 @@
     "data": [
       "tests/unit/evaluation/per_role/task_fixtures.py"
     ]
+  },
+  {
+    "name": "the_values_check_places_a_number_by_a_plant_value_before_an_unread_input",
+    "file": "src/physgate/evaluation/tiers/issued_check.py",
+    "old": "        elif _held(n, unread):\n            places.add(\"unread\")\n        elif _held(n, named):\n            places.add(\"named\")\n",
+    "new": "        elif _held(n, named):\n            places.add(\"named\")\n        elif _held(n, unread):\n            places.add(\"unread\")\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_values_check_counts_what_a_version_s_tasks_leave_a_session_without.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
   }
 ]

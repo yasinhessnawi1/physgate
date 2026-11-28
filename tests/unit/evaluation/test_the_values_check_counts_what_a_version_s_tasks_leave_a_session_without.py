@@ -14,6 +14,8 @@ A task whose issued text holds a number of its passing reference is counted agai
 number lies: a value under one of the scorer's names (a plant coefficient equal to a controller's),
 only a digit of the text's own names, units or powers (``plant_den_2``, ``s**2``, ``s^2``), or the
 value of an input the scorer does not read; and by how many of the reference's numbers it holds.
+A number that lies both under a scorer's name and in an input the scorer does not read is counted
+where a give-away would be.
 """
 
 from __future__ import annotations
@@ -277,6 +279,16 @@ KIND_NAMES = (
             3,
             (2, 2),
             id="full_give_away",
+        ),
+        # A zero that is a plant coefficient and also an input the scorer does not read: the
+        # harmless kind needs every place the number lies to be harmless, so it is a give-away.
+        pytest.param(
+            SYMBOLS,
+            [*_second(1, 0.8125, 3), _m("suggested_zero", 0.8125, "1")],
+            GOOD,
+            3,
+            (1, 2),
+            id="plant_value_and_unread_input",
         ),
     ],
 )

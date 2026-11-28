@@ -269,7 +269,7 @@
   {
     "name": "a_credential_halt_is_set_aside_with_no_refused_resume",
     "file": "src/physgate/evaluation/harness_round.py",
-    "old": "    if not _refused_resumes(ctx, i, last, replaced=True):\n",
+    "old": "    if not _refused_resumes(ctx, i, last, replaced=True, present=True):\n",
     "new": "    if False:\n",
     "tests": [
       "tests/unit/evaluation/harness_round/test_a_run_halted_on_a_refused_credential_is_set_aside_only_after_its_resume_was_refused.py"
@@ -290,8 +290,8 @@
   {
     "name": "a_refused_resume_without_the_word_opens_the_set_aside",
     "file": "src/physgate/evaluation/harness_round.py",
-    "old": "    if not _refused_resumes(ctx, i, last, replaced=True):\n",
-    "new": "    if not _refused_resumes(ctx, i, last):\n",
+    "old": "    if not _refused_resumes(ctx, i, last, replaced=True, present=True):\n",
+    "new": "    if not _refused_resumes(ctx, i, last, present=True):\n",
     "tests": [
       "tests/unit/evaluation/harness_round/test_a_run_halted_on_a_refused_credential_is_set_aside_only_after_its_resume_was_refused.py"
     ],
@@ -332,7 +332,7 @@
   {
     "name": "a_refused_resume_of_a_credential_halt_writes_no_line",
     "file": "src/physgate/evaluation/harness_round.py",
-    "old": "                _resume_refused(ctx, planned, attempt, replaced=replaced)\n",
+    "old": "                _resume_refused(ctx, planned, attempt, replaced=replaced, present=present)\n",
     "new": "                pass\n",
     "tests": [
       "tests/unit/evaluation/harness_round/test_a_run_halted_on_a_refused_credential_is_set_aside_only_after_its_resume_was_refused.py",
@@ -375,8 +375,8 @@
   {
     "name": "a_refused_resume_s_line_says_the_word_was_given_whatever_was_given",
     "file": "src/physgate/evaluation/harness_round.py",
-    "old": "            \"credential_replaced\": replaced,\n            \"status\": REFUSED,\n",
-    "new": "            \"credential_replaced\": True,\n            \"status\": REFUSED,\n",
+    "old": "            \"credential_replaced\": replaced,\n            \"secret_present\": present,\n",
+    "new": "            \"credential_replaced\": True,\n            \"secret_present\": present,\n",
     "tests": [
       "tests/unit/evaluation/harness_round/test_a_run_halted_on_a_refused_credential_is_set_aside_only_after_its_resume_was_refused.py"
     ],
@@ -537,6 +537,94 @@
       "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py",
       "tests/unit/evaluation/harness_round/test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_harness.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "a_resume_refused_with_no_secret_set_opens_the_set_aside",
+    "file": "src/physgate/evaluation/harness_round.py",
+    "old": "    if not _refused_resumes(ctx, i, last, replaced=True, present=True):\n",
+    "new": "    if not _refused_resumes(ctx, i, last, replaced=True):\n",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_a_run_halted_on_a_refused_credential_is_set_aside_only_after_its_resume_was_refused.py",
+      "tests/unit/evaluation/harness_round/test_a_run_halted_on_a_refused_credential_goes_on_on_another_secret_only_on_the_person_s_word.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "a_refused_resume_s_line_says_the_secret_was_set_whatever_was_set",
+    "file": "src/physgate/evaluation/harness_round.py",
+    "old": "            \"secret_present\": present,\n",
+    "new": "            \"secret_present\": True,\n",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_a_run_halted_on_a_refused_credential_is_set_aside_only_after_its_resume_was_refused.py",
+      "tests/unit/evaluation/harness_round/test_a_run_halted_on_a_refused_credential_goes_on_on_another_secret_only_on_the_person_s_word.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "a_refused_resume_s_line_that_does_not_say_counts_as_the_secret_set",
+    "file": "src/physgate/evaluation/harness_round.py",
+    "old": "        and (not present or x.get(\"secret_present\") is True)\n",
+    "new": "        and (not present or x.get(\"secret_present\") is not False)\n",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_a_run_halted_on_a_refused_credential_is_set_aside_only_after_its_resume_was_refused.py",
+      "tests/unit/evaluation/harness_round/test_a_run_halted_on_a_refused_credential_goes_on_on_another_secret_only_on_the_person_s_word.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_secret_is_read_as_set_whatever_the_environment_holds",
+    "file": "src/physgate/evaluation/harness_round.py",
+    "old": "        credential_for(load_run_config(run_dir / \"run.json\").auth, os.environ)\n",
+    "new": "        load_run_config(run_dir / \"run.json\")\n",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_a_run_halted_on_a_refused_credential_is_set_aside_only_after_its_resume_was_refused.py",
+      "tests/unit/evaluation/harness_round/test_a_run_halted_on_a_refused_credential_goes_on_on_another_secret_only_on_the_person_s_word.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py"
     ],
     "paths": [
       "knowledge"
