@@ -1138,6 +1138,15 @@ def _revert_held(
             if fd is not None:
                 os.fchdir(fd)
             done, missed = _revert(base, state, here, group)
+        except OSError as exc:
+            if fd is not None and fd != held:
+                # Named by its recorded path, as it was before the put-back was held to the
+                # anchor: a failing hook names a protected path only by its label.
+                for attr in ("filename", "filename2"):
+                    named = getattr(exc, attr)
+                    if isinstance(named, str):
+                        setattr(exc, attr, here.back(named))
+            raise
         finally:
             if fd is not None and fd != held:
                 os.close(fd)
