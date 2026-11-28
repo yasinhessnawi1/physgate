@@ -1035,6 +1035,7 @@
     ],
     "data": [
       "tests/unit/orchestrator/left_session.py",
+      "tests/unit/orchestrator/loop_fakes.py",
       "tests/unit/orchestrator/orch_helpers.py"
     ]
   },
