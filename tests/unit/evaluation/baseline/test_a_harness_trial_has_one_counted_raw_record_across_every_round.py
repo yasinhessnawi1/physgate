@@ -285,3 +285,29 @@ def test_the_command_s_refusal_names_the_round_that_holds_the_pair() -> None:
         "earlier_round": "ab12",
     }
     assert "earlier_round" not in json.loads(refused_line({"refused_because": "out_exists"}))
+
+
+def test_a_round_killed_before_it_held_its_pairs_is_refused_at_its_resume_for_a_pair_recorded_since(
+    tmp_path: Path, store: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import physgate.evaluation.baseline.runner as runner
+
+    (run,) = _placed(store, tmp_path / "runs")
+    first, second = tmp_path / "first", tmp_path / "second"
+
+    def killed(*_a: Any, **_k: Any) -> None:  # noqa: ANN401
+        msg = "killed after the round's first line, before its pairs were written"
+        raise RuntimeError(msg)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(runner, "take_pairs", killed)
+        assert isinstance(_round(store, run_set((run, 0)), first, StandInArm()), RuntimeError)
+    assert [json.loads(x)["kind"] for x in (first / "ledger.jsonl").read_text().splitlines()] == [
+        "round"
+    ]
+    # Nothing held the pair, so another round took it on and recorded it.
+    assert isinstance(_round(store, run_set((run, 0)), second, StandInArm()), BaselineRecord)
+    arm = StandInArm()
+    resumed = _round(store, run_set((run, 0)), first, arm, resume=True)
+    _refused(resumed, "pair_recorded", second)
+    assert arm.calls == [], "no second raw session of the pair"

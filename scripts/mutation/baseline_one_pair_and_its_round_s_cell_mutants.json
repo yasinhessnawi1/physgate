@@ -649,5 +649,152 @@
     "paths": [
       "knowledge"
     ]
+  },
+  {
+    "name": "the_gatherer_takes_an_excluded_harness_record",
+    "file": "src/physgate/evaluation/baseline/gather.py",
+    "old": "        if line.get(\"outcome\") == \"excluded\" or (\"reason\" in record and \"outcome\" not in record):\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_gatherer_takes_a_record_naming_no_harness_commit",
+    "file": "src/physgate/evaluation/baseline/gather.py",
+    "old": "    if None in commits:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_gatherer_passes_over_a_raw_round_it_cannot_read",
+    "file": "src/physgate/evaluation/baseline/gather.py",
+    "old": "    if unread:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_gatherer_never_compares_the_raw_record_s_commit",
+    "file": "src/physgate/evaluation/baseline/gather.py",
+    "old": "        commits.setdefault(commit, f\"the raw record at place {at}\")\n",
+    "new": "        del commit\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_gatherer_takes_a_raw_round_that_has_not_ended",
+    "file": "src/physgate/evaluation/baseline/gather.py",
+    "old": "        BaselineRecord.model_validate_json((out / BASELINE_RECORD).read_bytes())\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_gatherer_takes_a_run_no_harness_round_placed",
+    "file": "src/physgate/evaluation/baseline/gather.py",
+    "old": "        if place is None:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_resumed_round_is_not_held_to_the_other_rounds_of_its_pairs",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            pairs_refusal(store, role, planned, round_id, link)\n",
+    "new": "            pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_has_one_counted_raw_record_across_every_round.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
   }
 ]
