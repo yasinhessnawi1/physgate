@@ -35,9 +35,25 @@ The counts, for each tier:
 - ``issued_leaks``: tasks whose issued text states a number of the task's passing reference
   answer, by the tier's own leak rule (:func:`.per_role.leaks.text_leaks`, the rule the split
   holds a brief to), now held to what a session reads; and ``issued_leak_unchecked``, tasks the
-  rule could not be held to (their good reference cannot be read). On a sound tier both are 0:
-  the values are the plant's, and the reference is a controller. The tier's own check and its
-  records are not changed.
+  rule could not be held to (their good reference cannot be read). The tier's own check and its
+  records are not changed;
+- of the tasks counted in ``issued_leaks``, what they hold. The rule counts a task when any one
+  number of its reference other than 0, 1 and -1 equals any number the text holds, and it reads
+  a number wherever digits stand, so the digit of a coefficient's name (``plant_den_2``), of a
+  unit (``s**2``) or of a power (``s^2``) is a number to it. Each such number of the reference
+  (each distinct one, read and compared as the rule reads and compares them) is placed where it
+  lies, in this order: in the brief; a value written under one of the scorer's names (the
+  plant's coefficients, its gain and delay, the reference step, the actuator limit, given or
+  taken by default); the value of an input of any other name; else only a digit of the issued
+  block's own names, units, powers and words. ``issued_leaks_by_kind`` counts the tasks by
+  those places: ``scorer_named_values_only`` (the plant's own numbers: a controller may well
+  place a zero on a plant pole), ``names_units_or_powers_only`` (an artefact of the reading),
+  ``scorer_named_values_and_names_units_or_powers`` (both), and ``unread_input_or_brief`` (some
+  number lies in an input the scorer does not read, or in the brief: where a give-away would
+  be). ``issued_leaks_all_reference_numbers`` counts the tasks whose text holds every such
+  number of the reference, wherever it lies, and ``issued_leaks_matched_of_total`` lists, for
+  each counted task, how many of them the text holds and how many there are, sorted, so no
+  task's place in its tier is told. A default is 0 or 1, so it never counts.
 
 What it does not count: a unit a brief writes beside a value. A brief's units are words beside
 numbers, and no rule here tells a unit from the word after a number soundly, so the issued text
@@ -47,12 +63,15 @@ another.
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 from typing import Any
 
+from physgate.evaluation.per_role.answer import read_lti_tf
 from physgate.evaluation.per_role.exceptions import PerRoleError
-from physgate.evaluation.per_role.leaks import text_leaks
+from physgate.evaluation.per_role.leaks import NUMBER as LEAK_NUMBER
+from physgate.evaluation.per_role.leaks import TRIVIAL, text_leaks
 from physgate.evaluation.per_role.metrics import ACTUATOR_LIMIT, REFERENCE_STEP
 from physgate.evaluation.per_role.plant import (
     DEFAULTS,
@@ -94,6 +113,15 @@ _WORDS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
+#: Where a leaking task's reference numbers lie, as ``issued_leaks_by_kind`` counts the tasks.
+LEAK_KINDS = (
+    "scorer_named_values_only",
+    "names_units_or_powers_only",
+    "scorer_named_values_and_names_units_or_powers",
+    "unread_input_or_brief",
+)
+
+
 class ValuesCheckError(PerRoleError):
     """The version cannot be counted, for a reason it names; never a task."""
 
@@ -132,6 +160,60 @@ def _defaults(task: Task) -> set[str]:
     return used - {m.name for m in task.inputs}
 
 
+def _held(number: float, told: list[float]) -> bool:
+    # As the leak rule compares a number of the reference with one a text holds.
+    return any(math.isclose(number, t, rel_tol=1e-9, abs_tol=0.0) for t in told)
+
+
+def _read(text: str) -> list[float]:
+    # As the leak rule reads a text's numbers: wherever digits stand.
+    return [float(x) for x in LEAK_NUMBER.findall(text)]
+
+
+def _leak_kind(issued: str, loaded: LoadedTask) -> tuple[str, int, int] | None:
+    """Where ``issued``'s numbers of the good reference lie, how many it holds, of how many.
+
+    ``None`` exactly when the leak rule finds none: the same reference, numbers and comparison.
+
+    Raises:
+        TaskFormatError: the good reference's answer cannot be read.
+    """
+    task = loaded.task
+    good = next(ref for ref in loaded.references if ref.fails is None)
+    answer = read_lti_tf(Path(good.answer_path))
+    numbers = {
+        n
+        for n in (float(answer.gain.value), *answer.num_values(), *answer.den_values())
+        if n not in TRIVIAL
+    }
+    held = [n for n in numbers if _held(n, _read(issued))]
+    if not held:
+        return None
+    brief = _read(task.brief)
+    named = [float(m.value) for m in task.inputs if _NAME.fullmatch(m.name)]
+    named += [float(DEFAULTS[name].value) for name in _defaults(task)]
+    unread = [float(m.value) for m in task.inputs if not _NAME.fullmatch(m.name)]
+    places = set()
+    for n in held:
+        if _held(n, brief):
+            places.add("brief")
+        elif _held(n, named):
+            places.add("named")
+        elif _held(n, unread):
+            places.add("unread")
+        else:
+            places.add("scaffold")
+    if places & {"brief", "unread"}:
+        kind = "unread_input_or_brief"
+    elif places == {"named"}:
+        kind = "scorer_named_values_only"
+    elif places == {"scaffold"}:
+        kind = "names_units_or_powers_only"
+    else:
+        kind = "scorer_named_values_and_names_units_or_powers"
+    return kind, len(held), len(numbers)
+
+
 def _tier_counts(loaded: list[LoadedTask]) -> dict[str, Any]:
     counts: dict[str, Any] = {
         "tasks": len(loaded),
@@ -143,7 +225,11 @@ def _tier_counts(loaded: list[LoadedTask]) -> dict[str, Any]:
         "brief_names_a_defaulted_value": dict.fromkeys(DEFAULTS, 0),
         "issued_leaks": 0,
         "issued_leak_unchecked": 0,
+        "issued_leaks_by_kind": dict.fromkeys(LEAK_KINDS, 0),
+        "issued_leaks_all_reference_numbers": 0,
+        "issued_leaks_matched_of_total": [],
     }
+    pairs: list[list[int]] = []
     for each in loaded:
         task = each.task
         try:
@@ -153,9 +239,16 @@ def _tier_counts(loaded: list[LoadedTask]) -> dict[str, Any]:
             counts["not_issuable"] += 1
         if issued is not None:
             try:
+                kind = _leak_kind(issued, each)
                 counts["issued_leaks"] += text_leaks(issued, each)
             except Exception:  # noqa: BLE001 - a check that cannot run is counted, never passed
                 counts["issued_leak_unchecked"] += 1
+            else:
+                if kind is not None:
+                    name, held, total = kind
+                    counts["issued_leaks_by_kind"][name] += 1
+                    counts["issued_leaks_all_reference_numbers"] += held == total
+                    pairs.append([held, total])
         symbols = _symbols(task.brief)
         if not symbols:
             counts["names_no_input"] += 1
@@ -170,6 +263,8 @@ def _tier_counts(loaded: list[LoadedTask]) -> dict[str, Any]:
             counts["relies_on_default"][name] += 1
             if name in symbols:
                 counts["brief_names_a_defaulted_value"][name] += 1
+    # Sorted, so the list tells nothing of the order the tier's tasks are read in.
+    counts["issued_leaks_matched_of_total"] = sorted(pairs)
     return counts
 
 
@@ -206,4 +301,4 @@ def value_counts(store: Path, role: Role, version: str) -> dict[str, Any]:
     return {"role": role, "version": version, "tiers": tiers}
 
 
-__all__ = ["TIERS", "ValuesCheckError", "value_counts"]
+__all__ = ["LEAK_KINDS", "TIERS", "ValuesCheckError", "value_counts"]

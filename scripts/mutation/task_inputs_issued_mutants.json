@@ -250,5 +250,53 @@
     "data": [
       "tests/unit/evaluation/per_role/task_fixtures.py"
     ]
+  },
+  {
+    "name": "the_values_check_reads_an_unread_input_as_the_plant_s",
+    "file": "src/physgate/evaluation/tiers/issued_check.py",
+    "old": "            places.add(\"unread\")\n",
+    "new": "            places.add(\"named\")\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_values_check_counts_what_a_version_s_tasks_leave_a_session_without.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "the_values_check_never_says_a_leak_is_the_text_s_own_digits",
+    "file": "src/physgate/evaluation/tiers/issued_check.py",
+    "old": "    elif places == {\"scaffold\"}:\n",
+    "new": "    elif places == {\"never\"}:\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_values_check_counts_what_a_version_s_tasks_leave_a_session_without.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "the_values_check_says_one_number_is_all_of_the_reference_s",
+    "file": "src/physgate/evaluation/tiers/issued_check.py",
+    "old": "                    counts[\"issued_leaks_all_reference_numbers\"] += held == total\n",
+    "new": "                    counts[\"issued_leaks_all_reference_numbers\"] += held >= 1\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_values_check_counts_what_a_version_s_tasks_leave_a_session_without.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
+  },
+  {
+    "name": "the_values_check_lists_the_pairs_in_the_tier_s_order",
+    "file": "src/physgate/evaluation/tiers/issued_check.py",
+    "old": "    counts[\"issued_leaks_matched_of_total\"] = sorted(pairs)\n",
+    "new": "    counts[\"issued_leaks_matched_of_total\"] = pairs\n",
+    "tests": [
+      "tests/unit/evaluation/test_the_values_check_counts_what_a_version_s_tasks_leave_a_session_without.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/per_role/task_fixtures.py"
+    ]
   }
 ]
