@@ -1,0 +1,277 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_held_out_raw_trial_leaves_the_register_readable_for_the_next_place.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_trial_s_place_is_walked",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            if (is_run and entry.name not in NESTED_RUN_PLACES) or (trial and entry.name == PLACE):\n",
+  "new": "            if (is_run and entry.name not in NESTED_RUN_PLACES) or (False and entry.name == PLACE):\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_held_out_raw_trial_leaves_the_register_readable_for_the_next_place.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_harness_s_directory_is_passed_over_too",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            if (is_run and entry.name not in NESTED_RUN_PLACES) or (trial and entry.name == PLACE):\n",
+  "new": "            if (is_run and entry.name not in NESTED_RUN_PLACES) or (trial and entry.name in (PLACE, TRIAL_HARNESS)):\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_held_out_raw_trial_leaves_the_register_readable_for_the_next_place.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_trial_is_known_only_by_its_record",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            trials and not is_run and harness is not None and harness.is_dir(follow_symlinks=False)\n",
+  "new": "            trials and not is_run and harness is not None and os.path.lexists(Path(harness.path) / RAW_RECORD)\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_held_out_raw_trial_leaves_the_register_readable_for_the_next_place.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "any_place_is_passed_over",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            trials and not is_run and harness is not None and harness.is_dir(follow_symlinks=False)\n",
+  "new": "            trials and not is_run\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_held_out_raw_trial_leaves_the_register_readable_for_the_next_place.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_harness_s_name_alone_makes_a_trial",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            trials and not is_run and harness is not None and harness.is_dir(follow_symlinks=False)\n",
+  "new": "            trials and not is_run and harness is not None\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_held_out_raw_trial_leaves_the_register_readable_for_the_next_place.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_trial_s_place_is_passed_over_beneath_any_root",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "            trials and not is_run and harness is not None and harness.is_dir(follow_symlinks=False)\n",
+  "new": "            not is_run and harness is not None and harness.is_dir(follow_symlinks=False)\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_held_out_raw_trial_leaves_the_register_readable_for_the_next_place.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "a_run_root_is_walked_as_the_withheld_root_is",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    for root in roots:\n        _walk(root, walk, required=True)\n    withheld = withheld_root(store, role)\n",
+  "new": "    for root in roots:\n        _walk(root, walk, required=True, trials=True)\n    withheld = withheld_root(store, role)\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_held_out_raw_trial_leaves_the_register_readable_for_the_next_place.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_register_s_read_walks_a_trial_s_place",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    _walk(withheld / BASELINE_RECORDS, walk, required=False, trials=True)\n",
+  "new": "    _walk(withheld / BASELINE_RECORDS, walk, required=False)\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_held_out_raw_trial_leaves_the_register_readable_for_the_next_place.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "the_blind_check_s_look_walks_a_trial_s_place",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "    _walk(withheld_root(store, role) / BASELINE_RECORDS, walk, required=False, trials=True)\n",
+  "new": "    _walk(withheld_root(store, role) / BASELINE_RECORDS, walk, required=False)\n",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_held_out_raw_trial_leaves_the_register_readable_for_the_next_place.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ },
+ {
+  "name": "baseline_last",
+  "file": "src/physgate/evaluation/tiers/exposure.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/harness_round/test_a_held_out_raw_trial_leaves_the_register_readable_for_the_next_place.py"
+  ],
+  "data": [
+   "tests/unit/evaluation/baseline/baseline_fixtures.py",
+   "tests/unit/evaluation/harness_round/round_rig.py",
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/per_role/harness_rig.py",
+   "tests/unit/evaluation/per_role/task_fixtures.py",
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py",
+   "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+   "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+   "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+  ],
+  "paths": [
+   "knowledge"
+  ]
+ }
+]
