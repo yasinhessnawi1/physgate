@@ -160,6 +160,7 @@ def test_a_canary_the_session_showed_while_it_wrote_deep_still_marks_its_version
     def leave(work: Path, _harness: Path) -> None:
         # The trial's own task's canary, which the stand-in session also shows in its stream.
         (task,) = [t for t in rig.made.tasks["held_out"] if t.id == arm.calls[-1][0]]
+        assert task.canary is not None, "a held-out task has a canary"
         _client_tree(work, said=task.canary)
 
     arm.left = leave
