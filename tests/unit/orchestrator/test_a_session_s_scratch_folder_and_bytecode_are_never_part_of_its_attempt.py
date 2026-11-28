@@ -686,6 +686,9 @@ def test_a_directory_moved_to_the_worktree_s_path_is_not_cleared_and_its_clearin
     )
     assert not cleared.complete
     assert cleared.scratch == () and cleared.bytecode == (), "another directory's files recorded"
+    # Nothing of it is looked at either: the one thing said is that the path is not the worktree.
+    assert cleared.refused == ((".", left_out.WORKTREE_NOT_HELD),), cleared.refused
+    assert cleared.scratch_found == 0 and cleared.bytecode_found == 0
     # Nor is anything committed there: the commit is refused in words, the other branch unmoved.
     if swap == "another module's worktree":
         tip = _git(run.repo, "rev-parse", "other-1")

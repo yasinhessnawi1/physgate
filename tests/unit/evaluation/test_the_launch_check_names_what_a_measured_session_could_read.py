@@ -239,6 +239,18 @@ def test_a_tracked_file_changed_in_the_source_is_counted_and_the_check_writes_no
     assert (index.read_bytes(), index.stat().st_mtime_ns) == before, "the check wrote the index"
 
 
+def test_a_tracked_file_gone_from_the_source_s_directory_is_counted(s: SimpleNamespace) -> None:
+    # Gone is counted as changed is: the directory a session reads no longer holds what the
+    # branch holds, and nothing else stands in its place to be counted instead.
+    (s.source / "README.md").unlink()
+    code, lines = _check(s)
+    assert code == 1, lines
+    said = [line for line in lines if line.startswith("finding: source_files:")]
+    assert len(said) == 1, lines
+    assert "1 file the branch holds, changed or gone" in said[0], said
+    assert "the branch does not hold" not in said[0], said
+
+
 def test_a_review_root_s_record_left_where_a_session_reads_is_named(s: SimpleNamespace) -> None:
     left = s.home / "old-reviews"
     left.mkdir()

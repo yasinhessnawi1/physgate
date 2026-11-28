@@ -350,8 +350,40 @@ def test_a_swap_between_the_hold_and_the_put_back_puts_back_in_the_held_director
 
     monkeypatch.setattr(sentinel, "_hold_worktree", held_then_swapped)
     _sentinel_call(s)
-    assert (worktree / inside / "planted.txt").read_text() == "another directory's own file\n"
+    assert _text(worktree / inside / "planted.txt") == "another directory's own file\n"
     assert not (moved / inside / "planted.txt").exists(), "nothing was put back where it was held"
+
+
+def _text(path: Path) -> str | None:
+    return path.read_text() if path.is_file() else None
+
+
+def test_a_directory_above_a_root_in_the_home_replaced_by_another_gets_nothing_put_back(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Not a link: the directory the put-back of a root in the session's home is held to, renamed
+    # away and another directory renamed in at its path, one holding an entry of the root's name.
+    # The sentinel runs outside the sandbox: it refuses in words and moves nothing of the other.
+    s = installed("role-hooks-only", outside_tmp, monkeypatch)
+    config = s.hooks.config
+    root = next(
+        Path(r.path)
+        for r in config.protected_roots
+        if r.watch == "revert" and r.path.endswith("/.config/git")
+    )
+    anchor = Path(sentinel._anchors([str(root)], str(s.worktree))[str(root)][0])
+    assert anchor in root.parents and s.worktree not in (anchor, *anchor.parents), anchor
+    other = anchor.parent / "another-directory"
+    below = root.relative_to(anchor)
+    (other / below).mkdir(parents=True)
+    (other / below / "config").write_text("[user]\n\tname = the operator\n")
+    before = _tree(other)
+    os.rename(anchor, anchor.parent / "moved-away")
+    os.rename(other, anchor)
+    decision = _sentinel_call(s)
+    assert _tree(anchor) == before, "the sentinel moved what another directory holds"
+    assert _text(anchor / below / "config") == "[user]\n\tname = the operator\n"
+    assert not decision.allow  # type: ignore[attr-defined]
 
 
 def test_an_ordinary_call_makes_no_directory_above_a_protected_path_that_is_not_there(
