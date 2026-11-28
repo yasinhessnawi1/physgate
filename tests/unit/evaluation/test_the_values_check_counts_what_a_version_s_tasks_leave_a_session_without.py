@@ -9,6 +9,11 @@ brief writes or does not; a plant in numbers with a gain symbol no input gives, 
 an actuator limit the brief calls given and states only in the inputs; a plant in numbers alone;
 symbols with their values beside them), three of each, so the version's totals are three times
 each kind's whatever tier the split sends a task to. It names no task and writes nothing.
+
+A task whose issued text holds a number of its passing reference is counted again by where that
+number lies: a value under one of the scorer's names (a plant coefficient equal to a controller's),
+only a digit of the text's own names, units or powers (``plant_den_2``, ``s**2``, ``s^2``), or the
+value of an input the scorer does not read; and by how many of the reference's numbers it holds.
 """
 
 from __future__ import annotations
@@ -109,6 +114,14 @@ ONE_COPY: dict[str, Any] = {
     "brief_names_a_defaulted_value": {"plant_gain": 2, "plant_delay": 0, "reference_step": 0},
     "issued_leaks": 0,
     "issued_leak_unchecked": 0,
+    "issued_leaks_by_kind": {
+        "scorer_named_values_only": 0,
+        "names_units_or_powers_only": 0,
+        "scorer_named_values_and_names_units_or_powers": 0,
+        "unread_input_or_brief": 0,
+    },
+    "issued_leaks_all_reference_numbers": 0,
+    "issued_leaks_matched_of_total": [],
 }
 #: A passing reference as a search finds one: a controller whose numbers no plant repeats.
 GOOD = controller(
@@ -128,7 +141,9 @@ def _store(
     n = 0
     for copy in range(24 // len(kinds)):
         for brief, inputs, peak in kinds:
-            fields = own_task(id=f"control.zqkind{n:02d}", brief=brief.format(n=n), inputs=inputs)
+            # ``{a}`` marks the copy by a letter, for a brief that must hold no digit of its own.
+            text = brief.format(n=n, a=chr(ord("a") + n))
+            fields = own_task(id=f"control.zqkind{n:02d}", brief=text, inputs=inputs)
             if peak:
                 fields["specs"] = [*fields["specs"], PEAK]
             write_task_dir(
@@ -219,6 +234,111 @@ def test_a_task_whose_values_repeat_its_passing_reference_s_numbers_is_counted_a
     store, version = _store(tmp_path, [(brief, _second(1, coefficient, 3), False)])
     total = _summed(value_counts(store, "control", version)["tiers"])
     assert (total["issued_leaks"], total["issued_leak_unchecked"]) == (leaks, 0)
+
+
+def _reference(gain: float, zero: float) -> dict[str, Any]:
+    """A passing reference ``gain * (s + zero) / s``: two numbers other than 0, 1 and -1."""
+    return controller(
+        gain={"value": gain, "unit": "1"},
+        num=[{"value": 1.0, "unit": "s"}, {"value": zero, "unit": "1"}],
+        den=[{"value": 1.0, "unit": "s"}, {"value": 0.0, "unit": "1"}],
+    )
+
+
+#: A brief that holds no digit: every number a session reads is in the issued block.
+IN_WORDS = "Case {a}. Hold the arm: its plant is the one the values below make."
+SYMBOLS = "Case {n}. Hold the arm: G(s) = 1 / (s^2 + plant_den_1 s + plant_den_2)."
+KIND_NAMES = (
+    "scorer_named_values_only",
+    "names_units_or_powers_only",
+    "scorer_named_values_and_names_units_or_powers",
+    "unread_input_or_brief",
+)
+
+
+@pytest.mark.parametrize(
+    ("brief", "inputs", "good", "kind", "pair"),
+    [
+        # A zero the reference places on a plant coefficient: the plant's own number.
+        pytest.param(SYMBOLS, _second(1, 0.8125, 3), GOOD, 0, (1, 2), id="plant_coincidence"),
+        # A gain of 2 on a second-order plant: only the digit of plant_den_2, s**2 and s^2.
+        pytest.param(
+            IN_WORDS, _second(1.5, 0.75, 3.5), _reference(2.0, 0.8126), 1, (1, 2), id="power"
+        ),
+        # Both numbers held, neither a give-away: a plant coefficient and a power's digit.
+        pytest.param(
+            IN_WORDS, _second(1.5, 0.75, 3.5), _reference(2.0, 0.75), 2, (2, 2), id="both"
+        ),
+        # The reference itself, written as inputs the scorer does not read: a give-away.
+        pytest.param(
+            SYMBOLS,
+            [*_second(1, 2, 3), _m("suggested_gain", 37.25, "1"), _m("suggested_zero", 0.8125, "1")],
+            GOOD,
+            3,
+            (2, 2),
+            id="full_give_away",
+        ),
+    ],
+)
+def test_a_leaking_task_is_counted_by_where_its_reference_s_numbers_lie_and_how_many(
+    tmp_path: Path,
+    brief: str,
+    inputs: list[dict[str, Any]],
+    good: dict[str, Any],
+    kind: int,
+    pair: tuple[int, int],
+) -> None:
+    store, version = _store(tmp_path, [(brief, inputs, False)], good)
+    total = _summed(value_counts(store, "control", version)["tiers"])
+    assert total["issued_leaks"] == 24
+    assert total["issued_leaks_by_kind"] == {
+        name: 24 if index == kind else 0 for index, name in enumerate(KIND_NAMES)
+    }
+    assert total["issued_leaks_all_reference_numbers"] == (24 if pair[0] == pair[1] else 0)
+    assert sorted(total["issued_leaks_matched_of_total"]) == [list(pair)] * 24
+
+
+def test_a_default_the_issued_text_says_is_never_counted_as_a_leak(tmp_path: Path) -> None:
+    """Every default is 0 or 1, which the leak rule never reads as a number of the answer."""
+    brief, inputs, peak = KINDS[3]
+    good = controller(
+        gain={"value": 1.0, "unit": "1"},
+        num=[{"value": 1.0, "unit": "s"}, {"value": 1.0, "unit": "1"}],
+        den=[{"value": 1.0, "unit": "s"}, {"value": 0.0, "unit": "1"}],
+    )
+    store, version = _store(tmp_path, [(brief, inputs, peak)], good)
+    total = _summed(value_counts(store, "control", version)["tiers"])
+    assert total["relies_on_default"] == {"plant_gain": 24, "plant_delay": 24, "reference_step": 24}
+    assert total["issued_leaks"] == 0
+    assert total["issued_leaks_by_kind"] == dict.fromkeys(KIND_NAMES, 0)
+    assert total["issued_leaks_matched_of_total"] == []
+
+
+def test_each_tier_s_leaks_are_its_kinds_and_its_pairs(tmp_path: Path) -> None:
+    """Over a version of every kind, each tier counts each leaking task once, in one kind."""
+    # The reference is 2 * (s + 0.8126) / s throughout; each plant is second order.
+    kinds = [
+        (IN_WORDS, _second(1.5, 0.8126, 3.5), False),
+        (IN_WORDS, _second(1.5, 0.75, 3.5), False),
+        (IN_WORDS, _second(1.5, 0.5, 3.5), False),
+        (IN_WORDS, [*_second(1.5, 0.5, 3.5), _m("suggested_zero", 0.8126, "1")], False),
+    ]
+    store, version = _store(tmp_path, kinds, _reference(2.0, 0.8126))
+    tiers = value_counts(store, "control", version)["tiers"]
+    for counts in tiers.values():
+        pairs = counts["issued_leaks_matched_of_total"]
+        assert sum(counts["issued_leaks_by_kind"].values()) == counts["issued_leaks"] == len(pairs)
+        assert pairs == sorted(pairs)
+        assert counts["issued_leaks_all_reference_numbers"] == sum(m == t for m, t in pairs)
+    total = _summed(tiers)
+    assert total["issued_leaks"] == 24
+    assert total["issued_leaks_by_kind"] == {
+        "scorer_named_values_only": 0,
+        "names_units_or_powers_only": 12,
+        "scorer_named_values_and_names_units_or_powers": 6,
+        "unread_input_or_brief": 6,
+    }
+    assert sorted(total["issued_leaks_matched_of_total"]) == [[1, 2]] * 12 + [[2, 2]] * 12
 
 
 def _files(root: Path) -> dict[str, bytes]:
