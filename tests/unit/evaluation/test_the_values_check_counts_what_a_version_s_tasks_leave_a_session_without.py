@@ -272,7 +272,7 @@ KIND_NAMES = (
         # The reference itself, written as inputs the scorer does not read: a give-away.
         pytest.param(
             SYMBOLS,
-            [*_second(1, 2, 3), _m("suggested_gain", 37.25, "1"), _m("suggested_zero", 0.8125, "1")],
+            [*_second(1, 2, 3), _m("suggested_gain", 37.25, "1"), _m("zero", 0.8125, "1")],
             GOOD,
             3,
             (2, 2),
