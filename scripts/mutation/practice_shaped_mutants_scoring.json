@@ -1,0 +1,122 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/evaluation/tiers/practice.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/scoring/test_a_shaped_practice_store_holds_control_tasks_of_the_real_tasks_shape.py"
+  ],
+  "data": []
+ },
+ {
+  "name": "the_command_ignores_the_kind_it_is_given",
+  "file": "src/physgate/evaluation/tierset_cli.py",
+  "old": "            kind=args.kind,\n",
+  "new": "            kind=\"bare\",\n",
+  "tests": [
+   "tests/scoring/test_a_shaped_practice_store_holds_control_tasks_of_the_real_tasks_shape.py"
+  ],
+  "data": []
+ },
+ {
+  "name": "the_command_s_default_kind_is_the_shaped_one",
+  "file": "src/physgate/evaluation/tierset_cli.py",
+  "old": "default=_PRACTICE_KINDS[0])",
+  "new": "default=_PRACTICE_KINDS[1])",
+  "tests": [
+   "tests/scoring/test_a_shaped_practice_store_holds_control_tasks_of_the_real_tasks_shape.py"
+  ],
+  "data": []
+ },
+ {
+  "name": "the_shaped_kind_writes_the_bare_tasks",
+  "file": "src/physgate/evaluation/tiers/practice.py",
+  "old": "    if kind == \"shaped\":\n",
+  "new": "    if kind == \"shaped_only_by_name\":\n",
+  "tests": [
+   "tests/scoring/test_a_shaped_practice_store_holds_control_tasks_of_the_real_tasks_shape.py"
+  ],
+  "data": []
+ },
+ {
+  "name": "a_shaped_brief_writes_its_plant_s_values",
+  "file": "src/physgate/evaluation/tiers/practice.py",
+  "old": "\"motor command to pitch angle is G(s) = plant_num_0 / (plant_den_0 s^2 + \"",
+  "new": "\"motor command to pitch angle is G(s) = 0.9 / (0.025 s^2 + \"",
+  "tests": [
+   "tests/scoring/test_a_shaped_practice_store_holds_control_tasks_of_the_real_tasks_shape.py"
+  ],
+  "data": []
+ },
+ {
+  "name": "the_actuator_limit_s_number_stands_in_its_brief",
+  "file": "src/physgate/evaluation/tiers/practice.py",
+  "old": "f\"actuator limit actuator_limit, which is given. {_ASK}",
+  "new": "f\"actuator limit actuator_limit = 6.0 V, which is given. {_ASK}",
+  "tests": [
+   "tests/scoring/test_a_shaped_practice_store_holds_control_tasks_of_the_real_tasks_shape.py"
+  ],
+  "data": []
+ },
+ {
+  "name": "the_open_loop_unstable_plant_is_a_double_integrator",
+  "file": "src/physgate/evaluation/tiers/practice.py",
+  "old": "        den=(1.0, 0.0, -400.0),\n",
+  "new": "        den=(1.0, 0.0, 0.0),\n",
+  "tests": [
+   "tests/scoring/test_a_shaped_practice_store_holds_control_tasks_of_the_real_tasks_shape.py"
+  ],
+  "data": []
+ },
+ {
+  "name": "what_a_session_is_given_states_a_number_of_the_reference",
+  "file": "src/physgate/evaluation/tiers/practice.py",
+  "old": "        extra=((\"plant_gain\", 0.35, \"1\"),),\n",
+  "new": "        extra=((\"plant_gain\", 0.58, \"1\"),),\n",
+  "tests": [
+   "tests/scoring/test_a_shaped_practice_store_holds_control_tasks_of_the_real_tasks_shape.py"
+  ],
+  "data": []
+ },
+ {
+  "name": "a_shaped_brief_tells_its_session_it_is_practice",
+  "file": "src/physgate/evaluation/tiers/practice.py",
+  "old": "\"A handheld camera gimbal holds",
+  "new": "\"PRACTICE TASK, for a shakedown only. A handheld camera gimbal holds",
+  "tests": [
+   "tests/scoring/test_a_shaped_practice_store_holds_control_tasks_of_the_real_tasks_shape.py"
+  ],
+  "data": []
+ },
+ {
+  "name": "the_shaped_provenance_does_not_name_its_kind",
+  "file": "src/physgate/evaluation/tiers/practice.py",
+  "old": "    named = {} if kind == KINDS[0] else {\"kind\": kind}\n",
+  "new": "    named = {}\n",
+  "tests": [
+   "tests/scoring/test_a_shaped_practice_store_holds_control_tasks_of_the_real_tasks_shape.py"
+  ],
+  "data": []
+ },
+ {
+  "name": "the_bare_provenance_names_its_kind",
+  "file": "src/physgate/evaluation/tiers/practice.py",
+  "old": "    named = {} if kind == KINDS[0] else {\"kind\": kind}\n",
+  "new": "    named = {\"kind\": kind}\n",
+  "tests": [
+   "tests/scoring/test_a_shaped_practice_store_holds_control_tasks_of_the_real_tasks_shape.py"
+  ],
+  "data": []
+ },
+ {
+  "name": "baseline_last",
+  "file": "src/physgate/evaluation/tiers/practice.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/scoring/test_a_shaped_practice_store_holds_control_tasks_of_the_real_tasks_shape.py"
+  ],
+  "data": []
+ }
+]
