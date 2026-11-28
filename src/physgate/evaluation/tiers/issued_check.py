@@ -42,10 +42,11 @@ The counts, for each tier:
   a number wherever digits stand, so the digit of a coefficient's name (``plant_den_2``), of a
   unit (``s**2``) or of a power (``s^2``) is a number to it. Each such number of the reference
   (each distinct one, read and compared as the rule reads and compares them) is placed where it
-  lies, in this order: in the brief; a value written under one of the scorer's names (the
-  plant's coefficients, its gain and delay, the reference step, the actuator limit, given or
-  taken by default); the value of an input of any other name; else only a digit of the issued
-  block's own names, units, powers and words. ``issued_leaks_by_kind`` counts the tasks by
+  lies, in this order: in the brief; the value of an input of a name the scorer does not read;
+  a value written under one of the scorer's names (the plant's coefficients, its gain and delay,
+  the reference step, the actuator limit, given or taken by default); else only a digit of the
+  issued block's own names, units, powers and words. The places where a give-away would be come
+  first, so a number is placed as harmless only where every place it lies is harmless. ``issued_leaks_by_kind`` counts the tasks by
   those places: ``scorer_named_values_only`` (the plant's own numbers: a controller may well
   place a zero on a plant pole), ``names_units_or_powers_only`` (an artefact of the reading),
   ``scorer_named_values_and_names_units_or_powers`` (both), and ``unread_input_or_brief`` (some
@@ -195,12 +196,14 @@ def _leak_kind(issued: str, loaded: LoadedTask) -> tuple[str, int, int] | None:
     unread = [float(m.value) for m in task.inputs if not _NAME.fullmatch(m.name)]
     places = set()
     for n in held:
+        # The places where a give-away would be are asked first: a number placed as harmless
+        # must be harmless wherever it lies, so one that is also an unread input's is not.
         if _held(n, brief):
             places.add("brief")
-        elif _held(n, named):
-            places.add("named")
         elif _held(n, unread):
             places.add("unread")
+        elif _held(n, named):
+            places.add("named")
         else:
             places.add("scaffold")
     if places & {"brief", "unread"}:
