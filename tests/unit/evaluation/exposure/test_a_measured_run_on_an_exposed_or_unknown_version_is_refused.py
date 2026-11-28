@@ -395,6 +395,18 @@ def test_a_measured_run_whose_brief_is_in_no_version_is_refused(
     _reason(refusal(run, runs / "r1"), "brief_in_no_version")
 
 
+@pytest.mark.parametrize("tier", ["visible", "held_out"])
+def test_a_measured_run_given_a_task_s_brief_without_its_values_is_refused_by_its_own_name(
+    tmp_path: Path, made: StandInStore, tier: str
+) -> None:
+    """A run given the brief alone was given less than the task, and is no run of it."""
+    runs = with_run_root(made, tmp_path / "runs")
+    task = made.tasks[tier][0]
+    alone = hashlib.sha256(task.brief.encode()).hexdigest()
+    run = config(task, made, brief_sha256=alone)
+    _reason(refusal(run, runs / "r1", new_run=True), "given_the_brief_alone")
+
+
 @pytest.mark.parametrize("new_run", [True, False], ids=["at its start", "at a resume"])
 def test_a_protected_tier_changed_since_the_run_recorded_it_is_refused(
     tmp_path: Path, made: StandInStore, new_run: bool

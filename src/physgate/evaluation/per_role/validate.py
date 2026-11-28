@@ -13,33 +13,20 @@ evaluation environment, since it runs the scorer.
 from __future__ import annotations
 
 import hashlib
-import math
-import re
 from collections import Counter
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from physgate.evaluation.per_role.answer import read_lti_tf
 from physgate.evaluation.per_role.exceptions import PerRoleError
+from physgate.evaluation.per_role.leaks import text_leaks
 from physgate.evaluation.per_role.scorers.control import check_references, score
 from physgate.evaluation.tiers.authoring import entry_refusal, sha256sums
 from physgate.evaluation.tiers.task import LoadedTask, id_digest, load_task
 
-_NUMBER = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
-
 
 def brief_leaks(loaded: LoadedTask) -> bool:
-    """Whether the brief states a non-trivial number of the good reference."""
-    good = next(ref for ref in loaded.references if ref.fails is None)
-    answer = read_lti_tf(Path(good.answer_path))
-    numbers = [float(answer.gain.value), *answer.num_values(), *answer.den_values()]
-    told = [float(x) for x in _NUMBER.findall(loaded.task.brief)]
-    return any(
-        math.isclose(n, t, rel_tol=1e-9, abs_tol=0.0)
-        for n in numbers
-        if n not in (0.0, 1.0, -1.0)
-        for t in told
-    )
+    """Whether the brief states a non-trivial number of the good reference (:mod:`.leaks`)."""
+    return text_leaks(loaded.task.brief, loaded)
 
 
 class _Seen(NamedTuple):

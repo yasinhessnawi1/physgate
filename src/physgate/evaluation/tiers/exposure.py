@@ -107,6 +107,7 @@ from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.base import _Frozen
 from physgate.evaluation.tiers.canaries import root_canaries
 from physgate.evaluation.tiers.heldout import scan, tier_digest
+from physgate.evaluation.tiers.issued import brief_sha256, issued_sha256
 from physgate.evaluation.tiers.manifest import VERSION_NAME, TierSet, read_version
 from physgate.evaluation.tiers.store import (
     PROTECTED,
@@ -115,7 +116,7 @@ from physgate.evaluation.tiers.store import (
     spelt_as_on_disk,
     withheld_root,
 )
-from physgate.evaluation.tiers.task import Role, Sha256, canonical_json, parse_task
+from physgate.evaluation.tiers.task import Role, Sha256, Task, canonical_json, parse_task
 from physgate.orchestrator.events import Incident, read_events
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.oslayer.harness_temp import harness_temp_dir
@@ -1206,6 +1207,11 @@ def _keep_scan(withheld: Path, key: str, *, shown: bool) -> None:
 def _protected_briefs(store: Path, role: Role) -> dict[str, frozenset[str]]:
     """Each brief digest of a validation or held-out task of the role, and the versions holding it.
 
+    A task's brief digest is taken both ways a session's record may pin it: the digest of what a
+    session is given for it (:func:`.issued.issued_sha256`), and that of its brief alone, which a
+    record made before every session was given the task's values pins. A session given either
+    read the task, so either finds the versions it may have exposed.
+
     Raises:
         ExposureError: a task of a version cannot be read; only its tier is said.
     """
@@ -1221,8 +1227,9 @@ def _protected_briefs(store: Path, role: Role) -> dict[str, frozenset[str]]:
             try:
                 entries = sorted(p for p in here.iterdir() if p.is_dir() and not p.is_symlink())
                 for entry in entries:
-                    brief = parse_task((entry / "task.json").read_bytes()).brief
-                    found.setdefault(_digest(brief.encode()), set()).add(name)
+                    task = parse_task((entry / "task.json").read_bytes())
+                    for digest in _given_digests(task):
+                        found.setdefault(digest, set()).add(name)
             except (OSError, PerRoleError) as exc:
                 # The error may name the task; only the tier is said.
                 msg = f"a task of the {tier} tier of {name[:_PREFIX]} cannot be read"
@@ -1722,11 +1729,30 @@ def prepared_target_refusal(target: Path) -> tuple[str, str] | None:
     decomposition's parameters record, is walked whole, clone and all: a directory nested deeper
     than :data:`PREPARED_TARGET_DEPTH` beneath the target then refuses every reader of the
     register, a measured trial's own ``decompose`` among them; and a file named as a run's, a
-    raw trial's or a decomposition's record anywhere in it is read as that record. A launch calls
-    this on the round's target before the round starts. ``None`` where neither holds; the reason
-    and its words otherwise (the record's place beneath the target is said, never its content).
+    raw trial's or a decomposition's record anywhere in it is read as that record. Nor may the
+    target hold, at its top, the place a decomposition copies the planned roles' knowledge into
+    (``knowledge``, in any case: :data:`physgate.knowledge.loader.DEFAULT_ROOT`): a library
+    folder the target brought would stand in a run's worktree beside the roles' own, and a
+    reviewer reads another role's library folder there as the sign of a system to be built
+    (``target_holds_role_knowledge``). A launch calls this on the round's target before the round
+    starts. ``None`` where none holds; the reason and its words otherwise (the record's place
+    beneath the target is said, never its content).
     """
+    from physgate.knowledge.loader import DEFAULT_ROOT
     from physgate.orchestrator.decompose import records_in
+
+    library = DEFAULT_ROOT.parts[0]
+    try:
+        top = [entry.name for entry in target.iterdir()]
+    except OSError as exc:
+        return "target_unreadable", f"the target cannot be looked into whole: {exc}"
+    brought = sorted(name for name in top if name.casefold() == library.casefold())
+    if brought:
+        return "target_holds_role_knowledge", (
+            f"the target holds {brought[0]!r} at its top, where a decomposition copies the planned "
+            "roles' knowledge: what the target brought there would stand in every run's worktree "
+            "beside the roles' own, and be read as another role's library"
+        )
 
     try:
         deepest, found = records_in(target)
@@ -1761,8 +1787,24 @@ def _protected_tier_of(path: Path) -> tuple[Path, Role, str, str] | None:
     return None
 
 
-def _versions_with_brief(store: Path, role: Role, brief: str) -> list[str]:
-    """Every version of the role one of whose tasks, in any tier, has the brief digest ``brief``.
+def _given_digests(task: Task) -> tuple[str, ...]:
+    """The digests a session's record may pin for ``task``: what it is given, and its brief alone.
+
+    A task whose values its scorer cannot read is given to no session, so only its brief's.
+    """
+    alone = brief_sha256(task)
+    try:
+        return (issued_sha256(task), alone)
+    except PerRoleError:
+        return (alone,)
+
+
+def _versions_with_brief(store: Path, role: Role, brief: str, *, alone: bool = False) -> list[str]:
+    """Every version of the role one of whose tasks, in any tier, a run given ``brief`` was given.
+
+    ``brief`` is the digest a run recorded for its brief file, found against the digest of what a
+    session is given for each task (:func:`.issued.issued_sha256`); with ``alone``, against each
+    task's brief alone instead, which is how a run given a brief without its values is told apart.
 
     Raises:
         ExposureError: a task of a version cannot be read; only its tier is said.
@@ -1778,10 +1820,8 @@ def _versions_with_brief(store: Path, role: Role, brief: str) -> list[str]:
             here = root / name / tier
             try:
                 entries = sorted(p for p in here.iterdir() if p.is_dir() and not p.is_symlink())
-                briefs = {
-                    _digest(parse_task((e / "task.json").read_bytes()).brief.encode())
-                    for e in entries
-                }
+                tasks = [parse_task((e / "task.json").read_bytes()) for e in entries]
+                briefs = {brief_sha256(t) if alone else _issued_or_none(t) for t in tasks}
             except (OSError, PerRoleError) as exc:
                 # The error may name the task; only the tier is said.
                 msg = f"a task of the {tier} tier of {name[:_PREFIX]} cannot be read"
@@ -1790,6 +1830,13 @@ def _versions_with_brief(store: Path, role: Role, brief: str) -> list[str]:
                 found.append(name)
                 break
     return found
+
+
+def _issued_or_none(task: Task) -> str | None:
+    try:
+        return issued_sha256(task)
+    except PerRoleError:
+        return None
 
 
 def _scan_refusal(
@@ -2018,6 +2065,14 @@ def _version_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str]
     on: list[tuple[Path, Role, str]] = []
     for store, role in role_roots(tuple(config.held_out)):
         on += [(store, role, v) for v in _versions_with_brief(store, role, config.brief_sha256)]
+    if not on and any(
+        _versions_with_brief(store, role, config.brief_sha256, alone=True)
+        for store, role in role_roots(tuple(config.held_out))
+    ):
+        return "given_the_brief_alone", (
+            "a measured run is given what a session is given for a task, its values with its "
+            "brief, and this run's brief is a task's brief alone"
+        )
     if not on:
         return "brief_in_no_version", (
             "a measured run naming a tier-set store is given a task of one of its versions, and "

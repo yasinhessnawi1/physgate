@@ -23,7 +23,7 @@ same machine and library versions, which the score records.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -34,13 +34,11 @@ import numpy as np
 from physgate.evaluation.per_role.answer import LtiTf, read_lti_tf
 from physgate.evaluation.per_role.exceptions import ReferenceCheckError, TaskFormatError
 from physgate.evaluation.per_role.metrics import (
-    ACTUATOR_LIMIT,
     ACTUATOR_PEAK,
     CONTROL_METRIC_UNITS,
     CONTROL_SCORER_VERSION,
-    REFERENCE_STEP,
 )
-from physgate.evaluation.tiers.base import Measure
+from physgate.evaluation.per_role.plant import actuator_limit, in_unit, read_plant, reference_step
 from physgate.evaluation.tiers.task import LoadedTask, Spec, Task, canonical_json
 
 #: A real or complex numpy array. Spelt as ``Any``: the types are checked in the harness's
@@ -72,9 +70,8 @@ METRICS = (*METRIC_UNITS, ACTUATOR_PEAK)
 class Plant:
     """The plant a task gives: ``gain * N(s) / D(s) * e^{-s·delay}``, from its inputs.
 
-    The inputs are ``plant_num_<i>`` and ``plant_den_<i>`` (``i`` from 0, highest power
-    first, each coefficient of ``s**k`` in ``s**k``), ``plant_gain`` and ``plant_delay``
-    (in s, optional).
+    Read by :func:`.per_role.plant.read_plant`, the one reading of a task's inputs, which is
+    also what a session is told the plant is (:mod:`physgate.evaluation.tiers.issued`).
     """
 
     def __init__(self, task: Task) -> None:
@@ -83,43 +80,15 @@ class Plant:
         Raises:
             TaskFormatError: a coefficient is missing, out of order or in the wrong unit.
         """
-        by_name = {m.name: m for m in task.inputs}
-        self.num = _poly(by_name, "plant_num", task.id)
-        self.den = _poly(by_name, "plant_den", task.id)
-        gain = by_name.get("plant_gain")
-        self.gain = 1.0 if gain is None else float(_in_unit(gain, "1", task.id).value)
-        delay = by_name.get("plant_delay")
-        self.delay = 0.0 if delay is None else float(_in_unit(delay, "s", task.id).value)
-        if self.delay < 0 or self.den[0] == 0:
-            msg = f"the task {task.id!r} gives a plant with a negative delay or no leading term"
-            raise TaskFormatError(msg, task=task.id)
+        reading = read_plant(task)
+        self.num = [float(c.value) for c in reading.num]
+        self.den = [float(c.value) for c in reading.den]
+        self.gain = reading.gain_value
+        self.delay = reading.delay_value
 
     def tf(self) -> Any:
         """The delay-free part as a python-control transfer function."""
         return ct.tf([self.gain * c for c in self.num], self.den)
-
-
-def _in_unit(measure: Measure, unit: str, task_id: str) -> Measure:
-    if measure.unit != unit:
-        msg = f"the task {task_id!r} gives {measure.unit!r} where {unit!r} belongs"
-        raise TaskFormatError(msg, task=task_id)
-    return measure
-
-
-def _poly(by_name: Mapping[str, Measure], prefix: str, task_id: str) -> list[float]:
-    coefficients: list[Measure] = []
-    while f"{prefix}_{len(coefficients)}" in by_name:
-        coefficients.append(by_name[f"{prefix}_{len(coefficients)}"])
-    stray = [n for n in by_name if n.startswith(prefix + "_")]
-    if not coefficients or len(stray) != len(coefficients):
-        msg = f"the task {task_id!r} gives {prefix} coefficients out of sequence"
-        raise TaskFormatError(msg, task=task_id)
-    degree = len(coefficients) - 1
-    for index, c in enumerate(coefficients):
-        power = degree - index
-        expected = "1" if power == 0 else ("s" if power == 1 else f"s**{power}")
-        _in_unit(c, expected, task_id)
-    return [float(c.value) for c in coefficients]
 
 
 def _controller_tf(answer: LtiTf) -> Any:
@@ -317,8 +286,7 @@ def actuator_peak(task: Task, c: Any, g: Any, delay: float, horizon: float, poin
     simulated on the horizon's own sample step, the controller and the plant each held
     between samples, and the plant's input delayed by the delay in whole samples.
     """
-    by_name = {m.name: m for m in task.inputs}
-    step = by_name.get(REFERENCE_STEP)
+    step = reference_step(task)
     amplitude = 1.0 if step is None else abs(float(step.value))
     times = np.linspace(0.0, horizon, points)
     dt = float(times[1] - times[0])
@@ -389,11 +357,7 @@ def metric_unit(task: Task, metric: str) -> str | None:
     """
     if metric != ACTUATOR_PEAK:
         return METRIC_UNITS.get(metric)
-    limit = next((m for m in task.inputs if m.name == ACTUATOR_LIMIT), None)
-    if limit is None:
-        msg = f"the task {task.id!r} bounds {ACTUATOR_PEAK} but gives no {ACTUATOR_LIMIT}"
-        raise TaskFormatError(msg, task=task.id)
-    return limit.unit
+    return actuator_limit(task).unit
 
 
 def require_known_metrics(task: Task) -> None:
@@ -409,7 +373,7 @@ def require_known_metrics(task: Task) -> None:
             raise TaskFormatError(msg, task=task.id)
         bounds = spec.bound if isinstance(spec.bound, tuple) else (spec.bound,)
         for bound in bounds:
-            _in_unit(bound, unit, task.id)
+            in_unit(bound, unit, task.id)
 
 
 def score(task: Task, answer_path: Path) -> dict[str, Any]:

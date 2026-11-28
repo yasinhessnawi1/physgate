@@ -57,7 +57,9 @@ NAMED: dict[str, str] = {
     "physgate.evaluation.tiers.exposure:_scan_refusal": "the pre-run scan of a run's version",
     "physgate.evaluation.tierset_cli:status": "each version's state, counts and digests",
     # The scorer at measurement: the counting rule and the vector writer.
-    "physgate.evaluation.tiers.measure:_tier_tasks": "each run's task, found by its brief",
+    "physgate.evaluation.tiers.measure:_tier_tasks": "each run's task, found by what it was given",
+    # The values check: each tier's tasks counted by what they leave a session without.
+    "physgate.evaluation.tiers.issued_check:value_counts": "the values check: counts only",
     # The isolation probe.
     "physgate.evaluation.tiers.probe:probe_version": "the probe: the held-out tier, read once",
     "physgate.evaluation.tiers.probe:_tasks": "the probe: the held-out tasks it scores",
@@ -81,7 +83,7 @@ NAMED: dict[str, str] = {
     "physgate.evaluation.per_role.controleval:task_for": "a published benchmark's task, as built",
     # The baseline round: the raw arm on every harness trial of a version.
     "physgate.evaluation.baseline.runner:plan": "the version a baseline round runs on",
-    "physgate.evaluation.baseline.runner:_tasks": "each harness run's task, by its brief",
+    "physgate.evaluation.baseline.runner:_tasks": "each harness run's task, by what it was given",
     "physgate.evaluation.baseline.runner:_external_tasks": "an external set's tasks and digest",
     "physgate.evaluation.baseline.runner:_listed": "the canaries a raw session is held to",
     # The harness round: each task's brief written for its trial, found again by its digest.
