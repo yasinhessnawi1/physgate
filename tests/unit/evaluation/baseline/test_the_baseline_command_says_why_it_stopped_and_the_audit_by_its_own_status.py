@@ -35,7 +35,7 @@ from baseline_fixtures import (
 )
 
 from physgate.cli import main
-from physgate.evaluation.baseline.audit import HarnessCell, audit_harness
+from physgate.evaluation.baseline.audit import AuditError, HarnessCell, audit_harness
 from physgate.evaluation.baseline.record import BaselineRecord
 from physgate.evaluation.baseline.runner import WORK, BaselineError, run_baseline
 from physgate.evaluation.observe.cost import load_price_sheet
@@ -194,30 +194,34 @@ def test_the_audit_exits_0_when_nothing_differs_1_when_a_record_does_and_3_when_
     assert json.loads(capsys.readouterr().out)["refused_because"] == "nothing_to_audit"
 
 
-def test_a_harness_run_of_another_tier_than_its_cell_s_is_unrederivable_at_its_place(
+def test_a_harness_run_of_another_tier_than_its_cell_s_refuses_the_audit(
     tmp_path: Path, store: StandInStore
 ) -> None:
+    """A cell is one tier's trials: a run of another tier in it is a cell that is not one.
+
+    Refused before anything is derived, so a run that would derive whole is refused all the same.
+    """
     held_out = harness_run(tmp_path / "runs", store.tasks["held_out"][0], store)
     (tmp_path / "trials.jsonl").write_text("")
-    found = audit_harness(
-        store=store.store,
-        role="control",
-        version=store.version,
-        cells=[HarnessCell("visible", run_set((held_out, 0)), tmp_path / "trials.jsonl")],
-        prices=load_price_sheet(PRICES),
-        score=lambda _t, _a: dict(SCORED),
-        scratch=tmp_path / "scratch",
-    )
-    assert [(d.arm, d.tier, d.kind, d.index) for d in found] == [
-        ("harness", "visible", "unrederivable", 0)
-    ]
+    with pytest.raises(AuditError) as refused:
+        audit_harness(
+            store=store.store,
+            role="control",
+            version=store.version,
+            cells=[HarnessCell("visible", run_set((held_out, 0)), tmp_path / "trials.jsonl")],
+            prices=load_price_sheet(PRICES),
+            score=lambda _t, _a: dict(SCORED),
+            scratch=tmp_path / "scratch",
+        )
+    assert refused.value.context["refused_because"] == "tier"
+    assert refused.value.context["index"] == "0"
 
 
 def test_the_harness_arm_s_records_are_audited_with_no_baseline_round(
     tmp_path: Path, store: StandInStore, capsys: pytest.CaptureFixture[str], scorer: None
 ) -> None:
-    held_out = harness_run(tmp_path / "runs", store.tasks["held_out"][0], store)
-    (tmp_path / "cell.json").write_text(run_set((held_out, 0)).model_dump_json())
+    visible = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
+    (tmp_path / "cell.json").write_text(run_set((visible, 0)).model_dump_json())
     (tmp_path / "trials.jsonl").write_text("")
     argv = _audit_argv(store, None, None, "--harness", "visible", str(tmp_path / "cell.json"))
     assert main([*argv, str(tmp_path / "trials.jsonl")]) == 1
@@ -225,6 +229,12 @@ def test_the_harness_arm_s_records_are_audited_with_no_baseline_round(
     assert found["differences"] == {
         "harness.visible": [{"kind": "unrederivable", "index": 0, "field": None}]
     }
+    # A run of another tier refuses the audit, with its own status.
+    held_out = harness_run(tmp_path / "runs", store.tasks["held_out"][0], store)
+    (tmp_path / "other.json").write_text(run_set((held_out, 0)).model_dump_json())
+    argv = _audit_argv(store, None, None, "--harness", "visible", str(tmp_path / "other.json"))
+    assert main([*argv, str(tmp_path / "trials.jsonl")]) == 3
+    assert json.loads(capsys.readouterr().out)["refused_because"] == "tier"
 
 
 def test_a_visible_trial_s_error_after_its_session_started_says_its_entry_and_that_it_ran(

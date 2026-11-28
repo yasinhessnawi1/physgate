@@ -371,5 +371,7 @@ def test_the_audit_s_detail_leaves_the_store_open_to_the_next_round(
     runs, out = _cell(tmp_path, store)
     write_detail(store.store, "control", [Difference("raw", "visible", "outcome", 0)])
     assert not any(status(store.store)["left"].values())
-    _start(store, runs, tmp_path / "next", StandInArm())
+    # The next round, of another harness trial: the cell's own pairs have their records.
+    other = run_set((harness_run(tmp_path / "runs", store.tasks["visible"][5], store), 0))
+    _start(store, other, tmp_path / "next", StandInArm())
     assert (tmp_path / "next" / BASELINE_RECORD).is_file()

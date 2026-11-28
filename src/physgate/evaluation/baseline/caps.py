@@ -18,13 +18,15 @@ cell's run set, so it never enters it either.
 
 Every raw trial is capped by this rule, and the rule it took and its inputs (each trial by its
 place in the cell's run set, with its total) are recorded with the trial (:class:`RawCap`), so
-the record audit derives the same cap again from them.
+the record audit derives the same cap again from them. Where the cell is a harness round's own
+(:func:`.pairs.round_cell`), the record names the round, the tier and the digest of the round's
+run set of it, so the cap can be held to the set the round wrote.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Literal
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
@@ -58,14 +60,25 @@ class RawCap:
     cap: int
     #: The trials the step read, each by its place in the cell's run set, with its total.
     inputs: tuple[tuple[int, int], ...]
+    #: Where the cell came from, for a cap taken from a harness round's own cell: the round, the
+    #: tier and the digest of the round's run set of it. ``None`` for a pair's own total, and for
+    #: a cell that is no round's.
+    cell: Mapping[str, str] | None = field(default=None, hash=False)
 
     def recorded(self) -> dict[str, object]:
-        """The form the trial's records hold: no task, places and totals only."""
-        return {
+        """The form the trial's records hold: no task, places and totals only.
+
+        The cell's origin is held only where there is one, so a record written before it was
+        held keeps its form.
+        """
+        recorded: dict[str, object] = {
             "rule": self.rule,
             "cap": self.cap,
             "inputs": [{"place": place, "total": total} for place, total in self.inputs],
         }
+        if self.cell is not None:
+            recorded["cell"] = dict(self.cell)
+        return recorded
 
 
 def median_total(totals: Sequence[int]) -> int:

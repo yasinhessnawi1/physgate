@@ -102,6 +102,20 @@ from typing import Annotated, Any, Literal, NoReturn, get_args
 from pydantic import Field, StringConstraints
 
 from physgate.evaluation.baseline.caps import CellTrial, NoCapError, RawCap, raw_cap
+from physgate.evaluation.baseline.pairs import (
+    SUPERSEDED_BY,
+    HarnessPlace,
+    HarnessRounds,
+    PairError,
+    RoundCell,
+    baseline_lines,
+    claim,
+    claims,
+    round_cell,
+    run_key,
+    standing,
+    superseded_by,
+)
 from physgate.evaluation.baseline.record import (
     BASELINE_RECORD,
     EXTERNAL_RECORD,
@@ -408,6 +422,9 @@ class Planned:
     review_root: Path
     #: The step of the cap rule that gave ``cap``, and its inputs (:mod:`.caps`).
     cap_rule: RawCap
+    #: The harness trial the entry pairs, as the pair register names it (:mod:`.pairs`): the
+    #: harness round and place that placed its run, or the run itself where no round did.
+    pair: str = ""
 
     @property
     def no_figure(self) -> bool:
@@ -589,13 +606,19 @@ def plan(
     """Every harness trial of ``runs``, read and found, or the round refused before it starts.
 
     The round's source is the store's ``version``, or the external set at ``external``: one.
-    Each entry's cap is taken by the rule of :mod:`.caps` from ``cell``, the run set of every
-    harness trial of the cell (the round's own run set where none is given): its harness run's
-    total, or for one that gives no figure the largest of its task's other trials, else the
-    cell's median. Whether ``cell`` holds every trial of the cell is the caller's to say; the
-    rule's inputs are recorded with each trial. A practice version is refused unless the round is
-    told it is a shakedown (``shakedown``). ``own_places``: what a round being resumed left in
-    the store's work root and role root itself, which it settles, so they do not refuse it.
+    Each entry is the harness trial it pairs (:mod:`.pairs`): the harness round's place that
+    placed its run, or the run itself where no round did; two entries of one harness trial
+    refuse the round. Each entry's cap is taken by the rule of :mod:`.caps`: its harness run's
+    total; for one that gives no figure, from its cell, the largest of its task's other trials,
+    else the cell's median. The cell is the entry's own harness round's set of its tier
+    (:func:`.pairs.round_cell`), found from the entry and never from a file a person names, and
+    only once that round has ended; a run no harness round placed has a cell only in a
+    development or an external round, its round's own run set. ``cell``, where given, is held to
+    be that set, or the round is refused: it is never what a cap is taken from. The rule's step
+    and inputs, and the cell's origin, are recorded with each trial. A practice version is
+    refused unless the round is told it is a shakedown (``shakedown``). ``own_places``: what a
+    round being resumed left in the store's work root and role root itself, which it settles, so
+    they do not refuse it.
 
     Raises:
         BaselineError: the store, the source or an entry refuses the round; it names the
@@ -603,7 +626,7 @@ def plan(
     """
     if (version is None) == (external is None):
         msg = "a round names one source: a tier version or an external task set"
-        raise BaselineError(msg)
+        raise BaselineError(msg, refused_because="one_source")
     # Before the store's own scan, which would read a set put in the store as work left there.
     if external is not None and external.resolve().is_relative_to(store.resolve()):
         msg = "an external task set is kept apart from the store's tiers, and this one is in it"
@@ -629,16 +652,19 @@ def plan(
     canaries |= _listed(store)
     of_what = "this version" if version is not None else "this external set"
     planned: list[Planned] = []
-    found_trials: list[tuple[int, RunSetEntry, RunConfig, Task, TierName, Path]] = []
-    seen: set[tuple[str, int]] = set()
+    found_trials: list[_Found] = []
+    seen: set[str] = set()
     binary_seen: ClaudeBinary | None = None
+    rounds = HarnessRounds(store, role)
     for index, entry in enumerate(runs.trials):
         where = {"entry": str(index)}
-        key = (os.path.realpath(entry.run_dir), entry.trial)
-        if key in seen:
+        place = _place_of(rounds, entry, where)
+        pair = run_key(entry.run_dir, entry.trial) if place is None else place.key
+        if pair in seen:
+            # The same run twice, or two draws of one harness trial: one raw trial a pair.
             msg = "a harness trial is listed twice in the run set"
-            raise BaselineError(msg, **where)
-        seen.add(key)
+            raise BaselineError(msg, **where, refused_because="pair_listed_twice")
+        seen.add(pair)
         run_dir = Path(entry.run_dir)
         config = load_run_config(run_dir / "run.json")
         try:
@@ -683,16 +709,186 @@ def plan(
             msg = "the harness runs executed different builds of the session binary"
             raise BaselineError(msg, **where, refused_because="binary")
         binary_seen = config.binary
-        found_trials.append((index, entry, config, task, tier, reviewed))
-    trials = _cell_trials(runs, cell, tasks, leaving)
-    for index, entry, config, task, tier, reviewed in found_trials:
-        own = trials.own(entry, tier, index)
-        try:
-            rule = raw_cap(own, trials.of(tier))
-        except NoCapError as exc:
-            raise BaselineError(str(exc), entry=str(index), **exc.context) from None
-        planned.append(Planned(index, entry, config, task, tier, rule.cap, reviewed, rule))
+        found_trials.append(_Found(index, entry, config, task, tier, reviewed, place, pair))
+    by_hand = development or external is not None
+    caps = _Caps(runs, cell, tasks, leaving, by_hand=by_hand)
+    if cell is not None:
+        caps.hold_the_given_cell(found_trials)
+    for each in found_trials:
+        rule = caps.rule(each)
+        planned.append(
+            Planned(
+                each.index,
+                each.entry,
+                each.config,
+                each.task,
+                each.tier,
+                rule.cap,
+                each.reviewed,
+                rule,
+                each.pair,
+            )
+        )
     return source, planned
+
+
+@dataclass(frozen=True)
+class _Found:
+    """One entry of the run set as the plan found it, before its cap."""
+
+    index: int
+    entry: RunSetEntry
+    config: RunConfig
+    task: Task
+    tier: TierName
+    reviewed: Path
+    #: The harness round's place that placed the entry's run, or ``None`` where none did.
+    place: HarnessPlace | None
+    pair: str
+
+
+def _place_of(
+    rounds: HarnessRounds, entry: RunSetEntry, where: Mapping[str, str]
+) -> HarnessPlace | None:
+    """The harness round's place the entry's run is a draw of, held to the entry's trial number.
+
+    Raises:
+        BaselineError: a harness round's ledger cannot be read, or the entry gives the run
+            another trial number than its round's place has (``not_the_place_s_trial``).
+    """
+    try:
+        place = rounds.place_of(entry.run_dir)
+    except PairError as exc:
+        raise BaselineError(str(exc), **where, **exc.context) from None
+    if place is not None and place.trial != entry.trial:
+        msg = "the entry gives its harness run another trial number than its round's place has"
+        raise BaselineError(msg, **where, refused_because="not_the_place_s_trial")
+    return place
+
+
+class _Caps:
+    """Each entry's cap by the rule of :mod:`.caps`, its cell found from the entry."""
+
+    def __init__(
+        self,
+        runs: RunSet,
+        cell: RunSet | None,
+        tasks: Mapping[str, tuple[TierName, Task]],
+        leaving: frozenset[str],
+        *,
+        by_hand: bool,
+    ) -> None:
+        self.runs, self.cell, self.tasks, self.leaving = runs, cell, tasks, leaving
+        #: Whether a run no harness round placed may be capped from the round's own run set: in a
+        #: development or an external round only, whose figures are never the experiment's.
+        self.by_hand = by_hand
+        self._given: _Cell | None = None
+
+    def given(self) -> _Cell:
+        """The round's own run set, or ``cell``, as the cell of runs no harness round placed."""
+        if self._given is None:
+            self._given = _cell_trials(self.runs, self.cell, self.tasks, self.leaving)
+        return self._given
+
+    def hold_the_given_cell(self, found: Sequence[_Found]) -> None:
+        """Hold a cell given by name to be the one the entries' own harness round gives.
+
+        Raises:
+            BaselineError: ``cell_not_the_round_s``: the entries are not of one harness round's
+                tier, or the cell given is not that round's set of it.
+        """
+        places = {(f.place.held.round_id, f.place.tier) for f in found if f.place is not None}
+        if not places:
+            if not self.by_hand:
+                msg = "a cell is the harness round's own, and no harness round placed these runs"
+                raise BaselineError(msg, refused_because="no_harness_round")
+            return
+        first = next(f.place for f in found if f.place is not None)
+        if len(places) != 1 or any(f.place is None for f in found):
+            msg = (
+                "a cell given by name is one harness round's set of one tier; these entries are not"
+            )
+            raise BaselineError(msg, refused_because="cell_not_the_round_s")
+        try:
+            own = round_cell(first)
+        except PairError as exc:
+            raise BaselineError(str(exc), **exc.context) from None
+        assert self.cell is not None  # called only where one is given
+        given = [(os.path.realpath(e.run_dir), e.trial) for e in self.cell.trials]
+        if given != [(os.path.realpath(r), t) for r, t, _ in own.trials]:
+            msg = (
+                "the cell given is not the harness round's own set of the tier; the cap is taken "
+                "from the round's own set, and a cell given by name must be it"
+            )
+            raise BaselineError(msg, refused_because="cell_not_the_round_s")
+
+    def rule(self, found: _Found) -> RawCap:
+        """The entry's cap: its run's total, or for one with no figure its cell's rule.
+
+        Raises:
+            BaselineError: the entry's cap cannot be taken; it names the entry by its place.
+        """
+        where = {"entry": str(found.index)}
+        run_dir = Path(found.entry.run_dir)
+        figure = harness_figure(run_dir)
+        if figure is not None:
+            # Its own total, the rule's first step, recorded at its place in the cell's run set
+            # as before the cell was found from the round: the given cell's place, else its own.
+            place = found.index
+            if self.cell is not None:
+                place = self.given().own(found.entry, found.tier, found.index).place
+            return RawCap("pair", figure, ((place, figure),))
+        if found.place is None:
+            if not self.by_hand:
+                msg = (
+                    "the harness trial gives no figure, and its cap is taken from its harness "
+                    "round's cell; no harness round placed this run"
+                )
+                raise BaselineError(msg, **where, refused_because="no_harness_round")
+            given = self.given()
+            return self._capped(
+                given.own(found.entry, found.tier, found.index), given.of(found.tier), where
+            )
+        if not found.place.final:
+            msg = (
+                "the run is a draw its harness round did not keep; a trial with no figure is "
+                "capped only as the draw its round kept"
+            )
+            raise BaselineError(msg, **where, refused_because="not_the_final_draw")
+        try:
+            cell = round_cell(found.place)
+        except PairError as exc:
+            raise BaselineError(str(exc), **where, **exc.context) from None
+        trials = self._round_trials(cell, where)
+        real = os.path.realpath(found.entry.run_dir)
+        own = next(
+            t
+            for (r, _, _), t in zip(cell.trials, trials, strict=True)
+            if os.path.realpath(r) == real
+        )
+        return replace(self._capped(own, trials, where), cell=cell.origin())
+
+    def _round_trials(self, cell: RoundCell, where: Mapping[str, str]) -> list[CellTrial]:
+        """The round's cell as the rule reads it: each trial by its place in the round's set."""
+        trials = []
+        for place, (run_dir, _, excluded) in enumerate(cell.trials):
+            config = load_run_config(Path(run_dir) / "run.json")
+            if config.ablation:
+                msg = "a trial of the harness round's cell is an ablation run; no cap is from one"
+                raise BaselineError(
+                    msg, **where, cell_entry=str(place), refused_because="cell_ablation"
+                )
+            # A trial the round kept as excluded is in its set and gives no figure.
+            total = None if excluded else harness_figure(Path(run_dir))
+            trials.append(CellTrial(place, config.brief_sha256, total))
+        return trials
+
+    @staticmethod
+    def _capped(own: CellTrial, cell: Sequence[CellTrial], where: Mapping[str, str]) -> RawCap:
+        try:
+            return raw_cap(own, cell)
+        except NoCapError as exc:
+            raise BaselineError(str(exc), **where, **exc.context) from None
 
 
 def harness_figure(run_dir: Path) -> int | None:
@@ -1313,7 +1509,7 @@ def run_baseline(
             return finished
     elif out.exists():
         msg = "the round's directory exists; each round gets a directory of its own"
-        raise BaselineError(msg, out=str(out))
+        raise BaselineError(msg, out=str(out), refused_because="out_exists")
     # Withheld from every session of the round, by its name: its finished trials and its records
     # lie there. So it is named as the filesystem spells it, as the store's roots are: on a
     # volume that ignores case another case names the same directory, and a session naming it
@@ -1363,21 +1559,36 @@ def run_baseline(
                 msg = "a raw trial is run once more as a new round of its one entry"
                 raise BaselineError(msg, refused_because="rerun_refused", why="not_one_entry")
             link = rerun_link(store, role, rerun_of, planned[0], replaces=replaces)
-        out.mkdir(mode=0o700, parents=True)
-        round_id = secrets.token_hex(8)
-        ledger = Ledger(out / LEDGER, [])
-        first: dict[str, Any] = {
-            "kind": "round",
-            "format": LEDGER_FORMAT,
-            "round": round_id,
-            "inputs_sha256": given,
-            "started": utc_stamp(now()),
-            # The run set itself, so a later round of one of its entries can name this one.
-            "runs": runs.model_dump(mode="json"),
-        }
-        if link is not None:
-            first["rerun_of"] = link
-        ledger.add(first)
+        # Looked at, and the round's own lines written, under the work root's hold: no two
+        # rounds take the same pair on at once, and no round is made for a pair another holds.
+        with _work_root_held(store, role):
+            if not development:
+                pairs_refusal(store, role, planned, None, link)
+            out.mkdir(mode=0o700, parents=True)
+            round_id = secrets.token_hex(8)
+            ledger = Ledger(out / LEDGER, [])
+            first: dict[str, Any] = {
+                "kind": "round",
+                "format": LEDGER_FORMAT,
+                "round": round_id,
+                "inputs_sha256": given,
+                "started": utc_stamp(now()),
+                # The run set itself, so a later round of one of its entries can name this one.
+                "runs": runs.model_dump(mode="json"),
+            }
+            if link is not None:
+                first["rerun_of"] = link
+            ledger.add(first)
+            if not development:
+                take_pairs(store, role, planned, round_id, out, link)
+    elif not development:
+        # A round begun before it wrote its pairs, or killed before it had, writes them now; and
+        # it is held to every other round of its pairs as a new one is. A development round is
+        # never counted, so it neither holds a pair nor is held by one.
+        link = ledger.lines[0].get("rerun_of")
+        with _work_root_held(store, role):
+            pairs_refusal(store, role, planned, round_id, link)
+            take_pairs(store, role, planned, round_id, out, link)
     protected_root = withheld_root(store, role) / BASELINE_DIR / round_id
     counted = EXTERNAL_TIERS if isinstance(source, ExternalSetRecord) else VERSION_TIERS
     order = in_order(planned)
@@ -1492,6 +1703,107 @@ def raw_rerun_cause(reason: str) -> RerunCause:
 #: cause is removed: never a stop on an exposure.
 RERUN_STOPS = frozenset({"pair", "pins", "error", "move"})
 
+#: Why a round is refused for a pair an earlier round holds, by where the pair stands there.
+_HELD_BY = {
+    "recorded": "the earlier round {round} holds the pair's raw record; it is never given to the "
+    "raw arm again, but once more by a round of its one entry (--rerun-of) where the rule allows",
+    "stopped": "the earlier round {round} stopped on the pair for a cause; it is run again only "
+    "once more, as a round of its one entry (--rerun-of)",
+    "started": "a session of the pair started in the earlier round {round} and was not settled; "
+    "that round is resumed, never another started",
+    "claimed": "the earlier round {round} has the pair still to run; that round is resumed",
+    "unread": "the earlier round {round} took the pair on and its ledger cannot be read as its "
+    "own, so where the pair stands is not known; a person must look",
+}
+
+
+def pairs_refusal(
+    store: Path,
+    role: Role,
+    planned: Sequence[Planned],
+    round_id: str | None,
+    link: Mapping[str, Any] | None,
+) -> None:
+    """Refuse a round for a pair another round holds, before the round's first session.
+
+    Every round that took a pair on wrote a line for it beneath the withheld root
+    (:func:`.pairs.claim`); each is read here, in its own ledger (:func:`.pairs.standing`). A
+    pair is free for this round where no other round holds it, where the other round runs it no
+    more (a once-more runs it in its place, or that round stopped on another entry first), or
+    where this round is the once-more of that very round (``link``, held by :func:`rerun_link`).
+
+    Raises:
+        BaselineError: ``pair_recorded``, ``pair_stopped``, ``pair_started``, ``pair_claimed`` or
+            ``pair_unread``, naming the entry and the earlier round.
+    """
+    for trial in planned:
+        try:
+            found = claims(store, role, trial.pair)
+        except PairError as exc:
+            raise BaselineError(str(exc), entry=str(trial.index), **exc.context) from None
+        for line in found:
+            if line["round"] == round_id:
+                continue
+            state = standing(line)
+            if state in ("superseded", "free"):
+                continue
+            if (
+                link is not None
+                and line["round"] == link["round"]
+                and state in ("recorded", "stopped")
+            ):
+                continue
+            raise BaselineError(
+                _HELD_BY[state].format(round=line["round"]),
+                refused_because=f"pair_{state}",
+                entry=str(trial.index),
+                earlier_round=str(line["round"]),
+            )
+
+
+def take_pairs(
+    store: Path,
+    role: Role,
+    planned: Sequence[Planned],
+    round_id: str,
+    out: Path,
+    link: Mapping[str, Any] | None,
+) -> None:
+    """Write the round's line for each of its pairs, and a once-more's line on the earlier round.
+
+    Each once, so a start after a kill writes what the kill left unwritten. The earlier round's
+    ledger is told which round runs its entry once more in its place (``superseded_by``), so a
+    second once-more of it is refused (:func:`rerun_link`) and every reader of the pair takes
+    this round's record in its place.
+
+    Raises:
+        BaselineError: the earlier round's entry is run once more by another round already.
+    """
+    for trial in planned:
+        claim(store, role, trial.pair, round_id, out, trial.index)
+    if link is None:
+        return
+    earlier = Path(str(link["out"]))
+    lines = baseline_lines(earlier) or []
+    there = superseded_by(lines, int(link["entry"]))
+    if there is not None and there["round"] != round_id:
+        raise BaselineError(
+            f"the earlier round's entry is run once more already, by the round {there['round']}",
+            refused_because="rerun_refused",
+            why="rerun_twice",
+            entry="0",
+            earlier_round=str(there["round"]),
+        )
+    if there is None:
+        Ledger(earlier / LEDGER, lines).add(
+            {
+                "kind": SUPERSEDED_BY,
+                "entry": int(link["entry"]),
+                "round": round_id,
+                "out": os.path.realpath(out),
+            }
+        )
+
 
 def rerun_link(
     store: Path,
@@ -1541,6 +1853,16 @@ def rerun_link(
     if place is None:
         refuse("not_this_entry", "the earlier round holds no entry of this harness trial")
     index, same = place
+    again = superseded_by(earlier.lines, index)
+    if again is not None:
+        # The one once-more there is: a second would be the entry's third run.
+        raise BaselineError(
+            f"the earlier round's entry is run once more already, by the round {again['round']}",
+            refused_because="rerun_refused",
+            why="rerun_twice",
+            entry="0",
+            earlier_round=str(again["round"]),
+        )
     stopped = earlier.stopped(index)
     recorded = next((line for line in earlier.recorded() if int(line["index"]) == index), None)
     session = earlier.sessions(index)

@@ -1,0 +1,653 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_has_one_counted_raw_record_across_every_round.py",
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py",
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py",
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_pair_another_round_holds_is_never_refused",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            if state in (\"superseded\", \"free\"):\n                continue\n",
+    "new": "            continue\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_has_one_counted_raw_record_across_every_round.py",
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_round_writes_no_line_for_its_pairs",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        claim(store, role, trial.pair, round_id, out, trial.index)\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_has_one_counted_raw_record_across_every_round.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_once_more_leaves_the_earlier_ledger_untold",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if there is None:\n        Ledger(earlier / LEDGER, lines).add(\n",
+    "new": "    if False:\n        Ledger(earlier / LEDGER, lines).add(\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py",
+      "tests/unit/evaluation/baseline/test_a_harness_trial_has_one_counted_raw_record_across_every_round.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_second_once_more_is_refused_only_after_its_directory_is_made",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    again = superseded_by(earlier.lines, index)\n    if again is not None:\n",
+    "new": "    again = superseded_by(earlier.lines, index)\n    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_raw_trial_is_run_once_more_only_as_a_new_round_of_its_one_entry.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_superseded_entry_still_holds_its_pair",
+    "file": "src/physgate/evaluation/baseline/pairs.py",
+    "old": "    if any(x[\"kind\"] == SUPERSEDED_BY and x.get(\"entry\") == entry for x in lines):\n        return \"superseded\"\n",
+    "new": "    if False:\n        return \"superseded\"\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_has_one_counted_raw_record_across_every_round.py",
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_round_stopped_on_another_entry_still_holds_the_pair",
+    "file": "src/physgate/evaluation/baseline/pairs.py",
+    "old": "    if any(x[\"kind\"] == \"stopped\" for x in lines):\n        return \"free\"\n",
+    "new": "    if False:\n        return \"free\"\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_has_one_counted_raw_record_across_every_round.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "an_entry_is_paired_by_its_run_never_its_harness_round_s_place",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        pair = run_key(entry.run_dir, entry.trial) if place is None else place.key\n",
+    "new": "        pair = run_key(entry.run_dir, entry.trial)\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_has_one_counted_raw_record_across_every_round.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "an_entry_s_trial_number_is_not_held_to_its_place",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if place is not None and place.trial != entry.trial:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_has_one_counted_raw_record_across_every_round.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_cell_is_taken_before_its_round_has_ended",
+    "file": "src/physgate/evaluation/baseline/pairs.py",
+    "old": "    if not held.ended:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py",
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_cell_is_not_held_to_the_combined_set_the_round_wrote",
+    "file": "src/physgate/evaluation/baseline/pairs.py",
+    "old": "    if not isinstance(written, dict) or written.get(\"trials\") != combined:\n",
+    "new": "    if not isinstance(written, dict):\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_trial_the_round_kept_excluded_gives_its_figure",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "            total = None if excluded else harness_figure(Path(run_dir))\n",
+    "new": "            total = harness_figure(Path(run_dir))\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "an_ablation_place_is_in_the_tier_s_set",
+    "file": "src/physgate/evaluation/baseline/pairs.py",
+    "old": "            if place.get(\"arm\") is None and place.get(\"tier\") == tier and index in by_index:\n",
+    "new": "            if place.get(\"tier\") == tier and index in by_index:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_draw_the_round_did_not_keep_is_capped_from_the_cell",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        if not found.place.final:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_run_no_round_placed_is_capped_from_its_own_set_in_a_counted_round",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        if found.place is None:\n            if not self.by_hand:\n",
+    "new": "        if found.place is None:\n            if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_cell_named_by_a_person_is_taken_as_it_is",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "        if given != [(os.path.realpath(r), t) for r, t, _ in own.trials]:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "a_run_two_rounds_place_is_the_later_round_s",
+    "file": "src/physgate/evaluation/baseline/pairs.py",
+    "old": "                        if there is not None and there[0] != name:\n",
+    "new": "                        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_audit_takes_a_pair_counted_in_two_rounds",
+    "file": "src/physgate/evaluation/baseline/audit.py",
+    "old": "            if line[\"round\"] != own and standing(line) == \"recorded\":\n",
+    "new": "            if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_has_one_counted_raw_record_across_every_round.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_audit_holds_an_earlier_cap_record_to_a_cell_it_never_named",
+    "file": "src/physgate/evaluation/baseline/audit.py",
+    "old": "        again.pop(\"cell\", None)\n",
+    "new": "        pass\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_harness_trial_with_no_figure_is_capped_by_its_cell_s_rule.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_audit_takes_an_arm_s_records_as_a_harness_cell_s",
+    "file": "src/physgate/evaluation/baseline/audit.py",
+    "old": "            if line.ablation is not None:\n",
+    "new": "            if False:\n",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_an_ablation_trial_s_record_says_so_and_no_measured_reader_takes_it.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/evaluation/harness_round/test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_harness.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_audit_takes_an_arm_s_runs_as_a_harness_cell_s",
+    "file": "src/physgate/evaluation/baseline/audit.py",
+    "old": "        if config.ablation and not cell.ablation:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_an_ablation_trial_s_record_says_so_and_no_measured_reader_takes_it.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/evaluation/harness_round/test_an_ablation_arm_runs_beside_its_reference_and_is_never_read_as_the_harness.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "the_audit_takes_a_run_of_another_tier_in_a_cell",
+    "file": "src/physgate/evaluation/baseline/audit.py",
+    "old": "        if found is not None and found[0] != cell.tier:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_the_baseline_command_says_why_it_stopped_and_the_audit_by_its_own_status.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_counting_rule_takes_runs_of_two_harness_commits",
+    "file": "src/physgate/evaluation/tiers/measure.py",
+    "old": "    if len(commits) > 1:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/gaps/test_the_vector_writer_counts_one_look_and_writes_no_id.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/exposure/exposure_fixtures.py",
+      "tests/unit/evaluation/gaps/gap_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_gatherer_takes_a_pair_counted_twice",
+    "file": "src/physgate/evaluation/baseline/gather.py",
+    "old": "    if len(counted) > 1:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_gatherer_takes_a_record_on_a_draw_its_round_did_not_keep",
+    "file": "src/physgate/evaluation/baseline/gather.py",
+    "old": "    if os.path.realpath(runs.trials[entry].run_dir) != os.path.realpath(kept[\"run_dir\"]):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_gatherer_takes_an_excluded_raw_record",
+    "file": "src/physgate/evaluation/baseline/gather.py",
+    "old": "    if isinstance(record, ExcludedTrial):\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_gatherer_takes_two_harness_commits",
+    "file": "src/physgate/evaluation/baseline/gather.py",
+    "old": "    if len(commits) > 1:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_gatherer_takes_a_set_that_is_not_its_round_s",
+    "file": "src/physgate/evaluation/baseline/gather.py",
+    "old": "    if given != [(os.path.realpath(r), t) for r, t, _ in cell.trials]:\n",
+    "new": "    if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_gatherer_writes_a_protected_cell_outside_the_withheld_root",
+    "file": "src/physgate/evaluation/baseline/gather.py",
+    "old": "        if not real.is_relative_to(os.path.realpath(withheld_root(store, role))):\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/unit/evaluation/baseline/test_a_cell_s_records_are_gathered_with_one_raw_record_a_pair.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ]
+  },
+  {
+    "name": "the_join_round_s_cell_is_any_cell_named",
+    "file": "src/physgate/evaluation/baseline/runner.py",
+    "old": "    if cell is not None:\n        caps.hold_the_given_cell(found_trials)\n",
+    "new": "    if False:\n        caps.hold_the_given_cell(found_trials)\n",
+    "tests": [
+      "tests/unit/evaluation/harness_round/test_a_cell_s_raw_trials_are_held_to_its_harness_round_across_rounds.py"
+    ],
+    "data": [
+      "tests/unit/evaluation/baseline/baseline_fixtures.py",
+      "tests/unit/evaluation/harness_round/round_rig.py",
+      "tests/unit/evaluation/observe_rig.py",
+      "tests/unit/evaluation/per_role/harness_rig.py",
+      "tests/unit/evaluation/per_role/task_fixtures.py",
+      "tests/unit/orchestrator/loop_fakes.py",
+      "tests/unit/orchestrator/orch_helpers.py",
+      "tests/unit/evaluation/harness_round/test_the_two_arms_wait_for_the_usage_limit_alike_and_count_a_pair_once.py",
+      "tests/unit/orchestrator/recorded/plan_call_at_the_output_cap_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/plan_call_whose_prompt_outgrew_the_window_2.1.301.stdout.jsonl",
+      "tests/unit/orchestrator/recorded/run_recorded_before_the_binding.json"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  }
+]

@@ -314,8 +314,9 @@ def test_the_baseline_and_the_counting_rule_refuse_every_set_of_the_arm(tmp_path
 
 def test_the_raw_arm_s_cap_rule_never_takes_an_arm_s_trial_into_its_cell(tmp_path: Path) -> None:
     # The cap rule reads the cell's harness trials for the task's largest and the cell's median:
-    # a cell's set that holds an ablation run, the arm's own or one mixed in, is refused, and the
-    # harness's own set, which holds none, is taken.
+    # the cell is the harness round's own set, which holds no ablation run, so a set named as the
+    # cell that holds one, the arm's own or one mixed in, is not the round's and is refused, and
+    # the harness's own set is taken.
     rig = make_rig(tmp_path)
     _whole(rig)
     out = rig.root / "out"
@@ -334,7 +335,7 @@ def test_the_raw_arm_s_cap_rule_never_takes_an_arm_s_trial_into_its_cell(tmp_pat
     for cell in (mixed, arm):
         with pytest.raises(BaselineError) as refused:
             plan(rig.made.store, "control", rig.made.version, one, base_url=None, cell=cell)
-        assert refused.value.context["refused_because"] == "cell_ablation"
+        assert refused.value.context["refused_because"] == "cell_not_the_round_s"
     _source, planned = plan(
         rig.made.store, "control", rig.made.version, one, base_url=None, cell=harness
     )

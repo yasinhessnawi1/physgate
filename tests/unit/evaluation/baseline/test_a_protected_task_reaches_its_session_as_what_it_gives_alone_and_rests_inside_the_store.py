@@ -84,6 +84,8 @@ def _round(
     out: Path,
     arm: Any,
     score: Any = _score,  # noqa: ANN401
+    *,
+    resume: bool = False,
 ) -> None:
     run_baseline(
         store=made.store,
@@ -96,6 +98,7 @@ def _round(
         prices=load_price_sheet(PRICES),
         arm=arm,
         sleep=lambda _s: None,
+        resume=resume,
     )
 
 
@@ -410,7 +413,10 @@ def test_a_protected_trial_that_fails_at_any_step_never_rests_in_a_visible_place
     again = StandInArm()
     if step in SECURED:
         assert records == set()
-        _round(store, runs, tmp_path / "again", again)
+        # The store is open to the next round, of another harness trial: this one's pair is
+        # this round's, which stopped on it.
+        other = run_set((harness_run(tmp_path / "runs", store.tasks["held_out"][1], store), 0))
+        _round(store, other, tmp_path / "again", again)
         assert again.calls
         return
     assert len(records) == 1, "the trial is not secured, yet no record names where it lies"
@@ -454,6 +460,8 @@ def test_a_protected_trial_refused_before_its_session_leaves_no_record_of_work(
         )
     assert arm.calls == []
     assert list(role_root(store.store, "control").glob(f"*{WORKING}")) == []
+    # Nothing is left to refuse the next round: the same round, started again once its cause is
+    # gone, runs its trial (a new round of the same trial is that round's to run).
     again = StandInArm()
-    _round(store, runs, tmp_path / "again", again)
+    _round(store, runs, tmp_path / "round", again, resume=True)
     assert len(again.calls) == 1

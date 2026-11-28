@@ -664,3 +664,21 @@ def test_a_session_left_running_by_a_runner_killed_outright_is_stopped_at_the_ne
     assert not (
         out / WORK / "0000-1" / "place" / "session" / "config" / ".credentials.json"
     ).exists()
+
+
+def test_a_session_killed_then_one_the_machine_ended_is_given_its_one_more_go(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """A kill spends nothing: the machine's end after it still has the entry's one more go."""
+    out, runs = tmp_path / "round", _one(tmp_path, store)
+    with pytest.raises(Killed):
+        _outcome(store, runs, out, KilledInTheSession())
+    slept: list[float] = []
+    record = _done(store, runs, out, StandInArm(ended={1: API_ERROR}), resume=True, slept=slept)
+    assert (record.counts["visible"].passed, record.counts["visible"].unscored) == (1, 0)
+    assert [k for k in _kinds(out) if k in ("killed", "machine", "recorded")] == [
+        "killed",
+        "machine",
+        "recorded",
+    ]
+    assert Ledger.read(out).recorded()[0]["session"] == 3

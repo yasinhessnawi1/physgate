@@ -293,3 +293,14 @@ def test_an_exposure_recorded_after_the_rule_and_before_the_count_is_seen(
 
     monkeypatch.setattr(module, "census", then_marked)
     assert _refused(made, "held_out", m) == "version_exposed"
+
+
+def test_runs_made_from_two_harness_commits_are_refused(tmp_path: Path, made: StandInStore) -> None:
+    # One commit for every counted trial: a run of another commit is a condition the rest did not
+    # share, however small the change.
+    m = measured(made, "held_out", tmp_path / "a")
+    other = {"commit": "d" * 40, "clean": True, "uncommitted_sha256": None}
+    odd = measured(made, "held_out", tmp_path / "b", tasks=1, trials=1, harness=other)
+    runs = [(r, i % 2) for i, r in enumerate(m.run_dirs)]
+    runs[1] = (odd.run_dirs[0], 1)
+    assert _refused(made, "held_out", _swap_runs(m, runs)) == "harness_commit_differs"

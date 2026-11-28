@@ -86,6 +86,8 @@ NAMED: dict[str, str] = {
     "physgate.evaluation.baseline.runner:_tasks": "each harness run's task, by what it was given",
     "physgate.evaluation.baseline.runner:_external_tasks": "an external set's tasks and digest",
     "physgate.evaluation.baseline.runner:_listed": "the canaries a raw session is held to",
+    # The gatherer: a cell's records for the report, held to the version's practice mark.
+    "physgate.evaluation.baseline.gather:gather": "the version a cell is gathered on",
     # The harness round: each task's brief written for its trial, found again by its digest.
     "physgate.evaluation.harness_round:_version_tasks": "the tasks a harness round runs",
 }

@@ -18,8 +18,10 @@ from baseline_fixtures import (
     MODEL,
     PRICES,
     SCORED,
+    RoundPlace,
     StandInArm,
     StandInStore,
+    harness_round_of,
     harness_run,
     run_set,
     setup_for,
@@ -245,7 +247,9 @@ def test_a_run_that_gives_no_figure_alone_in_its_cell_is_refused_before_any_sess
     tmp_path: Path, store: StandInStore
 ) -> None:
     """No trial of its cell gives a total, so the cap rule gives its raw trial none."""
-    run = harness_run(tmp_path / "runs", store.tasks["held_out"][0], store, ended=False)
+    task = store.tasks["held_out"][0]
+    run = harness_run(tmp_path / "runs", task, store, ended=False)
+    harness_round_of(store, [RoundPlace(run, 0, task, tier="held_out")])
     _refused(
         store,
         run_set((run, 0)),
@@ -473,13 +477,23 @@ def test_a_second_round_writes_a_record_of_its_own_and_keeps_the_first(
     tmp_path: Path, store: StandInStore
 ) -> None:
     run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
+    other = harness_run(tmp_path / "runs", store.tasks["visible"][1], store)
     first = _round(store, run_set((run, 0)), tmp_path / "one", StandInArm())
     kept = (tmp_path / "one" / BASELINE_RECORD).read_bytes()
-    second = _round(store, run_set((run, 0)), tmp_path / "two", StandInArm())
+    second = _round(store, run_set((other, 0)), tmp_path / "two", StandInArm())
     assert first.id != second.id
     assert (tmp_path / "one" / BASELINE_RECORD).read_bytes() == kept
     digest = hashlib.sha256(kept).hexdigest()
     assert digest == hashlib.sha256((tmp_path / "one" / BASELINE_RECORD).read_bytes()).hexdigest()
+    # A second round of the first's own trial is refused, and the first's record is kept.
+    _refused(
+        store,
+        run_set((run, 0)),
+        tmp_path / "three",
+        "holds the pair's raw record",
+        because={"refused_because": "pair_recorded", "earlier_round": first.id},
+    )
+    assert (tmp_path / "one" / BASELINE_RECORD).read_bytes() == kept
 
 
 def test_the_command_is_registered_with_the_physgate_command(
@@ -733,6 +747,7 @@ def test_a_held_out_run_killed_during_its_review_is_refused_before_any_session(
     )
     # It gives no figure, and alone in its cell the cap rule gives its raw trial no cap.
     assert harness_figure(run) is None
+    harness_round_of(store, [RoundPlace(run, 0, task, tier="held_out")])
     _refused(store, run_set((run, 0)), tmp_path / "round", "no cap")
 
 

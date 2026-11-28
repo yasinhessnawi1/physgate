@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import sys
 from collections.abc import Callable, Sequence
@@ -311,6 +312,144 @@ def harness_run_spending(
         log.append(IntegrationGateSkipped(**log.envelope(), reason="nothing_planned", subtasks=()))
     log.close()
     return run_dir
+
+
+@dataclass(frozen=True)
+class RoundPlace:
+    """One place of a stand-in harness round: the draw it kept, and what came before it."""
+
+    run_dir: Path
+    trial: int
+    task: Task
+    tier: str = "visible"
+    #: Draws the round excluded and superseded before the one it kept, in order.
+    earlier: tuple[Path, ...] = ()
+    #: The round kept the draw as excluded (a second exclusion is kept as the record).
+    excluded: bool = False
+    #: The ablation arm the place is of, or ``None`` for the harness as measured.
+    arm: str | None = None
+    #: Not yet assembled: the round has the place left.
+    left: bool = False
+
+
+def harness_record(place: RoundPlace) -> dict[str, Any]:
+    """The record a harness round assembled for ``place``: a pass, or the exclusion it kept."""
+    from physgate.evaluation.per_role.assemble import ExcludedTrial
+    from physgate.evaluation.per_role.report import TrialRecord
+
+    common: dict[str, Any] = {
+        "suite": f"control_{place.tier}",
+        "task": place.task.id,
+        "arm": "harness",
+        "trial": place.trial,
+    }
+    if place.arm is not None:
+        common["ablation"] = "reviewers=off"
+    if place.excluded:
+        excluded = ExcludedTrial.model_validate_json(
+            json.dumps({**common, "reason": "score: not a bool"})
+        )
+        return excluded.model_dump(mode="json")
+    record = TrialRecord.model_validate_json(
+        json.dumps(
+            {
+                **common,
+                "outcome": "pass",
+                "cost": {"tokens": 1000, "usd": "0", "basis": "list_price", "lower_bound": False},
+                "wall_clock_s": 1.0,
+                "gate": {"checks_run": 0, "artefacts_caught": 0, "caught_after_reviewer_passed": 0},
+                "review": {"reviews": 0, "failed": 0, "blocked": 0},
+                "control": {"no_gain_crossover": False},
+            }
+        )
+    )
+    return record.model_dump(mode="json")
+
+
+def harness_round_of(
+    made: StandInStore, places: Sequence[RoundPlace], *, round_id: str = "a1b2c3d4e5f60718"
+) -> Path:
+    """A harness round's directory beneath the withheld root, its ledger as the driver writes it.
+
+    Every place is placed, each earlier draw excluded and superseded, and each place not left
+    assembled; a round with no place left has ended, its combined run set written. Its directory.
+    """
+    from physgate.orchestrator.run_config import load_run_config
+
+    place_dir = withheld_root(made.store, "control") / "harness" / round_id
+    place_dir.mkdir(mode=0o700, parents=True)
+    order = []
+    for index, place in enumerate(places):
+        brief = load_run_config(place.run_dir / "run.json").brief_sha256
+        line: dict[str, Any] = {
+            "index": index,
+            "tier": place.tier,
+            "brief_sha256": brief,
+            "trial": place.trial,
+            "seed": place.trial + 1,
+        }
+        if place.arm is not None:
+            line["arm"] = place.arm
+        order.append(line)
+    lines: list[dict[str, Any]] = [
+        {"kind": "round", "format": 1, "round": round_id, "order": order}
+    ]
+    for index, place in enumerate(places):
+        arm = {} if place.arm is None else {"arm": place.arm}
+        draws = (*place.earlier, place.run_dir)
+        for attempt, draw in enumerate(draws, 1):
+            real = os.path.realpath(draw)
+            run_id = f"{round_id}-{index:04d}-{attempt}"
+            lines.append(
+                {
+                    "kind": "placed",
+                    "index": index,
+                    "attempt": attempt,
+                    "run_id": run_id,
+                    "run_dir": real,
+                    "seed": place.trial + 1,
+                    **arm,
+                }
+            )
+            if draw != place.run_dir:
+                lines.append(
+                    {
+                        "kind": "excluded",
+                        "index": index,
+                        "attempt": attempt,
+                        "run_id": run_id,
+                        "run_dir": real,
+                        "reason": "score: not a bool",
+                        **arm,
+                    }
+                )
+            elif not place.left:
+                record = harness_record(place)
+                lines.append(
+                    {
+                        "kind": "assembled",
+                        "index": index,
+                        "attempt": attempt,
+                        "run_id": run_id,
+                        "run_dir": real,
+                        "outcome": record.get("outcome", "excluded"),
+                        "record": record,
+                        "harness_total": None,
+                        **arm,
+                    }
+                )
+    if not any(place.left for place in places):
+        combined = [
+            {"run_dir": os.path.realpath(p.run_dir), "trial": p.trial}
+            for tier in TIERS
+            for p in places
+            if p.tier == tier and p.arm is None
+        ]
+        runs = RunSet.model_validate_json(json.dumps({"format": 1, "trials": combined}))
+        (place_dir / "all.runs.json").write_text(runs.model_dump_json())
+        lines.append({"kind": "ended", "register_after": None})
+    (place_dir / "ledger.jsonl").write_bytes(b"".join(canonical_json(x) for x in lines))
+    return place_dir
 
 
 def run_set(*runs: tuple[Path, int]) -> RunSet:
