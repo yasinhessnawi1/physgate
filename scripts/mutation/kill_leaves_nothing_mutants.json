@@ -1250,6 +1250,21 @@
     ]
   },
   {
+    "name": "a_root_beneath_an_exception_is_walked_when_named_from_its_anchor",
+    "file": "src/physgate/hooks/sentinel.py",
+    "old": "        kept = [r for r in roots if not any(r == b or r.startswith(b + \"/\") for b in bases)]\n",
+    "new": "        kept = roots\n",
+    "tests": [
+      "tests/unit/hooks/test_the_sentinel_puts_back_what_moved.py"
+    ],
+    "data": [
+      "tests/unit/hooks/hook_helpers.py"
+    ],
+    "paths": [
+      "knowledge"
+    ]
+  },
+  {
     "name": "baseline_last",
     "file": "src/physgate/evaluation/launch_check.py",
     "old": "",

@@ -1036,8 +1036,16 @@ class _Here:
         return self.worktree + named[1:]
 
     def signatures(self, roots: list[str], exclude: list[str]) -> dict[str, Any]:
-        """:func:`take_signatures` of ``roots``, named here, keyed by the recorded paths."""
-        taken = take_signatures([self(r) for r in roots], [self(e) for e in exclude])
+        """:func:`take_signatures` of ``roots``, named here, keyed by the recorded paths.
+
+        A root that lies beneath an exclusion is passed over whole, as a walk by its recorded path
+        passes over it: an exclusion above the directory held (the session's own work in a root
+        withheld whole, holding the session's home) is named as it is, and could not otherwise
+        match a root named relative to that directory.
+        """
+        bases = [e.rstrip("/") for e in exclude]
+        kept = [r for r in roots if not any(r == b or r.startswith(b + "/") for b in bases)]
+        taken = take_signatures([self(r) for r in kept], [self(e) for e in exclude])
         return {self.back(p): sig for p, sig in taken.items()}
 
 
