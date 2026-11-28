@@ -9,7 +9,8 @@ is resumed with the command's own ``--credential-replaced``: the run's resume li
 fingerprints and who said it, the run goes on to its end on the new secret, and the round's record
 names the replacement for the trial. The word is refused where the round stands at no refused
 credential, and the command refuses it for a run halted on anything else. Only where that resume
-on the replaced credential was refused may a person set the halted run's directory aside: it is
+on the replaced credential was refused, with the run's secret set where the command reads it, may
+a person set the halted run's directory aside: it is
 named on a ``credential`` line as the person's act, resting on the refused resume's line, and the
 trial is decomposed afresh, spending none of its one more go.
 
@@ -29,7 +30,7 @@ from round_rig import SCORED, make_rig
 
 import physgate.orchestrator.cli as orchestrator_cli
 from physgate.evaluation.harness_round import RoundError, run_round
-from physgate.orchestrator.credentials import Credential, fingerprint
+from physgate.orchestrator.credentials import SECRET_VARIABLE, Credential, fingerprint
 from physgate.orchestrator.events import Halted, Resumed, read_events
 from physgate.orchestrator.exceptions import RunConfigError, RunStateError
 from physgate.orchestrator.run_config import (
@@ -168,17 +169,20 @@ def test_the_command_refuses_the_word_for_a_run_halted_on_anything_else(tmp_path
 
 
 def test_a_person_may_set_the_halted_run_aside_once_its_resume_on_the_replaced_one_was_refused(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig, driver = _halted(tmp_path)
-    # The resume on the replaced credential, with the word: the command refuses it.
+    # The resume on the replaced credential, with the word and the secret set where the command
+    # reads it: the command refuses it.
     driver.secret = SECOND
+    monkeypatch.setenv(SECRET_VARIABLE["subscription"], SECOND)
     driver.refused_drives = {len(driver.drives) + 1}
     with pytest.raises(RoundError) as refused:
         _again(rig, driver, credential_replaced=True)
     assert refused.value.context["refused_because"] == "resume_refused"
     (line,) = [x for x in _ledger(rig) if x["kind"] == "resume_refused"]
     assert (line["index"], line["attempt"], line["credential_replaced"]) == (0, 1, True)
+    assert line.get("secret_present") is True
     assert line["status"] == 2 and line["why"] and line["at"].endswith("Z")
     # The fresh decomposition records the secret it is made on, as the command's does; the
     # stand-in's records the parameters' fingerprint, so its drives are not held to it here.
@@ -190,7 +194,16 @@ def test_a_person_may_set_the_halted_run_aside_once_its_resume_on_the_replaced_o
     assert (closed["attempt"], closed["by"], closed["from_run"]) == (1, "operator", True)
     assert closed["after_refused_resume"] == {
         k: line[k]
-        for k in ("index", "attempt", "run_id", "credential_replaced", "status", "why", "at")
+        for k in (
+            "index",
+            "attempt",
+            "run_id",
+            "credential_replaced",
+            "secret_present",
+            "status",
+            "why",
+            "at",
+        )
     }
     assert not [x for x in lines if x["kind"] == "superseded"], "no attempt is spent"
     (assembled,) = [x for x in lines if x["kind"] == "assembled"]
