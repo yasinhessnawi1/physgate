@@ -116,6 +116,24 @@ def test_a_refused_resume_writes_its_line_and_without_the_word_opens_no_set_asid
     assert _again(rig, driver, set_aside=0) == "refused:set_aside_without_a_refused_resume"
 
 
+def test_a_resume_refused_without_the_word_while_the_secret_was_set_opens_no_set_aside(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig, driver = _halted(tmp_path)
+    _secret_set(monkeypatch)
+    driver.secret = SECOND  # another secret and no word: the command refuses, as it always did
+    driver.refused_drives = set()
+    assert _again(rig, driver) == "refused:resume_refused"
+    (line,) = [x for x in _ledger(rig) if x["kind"] == "resume_refused"]
+    assert (line["credential_replaced"], line.get("secret_present")) == (False, True)
+    before = _ledger(rig)
+    driver.secret = None  # were a fresh draw made, it would record the parameters' fingerprint
+    assert _again(rig, driver, set_aside=0) == "refused:set_aside_without_a_refused_resume"
+    assert _ledger(rig) == before
+    assert "credential" not in _kinds(rig), "nothing set aside"
+    assert len(driver.decomposed) == 1, "no fresh draw of the plan"
+
+
 def test_a_resume_taken_on_the_replaced_credential_is_no_refused_one_though_it_halts_again(
     tmp_path: Path,
 ) -> None:
