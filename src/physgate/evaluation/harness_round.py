@@ -1418,19 +1418,20 @@ def run_round(
     ``limit_reset`` is a person's word that the account's usage limit reset, for the wait the
     round stands at, held to the core's rule for a run's (:func:`resume_refusal`); ``set_aside``
     names the trial the round stands stopped at for a person, whose directory is then set aside on
-    the person's word. Either given to a round that stands at no such wait is refused, before
-    anything is made. ``credential_replaced`` is a person's word that the refused credential the
-    round stands stopped at was replaced with another secret: the trial's halted run is resumed
-    with that word (``physgate resume --credential-replaced``), which records both fingerprints;
-    given to a round that stands at no refused credential, it is refused before anything is
-    made. ``only`` names one place of the round's order: the round takes that trial on until it
-    is assembled (or waits) and stops there, ``trial_assembled``, its one-entry run set written,
-    so a raw trial can run right after it; only the first place not yet assembled may be named,
-    or one already assembled (which only says it again). ``now`` is the clock a limit's wait is
-    read against. ``drop`` is a person's word that drops the ablation arm's places not yet
-    assembled, at once and for good: written on the ledger with who and why before anything else
-    is taken on, so the harness's places go on alone; every later start of the round says the
-    same, or is refused.
+    the person's word (a run halted on a refused credential only once its resume on the replaced
+    credential was refused, and once per trial). Either given to a round that stands at no such
+    wait is refused, before anything is made. ``credential_replaced`` is a person's word that the
+    refused credential the round stands stopped at was replaced with another secret: the trial's
+    halted run is resumed with that word (``physgate resume --credential-replaced``), which
+    records both fingerprints; given to a round that stands at no refused credential, it is
+    refused before anything is made. ``only`` names one place of the round's order: the round
+    takes that trial on until it is assembled (or waits) and stops there, ``trial_assembled``, its
+    one-entry run set written, so a raw trial can run right after it; only the first place not
+    yet assembled may be named, or one already assembled (which only says it again). ``now`` is
+    the clock a limit's wait is read against. ``drop`` is a person's word that drops the
+    ablation arm's places not yet assembled, at once and for good: written on the ledger with who
+    and why before anything else is taken on, so the harness's places go on alone; every later
+    start of the round says the same, or is refused.
 
     Raises:
         RoundError: the round is refused, or stopped at a step it names; nothing of a task.
@@ -1577,6 +1578,8 @@ def _go(
                 "person; nothing is set aside"
             )
             raise _refuse("set_aside_not_waiting", msg, index=str(set_aside))
+        if set_aside is not None:
+            _require_a_refused_resume(ctx, set_aside)
         ctx.set_aside_for = set_aside
         if limit_reset:
             ctx.reset_for = _waiting_at_start(ctx)
@@ -1770,8 +1773,8 @@ def _sheet(ctx: _Round, planned: _Planned) -> dict[str, Any]:
         "index": planned.index,
         "tier": planned.tier,
         "suite": f"{ctx.inputs.role}_{planned.tier}",
-        # The arm the trial is of: every trial of this driver's is the harness as measured; an
-        # arm with a part taken away would name itself here, and never take a raw pair.
+        # The arm the trial is of: a place of the harness as measured (an ablation arm's place
+        # has a sheet of its own, which names its arm and never takes a raw pair).
         "arm": "harness",
         "trial": planned.trial,
         "seed": planned.seed,
@@ -2275,7 +2278,8 @@ def _stopped_for_a_person_at(ctx: _Round) -> int | None:
     state = _state(ctx.run_dir(i, last))
     if state == "run" and _halted_on_a_credential(ctx.run_dir(i, last)):
         # A run halted on a refused credential: a person resumes it on the credential put right,
-        # or sets its directory aside and the trial is decomposed afresh, spending nothing.
+        # or, only once that resume was refused, sets its directory aside and the trial is
+        # decomposed afresh, spending nothing (:func:`_require_a_refused_resume`).
         return i
     if state == "spent" and _once_more_taken(ctx, i):
         return i
@@ -2609,9 +2613,13 @@ def _step(ctx: _Round, planned: _Planned, attempt: int) -> Status | None:
         if _touched(ctx, i, attempt):
             return _wait_for_a_person(ctx, planned, attempt, CREDENTIAL_REFUSED)
         ctx.acted.add(("credential", i, attempt))
-        return _drive(
-            ctx, planned, attempt, "resume", resume=True, replaced=_replaced(ctx, i, attempt)
-        )
+        replaced = _replaced(ctx, i, attempt)
+        try:
+            return _drive(ctx, planned, attempt, "resume", resume=True, replaced=replaced)
+        except RoundError as exc:
+            if exc.context.get("refused_because") == "resume_refused":
+                _resume_refused(ctx, planned, attempt, replaced=replaced)
+            raise
     elif halt is not None and halt.reason == USAGE_LIMIT:
         # Never an end: the run is resumed past the limit, however often it met it, once the
         # core would resume it; until then the round waits, saying until when.
@@ -2639,6 +2647,7 @@ def _set_aside_on_a_credential(
     i = planned.index
     _left_behind(ctx, planned, attempt, run_dir)
     ctx.set_aside_for = None
+    refused = _refused_resumes(ctx, i, attempt, replaced=True)
     ctx.add(
         {
             "kind": "credential",
@@ -2649,9 +2658,99 @@ def _set_aside_on_a_credential(
             "by": "operator",
             "from_run": True,
             "held": _held(run_dir),
+            # The refused resume on the replaced credential the set-aside rests on.
+            "after_refused_resume": None if not refused else _named(refused[-1], _REFUSED_RESUME),
         }
     )
     return None
+
+
+#: What a refused resume's line names of it: whose, with the person's word or not, the command's
+#: status and words, and when.
+_REFUSED_RESUME = ("index", "attempt", "run_id", "credential_replaced", "status", "why", "at")
+
+
+def _resume_refused(ctx: _Round, planned: _Planned, attempt: int, *, replaced: bool) -> None:
+    """Record that the command refused the resume of a run halted on a refused credential.
+
+    Written before the round stops on the refusal: which run, whether the person's word that the
+    credential was replaced went with it, the command's exit status, the words it refused with
+    (its last refusal line in the drive's log, beneath the withheld root), and when. A set-aside
+    of the run rests on such a line (:func:`_require_a_refused_resume`).
+    """
+    i = planned.index
+    ctx.add(
+        {
+            "kind": "resume_refused",
+            "index": i,
+            "attempt": attempt,
+            "run_id": ctx.run_id(i, attempt),
+            "credential_replaced": replaced,
+            "status": REFUSED,
+            "why": _refusal_words(_log(ctx, i, attempt, "drive")),
+            "at": utc_stamp(ctx.now()),
+        }
+    )
+
+
+def _refusal_words(log: Path) -> str | None:
+    """The words of the last refusal the command printed to ``log`` (its ``error``), if any."""
+    try:
+        text = log.read_text(errors="replace")
+    except OSError:
+        return None
+    for raw in reversed(text.splitlines()):
+        try:
+            line = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(line, dict) and isinstance(line.get("error"), str) and line["error"]:
+            return str(line["error"])
+    return None
+
+
+def _refused_resumes(
+    ctx: _Round, i: int, attempt: int, *, replaced: bool | None = None
+) -> list[dict[str, Any]]:
+    """The run's refused resumes on the ledger.
+
+    With ``replaced``, only those given (or not given) the person's word that the credential was
+    replaced.
+    """
+    return [
+        x
+        for x in ctx.of(i, "resume_refused")
+        if x["attempt"] == attempt and (replaced is None or x["credential_replaced"] is replaced)
+    ]
+
+
+def _require_a_refused_resume(ctx: _Round, i: int) -> None:
+    """Refuse a set-aside of a run halted on a refused credential that the rule does not allow.
+
+    Only where the run's resume on the replaced credential was tried and refused, which its
+    ``resume_refused`` line records; and once per trial, across its draws (a re-run's draw
+    included). The other directories a person may set aside keep their own rules.
+
+    Raises:
+        RoundError: no refused resume with the person's word is recorded for the run, or the
+            trial already had a run set aside on a refused credential.
+    """
+    standing = _standing(ctx)
+    if standing is None or standing[0].index != i:
+        return
+    _planned, last, _closing = standing
+    run_dir = ctx.run_dir(i, last)
+    if _state(run_dir) != "run" or not _halted_on_a_credential(run_dir):
+        return
+    if not _refused_resumes(ctx, i, last, replaced=True):
+        msg = (
+            "the run halted on a refused credential is set aside only where its resume on the "
+            "replaced credential was tried and refused; resume it with the word first"
+        )
+        raise _refuse("set_aside_without_a_refused_resume", msg, index=str(i), attempt=str(last))
+    if any(x.get("by") == "operator" and x.get("from_run") for x in ctx.of(i, "credential")):
+        msg = "the trial already had a run set aside on a refused credential; there is no second"
+        raise _refuse("set_aside_spent", msg, index=str(i), attempt=str(last))
 
 
 def _decompose(ctx: _Round, planned: _Planned, attempt: int, run_dir: Path) -> Status | None:
@@ -3255,7 +3354,10 @@ def _ends(ctx: _Round, arm: str | None) -> dict[str, list[dict[str, Any]]]:
         "superseded": every("superseded", _SUPERSEDED),
         "left": every("left", _LEFT),
         "excluded_runs": every("excluded", _EXCLUDED),
-        "credential_refused": every("credential", ("index", "attempt", "run_id", "tokens", "by")),
+        "credential_refused": every(
+            "credential", ("index", "attempt", "run_id", "tokens", "by", "after_refused_resume")
+        ),
+        "resume_refused": every("resume_refused", _REFUSED_RESUME),
         "usage_limit": every("limit", ("index", "attempt", "run_id", "tokens")),
     }
 

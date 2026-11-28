@@ -287,6 +287,13 @@ class AnswerSession(FakeSession):
         return super().run(request, on_spawn)
 
 
+def _refused_as_the_command(call: Drive, words: str) -> int:
+    """The command's refusal: its words as one JSON line in the drive's log, and exit 2."""
+    with call.log.open("a") as log:
+        log.write(json.dumps({"error": words}, sort_keys=True) + "\n")
+    return 2
+
+
 @dataclass
 class StandInDriver:
     """Decomposes and drives as the command does; each call numbered from 1 across the row."""
@@ -301,6 +308,9 @@ class StandInDriver:
     refused: set[int] = field(default_factory=set)
     #: The drives the process is killed in, before the loop is built.
     killed_in_drive: set[int] = field(default_factory=set)
+    #: The drives the command refuses (exit 2) before anything is built, its refusal printed to
+    #: the drive's log as the command prints one.
+    refused_drives: set[int] = field(default_factory=set)
     #: Session calls (across the row) that end on an API error, that write no answer, or in
     #: which the process is killed.
     infra: set[int] = field(default_factory=set)
@@ -539,6 +549,8 @@ class StandInDriver:
         self.drives.append(call)
         if len(self.drives) in self.killed_in_drive:
             raise Killed
+        if len(self.drives) in self.refused_drives:
+            return _refused_as_the_command(call, "the run's resume is refused by a rule of its own")
         run_dir = call.run_dir
         if call.resume:
             # As the command refuses it: before anything is built, written or started.
@@ -557,8 +569,8 @@ class StandInDriver:
                 if replaced is None:
                     held = account_in_effect(config, read_events(run_dir / "events.jsonl"))
                     require_same_account(config, credential, in_effect=held)
-            except (RunConfigError, RunStateError):
-                return 2  # as the command fails it: ``_fail``, exit 2
+            except (RunConfigError, RunStateError) as exc:
+                return _refused_as_the_command(call, str(exc))  # as ``_fail``, exit 2
         run = RunGit(repo=call.target, run_dir=run_dir, run_id=config.run_id)
         plan = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, SubtaskPlanned)]
         keeper = StoreKeeper(run, run_dir / "store")
