@@ -338,3 +338,40 @@ def test_a_set_holding_a_run_no_harness_round_placed_refuses_the_cell_naming_its
     by_hand = harness_run(tmp_path / "hand", store.tasks["visible"][3], store)
     refused = _refused(store, run_set((run, 0), (by_hand, 0)), "no_harness_round")
     assert refused.context["place"] == "1"
+
+
+def _round_of_the_cell(
+    store: StandInStore, root: Path, round_id: str, started: str, **changes: Any
+) -> list[Path]:
+    """A harness round of the first two visible tasks, each place with its one raw record."""
+    tasks = store.tasks["visible"]
+    runs = [harness_run_spending(root, tasks[i], store, 1500 + i) for i in range(2)]
+    places = [RoundPlace(run, 0, tasks[i]) for i, run in enumerate(runs)]
+    harness_round_of(store, places, round_id=round_id, started=started, **changes)
+    for i, run in enumerate(runs):
+        out = root / f"raw{i}"
+        assert isinstance(_raw(store, run_set((run, 0)), out, StandInArm()), BaselineRecord)
+    return runs
+
+
+def test_a_cell_is_gathered_from_its_first_harness_round_and_a_later_one_is_refused_naming_it(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    first = _round_of_the_cell(store, tmp_path / "a", "a1b2c3d4e5f60718", "2026-11-28T10:00:00Z")
+    # Started before it, but neither counts: a shakedown, and a round of another version.
+    _round_of_the_cell(
+        store, tmp_path / "s", "5a5a5a5a5a5a5a5a", "2026-11-27T10:00:00Z", shakedown=True
+    )
+    _round_of_the_cell(
+        store, tmp_path / "v", "7e7e7e7e7e7e7e7e", "2026-11-27T11:00:00Z", version="f" * 64
+    )
+    later = _round_of_the_cell(store, tmp_path / "b", "b1b2c3d4e5f60718", "2026-11-28T11:00:00Z")
+    refused = _refused(store, run_set(*((r, 0) for r in later)), "cell_has_an_earlier_round")
+    assert refused.context["earlier_round"] == "a1b2c3d4e5f60718"
+    assert "a1b2c3d4e5f60718" in str(refused)
+    gathered = gather(store.store, "control", store.version, run_set(*((r, 0) for r in first)))
+    assert gathered.harness_round == "a1b2c3d4e5f60718"
+    # Two rounds of the cell whose order cannot be told: neither is gathered.
+    _round_of_the_cell(store, tmp_path / "c", "c1b2c3d4e5f60718", "2026-11-28T10:00:00Z")
+    refused = _refused(store, run_set(*((r, 0) for r in first)), "cell_has_an_earlier_round")
+    assert refused.context["earlier_round"] == "c1b2c3d4e5f60718"
