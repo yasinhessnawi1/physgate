@@ -55,6 +55,7 @@ import hashlib
 import os
 import stat
 from collections.abc import Callable, Iterable
+from contextvars import ContextVar
 from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict
@@ -249,9 +250,48 @@ class _Found:
         )
 
 
+#: The identity (device, inode) the worktree had at its session's start, while a clearing of it
+#: runs: every opening of the worktree is held to it (:func:`_open_parents`).
+_HELD: ContextVar[tuple[int, int] | None] = ContextVar("held_worktree", default=None)
+
+#: Why nothing is cleared where the worktree's path no longer leads to the session's directory.
+WORKTREE_NOT_HELD = (
+    "the worktree's path is no longer the directory the session was given (moved, or replaced by "
+    "another directory or a link); nothing in it is touched"
+)
+
+
+def worktree_held(worktree: Path, identity: tuple[int, int] | None) -> bool:
+    """Whether ``worktree``, opened without following a link, is the directory ``identity`` names.
+
+    ``None`` holds it to nothing (a session installed before its identity was recorded).
+    """
+    if identity is None:
+        return True
+    try:
+        fd = os.open(worktree, _DIRECTORY)
+    except OSError:
+        return False
+    try:
+        st = os.fstat(fd)
+        return (st.st_dev, st.st_ino) == identity
+    finally:
+        os.close(fd)
+
+
 def _open_parents(worktree: Path, parts: tuple[str, ...]) -> int:
-    """A descriptor on ``worktree/parts...``, each part opened without following a link."""
+    """A descriptor on ``worktree/parts...``, each part opened without following a link.
+
+    The worktree itself is held to the identity of the clearing in progress, where one is
+    (:data:`_HELD`): a directory moved to its path meanwhile is never reached.
+    """
     fd = os.open(worktree, _DIRECTORY)
+    held = _HELD.get()
+    if held is not None:
+        st = os.fstat(fd)
+        if (st.st_dev, st.st_ino) != held:
+            os.close(fd)
+            raise OSError(errno.ESTALE, WORKTREE_NOT_HELD)
     for part in parts:
         try:
             following = os.open(part, _DIRECTORY, dir_fd=fd)
@@ -510,7 +550,13 @@ def _open_bytecode_folders(worktree: Path, found: _Found) -> None:
             os.close(fd)
 
 
-def clear_left_out(worktree: Path, *, repo: Path, concerns: Concerns | None = None) -> LeftOut:
+def clear_left_out(
+    worktree: Path,
+    *,
+    repo: Path,
+    concerns: Concerns | None = None,
+    identity: tuple[int, int] | None = None,
+) -> LeftOut:
     """Remove the scratch folder and every untracked bytecode file from a session's worktree.
 
     What the scratch folder holds, and each bytecode file, is recorded by its path and digest
@@ -523,8 +569,24 @@ def clear_left_out(worktree: Path, *, repo: Path, concerns: Concerns | None = No
     It never raises: whatever stays, cannot be recorded or cannot be listed (the worktree's
     pointer not verifying among it) is recorded with its reason, the walk goes on, and the
     result says it is not complete, for the caller to act on.
+
+    ``identity`` is the worktree's device and inode at its session's start: where its path is no
+    longer that directory nothing is touched or recorded, and the result says so, not complete;
+    every opening of the worktree during the clearing is held to it too, so a directory moved
+    to its path meanwhile is never reached.
     """
     found = _Found(concerns)
+    if not worktree_held(worktree, identity):
+        found.stays(".", WORKTREE_NOT_HELD)
+        return found.done()
+    token = _HELD.set(identity)
+    try:
+        return _clear(worktree, repo, found)
+    finally:
+        _HELD.reset(token)
+
+
+def _clear(worktree: Path, repo: Path, found: _Found) -> LeftOut:
     try:
         _clear_scratch(worktree, found)
     except Exception as exc:  # noqa: BLE001 - recorded, never out of an attempt's end

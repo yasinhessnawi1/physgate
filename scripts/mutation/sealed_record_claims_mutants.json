@@ -382,8 +382,8 @@
   {
     "name": "the_dispatcher_s_clearing_is_told_no_record",
     "file": "src/physgate/orchestrator/dispatch.py",
-    "old": "        cleared = self._clear_left_out(worktree, sdir, LEFT_OUT_NAME, concerns=beside)",
-    "new": "        cleared = self._clear_left_out(worktree, sdir, LEFT_OUT_NAME, concerns=None)",
+    "old": "            worktree, sdir, LEFT_OUT_NAME, concerns=beside, identity=identity\n",
+    "new": "            worktree, sdir, LEFT_OUT_NAME, concerns=None, identity=identity\n",
     "tests": [
       "tests/unit/orchestrator/test_every_session_s_python_writes_no_bytecode_in_either_arm.py"
     ],

@@ -136,7 +136,8 @@ OUTSIDE_THE_WORKTREE = (
     "the target lies outside it, as written or as resolved, or is reached through a link. Name "
     "the file by its own path in the worktree. A throwaway helper script or note goes in the "
     "worktree's .physgate/scratch/ folder, which is never part of an attempt and is emptied "
-    "when the session ends; nothing computed by code there is accepted as a record."
+    "when the session ends, each file recorded by name and digest for the review; a record that "
+    "names code in it is refused."
 )
 RELATIVE_TO_UNKNOWN = (
     "{path} is a relative path and this call's working directory ({cwd!r}) is not an "

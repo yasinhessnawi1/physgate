@@ -866,3 +866,75 @@ def test_a_settle_mark_keyed_by_the_directory_s_path_alone_is_not_honoured(
         patch.setattr(exposure, "_settle_key", by_path)
         _settle(tier, directory)
     assert SETTLE in str(_refused(tier))
+
+
+@pytest.mark.parametrize("record", ["run.json", "raw.json"])
+def test_a_settle_never_passes_over_a_run_nested_in_a_directory_whose_parameters_record_is_torn(
+    tier: OnTier, record: str
+) -> None:
+    # Settled, every entry of such a directory but one holding a run at its own top is passed
+    # over: a run two levels down would be read by nobody afterwards.
+    directory = _by_hand(tier, "torn", held_out=_recorded(tier))
+    nested = directory / "kept" / "inner"
+    if record == "run.json":
+        nested = harness_run(nested, tier.made.tasks["visible"][0], tier.made)
+        incident_in(nested)
+    else:
+        nested.mkdir(parents=True)
+        (nested / "raw.json").write_text("{}\n")
+    _unreadable_params(tier, directory)
+    _refused(tier)
+    with pytest.raises(ExposureError) as settling:
+        _settle(tier, directory)
+    assert settling.value.context.get("refused_because") == "settle_passes_over_a_run"
+    named = str(nested.relative_to(directory) / record)
+    assert named in str(settling.value), str(settling.value)
+    # Nothing was written: the register refuses the directory as before.
+    _refused(tier)
+
+
+@pytest.mark.parametrize("at_its_name", ["a link", "a directory"])
+def test_a_settle_looks_beneath_whatever_stands_at_the_run_record_s_name_but_a_run_s_own(
+    tier: OnTier, at_its_name: str
+) -> None:
+    # The walk reads a directory as a run only where its configuration is a plain file, no link:
+    # anything else at that name leaves the directory read by its torn parameters record.
+    directory = _by_hand(tier, "torn", held_out=_recorded(tier))
+    nested = harness_run(directory / "kept" / "inner", tier.made.tasks["visible"][0], tier.made)
+    incident_in(nested)
+    if at_its_name == "a link":
+        (directory / "run.json").symlink_to(nested / "run.json")
+    else:
+        (directory / "run.json").mkdir()
+    _unreadable_params(tier, directory)
+    _refused(tier)
+    with pytest.raises(ExposureError) as settling:
+        _settle(tier, directory)
+    assert settling.value.context.get("refused_because") == "settle_passes_over_a_run"
+    # Named like a run's record, whatever its type: the thing at the top's name, the run beneath.
+    said = str(settling.value)
+    assert "run.json" in said and str(nested.relative_to(directory) / "run.json") in said, said
+
+
+def test_a_settle_the_register_would_still_refuse_once_settled_is_never_recorded(
+    tier: OnTier, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Torn, it refuses by a kind a settle passes over; settled, it would still refuse, since a
+    # place in it cannot be searched: no line is written that would settle nothing.
+    from physgate.evaluation.tiers.exposure import register_lines  # noqa: PLC0415
+    from physgate.orchestrator import design_rounds  # noqa: PLC0415
+
+    directory = _by_hand(tier, "old", held_out=_recorded(tier))
+    _unreadable_params(tier, directory)
+
+    def refused(run_dir: Path) -> tuple[str, ...]:
+        msg = "Input/output error"
+        raise OSError(5, msg)
+
+    monkeypatch.setattr(design_rounds, "exposed_reviews", refused)
+    before = len(register_lines(tier.made.store, "control"))
+    with pytest.raises(ExposureError) as settling:
+        _settle(tier, directory)
+    assert settling.value.context.get("refused_because") == "settle_refuses_nothing"
+    assert "would still refuse" in str(settling.value), str(settling.value)
+    assert len(register_lines(tier.made.store, "control")) == before

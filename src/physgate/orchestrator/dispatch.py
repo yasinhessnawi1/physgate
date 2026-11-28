@@ -104,11 +104,13 @@ from physgate.orchestrator.invocation import (
 )
 from physgate.orchestrator.left_out import (
     SCRATCH_DIR,
+    WORKTREE_NOT_HELD,
     Beside,
     Concerns,
     LeftOut,
     clear_left_out,
     end_series,
+    worktree_held,
 )
 from physgate.orchestrator.managed import (
     ObservedTraffic,
@@ -1309,6 +1311,84 @@ def write_record(parent: Path, name: str, record: dict[str, Any], file: str) -> 
         os.close(top)
 
 
+def installed_identity(config: Path) -> tuple[int, int] | None:
+    """The worktree's device and inode the installer recorded in a session's configuration.
+
+    ``None`` where none is recorded (the worktree did not exist at the install). A configuration
+    that cannot be read names an identity no directory has: nothing is then held to be the
+    worktree, and the harness writes nothing in it.
+    """
+    try:
+        recorded = json.loads(config.read_text()).get("worktree_identity")
+        return (int(recorded["device"]), int(recorded["inode"])) if recorded else None
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return (-1, -1)
+
+
+#: Where a session's own stream, scanned as written, showed what it may not: the harness's mark
+#: in the session's own directory, written before the stream is redacted (every session is
+#: refused that directory, so none can write it or take it away).
+SHOWN_NAME = "shown.json"
+
+
+def mark_shown(sdir: Path, *, held_out: bool, review_material: bool = False) -> None:
+    """Make durable that a session's stream, scanned before its redaction, showed a canary.
+
+    The redaction replaces whole a line it cannot read, a line every scan counts as the canary,
+    so what the scan saw is written first: apart, synced, then renamed into the session's own
+    directory, never through a link (:func:`write_record`'s opening). A mark already there keeps
+    what it said: a later scan only adds.
+
+    Raises:
+        OSError: it could not be written; the caller then leaves the stream unredacted, for the
+            next reader to scan before it redacts it.
+    """
+    earlier = read_shown(sdir)
+    record = {
+        "held_out": held_out or earlier[0],
+        "review_material": review_material or earlier[1],
+    }
+    flags = os.O_RDONLY | os.O_DIRECTORY
+    top = os.open(sdir.parent, flags)
+    try:
+        here = os.open(sdir.name, flags | os.O_NOFOLLOW, dir_fd=top)
+        try:
+            part = f".{SHOWN_NAME}.part"
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(part, dir_fd=here)
+            create = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+            fd = os.open(part, create, 0o600, dir_fd=here)
+            try:
+                os.write(fd, json.dumps(record).encode())
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            os.replace(part, SHOWN_NAME, src_dir_fd=here, dst_dir_fd=here)
+            os.fsync(here)
+        finally:
+            os.close(here)
+    finally:
+        os.close(top)
+
+
+def read_shown(sdir: Path) -> tuple[bool, bool]:
+    """What a session's mark says its stream showed before its redaction: (held-out, material).
+
+    No mark says nothing, as for every session before the mark was written. A mark that is there
+    and cannot be read says both: nothing is concluded from no answer.
+    """
+    path = sdir / SHOWN_NAME
+    if not os.path.lexists(path):
+        return False, False
+    try:
+        if path.is_symlink():
+            raise TypeError("link")
+        record = json.loads(path.read_text())
+        return record["held_out"] is True, record["review_material"] is True
+    except (OSError, ValueError, KeyError, TypeError):
+        return True, True
+
+
 @dataclass(frozen=True)
 class RootsRecord:
     """The orchestrator's own record of every put-back root, taken before the session starts.
@@ -1814,7 +1894,7 @@ class ClaudeDispatcher:
         state.mkdir(parents=True)
         helper: list[str] = []
         if self._credential.mode == "api_key":
-            key_helper = write_key_helper(state, self._credential.secret)
+            key_helper = write_key_helper(state, self._credential.secret, place="role_session")
             helper = ["--api-key-helper", str(key_helper)]
         reverted, refused = session_protected_roots(
             self._run, self._store_root, worktree, self._install_bin.parent.parent
@@ -1971,7 +2051,7 @@ class ClaudeDispatcher:
             msg = "the hook layer's installer refused the session"
             raise InvocationError(msg, stderr=done.stderr[-600:])
         if self._credential.mode == "subscription":
-            write_login(sdir / "config", self._credential.secret)
+            write_login(sdir / "config", self._credential.secret, place="role_session")
         return Installed.model_validate_json(done.stdout)
 
     @staticmethod
@@ -2386,6 +2466,7 @@ class ClaudeDispatcher:
         # commit. The credential is removed whatever the check did; the steps after it run
         # only once the stop and the check have settled.
         observed: ObservedTraffic | None = None
+        scanned: tuple[str | None, str | None] = (None, None)
         try:
             # On every path, the stop confirmed or not.
             after_stop = check_after_stop(end_check, session_id, worktree, env, sdir / "state")
@@ -2404,6 +2485,11 @@ class ClaudeDispatcher:
                 try:
                     remove_secrets(sdir / "state", sdir / "config")
                 finally:
+                    # Scanned as written before the redaction, which replaces whole a line it
+                    # cannot read (a line every scan counts as the canary); what shows is marked
+                    # first. A mark that cannot be written leaves the stream unredacted, for the
+                    # resume to scan before it redacts it.
+                    scanned = self._scanned_before_redaction(sdir, (stdout.name,), "session")
                     redact(stdout, self._credential.secret)
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
@@ -2432,6 +2518,11 @@ class ClaudeDispatcher:
             if self._config.tool_environment is not None and self._tool_environment_scan is not None
             else None
         )
+        # The worktree the harness's own writes after the session act on (the sweep, the series,
+        # the clearing, the commit), held to the identity its installer recorded: a directory moved
+        # to its path, or a link left there, is never written in, and the attempt is refused.
+        identity = installed_identity(Path(installed.config))
+        worktree_is_held = worktree_held(worktree, identity)
         if (
             ended is None
             or unconfirmed is not None
@@ -2440,6 +2531,7 @@ class ClaudeDispatcher:
             or linked
             or unread is not None
             or tools_changed is not None
+            or not worktree_is_held
         ):
             settled = {
                 "left_running": list(ended.left_running) if ended is not None else [],
@@ -2449,12 +2541,15 @@ class ClaudeDispatcher:
                 "held_record_names": linked,
                 "protected_unread": unread,
                 "tool_environment_changed": tools_changed,
+                "worktree_not_held": None if worktree_is_held else WORKTREE_NOT_HELD,
             }
             # Beside the end record, not in it: a resume still finds the session unended,
             # stops and checks it again, and reads what it spent.
             write_record(sdir.parent, sdir.name, settled, "after_stop.json")
             msg = (
-                "the session's stop is not confirmed, or the sentinel's check after it "
+                f"{WORKTREE_NOT_HELD}; no git call follows on this attempt"
+                if not worktree_is_held
+                else "the session's stop is not confirmed, or the sentinel's check after it "
                 "failed; no git call follows on this attempt"
                 if tools_changed is None
                 else f"{tools_changed}; no git call follows on this attempt"
@@ -2490,8 +2585,8 @@ class ClaudeDispatcher:
             if temp is not None
             else ()
         )
-        seen = review_material_seen(stdout, self._canaries)
-        held_out_seen = self.held_out_seen(stdout)
+        seen = scanned[1] or review_material_seen(stdout, self._canaries)
+        held_out_seen = scanned[0] or self.held_out_seen(stdout)
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
         usage = require_matching_totals(result, usage)
@@ -2555,7 +2650,9 @@ class ClaudeDispatcher:
         # the session's own home or temporary directory, marks that record not vouched for. The
         # attempt is not refused for it.
         beside = Beside(series.records)
-        cleared = self._clear_left_out(worktree, sdir, LEFT_OUT_NAME, concerns=beside)
+        cleared = self._clear_left_out(
+            worktree, sdir, LEFT_OUT_NAME, concerns=beside, identity=identity
+        )
         series = end_series(series, cleared, beside, own=(sdir / "home", own_temp))
         commit = (
             commit_attempt(
@@ -2568,6 +2665,7 @@ class ClaudeDispatcher:
                 # What the clearing could not look below cannot be staged safely either: the
                 # attempt keeps a commit that stages nothing, and is refused for that clearing.
                 stage=cleared.complete,
+                identity=identity,
             )
             if end.outcome == "completed"
             else None
@@ -2623,10 +2721,20 @@ class ClaudeDispatcher:
         )
 
     def _clear_left_out(
-        self, worktree: Path, sdir: Path, name: str, concerns: Concerns | None = None
+        self,
+        worktree: Path,
+        sdir: Path,
+        name: str,
+        concerns: Concerns | None = None,
+        identity: tuple[int, int] | None = None,
     ) -> LeftOut:
-        """Clear the worktree of what is never part of an attempt; record it in ``sdir``."""
-        cleared = clear_left_out(worktree, repo=self._run.repo, concerns=concerns)
+        """Clear the worktree of what is never part of an attempt; record it in ``sdir``.
+
+        ``identity`` holds the clearing to the worktree its session was installed in.
+        """
+        cleared = clear_left_out(
+            worktree, repo=self._run.repo, concerns=concerns, identity=identity
+        )
         (sdir / name).write_text(cleared.model_dump_json())
         return cleared
 
@@ -2712,8 +2820,27 @@ class ClaudeDispatcher:
             found.append((sdir, session_id, pid, killed, stopped, kind, written))
         # Phase 2: nothing of this run is running now, so no session still needs its
         # credential. A killed orchestrator never removed it; its stream was never redacted.
+        # Each session's files go whatever another's removal met: the first refusal is raised
+        # once every one has been tried.
+        refused: list[InvocationError] = []
         for sdir in session_dirs:
-            remove_secrets(sdir / "state", sdir / "config")
+            try:
+                remove_secrets(sdir / "state", sdir / "config")
+            except InvocationError as exc:
+                refused.append(exc)
+        # Every leftover's streams are scanned as they were written, before the redaction: it
+        # replaces whole a line it cannot read, a line every scan counts as the canary. What a
+        # scan shows is marked in the session's own directory first, so a kill after the
+        # redaction loses nothing; the redaction waits for the mark.
+        before = {
+            sdir: self._scanned_before_redaction(
+                sdir, self._streams_of(sdir, reviews, events), kind
+            )
+            for sdir, _sid, _pid, _killed, _stopped, kind, _written in found
+        }
+        if refused:
+            raise refused[0]
+        for sdir in session_dirs:
             for name in self._streams_of(sdir, reviews, events):
                 redact(sdir / name, self._credential.secret)
         # Phase 3: read and scan every stream, from one read each. Every failure is collected,
@@ -2741,6 +2868,7 @@ class ClaudeDispatcher:
                     again=again,
                     layered=layered,
                     streams=streams,
+                    before=before[sdir],
                 )
                 if kind == "session":
                     # What the run's held records were when it started: the loop holds them to
@@ -2808,6 +2936,7 @@ class ClaudeDispatcher:
         again: bool = False,
         layered: bool = False,
         streams: tuple[str, ...] = ("stdout.jsonl",),
+        before: tuple[str | None, str | None] = (None, None),
     ) -> Leftover:
         """A leftover's streams, each read once: sealed, scanned, or set aside by a person's marker.
 
@@ -2815,6 +2944,9 @@ class ClaudeDispatcher:
         read again as the end read it (:meth:`_end_again`); ``layered`` is whether the record
         shows it spawned under the OS layer. ``streams`` are the files its spawns wrote, the first
         the one sealed: a review resumed to repair its verdict wrote one for each invocation.
+        ``before`` is what the scan of its streams as written, before their redaction, showed
+        (:meth:`_scanned_before_redaction`): the held-out canary and the review material's. What
+        either scan shows is shown: the read here only adds to it.
 
         Raises:
             InvocationError: a stream is gone with no valid quarantine marker, or is a link
@@ -2834,7 +2966,9 @@ class ClaudeDispatcher:
                     raise
                 # The streams that are there are scanned all the same: a gone one hides nothing
                 # another showed.
-                shown = next(filter(None, (canary_seen(d, held_out) for d in read)), None)
+                shown = before[0] or next(
+                    filter(None, (canary_seen(d, held_out) for d in read)), None
+                )
                 return Leftover(
                     session_id=session_id,
                     pid=pid,
@@ -2880,15 +3014,44 @@ class ClaudeDispatcher:
             kind=kind,
             # Scanned as a session that ended under its orchestrator is: every stream it wrote.
             held_out_seen=(
-                next(filter(None, (canary_seen(d, held_out) for d in read)), None)
+                before[0] or next(filter(None, (canary_seen(d, held_out) for d in read)), None)
                 if held_out
                 else None
             ),
             review_material_seen=(
-                canary_seen(data, self._canaries) if kind == "session" and self._canaries else None
+                before[1] or canary_seen(data, self._canaries)
+                if kind == "session" and self._canaries
+                else None
             ),
             **(self._end_again(sdir, session_id, data, layered=layered) if again else {}),
         )
+
+    def _scanned_before_redaction(
+        self, sdir: Path, streams: tuple[str, ...], kind: SessionKind
+    ) -> tuple[str | None, str | None]:
+        """What a session's streams show as written, before any redaction; marked where shown.
+
+        Read and scanned as every scan reads a stream (:func:`canary_seen`: a line that cannot
+        be read counts as the canary), with what the session's own mark says an earlier scan saw
+        (:func:`read_shown`). Returns the held-out canary and the review material's canary shown,
+        either ``None``; what is shown is marked first (:func:`mark_shown`). A stream that cannot
+        be read here is read again after the redaction, and refused there as before.
+        """
+        held_out = frozenset(self._config.held_out_canaries)
+        material = self._canaries if kind == "session" else frozenset()
+        marked_held, marked_material = read_shown(sdir)
+        held = sorted(held_out)[0] if held_out and marked_held else None
+        seen = sorted(material)[0] if material and marked_material else None
+        for name in streams:
+            try:
+                data = read_stream_file(sdir / name)
+            except InvocationError:
+                continue
+            held = held or canary_seen(data, held_out)
+            seen = seen or (canary_seen(data, material) if name == streams[0] else None)
+        if (held and not marked_held) or (seen and not marked_material):
+            mark_shown(sdir, held_out=held is not None, review_material=seen is not None)
+        return held, seen
 
     def _end_again(
         self, sdir: Path, session_id: str, data: bytes, *, layered: bool

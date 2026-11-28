@@ -16,7 +16,11 @@ nothing. The windows:
 - a resume that has stopped and read what an earlier process left running, before its record;
 - a review that wrote its end on disk before the loop read what it showed;
 - a review whose exposure reached the loop, as the loop writes that exposure or the review's tokens;
-- a review killed in its repair resume, whose repair stream showed the material.
+- a review killed in its repair resume, whose repair stream showed the material;
+- a review whose stream holds a line that cannot be read, which every scan counts as the canary:
+  the resume scans what it left before it redacts it, since the redaction replaces that line;
+- a review or a role session killed after its own end redacted its stream: the scan before that
+  redaction marked what it showed in the session's own directory, and the resume reads the mark.
 
 A run killed before anything showed held-out material records no exposure and leaves its version
 open: the rows above do not pass by marking every killed run.
@@ -70,8 +74,13 @@ from test_a_session_s_findings_are_on_the_record_before_it_is_ended import (  # 
     EndedBySession,
     _session_dir,
 )
+from test_the_exposure_register_reads_a_decomposition_s_directory_by_what_it_wrote import (  # noqa: E402, E501
+    UNREADABLE_LINES,
+)
 
 from physgate.evaluation.tiers.heldout import tier_digest  # noqa: E402
+from physgate.orchestrator import dispatch  # noqa: E402
+from physgate.orchestrator.canaries import canary_seen  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
 from physgate.orchestrator.dispatch import ClaudeDispatcher  # noqa: E402
 from physgate.orchestrator.events import Event  # noqa: E402
@@ -212,6 +221,76 @@ class RepairedReviewer(EndedReviewer):
         self.hook(sid, 999_998, STARTED)
         (sdir / "stdout-repair-1.jsonl").write_text(self.stream)
         raise KilledError
+
+
+@dataclass
+class UnreadableReviewer(EndedReviewer):
+    """Its review ends on disk with ``data`` as its stream, as bytes, and the process dies."""
+
+    data: bytes = b""
+
+    def review(self, artefact: Any) -> Any:  # noqa: ANN401
+        if self.seen:
+            return super().review(artefact)
+        self.seen.append(artefact)
+        assert self.hook is not None and self.review_root is not None
+        sid = "rev-sess-1"
+        self.hook(sid, 999_999, STARTED)
+        sdir = self.review_root / sid / "session"
+        sdir.mkdir(parents=True)
+        (sdir / "owner.json").write_text(json.dumps({"run_id": "run-1"}))
+        record = {"pid": 999_999, "started": STARTED, "session_id": sid, "kind": "reviewer"}
+        (sdir / "process.json").write_text(json.dumps(record))
+        (sdir / "stdout.jsonl").write_bytes(self.data)
+        (sdir / "ended.json").write_text(json.dumps(ENDED))
+        raise KilledError
+
+
+@dataclass
+class RedactingReviewer(UnreadableReviewer):
+    """As :class:`UnreadableReviewer`, its end in the live reviewer's order before the kill.
+
+    Its stream is scanned as written, what it shows is marked in its own directory, and the stream
+    is then redacted, as the real reviewer's end does; the process dies before the loop's line.
+    """
+
+    canaries: frozenset[str] = frozenset()
+
+    def review(self, artefact: Any) -> Any:  # noqa: ANN401
+        if self.seen:
+            return super().review(artefact)
+        try:
+            return super().review(artefact)
+        except KilledError:
+            assert self.review_root is not None
+            sdir = self.review_root / "rev-sess-1" / "session"
+            stream = sdir / "stdout.jsonl"
+            if canary_seen(stream.read_bytes(), self.canaries) is not None:
+                dispatch.mark_shown(sdir, held_out=True)
+            dispatch.redact(stream, "sk-ant-test-dummy-not-a-credential")
+            raise
+
+
+@dataclass
+class RedactedSession(SessionOnTier):
+    """The first session ended by the dispatcher in its own order, its stream redacted at its end.
+
+    Its stream is ``data`` as written; scanned before the redaction, what it showed is marked in
+    the session's directory, as the live end does, and the redaction then replaces the line.
+    """
+
+    data: bytes = b""
+
+    def run(self, request: Any, on_spawn: Any = None) -> Any:  # noqa: ANN401 - the port's own
+        first = not self.requests
+        report = super().run(request, on_spawn)
+        if first:
+            assert self.on is not None
+            sdir = self.on.run_dir / "sessions" / "sess-1"
+            (sdir / "stdout.jsonl").write_bytes(self.data)
+            dispatch.mark_shown(sdir, held_out=True)
+            dispatch.redact(sdir / "stdout.jsonl", "sk-ant-test-dummy-not-a-credential")
+        return report
 
 
 # --- what each row holds the run and the register to -------------------------------------------
@@ -457,3 +536,63 @@ def test_a_review_killed_in_its_repair_resume_is_exposed_once_by_its_repair_stre
     taken_over(rig)
     assert kinds(lines(rig))[-1] == "halted"
     _exposed_once(tier, rig)
+
+
+@pytest.mark.parametrize("line", UNREADABLE_LINES, ids=["not UTF-8", "a key twice"])
+def test_a_review_whose_stream_holds_a_line_that_cannot_be_read_is_exposed_once_at_the_resume(
+    tier: OnTier, line: bytes
+) -> None:
+    clean = _tool_output("the plan reads well").encode()
+    rig = _reviewed(tier, UnreadableReviewer(data=clean + line))
+    _killed(rig)
+    assert _exposures(lines(rig)) == []
+    taken_over(rig)
+    assert kinds(lines(rig))[-1] == "halted", "the run went on past a line no scan can read"
+    _exposed_once(tier, rig)
+
+
+@pytest.mark.parametrize(
+    "line", [*UNREADABLE_LINES, None], ids=["not UTF-8", "a key twice", "a readable canary"]
+)
+def test_a_review_killed_after_its_own_redaction_is_exposed_once_by_what_its_scan_marked(
+    tier: OnTier, line: bytes | None
+) -> None:
+    clean = _tool_output("the plan reads well").encode()
+    data = clean + (tier.shown().encode() if line is None else line)
+    reviewer = RedactingReviewer(data=data, canaries=frozenset(tier.made.canaries))
+    rig = _reviewed(tier, reviewer)
+    _killed(rig)
+    stream = tier.review_root / "rev-sess-1" / "session" / "stdout.jsonl"
+    if line is not None:
+        # The line itself is gone: only the mark the scan before its redaction left says so.
+        assert canary_seen(stream.read_bytes(), frozenset(tier.made.canaries)) is None
+    taken_over(rig)
+    assert kinds(lines(rig))[-1] == "halted"
+    _exposed_once(tier, rig)
+
+
+@pytest.mark.parametrize("line", UNREADABLE_LINES, ids=["not UTF-8", "a key twice"])
+def test_a_role_session_killed_after_its_end_redacted_its_stream_is_exposed_once_by_its_mark(
+    tier: OnTier, line: bytes
+) -> None:
+    clean = _tool_output("nothing held out here").encode()
+    dispatcher = RedactedSession(real_dir=tier.run_dir, on=tier, data=clean + line)
+    rig = tier.rig(dispatcher=dispatcher)
+    _killed(rig, lambda loop: _dies_at_the_first_line_after_the_session(loop, rig))
+    assert "session_ended" not in kinds(lines(rig))
+    taken_over(rig)
+    assert kinds(lines(rig))[-1] == "halted"
+    _exposed_once(tier, rig)
+
+
+def test_a_mark_that_cannot_be_read_counts_as_shown_and_no_mark_as_nothing(tmp_path: Path) -> None:
+    sdir = tmp_path / "s"
+    sdir.mkdir()
+    assert dispatch.read_shown(sdir) == (False, False)
+    (sdir / dispatch.SHOWN_NAME).write_text('{"held_out": tr')
+    assert dispatch.read_shown(sdir) == (True, True)
+    (sdir / dispatch.SHOWN_NAME).unlink()
+    dispatch.mark_shown(sdir, held_out=True)
+    dispatch.mark_shown(sdir, held_out=False, review_material=True)
+    # A later mark only adds to an earlier one.
+    assert dispatch.read_shown(sdir) == (True, True)

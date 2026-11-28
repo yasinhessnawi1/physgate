@@ -34,6 +34,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal, get_args
 
 from physgate.orchestrator.common import AuthMode
 from physgate.orchestrator.exceptions import InvocationError
@@ -53,6 +54,17 @@ REDACTED_TEXT = "[redacted: the credential]"
 #: The api_key mode's files, inside a session's hook state directory.
 KEY_FILE = "key"
 KEY_HELPER = "key-helper.sh"
+
+#: Every kind of place a session's credential is written in, by the session that runs there:
+#: a role session's directory beneath its run's ``sessions``; a review session's beneath its review
+#: root (a module's review and the plan's review alike); a decomposition's call directory (round
+#: one's in the decomposition's own directory, its retry's beneath it, each later round's in its
+#: own); a raw baseline session's beneath its trial's place. Each writer names the kind it writes,
+#: and one function finds every place of every kind after a kill
+#: (:func:`physgate.orchestrator.stop_signals.credential_places`): a kind no writer names, or a
+#: writer that names none, is refused by a row, so a new place cannot be left out of the sweep.
+CredentialPlace = Literal["role_session", "review_session", "plan_call", "raw_session"]
+CREDENTIAL_PLACES: tuple[CredentialPlace, ...] = get_args(CredentialPlace)
 
 
 @dataclass(frozen=True)
@@ -146,8 +158,18 @@ def _write_private(path: Path, data: str, mode: int) -> None:
     path.chmod(mode)
 
 
-def write_key_helper(state_dir: Path, key: str) -> Path:
-    """The api_key mode: an owner-only key file, and the helper script that prints it."""
+def _named(place: CredentialPlace) -> None:
+    if place not in CREDENTIAL_PLACES:
+        msg = "a credential is written only in a kind of place the sweep after a kill finds"
+        raise InvocationError(msg, place=str(place))
+
+
+def write_key_helper(state_dir: Path, key: str, *, place: CredentialPlace) -> Path:
+    """The api_key mode: an owner-only key file, and the helper script that prints it.
+
+    ``place`` is the kind of place ``state_dir`` belongs to (:data:`CredentialPlace`).
+    """
+    _named(place)
     secret = state_dir / KEY_FILE
     _hold(state_dir, (KEY_FILE, KEY_HELPER))
     _write_private(secret, key, 0o600)
@@ -156,8 +178,12 @@ def write_key_helper(state_dir: Path, key: str) -> Path:
     return helper
 
 
-def write_login(config_dir: Path, token: str) -> Path:
-    """The subscription mode: the token as the binary's own login file, owner-only."""
+def write_login(config_dir: Path, token: str, *, place: CredentialPlace) -> Path:
+    """The subscription mode: the token as the binary's own login file, owner-only.
+
+    ``place`` is the kind of place ``config_dir`` belongs to (:data:`CredentialPlace`).
+    """
+    _named(place)
     config_dir.mkdir(parents=True, exist_ok=True)
     path = config_dir / LOGIN_FILE
     _hold(config_dir, (LOGIN_FILE,))

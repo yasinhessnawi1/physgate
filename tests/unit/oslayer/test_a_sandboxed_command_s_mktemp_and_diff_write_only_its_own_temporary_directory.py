@@ -101,3 +101,45 @@ def test_diff_of_a_pipe_is_answered_as_the_system_s_and_leaves_nothing(
     assert done.returncode == status, done.stderr
     assert said in done.stdout
     assert not list(own.iterdir())
+
+
+@pytest.mark.parametrize("pipe", ["standard input", "a pipe by its name"])
+def test_the_diff_stand_in_hands_the_system_s_diff_a_copy_of_a_pipe_beneath_tmpdir(
+    tmp_path: Path, pipe: str
+) -> None:
+    # The stand-in as written, the system's diff in its place a recorder of what it is given: an
+    # operand that is a pipe, given as "-" or by its own name (as a process substitution's
+    # ``/dev/fd/N`` is), reaches it as a copy in the session's own temporary directory.
+    own = tmp_path / "own"
+    own.mkdir()
+    (tmp_path / "a.txt").write_text("a\n")
+    seen = tmp_path / "seen.txt"
+    recorder = tmp_path / "recording-diff"
+    recorder.write_text(f'#!/bin/sh\nfor a in "$@"; do echo "$a" >> \'{seen}\'; done\nexit 0\n')
+    recorder.chmod(0o700)
+    stand_in = tmp_path / "diff"
+    mktemp = reaper_install.SYSTEM_MKTEMP
+    stand_in.write_text(reaper_install._DIFF_TEXT.format(diff=recorder, mktemp=mktemp))
+    stand_in.chmod(0o700)
+    if pipe == "standard input":
+        line, operand = f"echo a | '{stand_in}' - a.txt", "-"
+    else:
+        os.mkfifo(tmp_path / "pipe")
+        # The writer waits for a reader; one the stand-in left unread is ended, never waited on.
+        line = f"echo a > pipe & w=$!; '{stand_in}' pipe a.txt; s=$?; kill $w 2>/dev/null; exit $s"
+        operand = "pipe"
+    done = subprocess.run(
+        ["/bin/sh", "-c", line],
+        cwd=tmp_path,
+        env={"PATH": "/usr/bin:/bin", "TMPDIR": str(own)},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert done.returncode == 0, done.stderr
+    given = seen.read_text().splitlines()
+    assert operand not in given and "a.txt" in given, given
+    copies = [g for g in given if g != "a.txt"]
+    assert copies and all(Path(g).is_relative_to(own) for g in copies), given
+    assert not list(own.iterdir()), "the copy was left behind"

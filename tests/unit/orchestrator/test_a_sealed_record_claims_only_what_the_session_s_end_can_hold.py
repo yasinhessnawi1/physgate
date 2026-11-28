@@ -598,3 +598,42 @@ def test_the_loop_hands_the_review_why_none_of_a_session_s_records_is_vouched_fo
     (record,) = reviewed.series.records
     why, beside = reviewed.series.not_vouched(record.session_id, "step")
     assert (why, beside) == ("home/hidden could not be listed", [])
+
+
+def test_a_record_of_an_attempt_s_later_session_is_marked_by_that_session_s_end_alone() -> None:
+    # Two sessions of one attempt: the first's end found bytecode beside a record of the id the
+    # second sealed again; the second's end found nothing. The second's record is not marked.
+    earlier = Bytecode(path=f"{MODULE}/__pycache__/helper.pyc", sha256="d" * 64, length=3)
+    earlier = earlier.model_copy(update={"records": ("step",)})
+    series = AttemptSeries(
+        run_dir="/r",
+        subtask_id="power-1",
+        attempt=1,
+        bytecode=(
+            AttemptBytecode(session_id="s-1", found=1, files=(earlier,)),
+            AttemptBytecode(session_id="s-2", found=0, files=()),
+        ),
+    )
+    assert series.not_vouched("s-2", "step") == (None, [])
+    assert series.not_vouched("s-1", "step") == (None, [earlier])
+
+
+def test_a_look_past_its_bound_marks_every_record_and_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    record = SealedRecord(
+        record_id="step",
+        sha256="a" * 64,
+        length=1,
+        script=f"{MODULE}/sim.py",
+        script_sha256="a" * 64,
+        script_blob="b" * 40,
+        loaded=(),
+    )
+    home = tmp_path / "home"
+    (home / "many").mkdir(parents=True)
+    for n in range(30):
+        (home / "many" / f"f{n}.txt").write_text("x\n")
+    monkeypatch.setattr(left_out, "MAX_LOOKED", 10)
+    found, why = left_out.caches_beneath((home,), left_out.Beside((record,)))
+    assert found == [] and why is not None and "10" in why, why

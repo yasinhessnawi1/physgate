@@ -1034,3 +1034,36 @@ def test_every_append_to_the_journal_is_recorded_with_its_call_and_byte_range(
     # Seen once: the next call has nothing new to record.
     assert _check(root) == "allow"
     assert len([e for e in _log(root) if e.get("decision") == "journal append"]) == 1
+
+
+def test_a_root_outside_the_worktree_beneath_an_exception_above_its_anchor_is_left_alone(
+    root: Path,
+) -> None:
+    # A blind check's session lives in its own work inside a root withheld whole: its home's
+    # protected paths lie beneath that root's exception, above the directory each put-back is
+    # held to. Passed over as a walk by its path passes over it, nothing of the session's own
+    # home is taken for new and moved aside.
+    git_config = root / "outside" / "home" / ".config" / "git"
+    git_config.mkdir(parents=True)
+    (git_config / "config").write_text("[user]\n\tname = the session\n")
+    config = _config(root)
+    assert any(r.path == str(git_config) and r.watch == "revert" for r in config.protected_roots)
+    config = config.model_copy(
+        update={
+            "protected_roots": (
+                *config.protected_roots,
+                ProtectedRoot(
+                    path=str(root / "outside"),
+                    reason="the store, withheld whole",
+                    watch="revert",
+                    exceptions=tuple(
+                        str(root / "outside" / own) for own in ("cfg", "home", "session", "state")
+                    ),
+                ),
+            )
+        }
+    )
+    assert _check(root, config, "SessionStart") == "allow"
+    assert _check(root, config, "PreToolUse") == "allow"
+    assert (git_config / "config").read_text() == "[user]\n\tname = the session\n"
+    assert _quarantine(root) == []

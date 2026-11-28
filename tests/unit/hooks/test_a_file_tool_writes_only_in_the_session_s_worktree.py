@@ -900,3 +900,27 @@ def test_a_relative_target_is_read_from_the_call_s_working_directory(
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
             code = runtime.main(argv, stdin, REGISTRY)
         assert code != 0 and OUTSIDE in err.getvalue(), (tool, err.getvalue())
+
+
+def test_the_refusal_says_what_holds_of_the_scratch_folder_and_no_more() -> None:
+    # In the words the role prompt uses: the folder's files are recorded, a record naming code in
+    # it is refused; nothing says that what code there computes is never a record.
+    said = paths.OUTSIDE_THE_WORKTREE.format(tool="Write")
+    assert "each file recorded by name and digest for the review" in said
+    assert "a record that names code in it is refused" in said
+    assert "accepted as a record" not in said
+
+
+@pytest.mark.parametrize("kind", ["role-in-the-layer", "role-hooks-only", "raw-trial"])
+def test_a_file_tool_read_of_the_harness_s_own_temporary_place_is_refused(
+    kind: str, outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The Read tool runs outside the OS layer: this rule is all that keeps a file tool from the
+    # harness's stores (a review packet's store, a change check's), on every layer.
+    from physgate.hooks.reasons import HARNESS_TEMPS_REASON
+    from physgate.oslayer.harness_temp import harness_temps_root
+
+    s = installed(kind, outside_tmp, monkeypatch)
+    store = os.path.join(harness_temps_root(), "0123456789", "physgate-review-store-x", "config")
+    code, said, _ = s.hooks.call("PreToolUse", tool_name="Read", tool_input={"file_path": store})
+    assert code != 0 and HARNESS_TEMPS_REASON in said, said

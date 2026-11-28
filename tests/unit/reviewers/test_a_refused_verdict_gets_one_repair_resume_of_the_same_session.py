@@ -89,7 +89,9 @@ def _review(
     monkeypatch.setattr(claude, "compaction_line", lambda *a, **k: None)
     monkeypatch.setattr(claude, "unavailable_end", ended)
     monkeypatch.setattr(claude, "read_in_full", lambda *a: True)
-    monkeypatch.setattr(claude, "write_key_helper", lambda state, key: rewritten.append(str(state)))
+    monkeypatch.setattr(
+        claude, "write_key_helper", lambda state, key, place: rewritten.append(str(state))
+    )
     setup = ReviewerSetup(
         run_id="run-1",
         models={ROLE: MODEL},

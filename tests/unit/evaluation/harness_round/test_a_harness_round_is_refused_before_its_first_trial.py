@@ -10,9 +10,11 @@ reportable, that pin a model to any role but the round's one (the roles named) o
 a person has, that leave a protected place of the store open, or that do not look for every
 canary; parameters of any tier whose trials are not withheld from one another (the core's rule:
 every registered run root of the store withheld whole, nothing else, every root spelt as on
-disk); a target whose worktree is not clean, or whose top holds a run's configuration. A held-out
-task the check flagged is never run, and a round on its one role's parameters records its
-inputs and pins as it did. The command says the refusal as one JSON line and exits 1.
+disk); a target whose worktree is not clean (a file git ignores, a submodule, a .git that sends
+git elsewhere and a change a clean filter would normalise count, and the words say what to
+remove), or whose top holds a run's configuration. A held-out task the check flagged is never
+run, and a round on its one role's parameters records its inputs and pins as it did. The command
+says the refusal as one JSON line and exits 1.
 """
 
 from __future__ import annotations
@@ -264,6 +266,98 @@ def test_a_round_is_refused_with_a_target_whose_worktree_is_not_clean(tmp_path: 
     assert _refused(rig) == "target_not_clean"
 
 
+@pytest.mark.parametrize("names", ["a file-system monitor", "a filter driver"])
+def test_a_target_s_own_configuration_runs_nothing_when_its_worktree_is_judged(
+    tmp_path: Path, names: str
+) -> None:
+    # The round's target is a repository whose configuration and attributes a session may have
+    # written: judging its worktree runs no program they name, and a change is still seen.
+    rig = make_rig(tmp_path)
+    marker = tmp_path / "it-ran"
+    script = tmp_path / "program.sh"
+    script.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat\n")
+    script.chmod(0o700)
+    keys = ["core.fsmonitor"] if names == "a file-system monitor" else ["filter.x.clean"]
+    for key in keys:
+        subprocess.run(["git", "-C", str(rig.target), "config", key, str(script)], check=True)
+    if names == "a filter driver":
+        info = rig.target / ".git" / "info"
+        info.mkdir(exist_ok=True)
+        (info / "attributes").write_text("* filter=x\n")
+    tracked = sorted(p for p in rig.target.iterdir() if p.is_file())[0]
+    time.sleep(0.01)
+    data = tracked.read_bytes()
+    tracked.write_bytes(bytes([data[0] ^ 1]) + data[1:])  # the same length: only its content
+    assert _refused(rig) == "target_not_clean"
+    assert not marker.exists(), f"{names} the target names ran"
+
+
+def _git_in(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", *args],  # noqa: S607
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("holds", "reason", "remove"),
+    [
+        (
+            "a file git does not track",
+            "target_not_clean",
+            "remove every file its commit does not hold",
+        ),
+        ("a file git ignores", "target_not_clean", "remove every file its commit does not hold"),
+        ("a tracked file changed", "target_not_clean", "put every file its commit holds back"),
+        ("a submodule", "target_not_clean", "remove every submodule, its entry in the commit too"),
+        ("a .git pointer file", "git", "give it a .git directory of its own"),
+    ],
+)
+def test_a_target_holding_anything_beside_its_commit_is_refused_in_words_that_say_what_to_remove(
+    tmp_path: Path, holds: str, reason: str, remove: str
+) -> None:
+    # Stricter than git's own status, on purpose: a round's target is a repository made for the
+    # round and holds nothing else, since every session reads the target's directory itself. The
+    # refusal names what to remove by kind, never a file by its name.
+    rig = make_rig(tmp_path)
+    target = rig.target
+    if holds == "a file git does not track":
+        (target / "left-behind.txt").write_text("an earlier run's work\n")
+    elif holds == "a file git ignores":
+        (target / ".gitignore").write_text("build/\n")
+        _git_in(target, "add", ".gitignore")
+        _git_in(target, "commit", "-q", "-m", "ignore")
+        (target / "build").mkdir()
+        (target / "build" / "left-behind.txt").write_text("ignored, read all the same\n")
+    elif holds == "a tracked file changed":
+        (target / "README.md").write_text("left-behind\n")
+    elif holds == "a submodule":
+        inner = tmp_path / "inner"
+        inner.mkdir()
+        _git_in(inner, "init", "-q", "-b", "main")
+        (inner / "left-behind.txt").write_text("x\n")
+        _git_in(inner, "add", "-A")
+        _git_in(inner, "commit", "-q", "-m", "inner")
+        _git_in(
+            target, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(inner), "sub"
+        )
+        _git_in(target, "commit", "-q", "-m", "a submodule")
+    else:
+        (target / ".git").rename(tmp_path / "elsewhere.git")
+        (target / ".git").write_text(f"gitdir: {tmp_path / 'elsewhere.git'}\n")
+    driver = rig.driver()
+    with pytest.raises(RoundError) as refused:
+        run_round(rig.inputs(), driver=driver, scorer=_score, sleep=lambda _: None)
+    assert driver.decomposed == [] and driver.drives == []
+    assert refused.value.context["refused_because"] == reason
+    said = str(refused.value)
+    assert "a round's target is a repository made for the round and holds nothing else" in said
+    assert remove in said, said
+    assert "left-behind" not in said and "build" not in said, said
+
+
 def test_a_round_is_refused_with_a_target_whose_top_holds_a_run(tmp_path: Path) -> None:
     rig = make_rig(tmp_path)
     (rig.target / "run.json").write_text("{}\n")
@@ -468,3 +562,42 @@ def test_a_round_whose_output_directory_lies_in_its_run_root_target_or_store_is_
     where = {"run root": rig.run_root, "target": rig.target, "store": rig.made.store}[inside]
     assert _refused(rig, out=where / "round-out") == "out_misplaced"
     assert not (where / "round-out").exists()
+
+
+def test_a_trial_s_clone_of_its_target_runs_nothing_the_target_names(tmp_path: Path) -> None:
+    # The clone is made by git's own local copy into a new repository: the target's configuration
+    # (a file-system monitor, a filter's programs), its hooks and a filter its committed
+    # attributes select are not the clone's, so none of them runs as the trial is prepared.
+    from types import SimpleNamespace
+
+    from physgate.evaluation import harness_round
+
+    marker = tmp_path / "it-ran"
+    script = tmp_path / "program.sh"
+    script.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat\n")
+    script.chmod(0o700)
+    source = tmp_path / "source"
+    source.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(source), *args], check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    git("init", "-q", "-b", "main")
+    (source / ".gitattributes").write_text("* filter=x\n")
+    (source / "a.txt").write_text("a\n")
+    git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "add", "-A")
+    git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "x")
+    for key in ("core.fsmonitor", "filter.x.clean", "filter.x.smudge", "filter.x.process"):
+        git("config", key, str(script))
+    for name in ("post-checkout", "reference-transaction", "post-index-change"):
+        (source / ".git" / "hooks" / name).write_text(f"#!/bin/sh\ntouch '{marker}'\n")
+        (source / ".git" / "hooks" / name).chmod(0o700)
+    head = git("rev-parse", "HEAD")
+    ctx = SimpleNamespace(
+        inputs=SimpleNamespace(target_from=source), lines=[{"inputs": {"target_head": head}}]
+    )
+    harness_round._prepare(ctx, tmp_path / "trial")  # type: ignore[arg-type]
+    assert (tmp_path / "trial" / "target" / "a.txt").read_text() == "a\n"
+    assert not marker.exists(), "a program the target names ran as its clone was made"

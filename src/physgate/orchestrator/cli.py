@@ -822,6 +822,13 @@ def _plan_reviewer(
 
 
 def _decompose(args: argparse.Namespace, *, registrations: Registrations | None = None) -> int:
+    # A decomposition killed outright left its calls' and its review's credential files: those no
+    # process runs as any more are removed first, before anything else, a refusal included, as
+    # ``run`` does, unless another command drives the directory.
+    review_root = getattr(args, "review_root", None)
+    remove_left_credentials(
+        args.run_dir.resolve(), None if review_root is None else review_root_path(review_root)
+    )
     # Its call and its plan's review put a credential on disk too: a stop signal removes it.
     with on_stop_signals():
         return _decompose_run(args, registrations=registrations)
@@ -891,35 +898,40 @@ def _decompose_run(args: argparse.Namespace, *, registrations: Registrations | N
         open_decomposition(
             run_dir, params=args.params, target=args.target, brief=args.brief, review_root=named
         )
-        reviewing = _plan_reviewer(args, config, credential, registrations)
-        # The root the reviewer runs under, as every reader takes it: recorded before the review
-        # runs, so a later command looks for this run's reviews where they are.
-        review_root = (
-            review_root_path(args.review_root)
-            if reviewing is not None and args.review_root is not None
-            else None
-        )
-        if review_root is not None:
-            record_review_root(run_dir, review_root)
-        # Decoded once, from the bytes the run's digest names: the call and the review read alike.
-        brief = args.brief.read_bytes().decode("utf-8")
-        made = decompose_in_rounds(
-            brief,
-            config=config,
-            run_dir=run_dir,
-            target_repo=args.target.resolve(),
-            library=_library_root(),
-            reviewing=reviewing,
-            check=material_check(config),
-            make_call=functools.partial(
-                call,
+        # Held while the calls and the review run: no other command's sweep takes a planner that
+        # runs for one a kill left, nor removes a login file written before its call starts.
+        with driving(run_dir):
+            reviewing = _plan_reviewer(args, config, credential, registrations)
+            # The root the reviewer runs under, as every reader takes it: recorded before the
+            # review runs, so a later command looks for this run's reviews where they are.
+            review_root = (
+                review_root_path(args.review_root)
+                if reviewing is not None and args.review_root is not None
+                else None
+            )
+            if review_root is not None:
+                record_review_root(run_dir, review_root)
+            # Decoded once, from the bytes the run's digest names: the call and the review read
+            # alike.
+            brief = args.brief.read_bytes().decode("utf-8")
+            made = decompose_in_rounds(
+                brief,
                 config=config,
-                base_url=os.environ.get("ANTHROPIC_BASE_URL"),
-                credential=credential,
-            ),
-            # The reviewer's own root, as it takes it: a review's record names its session there.
-            review_root=review_root,
-        )
+                run_dir=run_dir,
+                target_repo=args.target.resolve(),
+                library=_library_root(),
+                reviewing=reviewing,
+                check=material_check(config),
+                make_call=functools.partial(
+                    call,
+                    config=config,
+                    base_url=os.environ.get("ANTHROPIC_BASE_URL"),
+                    credential=credential,
+                ),
+                # The reviewer's own root, as it takes it: a review's record names its session
+                # there.
+                review_root=review_root,
+            )
     except (OrchestratorError, ReviewError) as exc:
         # Rounds that ended void on the account's usage limit wait for its reset, as a run halted
         # on it does: the decomposition is made again after it, into a fresh directory.

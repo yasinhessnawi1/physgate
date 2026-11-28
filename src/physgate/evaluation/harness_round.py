@@ -170,6 +170,7 @@ from typing import Any, Literal, Protocol, get_args
 from physgate.evaluation.baseline.record import VERSION_TIERS
 from physgate.evaluation.baseline.runner import RunSet
 from physgate.evaluation.harness_round_reruns import reason_field, rerun_cause
+from physgate.evaluation.launch_check import CHANGED, NOT_HELD, SUBMODULES, Finding
 from physgate.evaluation.observe.compare import DRIFT
 from physgate.evaluation.observe.cost import DatedSheet, price_run
 from physgate.evaluation.observe.manifest import manifest_id_of, read_run_events
@@ -761,11 +762,60 @@ def _target_head(target: Path) -> str:
     if (target / "run.json").exists():
         msg = "the target's top holds a run's configuration; a target is a design repository"
         raise _refuse("target_holds_a_run", msg)
-    head = _git("-C", str(target), "rev-parse", "--verify", "HEAD^{commit}").strip()
-    if _git("-C", str(target), "status", "--porcelain", "--untracked-files=all").strip():
-        msg = "the target's worktree is not clean; every trial clones one commit, as it is"
-        raise _refuse("target_not_clean", msg)
+    # Read with no git command run in the target: its configuration, attributes and hooks are
+    # files a session may have written, and a status there would run what they name (a
+    # file-system monitor, a filter driver). What git ignores counts too: a session reads it.
+    from physgate.evaluation.launch_check import source_state
+
+    head, found = source_state(target)
+    said = "; ".join(f.detail for f in found)
+    if head is None:
+        msg = (
+            f"the target is no repository of its own checked out at a commit ({said}); "
+            f"{_ONLY_ITS_COMMIT}: {_what_to_remove(found)}"
+        )
+        raise _refuse("git", msg, error=said)
+    if found:
+        msg = (
+            f"the target's worktree is not clean ({said}); every trial clones one commit, as it "
+            f"is; {_ONLY_ITS_COMMIT}: {_what_to_remove(found)}; or make the target afresh, a new "
+            "repository whose one commit holds none of that, with nothing beside it"
+        )
+        raise _refuse("target_not_clean", msg, found=said)
     return head
+
+
+#: Why the target check counts what git ignores, a submodule, an indirection and a change a clean
+#: filter would normalise, where git itself would call the worktree clean.
+_ONLY_ITS_COMMIT = "a round's target is a repository made for the round and holds nothing else"
+
+
+def _what_to_remove(found: Sequence[Finding]) -> str:
+    """What a person removes from the target, by the kinds of what was found (never by name)."""
+    said: list[str] = []
+    for f in found:
+        if f.kind == "source_files":
+            if NOT_HELD in f.detail:
+                said.append("remove every file its commit does not hold, those git ignores too")
+            if CHANGED in f.detail:
+                said.append(
+                    "put every file its commit holds back as committed, byte for byte (a file "
+                    "whose bytes a clean filter would normalise counts as changed)"
+                )
+            if SUBMODULES in f.detail:
+                said.append("remove every submodule, its entry in the commit too")
+        elif f.kind == "source_indirect":
+            said.append(
+                "give it a .git directory of its own, holding its own references and objects "
+                "(no pointer file, link, common directory, alternates or reference table)"
+            )
+        elif f.kind == "source_unreadable":
+            said.append("check it out at its one commit, all of its git directory readable")
+        else:
+            said.append(
+                "make every folder in it readable to this user, and hold its commit's files alone"
+            )
+    return "; ".join(dict.fromkeys(said))
 
 
 def _register_head(store: Path, role: Role) -> dict[str, Any]:

@@ -30,6 +30,7 @@ from physgate.orchestrator import apply as apply_module
 from physgate.orchestrator.apply import GitChangeChecker
 from physgate.orchestrator.decompose import Plan, plan_problems
 from physgate.orchestrator.dispatch import role_prompt
+from physgate.orchestrator.exceptions import GitError
 from physgate.orchestrator.git import diff_text, merge_base
 from physgate.orchestrator.merge import RunGit, commit_attempt, write_scope_violations
 from physgate.orchestrator.ports import SessionRequest
@@ -258,6 +259,22 @@ def test_bytecode_that_reaches_a_commit_by_another_route_is_still_refused(tmp_pa
     assert _scope(run, commit) == [
         "modules/control/__pycache__/law.cpython-312.pyc (outside modules/power)"
     ]
+
+
+@pytest.mark.parametrize("name", ["law.cpython-312.pyc", "law.cpython-312.opt-1.tmp", "README"])
+def test_anything_beneath_a_bytecode_folder_inside_the_module_is_out_of_scope(
+    tmp_path: Path, name: str
+) -> None:
+    # Inside the module too: a file beneath ``__pycache__`` is never the module's own work,
+    # whatever its name ends with.
+    run, worktree = _run(tmp_path)
+    _write(worktree, {f"{MODULE}/__pycache__/{name}": "planted\n"})
+    _git(worktree, "add", "-A")
+    _git(worktree, "commit", "-q", "-m", "not the orchestrator's commit")
+    commit = _git(worktree, "rev-parse", "HEAD")
+    found = _scope(run, commit)
+    assert len(found) == 1 and f"{MODULE}/__pycache__/{name}" in found[0], found
+    assert "compiled Python inside the module" in found[0], found
 
 
 # ── nothing is carried, nothing is hidden ────────────────────────────────────
@@ -640,3 +657,60 @@ def test_a_role_session_is_told_where_a_throwaway_helper_goes() -> None:
     assert "each file recorded by name and digest for your review" in told
     assert "a record that names code in it is refused" in told
     assert "nothing it computes is accepted as a record" not in told
+
+
+@pytest.mark.parametrize("swap", ["another directory", "another module's worktree"])
+def test_a_directory_moved_to_the_worktree_s_path_is_not_cleared_and_its_clearing_is_incomplete(
+    tmp_path: Path, swap: str
+) -> None:
+    # A session without the OS layer can move its worktree away and another directory to its
+    # path (two renames). The orchestrator's clearing after the session acts on the directory it
+    # was given at the session's start, and on no other.
+    run, worktree = _run(tmp_path)
+    victim = worktree.parent / "victim"
+    if swap == "another module's worktree":
+        _git(run.repo, "worktree", "add", "-q", "-b", "other-1", str(victim))
+    else:
+        victim.mkdir()
+    (victim / SCRATCH).mkdir(parents=True)
+    (victim / SCRATCH / "another-trial-note.txt").write_text("another trial's bytes\n")
+    (victim / "mod" / "__pycache__").mkdir(parents=True)
+    (victim / "mod" / "__pycache__" / "x.cpython-312.pyc").write_bytes(b"compiled")
+    before = _left(victim)
+    held = os.lstat(worktree)
+    os.rename(worktree, worktree.parent / "moved-away")
+    os.rename(victim, worktree)
+    cleared = left_out.clear_left_out(worktree, repo=run.repo, identity=(held.st_dev, held.st_ino))
+    assert _left(worktree) == before, (
+        "the clearing emptied a directory moved to the worktree's path"
+    )
+    assert not cleared.complete
+    assert cleared.scratch == () and cleared.bytecode == (), "another directory's files recorded"
+    # Nothing of it is looked at either: the one thing said is that the path is not the worktree.
+    assert cleared.refused == ((".", left_out.WORKTREE_NOT_HELD),), cleared.refused
+    assert cleared.scratch_found == 0 and cleared.bytecode_found == 0
+    # Nor is anything committed there: the commit is refused in words, the other branch unmoved.
+    if swap == "another module's worktree":
+        tip = _git(run.repo, "rev-parse", "other-1")
+        with pytest.raises(GitError, match="no longer the directory the session was given"):
+            commit_attempt(
+                worktree, SUBTASK, 1, "s-1", repo=run.repo, identity=(held.st_dev, held.st_ino)
+            )
+        assert _git(run.repo, "rev-parse", "other-1") == tip
+    assert _left(worktree) == before
+
+
+def test_the_worktree_s_identity_is_read_from_its_session_s_configuration(tmp_path: Path) -> None:
+    from physgate.orchestrator.dispatch import installed_identity
+
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"worktree_identity": {"device": 7, "inode": 9}}))
+    assert installed_identity(config) == (7, 9)
+    config.write_text(json.dumps({"profile": "role"}))
+    assert installed_identity(config) is None
+    # A configuration that cannot be read holds the worktree to no directory at all.
+    config.write_text("{")
+    assert installed_identity(config) == (-1, -1)
+    assert not left_out.worktree_held(tmp_path, (-1, -1))
+    st = os.lstat(tmp_path)
+    assert left_out.worktree_held(tmp_path, (st.st_dev, st.st_ino))

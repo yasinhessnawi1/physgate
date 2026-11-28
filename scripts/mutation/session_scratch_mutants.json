@@ -30,8 +30,8 @@
   {
     "name": "the_commit_removes_nothing",
     "file": "src/physgate/orchestrator/merge.py",
-    "old": "    clear_left_out(worktree, repo=repo)\n    return commit_all(",
-    "new": "    return commit_all(",
+    "old": "    clear_left_out(worktree, repo=repo, identity=identity)\n    if not worktree_held(worktree, identity):\n",
+    "new": "    if not worktree_held(worktree, identity):\n",
     "tests": [
       "tests/unit/orchestrator/test_a_session_s_scratch_folder_and_bytecode_are_never_part_of_its_attempt.py"
     ],

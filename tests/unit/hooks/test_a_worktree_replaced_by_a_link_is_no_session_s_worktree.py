@@ -209,3 +209,200 @@ def test_the_same_directory_reached_through_a_linked_parent_is_still_the_worktre
     code, said, _ = s.hooks.write("Write", str(worktree / "kept.txt"))
     assert code == 0, said
     assert not runtime.worktree_moved(s.hooks.config)
+
+
+@pytest.mark.parametrize("kind", ("role-in-the-layer", "role-hooks-only"))
+def test_nothing_outside_the_session_s_home_is_put_back_through_a_link_above_a_root_in_it(
+    kind: str, outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A put-back root two levels beneath the session's home (git's own configuration), and the
+    # level between made a link to another directory that holds an entry of the root's name: the
+    # sentinel runs outside the sandbox, so what it moves aside or writes there, no command of the
+    # session could have reached.
+    import shutil
+
+    s = installed(kind, outside_tmp, monkeypatch)
+    config = s.hooks.config
+    nested = [
+        Path(r.path)
+        for r in config.protected_roots
+        if r.watch == "revert" and r.path.endswith("/.config/git")
+    ]
+    assert nested, [r.path for r in config.protected_roots]
+    root = nested[0]
+    other = s.lay.home / "operator-config"
+    (other / root.name).mkdir(parents=True)
+    (other / root.name / "config").write_text("[user]\n\tname = the operator\n")
+    before = _tree(other)
+    if root.parent.is_dir() and not root.parent.is_symlink():
+        shutil.rmtree(root.parent)
+    os.symlink(other, root.parent)
+    own = s.worktree / "notes.md"
+    own.write_text("the session's own\n")
+    told = []
+    for _ in range(2):
+        code, said, _ = s.hooks.call(
+            "PreToolUse", tool_name="Read", tool_input={"file_path": str(own)}
+        )
+        told.append((code, said[:300]))
+    assert _tree(other) == before, told
+    assert (other / root.name / "config").read_text() == "[user]\n\tname = the operator\n"
+
+
+@pytest.mark.parametrize("kind", ("role-in-the-layer", "raw-trial"))
+def test_a_link_to_the_very_worktree_left_at_its_path_is_no_worktree_either(
+    kind: str, outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The device and inode it leads to are the recorded ones: only its being a link tells it.
+    s = installed(kind, outside_tmp, monkeypatch)
+    worktree = s.worktree
+    moved = worktree.parent / "moved-away"
+    os.rename(worktree, moved)
+    os.symlink(moved, worktree)
+    code, said, _ = s.hooks.call(
+        "PreToolUse", tool_name="Read", tool_input={"file_path": str(worktree / "x.txt")}
+    )
+    assert code != 0 and runtime.WORKTREE_MOVED in said, said
+
+
+@pytest.mark.parametrize("kind", ("role-in-the-layer", "raw-trial"))
+def test_a_worktree_whose_path_is_gone_altogether_refuses_every_call(
+    kind: str, outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    s = installed(kind, outside_tmp, monkeypatch)
+    os.rename(s.worktree, s.worktree.parent / "moved-away")
+    code, said, _ = s.hooks.call(
+        "PreToolUse", tool_name="Read", tool_input={"file_path": str(s.worktree / "x.txt")}
+    )
+    assert code != 0 and runtime.WORKTREE_MOVED in said, said
+
+
+def _protected_in_the_worktree(s: object) -> Path:
+    """A put-back root beneath the session's worktree, as its configuration names it."""
+    config = s.hooks.config  # type: ignore[attr-defined]
+    top = str(s.worktree)  # type: ignore[attr-defined]
+    roots = [
+        Path(r.path)
+        for r in config.protected_roots
+        if r.watch == "revert" and r.path.startswith(top + "/")
+    ]
+    assert roots, [r.path for r in config.protected_roots]
+    return sorted(roots)[0]
+
+
+def _sentinel_call(s: object) -> object:
+    worktree = s.worktree  # type: ignore[attr-defined]
+    stdin = json.dumps(
+        {
+            "session_id": SID,
+            "cwd": str(worktree),
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Read",
+            "tool_input": {"file_path": str(worktree / "x")},
+        }
+    )
+    return sentinel.check(parse_input(stdin), s.hooks.config)  # type: ignore[attr-defined]
+
+
+def test_another_directory_at_the_worktree_s_path_after_the_entry_check_gets_nothing_put_back(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Not a link: a directory of its own, renamed in after the entry point held the path.
+    s = installed("role-hooks-only", outside_tmp, monkeypatch)
+    root = _protected_in_the_worktree(s)
+    worktree = s.worktree
+    other = worktree.parent / "another"
+    (other / root.relative_to(worktree)).mkdir(parents=True)
+    planted = other / root.relative_to(worktree) / "theirs.txt"
+    planted.write_text("another directory's own file\n")
+    os.rename(worktree, worktree.parent / "moved-away")
+    os.rename(other, worktree)
+    decision = _sentinel_call(s)
+    assert not decision.allow  # type: ignore[attr-defined]
+    assert sentinel.WORKTREE_NOT_HELD in decision.reason  # type: ignore[attr-defined]
+    assert (worktree / root.relative_to(s.worktree) / "theirs.txt").read_text() == (
+        "another directory's own file\n"
+    )
+
+
+def test_a_swap_between_the_hold_and_the_put_back_puts_back_in_the_held_directory(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The sentinel holds the worktree, and then the path is swapped: what it puts back lands in
+    # the directory it holds, named relative to it, and the directory now at the path is left.
+    s = installed("role-hooks-only", outside_tmp, monkeypatch)
+    root = _protected_in_the_worktree(s)
+    worktree = s.worktree
+    inside = root.relative_to(worktree)
+    (root).mkdir(parents=True, exist_ok=True)
+    (root / "planted.txt").write_text("the session's write to a protected place\n")
+    other = worktree.parent / "another"
+    (other / inside).mkdir(parents=True)
+    (other / inside / "planted.txt").write_text("another directory's own file\n")
+    moved = worktree.parent / "moved-away"
+    real = sentinel._hold_worktree
+
+    def held_then_swapped(config: object) -> int | None:
+        fd = real(config)  # type: ignore[arg-type]
+        os.rename(worktree, moved)
+        os.rename(other, worktree)
+        return fd
+
+    monkeypatch.setattr(sentinel, "_hold_worktree", held_then_swapped)
+    _sentinel_call(s)
+    assert _text(worktree / inside / "planted.txt") == "another directory's own file\n"
+    assert not (moved / inside / "planted.txt").exists(), "nothing was put back where it was held"
+
+
+def _text(path: Path) -> str | None:
+    return path.read_text() if path.is_file() else None
+
+
+def test_a_directory_above_a_root_in_the_home_replaced_by_another_gets_nothing_put_back(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Not a link: the directory the put-back of a root in the session's home is held to, renamed
+    # away and another directory renamed in at its path, one holding an entry of the root's name.
+    # The sentinel runs outside the sandbox: it refuses in words and moves nothing of the other.
+    s = installed("role-hooks-only", outside_tmp, monkeypatch)
+    config = s.hooks.config
+    root = next(
+        Path(r.path)
+        for r in config.protected_roots
+        if r.watch == "revert" and r.path.endswith("/.config/git")
+    )
+    anchor = Path(sentinel._anchors([str(root)], str(s.worktree))[str(root)][0])
+    assert anchor in root.parents and s.worktree not in (anchor, *anchor.parents), anchor
+    other = anchor.parent / "another-directory"
+    below = root.relative_to(anchor)
+    (other / below).mkdir(parents=True)
+    (other / below / "config").write_text("[user]\n\tname = the operator\n")
+    before = _tree(other)
+    os.rename(anchor, anchor.parent / "moved-away")
+    os.rename(other, anchor)
+    decision = _sentinel_call(s)
+    assert _tree(anchor) == before, "the sentinel moved what another directory holds"
+    assert _text(anchor / below / "config") == "[user]\n\tname = the operator\n"
+    assert not decision.allow  # type: ignore[attr-defined]
+
+
+def test_an_ordinary_call_makes_no_directory_above_a_protected_path_that_is_not_there(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    s = installed("role-hooks-only", outside_tmp, monkeypatch)
+    nested = [
+        Path(r.path)
+        for r in s.hooks.config.protected_roots
+        if r.watch == "revert" and r.path.endswith("/.config/git")
+    ]
+    assert nested
+    parent = nested[0].parent
+    if parent.exists():
+        shutil.rmtree(parent)
+    code, said, _ = s.hooks.call(
+        "PreToolUse", tool_name="Read", tool_input={"file_path": str(s.worktree / "x.txt")}
+    )
+    assert code == 0, said
+    assert not parent.exists(), "the sentinel made a directory nothing was to be put back in"

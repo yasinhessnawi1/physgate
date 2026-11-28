@@ -38,3 +38,26 @@ def test_the_record_says_whether_a_canary_showed_only_when_it_looked_for_one(
     task = parse_task(json.dumps(own_task()).encode())
     record = raw.run_raw(task, setup, tmp_path / "work", cap=10**6)
     assert record["held_out_seen"] is seen
+
+
+@pytest.mark.parametrize(
+    "line", [r'{"type":"user","message":{"content":"caf\351"}}', '{"type":"user","type":"x"}']
+)
+def test_a_line_no_scan_can_read_is_seen_before_the_scrub_replaces_it(
+    tmp_path: Path, line: str
+) -> None:
+    # Every scan counts a line it cannot read as the canary; the scrub of the credential replaces
+    # such a line whole, so the stream is scanned as written first, and what showed is marked.
+    message = {"id": "msg_1", "model": "m", "usage": {"input_tokens": 1, "output_tokens": 0}}
+    script = f"echo '{json.dumps({'type': 'assistant', 'message': message})}'\n"
+    script += f"printf '%b\\n' '{line}'\n"
+    binary = _script(tmp_path / "claude", script)
+    setup = dataclasses.replace(_setup(tmp_path, binary), held_out_canaries=(CANARY,))
+    task = parse_task(json.dumps(own_task()).encode())
+    record = raw.run_raw(task, setup, tmp_path / "work", cap=10**6)
+    assert record["held_out_seen"] is True
+    streams = list((tmp_path / "work").rglob("stdout.jsonl"))
+    assert len(streams) == 1
+    assert (
+        b"caf\xe9" not in streams[0].read_bytes() and b'"type":"x"' not in streams[0].read_bytes()
+    )
