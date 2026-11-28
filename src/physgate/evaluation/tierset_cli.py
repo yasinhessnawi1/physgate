@@ -85,12 +85,16 @@ folder the target brought would be read in every run's worktree as another role'
 nothing else and writes nothing; exit 0 when the target passes. The round driver does not call
 it: the launch does, on the target the round clones from, before the round starts.
 
-``physgate tiers practice --store S --implementer-model M [--seed N]`` builds, at the new
-directory ``S``, a store holding one version of practice tasks written for a shakedown
+``physgate tiers practice --store S --implementer-model M [--seed N] [--kind K]`` builds, at the
+new directory ``S``, a store holding one version of practice tasks written for a shakedown
 (:mod:`physgate.evaluation.tiers.practice`): two control tasks to a tier, each labelled practice
-in its brief and held to the split's entry checks, and a stand-in check record in the imported
-form that flags none and names no session. It never reads another store. It prints the version
-and its tiers' counts and digests on one JSON line, or ``refused_because`` with exit 1. It runs
+by its id and its version's manifest (never in its brief) and held to the split's entry checks,
+and a stand-in check record in the imported form that flags none and names no session. ``K`` is
+``bare`` (the default: a plant and its criteria all in the brief) or ``shaped`` (tasks shaped like
+a real control tier's: a named system, the plant's values in the inputs, most briefs writing the
+plant in the scorer's symbols). It never reads another store. It prints the version and its
+tiers' counts and digests on one JSON line (with ``kind`` for a kind other than ``bare``), or
+``refused_because`` with exit 1. It runs
 in the evaluation environment, since each task's scorer is run on its references; elsewhere
 it refuses (``evaluation_environment_missing``) and writes nothing. A shakedown on it then
 registers a run root for the store (``physgate tiers add-run-root --withheld
@@ -174,6 +178,7 @@ def add_parser(subparsers: Any) -> None:
     practice.add_argument("--store", type=Path, required=True)
     practice.add_argument("--implementer-model", dest="implementer_model", required=True)
     practice.add_argument("--seed", type=int)
+    practice.add_argument("--kind", choices=_PRACTICE_KINDS, default=_PRACTICE_KINDS[0])
     practice.set_defaults(func=_practice)
     launch = commands.add_parser(
         "launch-check",
@@ -202,6 +207,9 @@ def add_parser(subparsers: Any) -> None:
 
 #: The roles a version is counted for, said where the flag is listed.
 _ROLES = ("control", "firmware", "whole_run")
+#: The kinds of practice version ``tiers practice`` writes, the first its default: the practice
+#: module's own (:data:`.tiers.practice.KINDS`), spelt here so the help imports none of it.
+_PRACTICE_KINDS = ("bare", "shaped")
 
 
 #: What ``--publish`` takes, said where the flag is listed. Kept here, beside the parser, so the
@@ -527,10 +535,11 @@ def _practice(args: argparse.Namespace) -> int:
             args.store.absolute(),
             implementer_model=args.implementer_model,
             seed=SEED if args.seed is None else args.seed,
+            kind=args.kind,
         )
     except PerRoleError as exc:
         reason = exc.context.get("refused_because", "practice_refused")
         print(json.dumps({"refused_because": reason, "error": str(exc)}, sort_keys=True))
         return 1
-    print(describe(manifest))
+    print(describe(manifest, kind=args.kind))
     return 0

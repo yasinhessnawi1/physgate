@@ -134,7 +134,10 @@ def test_the_version_is_practice_where_every_reader_holds_it_and_no_brief_says_s
     for tier in TIERS:
         for loaded in tasks[tier]:
             brief = loaded.task.brief
-            assert "practice" not in brief.lower() and "measured" not in brief
+            # A brief says how the output is measured, never that the task is not.
+            assert not re.search(
+                r"practi[cs]e|shakedown|not (?:a )?measured|never a measured", brief, re.I
+            )
             assert (loaded.task.canary is None) == (tier == "visible")
 
 
@@ -153,7 +156,11 @@ def test_each_task_names_a_system_and_asks_for_a_continuous_controller_on_linear
         metrics = {spec.metric for spec in task.specs}
         assert "settling_time" in metrics and metrics <= LINEAR_WITH_EFFORT
         # Nothing of a board, firmware or parts, and no rate limit anywhere.
-        assert not re.search(r"firmware|board|\bparts?\b|sampl|rate", brief, re.IGNORECASE)
+        assert not re.search(
+            r"firmware|board|\bparts?\b|\bsampling\b|sample (?:period|time)|\brate\b",
+            brief,
+            re.IGNORECASE,
+        )
         assert not any("rate" in m.name for m in task.inputs)
 
 
@@ -250,3 +257,16 @@ def test_the_bare_kind_is_the_default_and_writes_the_bytes_it_wrote_before(
     assert sorted(line) == ["held_out", "practice", "validation", "version", "visible"]
     tasks = _every(tmp_path / "s", line["version"])
     assert sorted(t.task.id for t in tasks) == [f"control.practice_{n:02d}" for n in range(6)]
+
+
+def test_the_command_offers_the_practice_module_s_kinds_and_refuses_another(
+    tmp_path: Path,
+) -> None:
+    from physgate.evaluation import tierset_cli
+    from physgate.evaluation.tiers.practice import KINDS, PracticeError
+
+    assert tierset_cli._PRACTICE_KINDS == KINDS
+    with pytest.raises(PracticeError) as refused:
+        build_practice_store(tmp_path / "store", implementer_model="m", kind="other")
+    assert refused.value.context["refused_because"] == "kind_unknown"
+    assert not (tmp_path / "store").exists()
