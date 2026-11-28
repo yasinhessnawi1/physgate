@@ -71,8 +71,11 @@ arm's remaining places at once and for good (:func:`_drop`); the harness's go on
 **Each trial** is one harness run on a fresh clone of the target placed inside the trial's run
 directory, ``<run root>/<round>/<iiii>-<n>``, with its review root beside the clone in the same
 directory: so every place a trial's sessions and reviewers write lies in one run directory
-beneath a registered run root. The trial's brief is the task's brief, byte for byte, written
-beneath the withheld root. The run is decomposed and driven through the ``physgate`` command
+beneath a registered run root. The trial's brief is what a session is given for the task
+(:func:`.tiers.issued.issued_text`: its brief, the values it gives and where its answer goes),
+the same bytes the raw arm's prompt is, written beneath the withheld root. The round's order
+and places are keyed by the task's brief alone, and a trial's run is held to the digest of what
+it was given. The run is decomposed and driven through the ``physgate`` command
 in this process (:class:`CommandDriver`), its output written beneath the withheld root and
 never relayed: ``decompose`` prints the planner's module names. Once the run has ended, its
 answer is extracted from its run branch (:func:`.per_role.arms.harness.extract`), scored,
@@ -191,6 +194,12 @@ from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.report import TrialRecord
 from physgate.evaluation.tiers.canaries import store_canaries
 from physgate.evaluation.tiers.checks import check_path
+from physgate.evaluation.tiers.issued import (
+    given_the_brief_alone,
+    issued_bytes,
+    issued_sha256,
+    issued_text,
+)
 from physgate.evaluation.tiers.manifest import TierSet, practice_refusal, read_version
 from physgate.evaluation.tiers.store import (
     leftover_refusal,
@@ -605,8 +614,9 @@ def _version_tasks(store: Path, role: Role, version: str) -> _Version:
     """The version held to its manifest, its tasks by tier and brief, and the canaries to look for.
 
     Raises:
-        RoundError: a task cannot be read, two share a brief, or a canary list cannot be read;
-            the tier is said, never a task.
+        RoundError: a task cannot be read, two share a brief, a task gives values its scorer
+            cannot read (``task_not_issuable``), or a canary list cannot be read; the tier is
+            said, never a task.
     """
     directory = version_dir(store, role, version)
     try:
@@ -624,6 +634,15 @@ def _version_tasks(store: Path, role: Role, version: str) -> _Version:
             entries = sorted(p for p in here.iterdir() if p.is_dir() and not p.is_symlink())
             for entry in entries:
                 task = parse_task((entry / "task.json").read_bytes())
+                try:
+                    issued_text(task)
+                except PerRoleError:
+                    # The reason may name the task; only its tier is said.
+                    msg = (
+                        f"a task of the {tier} tier gives values its scorer cannot read, so no "
+                        "session can be given it"
+                    )
+                    raise RoundError(msg, refused_because="task_not_issuable", tier=tier) from None
                 brief = hashlib.sha256(task.brief.encode()).hexdigest()
                 if brief in briefs:
                     msg = f"two tasks of the version share a brief (one in the {tier} tier)"
@@ -1316,9 +1335,13 @@ class _Round:
         return float(delays[0]) if delays else 0.0
 
     def brief(self, planned: _Planned) -> Path:
-        """The trial's brief file beneath the withheld root: the task's brief, byte for byte."""
+        """The trial's brief file beneath the withheld root: what a session is given for the task.
+
+        A file written before (a round made before every session was given the task's values
+        holds the brief alone) is refused as changed: such a round cannot be resumed.
+        """
         path = self.place / "briefs" / f"{planned.index:04d}.md"
-        data = self.tasks[planned.brief_sha256].brief.encode()
+        data = issued_bytes(self.tasks[planned.brief_sha256])
         if path.exists():
             if path.read_bytes() != data:
                 msg = "a trial's brief file is not its task's brief"
@@ -2730,13 +2753,18 @@ def _the_trial_s(ctx: _Round, planned: _Planned, attempt: int) -> None:
     """Refuse a run in the trial's directory that is not the trial's, before it is driven.
 
     Raises:
-        RoundError: another run id, brief or target commit.
+        RoundError: another run id, brief or target commit; or a run given the task's brief
+            without its values (``given_the_brief_alone``).
     """
     i = planned.index
     config = load_run_config(ctx.run_dir(i, attempt) / "run.json")
+    task = ctx.tasks[planned.brief_sha256]
+    if given_the_brief_alone(config.brief_sha256, [task]):
+        msg = "the run in the trial's directory was given the task's brief without its values"
+        raise _refuse("given_the_brief_alone", msg, index=str(i), attempt=str(attempt))
     if (
         config.run_id != ctx.run_id(i, attempt)
-        or config.brief_sha256 != planned.brief_sha256
+        or config.brief_sha256 != issued_sha256(task)
         or config.target_head != ctx.lines[0]["inputs"]["target_head"]
     ):
         msg = "the run in the trial's directory is not the trial's"

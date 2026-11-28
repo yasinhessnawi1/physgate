@@ -5,7 +5,9 @@ from before any of them is counted:
 
 - the version is one of the role's, and the register, read now, does not mark it exposed;
 - each run is a harness run that was measured (reportable, from a clean checkout, never an
-  ablation run), listed once, and was given exactly one task of the tier, found by its brief;
+  ablation run), listed once, and was given exactly one task of the tier, found by the digest
+  of what it was given (a run given a task's brief without its values is refused by a name of
+  its own);
 - every field of :data:`physgate.evaluation.observe.compare.DRIFT` but the two that differ by
   task (:data:`PER_TASK`) is the same in every run, the held-out roots as ``compare`` holds
   them (the protected tiers' digests, not the store's withheld and work roots', and whether
@@ -31,8 +33,8 @@ harness session's environment, as defence in depth. It refuses, writing nothing,
 version and for a run set the rule refuses. The raw arm has no run sets yet, and is refused in
 words. Nothing it says names a task.
 
-It opens the tier's tasks to find each run's task by its brief: one of the named openers of the
-protected tiers.
+It opens the tier's tasks to find each run's task by what it was given: one of the named openers
+of the protected tiers.
 """
 
 from __future__ import annotations
@@ -59,6 +61,7 @@ from physgate.evaluation.gaps.vector import (
 from physgate.evaluation.observe.compare import DRIFT, compared_held_out
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.checks import CheckError, CheckRecord, LeftOut, left_out, read_check
+from physgate.evaluation.tiers.issued import brief_sha256, issued_sha256
 from physgate.evaluation.tiers.manifest import TierSet, practice_refusal
 from physgate.evaluation.tiers.store import WITHHELD, version_dir
 from physgate.evaluation.tiers.task import Role, canonical_json, id_digest, parse_task
@@ -126,28 +129,38 @@ def _held(config: RunConfig) -> dict[str, Any]:
     return held
 
 
-def _tier_tasks(store: Path, role: Role, version: str, tier: str) -> tuple[str, dict[str, str]]:
-    """The tier's digest, and each of its tasks' ids by its brief's digest; nothing named."""
+def _tier_tasks(
+    store: Path, role: Role, version: str, tier: str
+) -> tuple[str, dict[str, str], frozenset[str]]:
+    """The tier's digest, its tasks' ids by what a run given each records, and their briefs alone.
+
+    A run records the digest of what it was given (:func:`.issued.issued_sha256`), so a run's
+    task is found by that; the digests of the tasks' briefs alone are returned beside, so a run
+    given a brief without its values is told apart from one given no task of the tier. Nothing
+    is named.
+    """
     from physgate.evaluation.tiers.heldout import tier_digest
 
     directory = version_dir(store, role, version) / tier
     found: dict[str, str] = {}
+    briefs: set[str] = set()
     try:
         entries = sorted(p for p in directory.iterdir() if p.is_dir() and not p.is_symlink())
         for entry in entries:
             task = parse_task((entry / "task.json").read_bytes())
-            brief = hashlib.sha256(task.brief.encode()).hexdigest()
-            if brief in found:
+            brief = brief_sha256(task)
+            if brief in briefs:
                 msg = f"two tasks of the {tier} tier share a brief, so a run's task cannot be told"
                 raise _refuse("tier_unreadable", msg)
-            found[brief] = task.id
+            briefs.add(brief)
+            found[issued_sha256(task)] = task.id
         digest = tier_digest(directory)
     except (OSError, PerRoleError) as exc:
         if isinstance(exc, GapsError):
             raise
         # The error may name a task; only the tier is said.
         raise _refuse("tier_unreadable", f"a task of the {tier} tier cannot be read") from None
-    return digest, found
+    return digest, found, frozenset(briefs - set(found))
 
 
 def _records(raw: bytes) -> list[Any]:
@@ -232,7 +245,7 @@ def census(
     except ValidationError:
         raise _refuse("run_set_unreadable", "the run set is not one") from None
     records = _records(record_bytes)
-    digest, by_brief = _tier_tasks(store, role, version, tier)
+    digest, by_brief, bare = _tier_tasks(store, role, version, tier)
     left = (
         None if check is None else _left_out_of(check, tuple(by_brief.values()), f"the {tier} tier")
     )
@@ -266,6 +279,9 @@ def census(
             )
             raise _refuse("run_roots_not_withheld", msg)
         task = by_brief.get(config.brief_sha256)
+        if task is None and config.brief_sha256 in bare:
+            msg = f"{where} was given a task of the {tier} tier's brief without its values"
+            raise _refuse("given_the_brief_alone", msg)
         if task is None:
             raise _refuse("run_not_in_tier", f"{where} was given no task of the {tier} tier")
         if task in leaving:

@@ -28,6 +28,7 @@ from gap_fixtures import (
 )
 
 from physgate.evaluation.observe.compare import DRIFT
+from physgate.evaluation.tiers.issued import issued_sha256
 from physgate.evaluation.tiers.store import withheld_root
 
 WRITE = "physgate.evaluation.tiers.measure.write_vector"
@@ -86,6 +87,7 @@ def test_a_vector_is_written_beneath_the_withheld_root_as_counts_alone(
     for task in made.tasks["held_out"]:
         assert task.id not in text, "the vector names a task"
         assert hashlib.sha256(task.brief.encode()).hexdigest() not in text, "a brief's digest"
+        assert issued_sha256(task) not in text, "the digest of what a session is given"
     for run_dir in m.run_dirs:
         assert str(run_dir) not in text and run_dir.name not in text, "the vector names a run"
     for word in ("seed", "wall_clock", "usd", "tokens", "suite"):
@@ -164,6 +166,15 @@ def test_a_run_on_another_tier_s_task_is_refused(tmp_path: Path, made: StandInSt
     assert _refused(made, "held_out", Measured(runs, trials, m.run_dirs, m.tasks)) == (
         "run_not_in_tier"
     )
+
+
+@pytest.mark.parametrize("tier", ["validation", "held_out"])
+def test_a_run_given_a_task_s_brief_without_its_values_is_refused_by_its_own_name(
+    tmp_path: Path, made: StandInStore, tier: str
+) -> None:
+    alone = hashlib.sha256(made.tasks[tier][0].brief.encode()).hexdigest()
+    m = measured(made, tier, tmp_path / "a", tasks=1, brief_sha256=alone)
+    assert _refused(made, tier, m) == "given_the_brief_alone"
 
 
 def test_a_run_listed_twice_is_refused(tmp_path: Path, made: StandInStore) -> None:

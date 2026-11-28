@@ -161,7 +161,8 @@ def test_an_error_a_protected_trial_s_command_raised_is_said_by_its_kind_alone(
     made = driver.decompose
 
     def naming(call: Any) -> int:  # noqa: ANN401
-        if call.brief.read_text() == brief:
+        # What the trial is given begins with the task's brief, byte for byte.
+        if call.brief.read_text().startswith(brief):
             msg = f"could not plan {task_id}: {brief}"
             raise ValueError(msg)
         return made(call)

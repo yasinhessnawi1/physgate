@@ -1,0 +1,22 @@
+[
+  {
+    "name": "the_issued_plant_is_rounded",
+    "file": "src/physgate/evaluation/tiers/issued.py",
+    "old": "    return repr(float(value))\n",
+    "new": "    return repr(round(float(value), 3))\n",
+    "tests": [
+      "tests/scoring/test_the_plant_a_session_is_told_is_the_plant_the_scorer_builds.py"
+    ],
+    "data": []
+  },
+  {
+    "name": "the_scorer_takes_another_gain_than_the_session_is_told",
+    "file": "src/physgate/evaluation/per_role/plant.py",
+    "old": "        return float((DEFAULTS[GAIN] if self.gain is None else self.gain).value)\n",
+    "new": "        return float((DEFAULTS[GAIN] if self.gain is None else self.gain).value) * 1.0000001\n",
+    "tests": [
+      "tests/scoring/test_the_plant_a_session_is_told_is_the_plant_the_scorer_builds.py"
+    ],
+    "data": []
+  }
+]

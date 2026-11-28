@@ -1,10 +1,12 @@
-"""The raw arm: one Claude Code session on the task's brief, and nothing of the harness.
+"""The raw arm: one Claude Code session on what the task gives, and nothing of the harness.
 
 The arm the harness is measured against (ARCH-143). It is invoked exactly as a role
 session is (the same binary, model, effort, output-token limit, reasoning display, tools,
 interpreter, tool environment, tool servers and OS layer, the same isolated environment), with
 two differences only: its
-prompt is the task's brief, byte for byte, and its hooks are the ``baseline`` profile,
+prompt is what a session is given for the task (:func:`.tiers.issued.issued_text`: its brief,
+the values it gives and where its answer goes), the same bytes as the harness trial's brief
+file, and its hooks are the ``baseline`` profile,
 which keeps the held-out tier and the frozen experiments from it and nothing else of the
 harness. It may use git in its own work area.
 
@@ -51,6 +53,7 @@ from typing import Any
 
 from physgate.evaluation.per_role.answer import MAX_ANSWER_BYTES
 from physgate.evaluation.per_role.exceptions import PerRoleError
+from physgate.evaluation.tiers.issued import issued_sha256, issued_text
 from physgate.evaluation.tiers.task import Task
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.settings import session_tool_search
@@ -866,10 +869,12 @@ def run_raw(
     Raises:
         RawArmError: ``work`` exists, the session could not be set up, or its credential
             could not be removed.
+        TaskFormatError: the task's values cannot be read as its scorer reads them; refused
+            before anything is set up.
     """
     kept = work if harness is None else harness
     made: list[tuple[int, int]] = []
-    record = run_session(task.brief, setup, work, cap=cap, identity=made)
+    record = run_session(issued_text(task), setup, work, cap=cap, identity=made)
     record.update(
         task=task.id,
         answer=_take_answer(work / "worktree", task, kept / "answer" / task.answer.path, made),
@@ -1244,7 +1249,8 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
         "tool_search": session_tool_search(),
         # Whether its Python wrote bytecode, read from what the session was spawned with.
         "python_bytecode": session_python_bytecode(),
-        "brief_sha256": hashlib.sha256(task.brief.encode()).hexdigest(),
+        # The digest of what the session was given, as the harness run records its brief file's.
+        "brief_sha256": issued_sha256(task),
         "answer": task.answer.model_dump(),
         # The harness checkout it ran from: a baseline is held to one commit with its pair.
         "harness": (
