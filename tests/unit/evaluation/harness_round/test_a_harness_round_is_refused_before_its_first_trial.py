@@ -10,9 +10,11 @@ reportable, that pin a model to any role but the round's one (the roles named) o
 a person has, that leave a protected place of the store open, or that do not look for every
 canary; parameters of any tier whose trials are not withheld from one another (the core's rule:
 every registered run root of the store withheld whole, nothing else, every root spelt as on
-disk); a target whose worktree is not clean, or whose top holds a run's configuration. A held-out
-task the check flagged is never run, and a round on its one role's parameters records its
-inputs and pins as it did. The command says the refusal as one JSON line and exits 1.
+disk); a target whose worktree is not clean (a file git ignores, a submodule, a .git that sends
+git elsewhere and a change a clean filter would normalise count, and the words say what to
+remove), or whose top holds a run's configuration. A held-out task the check flagged is never
+run, and a round on its one role's parameters records its inputs and pins as it did. The command
+says the refusal as one JSON line and exits 1.
 """
 
 from __future__ import annotations
@@ -288,6 +290,72 @@ def test_a_target_s_own_configuration_runs_nothing_when_its_worktree_is_judged(
     tracked.write_bytes(bytes([data[0] ^ 1]) + data[1:])  # the same length: only its content
     assert _refused(rig) == "target_not_clean"
     assert not marker.exists(), f"{names} the target names ran"
+
+
+def _git_in(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", *args],  # noqa: S607
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("holds", "reason", "remove"),
+    [
+        (
+            "a file git does not track",
+            "target_not_clean",
+            "remove every file its commit does not hold",
+        ),
+        ("a file git ignores", "target_not_clean", "remove every file its commit does not hold"),
+        ("a tracked file changed", "target_not_clean", "put every file its commit holds back"),
+        ("a submodule", "target_not_clean", "remove every submodule, its entry in the commit too"),
+        ("a .git pointer file", "git", "give it a .git directory of its own"),
+    ],
+)
+def test_a_target_holding_anything_beside_its_commit_is_refused_in_words_that_say_what_to_remove(
+    tmp_path: Path, holds: str, reason: str, remove: str
+) -> None:
+    # Stricter than git's own status, on purpose: a round's target is a repository made for the
+    # round and holds nothing else, since every session reads the target's directory itself. The
+    # refusal names what to remove by kind, never a file by its name.
+    rig = make_rig(tmp_path)
+    target = rig.target
+    if holds == "a file git does not track":
+        (target / "left-behind.txt").write_text("an earlier run's work\n")
+    elif holds == "a file git ignores":
+        (target / ".gitignore").write_text("build/\n")
+        _git_in(target, "add", ".gitignore")
+        _git_in(target, "commit", "-q", "-m", "ignore")
+        (target / "build").mkdir()
+        (target / "build" / "left-behind.txt").write_text("ignored, read all the same\n")
+    elif holds == "a tracked file changed":
+        (target / "README.md").write_text("left-behind\n")
+    elif holds == "a submodule":
+        inner = tmp_path / "inner"
+        inner.mkdir()
+        _git_in(inner, "init", "-q", "-b", "main")
+        (inner / "left-behind.txt").write_text("x\n")
+        _git_in(inner, "add", "-A")
+        _git_in(inner, "commit", "-q", "-m", "inner")
+        _git_in(
+            target, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(inner), "sub"
+        )
+        _git_in(target, "commit", "-q", "-m", "a submodule")
+    else:
+        (target / ".git").rename(tmp_path / "elsewhere.git")
+        (target / ".git").write_text(f"gitdir: {tmp_path / 'elsewhere.git'}\n")
+    driver = rig.driver()
+    with pytest.raises(RoundError) as refused:
+        run_round(rig.inputs(), driver=driver, scorer=_score, sleep=lambda _: None)
+    assert driver.decomposed == [] and driver.drives == []
+    assert refused.value.context["refused_because"] == reason
+    said = str(refused.value)
+    assert "a round's target is a repository made for the round and holds nothing else" in said
+    assert remove in said, said
+    assert "left-behind" not in said and "build" not in said, said
 
 
 def test_a_round_is_refused_with_a_target_whose_top_holds_a_run(tmp_path: Path) -> None:

@@ -308,15 +308,23 @@ def _working_files(source: Path, head: str) -> list[Finding]:
                 changed += 1
     changed += len(set(tracked) - present)
     said = [
-        _counted(untracked, "the branch does not hold") if untracked else "",
-        _counted(changed, "the branch holds, changed or gone") if changed else "",
+        _counted(untracked, NOT_HELD) if untracked else "",
+        _counted(changed, CHANGED) if changed else "",
         # Its own repository, with its own configuration: never read here, so said.
-        f"{len(gitlinks)} submodule(s), whose directories are not looked at" if gitlinks else "",
+        f"{len(gitlinks)} {SUBMODULES}" if gitlinks else "",
     ]
     if not any(said):
         return []
     detail = ", ".join(w for w in said if w) + " (a session reads the source's directory itself)"
     return [Finding("source_files", str(source), detail)]
+
+
+#: How a ``source_files`` finding says each kind of thing the source's directory holds beside
+#: its branch's commit: files the branch does not hold (ignored ones among them), files it holds
+#: that changed or are gone (a change a clean filter would normalise among them), submodules.
+NOT_HELD = "the branch does not hold"
+CHANGED = "the branch holds, changed or gone"
+SUBMODULES = "submodule(s), whose directories are not looked at"
 
 
 #: What in a git directory makes git read references or objects from somewhere else, which the
